@@ -58,10 +58,11 @@ try{
   await page.waitForFunction(()=>window.__hm?.ready&&!document.querySelector('#btn-begin')?.disabled,undefined,{timeout:remaining(120000)});
   await page.getByRole('textbox',{name:'Character name',exact:true}).fill('EconomicQA');
   await page.getByRole('button',{name:'Play now',exact:true}).click();
-  await page.waitForFunction(()=>__hm.GAME.started&&__hm.GAME.player?.name==='EconomicQA',undefined,{timeout:remaining(90000)});
+  stage='guest-checkpoint';
+  await page.waitForFunction(()=>__hm.GAME.started&&__hm.GAME.player?.name==='EconomicQA'&&__hm.nativePlayerStatus?.().readConfirmed,undefined,{timeout:remaining(180000)});
   const skip=page.getByRole('button',{name:'Skip the prologue',exact:true});if(await skip.isVisible())await skip.click();
-  await page.locator('#scene').click({position:{x:500,y:350}});await page.keyboard.press('Shift');await active();
-  await page.waitForFunction(()=>!__hm.SAVE.pending&&!__hm.SAVE.nativeFlight&&!__hm.worldparts.NETPARTS.pending.size,undefined,{timeout:remaining(45000)});
+  stage='join-native-world';await page.locator('#scene').click({position:{x:500,y:350}});await page.keyboard.down('w');await pause(500);await page.keyboard.up('w');await active();
+  stage='initial-save-settlement';await page.waitForFunction(()=>!__hm.SAVE.pending&&!__hm.SAVE.nativeFlight&&!__hm.worldparts.NETPARTS.pending.size,undefined,{timeout:remaining(45000)});
   const identity=await page.evaluate(()=>({id:__hm.SAVE.loaded?.nativePlay?.characterId,expiry:__hm.SAVE.loaded?.nativePlay?.guestExpiresAt}));
   ensure(typeof identity.id==='string','fresh_character_missing');
   stage='walk-to-rock';
@@ -161,7 +162,14 @@ try{
   checks.push('same guest reloaded the confirmed outcome and mineral depletion without another award');pass=true;
 }catch(error){
   const code=/^[a-z0-9_]+$/.test(error?.message||'')?error.message:'browser_step_failed';
-  console.error(JSON.stringify({passed:false,stage,code,navigation}));process.exitCode=1;
+  let state=null;
+  try {state=await Promise.race([page?.evaluate(()=>{const h=window.__hm,w=h?.net?.NETWS,p=h?.worldparts?.NETPARTS;
+    return {started:!!h?.GAME.started,alive:!!h?.GAME.player?.alive,nativeReadConfirmed:!!h?.nativePlayerStatus?.().readConfirmed,
+      prologue:h?.UI.modal==='prologue',menu:h?.UI.modal==='menu',savePending:!!h?.SAVE.pending,saveInFlight:!!h?.SAVE.nativeFlight,
+      nativeSocket:w?.state==='on',nativeBound:!!w?.acct?.nativeBound,worldInitialized:!!w?.worldInitialized,
+      worldPaused:!!w?.worldPauseReason,partsReady:!!p?.ready,partsPaused:!!p?.paused,pendingActions:p?.pending?.size??0};
+  }),pause(2000).then(()=>null)])}catch{}
+  console.error(JSON.stringify({passed:false,stage,code,navigation,state}));process.exitCode=1;
 }finally{
   try{await page?.evaluate(()=>window.__economicQA?.restore?.())}catch{}
   await page?.keyboard.up('w').catch(()=>{});
