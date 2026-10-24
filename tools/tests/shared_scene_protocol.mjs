@@ -30,7 +30,7 @@ function harness() {
     setInterval(fn,ms){const id=++next;timers.set(id,{fn,ms});return id},clearInterval(id){timers.delete(id)},
     queueMicrotask(){},withTimeout:p=>p});
   vm.runInContext(source,context);
-  vm.runInContext('globalThis.api={NET,NETWS,netSlowObj,netHostElect,netGhosts,netSharedSceneMessage,netSharedSceneReset,netSceneReloadRequired,netWsOpen,netWsReconnect,netWsRetryLater,netWsSend,netSendFast,netActivityPosition};',context);
+  vm.runInContext('globalThis.api={NET,NETWS,netSlowObj,netSlowRead,netHostElect,netGhosts,netSharedSceneMessage,netSharedSceneReset,netSceneReloadRequired,netWsOpen,netWsReconnect,netWsRetryLater,netWsSend,netSendFast,netActivityPosition};',context);
   const api=context.api;
   Object.assign(api.NETWS,{url:'wss://game.test/ws',host:'game.test',token:'same-issued-session',acct:{id:'same-account'},state:'off'});
   return {api,context,timers,sockets,notices,suspended:()=>suspended};
@@ -72,7 +72,7 @@ test('stationary shared actions send one fresh validated pose before the command
 
 test('updated WebSocket profiles advertise shared-scene capability while standalone profiles remain compatible',()=>{
   const h=harness();
-  assert.equal(h.api.netSlowObj().sharedScene,1);
+  assert.equal(h.api.netSlowObj().sharedScene,2);
   assert.equal(h.api.netSlowObj().humanActivity,1);
   h.api.NETWS.url='';assert.equal(h.api.netSlowObj().sharedScene,0);
 });
@@ -82,20 +82,28 @@ test('one server authority overrides skewed local clocks on every character page
   for(const [h,self,since,other,otherSince]of[[a,'a',100,'b',101],[b,'b',0,'a',100]]){
     Object.assign(h.context.GAME,{started:true,player:{id:self}});
     Object.assign(h.api.NET,{self,since,serverSceneHost:'a'});
-    h.api.NET.peers.set(other,{peer:other,slow:{on:1,sharedScene:1,since:otherSince}});
+    h.api.NET.peers.set(other,{peer:other,slow:{on:1,sharedScene:2,since:otherSince}});
     h.api.NETWS.state='on';h.api.netHostElect();
   }
   assert.equal(a.api.NET.host,'a');assert.equal(a.api.NET.isHost,true);
   assert.equal(b.api.NET.host,'a');assert.equal(b.api.NET.isHost,false,'an earlier local clock cannot elect a second simulator');
 });
 
-test('capable local pages do not elect an earlier legacy peer while awaiting server authority',()=>{
+test('current scene pages do not elect earlier legacy or version-one peers while awaiting authority',()=>{
+  for (const sharedScene of [0,1]) {
+    const h=harness();
+    Object.assign(h.context.GAME,{started:true,player:{id:'new'}});
+    Object.assign(h.api.NET,{self:'new',since:100});
+    h.api.NET.peers.set('old',{peer:'old',slow:{on:1,sharedScene,since:0}});
+    h.api.NETWS.state='on';h.api.netHostElect();
+    assert.equal(h.api.NET.host,'new');assert.equal(h.api.NET.isHost,true);
+  }
+});
+test('peer profiles admit only the exact current scene capability',()=>{
   const h=harness();
-  Object.assign(h.context.GAME,{started:true,player:{id:'new'}});
-  Object.assign(h.api.NET,{self:'new',since:100});
-  h.api.NET.peers.set('old',{peer:'old',slow:{on:1,since:0}});
-  h.api.NETWS.state='on';h.api.netHostElect();
-  assert.equal(h.api.NET.host,'new');assert.equal(h.api.NET.isHost,true);
+  Object.assign(h.context,{CLASSES:{warrior:{}},LEVEL_CAP:50,netWxRead:()=>null,netCompanionRead:()=>null});
+  for (const sharedScene of [undefined,0,1,3,'2']) assert.equal(h.api.netSlowRead({sharedScene}).sharedScene,0);
+  assert.equal(h.api.netSlowRead({sharedScene:2}).sharedScene,2);
 });
 
 test('authority and reset stay scoped to the admitted world and preserve character identity',()=>{

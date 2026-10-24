@@ -401,14 +401,29 @@ test('canonical receipts retain all unsettled outcomes and apply backpressure at
   assert.equal(f.state.activity.worldparts.receipts.filter(r=>!r.settled).length,24);
 });
 
-test('verified old production pages receive a reload notice without acquiring a human lease', async () => {
-  const f=fixture(), sent=[],closed=[];let leases=0;
+test('verified old production pages receive a reload notice before a human lease and retain identity', async () => {
+  for (const sharedScene of [undefined,0,1]) {
+    const f=fixture(), sent=[],closed=[];let leases=0;
+    const account=f.a.acct;
+    const {onMsg}=await ingress(f,{nativePlayersRequired:true,PLAYER_ACCOUNTS:{humanPrincipalFor:()=>({subject:'owner'})},
+      HUMAN_PLAY:{update(){leases++;return true}},send:(c,m)=>sent.push(m)});
+    f.a.ws.close=(code,reason)=>closed.push({code,reason});
+    onMsg(f.a,JSON.stringify({t:'slow',d:{on:1,humanLive:1,humanActivity:1,sharedScene}}));
+    assert.equal(leases,0);assert.equal(closed[0].code,4006);
+    assert.equal(sent[0].code,'shared_scene_upgrade_required');assert.match(sent[0].why,/saved character is preserved/);
+    assert.equal(f.a.acct,account);
+  }
+});
+
+test('verified version-two scene pages acquire the ordinary human lease without an upgrade notice', async () => {
+  const f=fixture(),sent=[],closed=[];let leases=0,profile=null,slow=null;
   const {onMsg}=await ingress(f,{nativePlayersRequired:true,PLAYER_ACCOUNTS:{humanPrincipalFor:()=>({subject:'owner'})},
-    HUMAN_PLAY:{update(){leases++;return true}},send:(c,m)=>sent.push(m)});
+    HUMAN_PLAY:{update(c,p){leases++;profile=p;return true}},send:(c,m)=>sent.push(m),clearTimeout(){},
+    onSlow(c,p){slow=p}});
   f.a.ws.close=(code,reason)=>closed.push({code,reason});
-  onMsg(f.a,JSON.stringify({t:'slow',d:{on:1,humanLive:1,humanActivity:1}}));
-  assert.equal(leases,0);assert.equal(closed[0].code,4006);
-  assert.equal(sent[0].code,'shared_scene_upgrade_required');assert.match(sent[0].why,/saved character is preserved/);
+  onMsg(f.a,JSON.stringify({t:'slow',d:{on:1,humanLive:1,humanActivity:1,sharedScene:2}}));
+  assert.equal(leases,1);assert.equal(profile.sharedScene,2);assert.equal(slow.sharedScene,2);
+  assert.equal(f.a.hasPlayedLive,true);assert.equal(sent.length,0);assert.equal(closed.length,0);
 });
 
 test('unauthenticated legacy identity refusal is preserved before a protocol-upgrade notice', async () => {
@@ -428,7 +443,7 @@ test('capable room hosts are preferred over older legacy pages without breaking 
   const old={peer:'old',live:true,since:1,slow:{on:1}}, fresh={peer:'new',live:true,since:2,slow:{on:1}};
   const room={clients:new Map([['old',old],['new',fresh]])};
   assert.equal(context.roomHost(room).peer,'old','legacy-only protocol fixtures retain the previous host rule');
-  fresh.slow.sharedScene=1;
+  old.slow.sharedScene=1;fresh.slow.sharedScene=2;
   assert.equal(context.roomHost(room).peer,'new','updated actor authority is never held by an earlier old page');
   fresh.live=false;assert.equal(context.roomHost(room).peer,'old');
 });

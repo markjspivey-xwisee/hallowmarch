@@ -30,7 +30,7 @@ async function endpoint() {
   }
   throw Error('Fixture did not become ready: '+output);
 }
-async function connect(url,room,name,sharedScene=1) {
+async function connect(url,room,name,sharedScene=2) {
   const ws=new WebSocket(url), client={ws,messages:[],peer:null,admission:null,authority:null,name};
   ws.addEventListener('message',event=>{
     const m=JSON.parse(event.data);client.messages.push(m);
@@ -46,7 +46,7 @@ async function connect(url,room,name,sharedScene=1) {
   client.activity=m=>client.send({t:'activity',authority:client.authority,worldAdmission:client.admission,...m});
   await new Promise((resolve,reject)=>{ws.addEventListener('open',resolve,{once:true});ws.addEventListener('error',reject,{once:true})});
   client.send({t:'hello',room});await client.wait(m=>m.t==='welcome');
-  client.send({t:'slow',d:{on:1,humanLive:1,humanActivity:1,...(sharedScene===1?{sharedScene:1}:{}),r:0,c:'warrior',l:20,n:name,dn:name}});
+  client.send({t:'slow',d:{on:1,humanLive:1,humanActivity:1,sharedScene,r:0,c:'warrior',l:20,n:name,dn:name}});
   await client.wait(m=>m.t==='activity'&&m.kind==='authority');
   client.send({t:'fast',d:{s:1,p:[0,0,0],y:0,v:[0,0],a:0,h:1,m:100,d:0,ev:[]}});
   return client;
@@ -135,14 +135,20 @@ try {
   assert.equal(health.players,baseline.players);
   if(baseline.players===0)assert.equal(health.livePlay.mode,'standby');
   const mixedRoom=('mixed-proof-'+Date.now().toString(36)).slice(0,32);
-  const old=await connect(url,mixedRoom,'Old page fixture',0);clients.push(old);
+  const old=await connect(url,mixedRoom,'Old page fixture',1);clients.push(old);
   const oldToken=old.authority, mark=old.messages.length;
-  const modern=await connect(url,mixedRoom,'Updated page fixture',1);clients.push(modern);
+  const modern=await connect(url,mixedRoom,'Updated page fixture',2);clients.push(modern);
   const upgraded=await old.wait(m=>m.kind==='authority'&&m.authority!==oldToken,mark);
-  assert.equal(upgraded.peer,modern.peer,'new capable page displaces an earlier legacy host');
+  assert.equal(upgraded.peer,modern.peer,'version-two scene page displaces an earlier version-one host');
   modern.activity({kind:'boats',op:'snapshot',seq:1,boats:[{...boat(),x:7}]});
   await old.wait(m=>m.kind==='boats'&&m.op==='snapshot'&&m.boats?.[0]?.x===7,mark);
   old.ws.close();modern.ws.close();
+  for(let i=0;i<100;i++){health=await(await fetch(healthUrl)).json();if(health.players===baseline.players)break;await delay(50)}
+  assert.equal(health.players,baseline.players);
+  const legacyRoom=('legacy-proof-'+Date.now().toString(36)).slice(0,32);
+  const standalone=await connect(url,legacyRoom,'Standalone fixture',0);clients.push(standalone);
+  assert.equal((await standalone.wait(m=>m.kind==='authority')).peer,standalone.peer,'standalone version-zero fixtures remain compatible');
+  standalone.ws.close();
   for(let i=0;i<100;i++){health=await(await fetch(healthUrl)).json();if(health.players===baseline.players)break;await delay(50)}
   assert.equal(health.players,baseline.players);
   const farRoom=('far-proof-'+Date.now().toString(36)).slice(0,32);
