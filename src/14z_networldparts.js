@@ -79,6 +79,18 @@ function netWorldPartsPublish(now, force = false) {
   NETPARTS.sentAt = now;
   return true;
 }
+function netWorldPartsOutcomeFits(delta, items) {
+  for (const [id, n] of delta) if (n > 0 && (INV.goods[id] || 0) + n > GOODS[id].stack) return false;
+  // Match bagAdd's junk stacking on copies before accepting any reward.
+  const bag = INV.bag.map(item => ({ ...item }));
+  for (const item of items) {
+    const stack = item.slot === 'junk' && bag.find(other => other.slot === 'junk' && other.name === item.name
+      && (other.n || 1) + (item.n || 1) <= 20);
+    if (stack) stack.n = (stack.n || 1) + (item.n || 1);
+    else { if (bag.length >= BAG_SIZE) return false; bag.push({ ...item }); }
+  }
+  return true;
+}
 function netWorldPartsResult(m) {
   const p = NETPARTS.pending.get(m.id);
   if (!p || !netWorldPartsOwnerScope(p) || m.ownerAccount !== p.ownerAccount) return;
@@ -88,11 +100,18 @@ function netWorldPartsResult(m) {
   const delta = new Map(p.cost.map(([id, n]) => [id, n]));
   if (m.ok && Array.isArray(m.goods)) for (const [id, n] of m.goods)
     if (GOODS[id] && Number.isFinite(n) && Math.abs(n) <= 9999) delta.set(id, (delta.get(id) || 0) + n);
+  const items = m.ok && Array.isArray(m.items) ? m.items.filter(item => item && typeof item.id === 'string') : [];
+  if (!netWorldPartsOutcomeFits(delta, items)) {
+    p.owedReceipt = netPartsClone(m);
+    if (!p.capacityBlocked) uiError('Make room in your packs to receive the waiting shared action. Its reward is kept for you.');
+    p.capacityBlocked = true; return;
+  }
+  delete p.owedReceipt; p.capacityBlocked = false;
   for (const [id, n] of delta) if (n > 0) goodsAdd(id, n, true);
   else if (n < 0) goodsTake(id, -n);
   if (!m.ok && typeof uiError === 'function') uiError(m.reason || 'The shared world refused that action. Try again.');
   if (m.ok && Number.isFinite(m.gold) && m.gold > 0) addGold(m.gold);
-  if (m.ok && Array.isArray(m.items)) for (const item of m.items) if (item && typeof item.id === 'string') bagAdd(item);
+  for (const item of items) bagAdd(item);
   if (m.ok && Array.isArray(m.notes)) for (const id of m.notes) if (typeof id === 'string') loreNote(id);
   if (m.ok && Array.isArray(m.skills)) for (const [key, amount] of m.skills) if (Number.isFinite(amount) && amount > 0) skillGain(key, amount);
   if (m.ok && m.result?.pieceId && typeof BUILD !== 'undefined') {
@@ -162,7 +181,7 @@ function netWorldPartsRequest(op, args, cost = [], forceOwner = false) {
   if (netWorldPartsCanSimulate() && !forceOwner && !durable) return false;
   if (!netWorldPartsConnected() || !NETPARTS.ready || !NETWS.acct?.id
     || [...NETPARTS.pending.values()].filter(netWorldPartsOwnerScope).length >= 8 || NETPARTS.receipts.filter(r => !r.settled).length >= 24) {
-    uiError('Waiting for the shared world or a private checkpoint.'); return true;
+    uiError("Waiting for this world and your character's save. Try again shortly."); return true;
   }
   const declared = {};
   for (const [id, n] of cost) if (GOODS[id] && n > 0) declared[id] = n;
@@ -195,7 +214,7 @@ function netWorldPartsMessage(m) {
   if (m.kind !== 'worldparts' || m.authority !== NETPARTS.authority || !netPartsEqualAdmission(m.worldAdmission)) return;
   if (m.ok === false && m.op === 'snapshot') {
     NETPARTS.paused = m.reason || 'snapshot_refused'; NETPARTS.outbox = null; NETPARTS.awaiting = null;
-    NETPARTS.refused++; uiError('Shared world synchronization paused: ' + NETPARTS.paused); return;
+    NETPARTS.refused++; uiError('Shared world updates are paused. Please wait and try again.'); return;
   }
   if (m.op === 'result') {
     const pending = NETPARTS.pending.get(m.id);
@@ -215,6 +234,8 @@ function netWorldPartsMessage(m) {
   const serial = Array.from({ length: a.total }, (_, i) => a.chunks.get(i)).join('');
   NETPARTS.assembly = null;
   let frame; try { frame = JSON.parse(serial); } catch { return; }
+  if (!frame || frame.v !== 1 || !frame.parts || typeof frame.parts !== 'object' || Array.isArray(frame.parts)) return;
+  NETPARTS.paused = ''; // A canonical retry confirms the waiting world save.
   if (NETPARTS.peer === NET.self && NETPARTS.ready) {
     const ack = NETPARTS.awaiting;
     if (ack && ack.seq === m.seq) {
@@ -261,7 +282,11 @@ function netWorldPartsPump(now) {
     NETPARTS.privateObservedBody = SAVE.lastBody; NETPARTS.journalLoaded = true;
   }
   if (NETPARTS.journalLoaded) { NETPARTS.journalLoaded = false; void netWorldPartsFlushJournal(); }
-  if (NETPARTS.ready) for (const [id, p] of NETPARTS.pending) netWorldPartsDispatch(id, p);
+  if (NETPARTS.ready) for (const [id, p] of NETPARTS.pending) {
+    if (!netWorldPartsOwnerScope(p)) continue;
+    if (p.owedReceipt) netWorldPartsResult(p.owedReceipt);
+    if (NETPARTS.pending.get(id) === p) netWorldPartsDispatch(id, p);
+  }
   netWorldPartsSendSettled(now);
 }
 queueMicrotask(() => {
@@ -643,7 +668,7 @@ async function netWorldPartsFlushJournal() {
     if (!ok && sameProfile()) {
       NETPARTS.privateError = NETPARTS.privateError || 'private_checkpoint_pending';
       NETPARTS.privateObservedBody = SAVE.lastBody;
-      uiError('Your private checkpoint is not confirmed. The shared action is waiting; keep this character open and retry saving.');
+      uiError('Your save has not been confirmed. This action will wait; keep this character open and try saving again.');
     }
     return ok;
   }).finally(() => {

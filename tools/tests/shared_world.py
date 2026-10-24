@@ -204,7 +204,7 @@ async def boat_case(pages):
       const boats = __hm.water.boats;
       for (const row of boats.list().filter(b => b.realm === 0 && b.st === 'moored' && b.home)) {
         const B = boats.BOATS.list[row.i], J = B.home && boats.BOATS.jetties[B.home.j];
-        if (!J || B.rider != null) continue;
+        if (!J || B.rider != null || __hm.netboats.NET_BOATS.frames.get(row.id)?.rider != null) continue;
         const sign = Math.sin(B.yaw) * J.dx + Math.cos(B.yaw) * J.dz >= 0 ? 1 : -1;
         const clear = [0, .5, 1, 2, 3, 4, 5, 6, 7, 8].every(d =>
           boats.hit(row.i, B.x + Math.sin(B.yaw) * sign * d,
@@ -227,6 +227,12 @@ async def boat_case(pages):
     rider = pages[occupied.index(True)]
     observer = pages[occupied.index(False)]
     before = await rider.evaluate("i=>__hm.water.boats.state(i)", index)
+    navigation = await rider.evaluate("""([i,key])=>{const boats=__hm.water.boats,b=boats.state(i);
+      const sign=key==='KeyW'?1:-1;
+      return {jetty:b.home?boats.jetties()[b.home.j]:null,strokeKey:key,
+        departure:[0,.5,1,2,3,4,5,6,7,8].map(d=>({distance:d,
+          hit:boats.hit(i,b.x+Math.sin(b.yaw)*sign*d,
+            b.z+Math.cos(b.yaw)*sign*d,b.yaw)}))}; }""", [index, candidate["strokeKey"]])
     await rider.evaluate("key=>{__hm.INPUT.keys.add(key); return 0;}", candidate["strokeKey"])
     try:
         await pulse(pages, 5)
@@ -235,8 +241,10 @@ async def boat_case(pages):
     await pulse(pages, 0.8)
     a, b = await asyncio.gather(*(p.evaluate("i=>__hm.water.boats.state(i)", index) for p in pages))
     moved = math.hypot(a["x"]-before["x"], a["z"]-before["z"])
+    canonical = [await p.evaluate("id=>__hm.netboats.NET_BOATS.frames.get(id)", a["id"]) for p in pages]
     require(moved > 0.75, "a boarded boat really rows away from its berth", distance=moved,
-            stroke=candidate["strokeKey"], before=before, desktop=a, phone=b)
+            stroke=candidate["strokeKey"], before=before, desktop=a, phone=b,
+            canonical=canonical, navigation=navigation)
     require(math.hypot(a["x"]-b["x"], a["z"]-b["z"]) < 1.25,
             "both devices show the moved boat at the same position", desktop=a, phone=b)
     rider_peer = await rider.evaluate("NT.st().self")
@@ -362,7 +370,7 @@ async def combat_case(pages):
     follower_position = await follower.evaluate("({x:NT.P.x,z:NT.P.z})")
     candidate = await host.evaluate("""at=>{const H=__hm,out=[];for(const r of H.entities.rows()) {
       const e=H.entities.find(r.id);if(e&&e.alive&&e.role==='mob'
-        &&H.fn.isEnemy(H.GAME.player,e)&&e.hp>40&&e.hp<20000)
+        &&H.fn.isEnemy(H.GAME.player,e)&&e.hp>40&&e.hp<=600)
         out.push({id:r.id,x:e.x,z:e.z,hp:e.hp,d:Math.hypot(e.x-at.x,e.z-at.z)});}
       out.sort((a,b)=>a.d-b.d);return out[0]||null;}""", follower_position)
     require(candidate is not None, "the authoritative world exposes an ordinary hostile creature", rows=len(rows))
@@ -376,11 +384,18 @@ async def combat_case(pages):
         values = [await p.evaluate("id=>__hm.entities.find(id)?.hp", candidate["id"]) for p in pages]
         return all(v is not None and v < hp_before for v in values) and abs(values[0]-values[1]) < 0.01
     require(await eventually(pages, damaged), "a follower's actual attack changes the same creature's health on both devices")
-    await follower.evaluate("id=>__hm.entities.attack(id,9999)", candidate["id"])
+    last_attack = -math.inf
     async def died():
-        return all([await p.evaluate("id=>{const e=__hm.entities.find(id);return !e || !e.alive;}", candidate["id"])
-                    for p in pages])
-    require(await eventually(pages, died), "the same creature's death is visible on both devices")
+        nonlocal last_attack
+        dead = [await p.evaluate("id=>{const e=__hm.entities.find(id);return !e || !e.alive;}", candidate["id"])
+                for p in pages]
+        if all(dead):
+            return True
+        if time.monotonic() - last_attack >= 0.65:
+            await follower.evaluate("id=>__hm.entities.attack(id,40)", candidate["id"])
+            last_attack = time.monotonic()
+        return False
+    require(await eventually(pages, died, 90), "repeated legal attacks produce the same creature's death on both devices")
 
 
 async def terrain_case(pages):
@@ -483,8 +498,9 @@ async def run():
             a, b = await asyncio.gather(*(p.evaluate("i=>__hm.water.boats.state(i)", boat_index) for p in pages))
             require(math.hypot(a["x"]-b["x"], a["z"]-b["z"]) < 1.25,
                     "late join preserves the shared boat position after host handoff")
+            for page in BOOT_PAGES:
+                REPORT["errors"].extend(getattr(page, "_shared_errors", []))
             for i, page in enumerate(pages):
-                REPORT["errors"].extend(page._logs)
                 await page.evaluate("__hm.frame(1/30); 0")
                 await page.screenshot(path=str(OUT/f"shared_world_{i}.png"), timeout=60000)
             require(not REPORT["errors"], "both browsers completed the shared-world scenarios without page errors",
