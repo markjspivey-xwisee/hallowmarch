@@ -14,11 +14,12 @@ const diagnostic=value=>{
  * prepared document live here; each request carries its exact scope/context. */
 export class RollingStorageWorker {
   constructor({capacity=64,idleMs=1000,workerUrl=new URL('./rolling-storage-worker.js',import.meta.url)}={}) {
-    this.capacity=capacity;this.idleMs=idleMs;this.workerUrl=workerUrl;
+    if(!Number.isSafeInteger(capacity)||capacity<1||capacity>64||!Number.isSafeInteger(idleMs)||idleMs<0||idleMs>60000)throw failed();
+    this.capacity=capacity;this.idleMs=idleMs;this.workerUrl=workerUrl;this.retiring=null;this.retiringCount=0;
     this.queue=[];this.active=null;this.worker=null;this.sequence=0;this.timer=null;
   }
   run(operation,payload) {
-    if(this.queue.length+(this.active?1:0)>=this.capacity)
+    if(this.queue.length+(this.active?1:0)+this.retiringCount>=this.capacity)
       return Promise.reject(new DurableStoreError('Rolling storage admission is at capacity.','NATIVE_COMMIT_CAPACITY',503));
     // Capture when queued, not when dispatched: later caller mutations cannot
     // change a pending scope, document, buffer or reservation.
@@ -29,7 +30,7 @@ export class RollingStorageWorker {
     });
   }
   next() {
-    if(this.active||!this.queue.length)return;
+    if(this.active||this.retiring||!this.queue.length)return;
     clearTimeout(this.timer);this.timer=null;
     if(!this.worker) {
       let worker;
@@ -63,16 +64,27 @@ export class RollingStorageWorker {
       worker.unref();
       this.timer=setTimeout(()=>{
         if(this.worker!==worker||this.active||this.queue.length)return;
-        this.worker=null;void worker.terminate();
+        this.worker=null;this.retire(worker,[]);
       },this.idleMs);this.timer.unref();
     }
   }
+  retire(worker,tasks) {
+    // A rejected CPU job retains its caller's native permit until the old
+    // thread has actually stopped. New jobs cannot overlap a retiring thread.
+    this.retiringCount+=tasks.length;
+    this.retiring=Promise.resolve().then(()=>worker?.terminate()).catch(()=>{}).then(()=>{
+      for(const task of tasks)task.reject(failed());
+      this.retiringCount-=tasks.length;this.retiring=null;this.next();
+    });
+    return this.retiring;
+  }
   fail(worker=this.worker) {
-    if(worker&&this.worker!==worker)return;
+    if(worker&&this.worker!==worker)return this.retiring;
+    if(this.retiring&&!worker)return this.retiring;
     clearTimeout(this.timer);this.timer=null;this.worker=null;
     const tasks=[...(this.active?[this.active]:[]),...this.queue];this.active=null;this.queue=[];
-    for(const task of tasks){clearTimeout(task.timer);task.reject(failed())}
-    if(worker)void worker.terminate();
+    for(const task of tasks)clearTimeout(task.timer);
+    return this.retire(worker,tasks);
   }
 }
 export const rollingStorageWorker=new RollingStorageWorker();

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { setTimeout as delay } from 'node:timers/promises';
+import { setTimeout as delay, setImmediate as turn } from 'node:timers/promises';
 import { RollingStorageWorker } from './rolling-storage-worker-client.js';
 import { RollingMultiplayerStore } from './rolling-multiplayer-store.js';
 import { realisticRollingWindow } from './rolling-history-scale-fixture.mjs';
@@ -52,7 +52,7 @@ test('worker failure before preparation cannot dispatch a native write and permi
  const broken=new RollingStorageWorker({workerUrl:new URL('./missing-storage-worker-fixture.js',import.meta.url)});
  const f=fixture(broken);
  await assert.rejects(f.store.commit('score',{expectedVersion:0,state:{n:1},idempotencyKey:'first'}),{code:'DURABILITY_UNAVAILABLE'});
- assert.equal(f.writes(),0);assert.equal(f.store.pendingCommits,0);broken.fail();
+ assert.equal(f.writes(),0);await turn();assert.equal(f.store.pendingCommits,0);await broken.fail();
 });
 test('worker failure and late old events do not reject a replacement generation',async()=>{
  const pool=new RollingStorageWorker({idleMs:10}),c=context();
@@ -75,6 +75,38 @@ test('cancelled queued commit cannot overlap an active dispatched native write',
   const next=f.store.commit('score',{expectedVersion:1,state:{n:2},idempotencyKey:'second',signal:controller.signal});
   controller.abort();await assert.rejects(next,{code:'OPERATION_ABORTED'});
   assert.equal(f.store.pendingCommits,1);assert.equal(f.writes(),0);
-  release();await first;assert.equal(f.writes(),1);assert.equal(f.store.pendingCommits,0);
+  release();await first;await turn();assert.equal(f.writes(),1);assert.equal(f.store.pendingCommits,0);
  } finally {release?.();pool.fail()}
+});
+
+test('failed worker must finish termination before its job rejects or a replacement starts',async()=>{
+ const pool=new RollingStorageWorker({idleMs:10}),c=context();
+ let release,entered;const stopping=new Promise(r=>entered=r),wait=new Promise(r=>release=r);
+ const first=pool.run('encode',{doc:empty(c),context:c}),old=pool.worker,terminate=old.terminate.bind(old);
+ old.terminate=async()=>{entered();await wait;return terminate()};
+ let rejected=false;
+ const firstDone=assert.rejects(first,{code:'DURABILITY_UNAVAILABLE'}).then(()=>{rejected=true});
+ pool.fail(old);await stopping;
+ let completed=false;
+ const next=pool.run('validate',{doc:empty(c),context:c}).then(v=>{completed=true;return v});
+ await delay(30);
+ assert.equal(rejected,false);assert.equal(completed,false);assert.equal(pool.worker,null);
+ release();await firstDone;assert.deepEqual(await next,empty(c));await pool.fail();
+});
+test('an abort while CPU preparation is active retains the native permit until that preparation finishes',async()=>{
+ const pool=new RollingStorageWorker({idleMs:10});
+ let release,entered;const started=new Promise(r=>entered=r),wait=new Promise(r=>release=r);let paused=false;
+ const controlled={run:async(operation,payload)=>{
+  if(operation==='encode'&&!paused){paused=true;entered();await wait}return pool.run(operation,payload);
+ }};
+ const f=fixture(controlled),controller=new AbortController();
+ try{
+  const first=f.store.commit('score',{expectedVersion:0,state:{n:1},idempotencyKey:'active',signal:controller.signal});
+  await started;controller.abort();
+  const secondController=new AbortController();
+  const second=f.store.commit('score',{expectedVersion:1,state:{n:2},idempotencyKey:'queued',signal:secondController.signal});
+  secondController.abort();await assert.rejects(second,{code:'OPERATION_ABORTED'});
+  assert.equal(f.store.pendingCommits,1);assert.equal(f.writes(),0);
+  release();await first;await turn();assert.equal(f.writes(),1);assert.equal(f.store.pendingCommits,0);
+ }finally{release?.();await pool.fail()}
 });
