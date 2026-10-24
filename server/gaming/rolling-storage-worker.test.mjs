@@ -29,12 +29,15 @@ test('full authored storage work yields the main event loop and preserves every 
  const stages=[];
  const run=async(operation,payload)=>{phase=operation;const start=performance.now();
   const pending=pool.run(operation,payload),dispatchMs=performance.now()-start;
-  const value=await pending;stages.push({operation,dispatchMs:Math.round(dispatchMs),totalMs:Math.round(performance.now()-start)});return value;};
+  const value=await pending;stages.push({operation,dispatchMs:Math.round(dispatchMs),totalMs:Math.round(performance.now()-start)});
+  // Include final response deserialization in the next heartbeat callback.
+  await delay(20);return value;};
  const heartbeat=setInterval(()=>{const now=performance.now();gaps.push({phase,ms:now-previous});previous=now},10);
  try {
   const first=await run('encode',{doc,context:c});
   const final=await run('finish',{wire:first.wire,writeBudget:[{minute:Math.floor(c.now/60000),bytes:4096}],context:c,measured:first.measured});
   const restored=await run('decode',{bytes:final.compressed,contentType:'application/vnd.interego.rolling-checkpoint-delta-v1+br',context:c});
+  clearInterval(heartbeat);
   assert.deepEqual(restored,{...doc,writeBudget:[{minute:Math.floor(c.now/60000),bytes:4096}]});
   assert(gaps.length>20,'heartbeats ran during full-window storage work');
   const maximum=Math.max(...gaps.map(g=>g.ms));t.diagnostic(JSON.stringify({maxHeartbeatGapMs:Math.round(maximum),heartbeats:gaps.length,stages,largestGaps:gaps.sort((a,b)=>b.ms-a.ms).slice(0,4)}));
