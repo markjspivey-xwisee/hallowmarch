@@ -331,7 +331,8 @@ async function nativeReceiptProbe(pair, initial) {
   const command = await evaluate(owner, () => {
     const h = window.__hm, p = h.worldparts.NETPARTS;
     const before = new Set(p.pending.keys());
-    const queued = h.worldparts.request('dungeon.chest', { id: 'qa-unavailable-shared-chest' }, [], true);
+    const P = h.GAME.player;
+    const queued = h.worldparts.request('build.place', { t: 'qa-unavailable-piece', x: P.x, z: P.z, rot: 0, viewYaw: 0 }, [], true);
     return { queued, id: [...p.pending.keys()].find(id => !before.has(id)) || null };
   });
   check(command.queued === true && typeof command.id === 'string', 'native_shared_action_reserved_by_its_owner');
