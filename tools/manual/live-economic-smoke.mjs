@@ -49,7 +49,7 @@ async function pauseAndSave(){
     &&!__hm.SAVE.pending&&!__hm.SAVE.nativeFlight,undefined,{timeout:remaining(45000)});
 }
 try{
-  await fs.mkdir(out,{recursive:true});ensure((await json('/health')).players===0,'preview_has_active_players');
+  await fs.mkdir(out,{recursive:true});ensure((await json('/health')).ok===true,'preview_not_ready');
   await redacted();checks.push('public status is native and excludes checkpoint bodies');
   browser=await chromium.launch({headless:true,args:['--no-sandbox','--disable-dev-shm-usage','--use-angle=swiftshader','--enable-unsafe-swiftshader']});
   const context=await browser.newContext({viewport:{width:1000,height:700}});
@@ -142,5 +142,6 @@ try{
   try{await page?.evaluate(()=>window.__economicQA?.restore?.())}catch{}
   await page?.keyboard.up('w').catch(()=>{});
   await browser?.close();await fs.mkdir(out,{recursive:true});
+  console.log(JSON.stringify({passed:pass,stage,checks}));
   await fs.writeFile(out+'/result.json',JSON.stringify({passed:pass,stage,checks},null,2));
 }
