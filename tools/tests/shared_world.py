@@ -23,8 +23,9 @@ import net as fixture
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 OUT = fixture.OUT
-REPORT = {"cases": [], "wire": {}, "errors": []}
+REPORT = {"cases": [], "wire": {}, "errors": [], "diagnostics": []}
 WIRES = []
+BOOT_PAGES = []
 
 
 def require(ok, message, **detail):
@@ -59,7 +60,43 @@ async def eventually(pages, check, seconds=30):
         if result:
             return result
         await pulse(pages)
-    return await check()
+    result = await check()
+    if not result:
+        await diagnose(pages, "condition timed out")
+    return result
+
+
+async def diagnose(pages, label):
+    """Capture readiness, refusals and bounded channel progress before teardown."""
+    record = {"label": label, "pages": []}
+    for page in pages:
+        if page.is_closed():
+            continue
+        try:
+            state = await page.evaluate("""(() => {
+              const H=window.__hm, take=f=>{try{return f()}catch(e){return {error:String(e)}}};
+              if(!H) return {boot:false,load:document.querySelector('#loadmsg')?.textContent};
+              const p=H.worldparts?.NETPARTS,b=H.netboats?.NET_BOATS,n=H.npcs?.state;
+              return {boot:!!H.ready,started:!!H.GAME.started,
+                net:take(()=>H.net.state()),entities:take(()=>H.entities.state()),
+                boats:b?{authority:b.authority,host:b.host,frames:b.frames.size,pending:b.pending,
+                  lastSend:b.lastSend,stats:b.stats}:null,
+                npcs:n?{authority:n.authority,peer:n.peer,complete:n.complete,rows:n.rows.size,
+                  seq:n.seq,recv:n.recv,stats:n.stats}:null,
+                worldparts:p?{authority:p.authority,peer:p.peer,ready:p.ready,seq:p.seq,readSeq:p.readSeq,
+                  sent:p.sent,received:p.received,refused:p.refused,pending:p.pending.size,
+                  outbox:p.outbox?{seq:p.outbox.seq,part:p.outbox.part,total:p.outbox.total}:null,
+                  adapters:take(()=>H.worldparts.adapters())}:null,
+                fields:take(()=>H.combatfields.state()),
+                errors:(H.errors||[]).slice(-8),log:[...document.querySelectorAll('#log>div')].slice(-8).map(e=>e.textContent),
+                sceneBytes:take(()=>JSON.stringify(H.worldparts.capture()).length)};
+            })()""")
+            record["pages"].append({"name": getattr(page, "_name", "booting"), "state": state,
+                                    "errors": getattr(page, "_shared_errors", [])[-8:]})
+        except Exception as error:
+            record["pages"].append({"name": getattr(page, "_name", "booting"), "error": str(error)[:1000]})
+    REPORT["diagnostics"].append(record)
+    print("shared-world diagnostic: " + json.dumps(record), flush=True)
 
 
 async def travel(pages, page, x, z):
@@ -82,20 +119,28 @@ async def boot(browser, origin, url, name, realm, cls, level, phone=False):
                                         else {"width": 1100, "height": 720},
                                         has_touch=phone, is_mobile=phone, ignore_https_errors=True)
     def socket_open(socket):
-        def frame(payload):
+        def frame(payload, direction):
             if isinstance(payload, str):
                 try:
                     body = json.loads(payload)
                     if body.get("t") == "activity":
                         WIRES.append({"bytes": len(payload.encode()), "kind": body.get("kind"),
-                                      "op": body.get("op")})
+                                      "op": body.get("op"), "direction": direction,
+                                      "seq": body.get("seq"), "part": body.get("part"),
+                                      "total": body.get("total")})
                 except (ValueError, TypeError):
                     pass
-        socket.on("framesent", frame)
-        socket.on("framereceived", frame)
+        socket.on("framesent", lambda payload: frame(payload, "sent"))
+        socket.on("framereceived", lambda payload: frame(payload, "received"))
     # Save/transport discovery can open its socket during boot, before boot()
     # returns the page, so attach through the context's page event first.
-    context.on("page", lambda page: page.on("websocket", socket_open))
+    def page_open(page):
+        BOOT_PAGES.append(page)
+        page._shared_errors = []
+        page.on("pageerror", lambda error: page._shared_errors.append(str(error)))
+        page.on("console", lambda message: page._shared_errors.append(message.text) if message.type == "error" else None)
+        page.on("websocket", socket_open)
+    context.on("page", page_open)
     page = await fixture.boot(context, {"room": "shared-world", "shard": "shared-world",
                               "user": name, "noRoom": True, "server": url}, name)
     await fixture.start(page, realm, cls, level, name)
@@ -115,7 +160,8 @@ async def readiness(pages):
                 && H.entities?.state().complete && H.worldparts?.NETPARTS.ready);
             })()"""))
         return all(values)
-    require(await eventually(pages, ready, 45), "both independent characters receive shared-scene authority")
+    require(await eventually(pages, ready, 45), "both independent characters receive shared-scene authority",
+            diagnostic=REPORT["diagnostics"][-1:] if REPORT["diagnostics"] else [])
     peers = [await p.evaluate("NT.st().self") for p in pages]
     require(len(set(peers)) == len(pages), "phone and desktop have independent player identities", peers=peers)
     return peers
@@ -192,6 +238,53 @@ async def boat_case(pages):
         return all(s and s["rider"] is None for s in states)
     require(await eventually(pages, released), "leaving the boat releases its seat on both devices")
     return index
+
+
+async def combat_fields_case(pages):
+    caster = next((page for page in pages if getattr(page, "_name", "") == "PhoneFarmer"), pages[1])
+    require(await caster.evaluate("NT.P.cls==='mage' && !__hm.entities.canSimulate()"),
+            "the phone casts persistent fields as a follower, rather than as world authority")
+    peer = await caster.evaluate("NT.st().self")
+    before = await caster.evaluate("__hm.combatfields.save().runes.map(r=>r.id)")
+    await caster.evaluate("__hm.combatfields.rune('frost'); 0")
+    async def rune_shared():
+        frames = [await page.evaluate("__hm.combatfields.save()") for page in pages]
+        candidates = [r for r in frames[0]["runes"] if r["id"] not in before and r.get("src") == "peer:"+peer]
+        for rune in candidates:
+            match = next((r for r in frames[1]["runes"] if r["id"] == rune["id"]), None)
+            if match and all(match.get(k) == rune.get(k) for k in ["src", "x", "z", "el"]):
+                return rune
+        return False
+    rune = await eventually(pages, rune_shared, 25)
+    require(bool(rune), "a follower's frost rune has one shared identity, position and caster")
+    for page in pages:
+        visual = await page.evaluate("""id=>{const r=__hm.cls.CLS.runes.find(r=>r.netFieldId===id);
+          return {count:__hm.cls.CLS.runes.filter(r=>r.netFieldId===id).length,cut:!!r?.cut?.on,disc:!!r?.disc?.on};}""", rune["id"])
+        require(visual["count"] == 1 and visual["cut"] and visual["disc"],
+                "the shared rune has real visible geometry on each device", view=getattr(page, "_name", ""), visual=visual)
+    water = await caster.evaluate("""(() => {const H=__hm,P=NT.P;
+      for(let r=3;r<=60;r+=3) for(let a=0;a<Math.PI*2;a+=Math.PI/12) {
+        const x=P.x+Math.sin(a)*r,z=P.z+Math.cos(a)*r,w=H.water.waterAt(x,z);
+        if(w&&w.depth>0.3) return {x,z};
+      }return null;})()""")
+    require(water is not None, "the mage has real water within casting reach")
+    before_ice = await caster.evaluate("__hm.combatfields.save().ice.map(r=>r.id)")
+    await caster.evaluate("p=>{__hm.combatfields.freeze(p.x,p.z,5);return 0;}", water)
+    async def ice_shared():
+        frames = [await page.evaluate("__hm.combatfields.save()") for page in pages]
+        for ice in frames[0]["ice"]:
+            if ice["id"] in before_ice or math.hypot(ice["x"]-water["x"], ice["z"]-water["z"]) > 0.1:
+                continue
+            match = next((r for r in frames[1]["ice"] if r["id"] == ice["id"]), None)
+            if match and all(match.get(k) == ice.get(k) for k in ["x", "z", "wy", "r"]):
+                return ice
+        return False
+    ice = await eventually(pages, ice_shared, 25)
+    require(bool(ice), "water frozen by the follower has the same sheet and dimensions on both devices")
+    floors = [await page.evaluate("""p=>{const f=__hm.cls.iceAt(p.x,p.z);
+      return f&&{id:f.netFieldId,active:!!f.floor?.active,height:f.wy,mesh:!!f.mesh};}""", water) for page in pages]
+    require(all(f and f["id"] == ice["id"] and f["active"] and f["mesh"] for f in floors),
+            "the mirrored ice is physical, visible, walkable geometry on both devices", floors=floors)
 
 
 def piece_signature_js():
@@ -347,9 +440,13 @@ async def run():
             pages = [desktop, phone]
             await readiness(pages)
             private_before = [await p.evaluate("({name:NT.P.name,level:__hm.GAME.prog.level})") for p in pages]
+            await diagnose(pages, "initial shared authority")
             await town_case(pages)
             boat_index = await boat_case(pages)
+            await diagnose(pages, "boat and villagers synchronized")
+            await combat_fields_case(pages)
             pieces = await construction_case(pages)
+            await diagnose(pages, "construction, farming and combat fields synchronized")
             await terrain_case(pages)
             await combat_case(pages)
             private_after = [await p.evaluate("({name:NT.P.name,level:__hm.GAME.prog.level})") for p in pages]
@@ -366,6 +463,7 @@ async def run():
             late = await boot(browser, origin, url, "LateDesktop", 0, "priest", 17)
             pages = [phone, late]
             await readiness(pages)
+            await diagnose(pages, "late join after authority handoff")
             await town_case(pages)
             async def late_world():
                 return await late.evaluate(piece_signature_js()) == pieces
@@ -395,6 +493,15 @@ async def run():
         REPORT["wire"] = {"activityFrames": len(WIRES), "bytes": sum(f["bytes"] for f in WIRES),
                           "maxFrame": max((f["bytes"] for f in WIRES), default=0)}
         require(bool(WIRES), "the regression used the real shared activity transport", **REPORT["wire"])
+    except Exception as error:
+        REPORT["exception"] = str(error)
+        for page in BOOT_PAGES:
+            REPORT["errors"].extend(getattr(page, "_shared_errors", [])[-20:])
+        try:
+            REPORT["serverAtFailure"] = http_json(origin, "/stats")
+        except Exception as failure:
+            REPORT["serverAtFailure"] = {"error": str(failure)}
+        raise
     finally:
         if browser:
             await browser.close()

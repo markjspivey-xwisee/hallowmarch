@@ -37,7 +37,7 @@ export function activityNpc(r) {
     || !finite(r.a, 0, 63.999) || !finite(r.ph, 0, Math.PI * 128) || !finite(r.am, 0, 4)
     || !finite(r.h, 0, 1e6) || !finite(r.m, 1, 1e6) || r.h > r.m
     || ![0, 1].includes(r.d) || ![0, 1].includes(r.g) || ![0, 1].includes(r.hm)
-    || !array(r.lk, 15, 0, (1 << 24) - 1)) return null;
+    || !array(r.lk, 15, 0, (1 << 25) - 1)) return null;
   if (r.st != null && (!array(r.st, 4, -4000, 4000) || Math.abs(r.st[0]) > 500 || Math.abs(r.st[1]) > 50)) return null;
   if (r.fm != null && (!Array.isArray(r.fm) || r.fm.length !== 3 || !Number.isInteger(r.fm[0]) || r.fm[0] < 0 || r.fm[0] > 2
     || ![0, 1].includes(r.fm[1]) || ![0, 1].includes(r.fm[2]))) return null;
@@ -97,7 +97,20 @@ export function checkedSharedScene(value) {
   return Buffer.byteLength(JSON.stringify(normalized)) <= 400 * 1024 ? normalized : null;
 }
 
-export function createSharedScene({ hostFor, live, admission, stateFor, send, changed = () => {}, now = Date.now, canMutate = () => true, validatePersist = () => true }) {
+export async function confirmOwnedSceneCheckpoint(world) {
+  const target = world.capture().liveVersion;
+  if (!Number.isSafeInteger(target) || target < 1) throw Error('Invalid owned checkpoint version');
+  for (let pass = 0; pass < 3; pass++) {
+    const state = world.status();
+    if (state.fenced || state.error) throw Error('Owned world checkpoint is fenced');
+    if (state.confirmedLiveVersion >= target) return;
+    await world.checkpoint({ allowInactive: true });
+  }
+  const state = world.status();
+  if (state.fenced || state.error || state.confirmedLiveVersion < target) throw Error('Owned world checkpoint was not confirmed');
+}
+
+export function createSharedScene({ hostFor, live, admission, stateFor, send, changed = () => {}, now = Date.now, canMutate = () => true, validatePersist = () => true, confirm = null }) {
   const sessions = new WeakMap();
   function session(room) {
     const worldAdmission = admission(), persisted = stateFor(room).activity; let s = sessions.get(room);
@@ -111,7 +124,7 @@ export function createSharedScene({ hostFor, live, admission, stateFor, send, ch
         seq: { boats: -1, npcs: -1 }, motion: new Map(), lastPersist: -Infinity, dirty: false,
         streams: { entities: valid ? sceneValue('entities', null, kept.entities) : null,
           worldparts: valid ? sceneValue('worldparts', null, kept.worldparts) : null },
-        streamSeq: { entities: 0, worldparts: 0 }, pending: {}, commands: new Map() };
+        streamSeq: { entities: 0, worldparts: 0 }, pending: {}, commands: new Map(), pendingCommit: null, fenced: false };
       s.accepted = accepted(s); sessions.set(room, s);
     }
     return s;
@@ -124,7 +137,7 @@ export function createSharedScene({ hostFor, live, admission, stateFor, send, ch
     const candidate = { v: 1, worldAdmission: s.worldAdmission,
       boats: s.boats.map(b => ({ ...b, rider: null })), npcs: s.npcs,
       entities: s.streams.entities ? { ...s.streams.entities, rows: s.streams.entities.rows.filter(row => !row.owner) } : null,
-      worldparts: s.streams.worldparts };
+      worldparts: s.pendingCommit?.merged || s.streams.worldparts };
     if (!checkedSharedScene(candidate) || !validatePersist(room, candidate)) {
       Object.assign(s, { ...s.accepted, boats: s.accepted.boats.map(b => ({ ...b })),
         streams: { ...s.accepted.streams }, seq: { ...s.accepted.seq }, streamSeq: { ...s.accepted.streamSeq } });
@@ -139,7 +152,7 @@ export function createSharedScene({ hostFor, live, admission, stateFor, send, ch
   }
   function authorityFrame(s) {
     return { t: 'activity', kind: 'authority', authority: s.authority, peer: s.host, worldAdmission: s.worldAdmission,
-      boats: s.boats, npcs: s.npcs, hasEntities: !!s.streams.entities, entitiesReady: !!s.streams.entities, worldpartsReady: !!s.streams.worldparts };
+      boats: s.boats, npcs: s.npcs, hasEntities: !!s.streams.entities, entitiesReady: !!s.streams.entities, worldpartsReady: !!s.pendingCommit || !!s.streams.worldparts };
   }
   function frame(s, kind, op, rows, extra = {}) {
     return { t: 'activity', kind, op, authority: s.authority, peer: s.host, worldAdmission: s.worldAdmission,
@@ -160,6 +173,12 @@ export function createSharedScene({ hostFor, live, admission, stateFor, send, ch
   function sync(room, target = null) {
     if (!room || !canMutate()) return null;
     const s = session(room), host = hostFor(room)?.peer || ''; let released = false;
+    // An accepted economic mutation is not available for another keeper to replay
+    // until native storage confirms it. Late viewers hold the prior image.
+    if (s.pendingCommit || s.fenced) {
+      if (target && live(target) && target.sceneAuthority !== s.authority) tell(target, s);
+      return s;
+    }
     for (const b of s.boats) if (b.rider && ![...room.clients.values()].some(c => c.peer === b.rider && live(c))) {
       b.rider = null; b.vx = 0; b.vz = 0; released = true;
     }
@@ -184,27 +203,47 @@ export function createSharedScene({ hostFor, live, admission, stateFor, send, ch
       const command = m.command;
       if (!command || typeof command !== 'object' || !safeJson(command) || JSON.stringify(command).length > 6000
         || !(typeof command.id === 'string' && command.id.length <= 100 || Number.isSafeInteger(command.id))) return false;
-      const seen = s.commands.get(c.peer) || { at: now(), count: 0, ids: new Set() };
+      const seen = s.commands.get(c.peer) || { at: now(), count: 0, ids: new Map() };
       if (now() - seen.at > 1000) { seen.at = now(); seen.count = 0; }
       const id = kind + ':' + command.id;
-      if (seen.ids.has(id) || ++seen.count > 20 || !c.pos || now() - c.posT > 5000) return false;
-      seen.ids.add(id); if (seen.ids.size > 128) seen.ids.delete(seen.ids.values().next().value);
+      const serialized = JSON.stringify(command), prior = seen.ids.get(id);
+      if (++seen.count > 20 || !c.pos || now() - c.posT > 5000
+        || prior && (kind !== 'worldparts' || prior.serialized !== serialized || now() - prior.at < 2000)) return false;
+      seen.ids.set(id, { serialized, at: now() });
+      if (seen.ids.size > 128) seen.ids.delete(seen.ids.keys().next().value);
       s.commands.set(c.peer, seen); const host = room.clients.get(s.host);
       if (!host || !live(host)) return false;
       send(host, { t: 'activity', kind, op: 'command', authority: s.authority, worldAdmission: s.worldAdmission,
         peer: s.host, from: c.peer, ownerAccount: c.acct?.id || c.peer, position: { x: c.pos.x, z: c.pos.z }, realm: c.slow?.r ?? -1, at: now(), command });
       return true;
     }
+    if (m.op === 'settled') {
+      if (kind !== 'worldparts' || typeof m.id !== 'string' || !m.id || m.id.length > 100
+        || typeof m.digest !== 'string' || !m.digest || m.digest.length > 200) return false;
+      const ownerAccount = c.acct?.id || c.peer;
+      const receipt = s.streams.worldparts?.receipts?.find(r => r.id === m.id && r.ownerAccount === ownerAccount);
+      if (!receipt || (receipt.digest || 'legacy:' + receipt.id) !== m.digest) return false;
+      const host = room.clients.get(s.host); if (!host || !live(host)) return false;
+      send(host, { t: 'activity', kind, op: 'settled', authority: s.authority, worldAdmission: s.worldAdmission,
+        peer: s.host, from: c.peer, ownerAccount, id: m.id, digest: m.digest });
+      return true;
+    }
     if (m.op === 'result') {
       if (c.peer !== s.host || typeof m.to !== 'string') return false;
       const target = room.clients.get(m.to);
+      if (kind === 'worldparts') {
+        const receipt = s.streams.worldparts?.receipts?.find(r => r.id === m.id && r.ownerAccount === (target?.acct?.id || target?.peer));
+        if (!receipt || !target || !live(target) || receipt.digest !== m.digest) return false;
+        send(target, { ...receipt, t: 'activity', kind, op: 'result', authority: s.authority,
+          worldAdmission: s.worldAdmission, peer: s.host }); return true;
+      }
       const result = kind !== 'worldparts' && m.result || Object.fromEntries(Object.entries(m).filter(([k]) =>
         !['t', 'kind', 'op', 'authority', 'worldAdmission', 'peer', 'to'].includes(k)));
       if (!target || !live(target) || !safeJson(result) || JSON.stringify(result).length > 6000) return false;
       send(target, { ...result, t: 'activity', kind, op: 'result', authority: s.authority,
         worldAdmission: s.worldAdmission, peer: s.host, ...(kind === 'worldparts' ? {} : { result }) }); return true;
     }
-    if (m.op !== 'snapshot' || c.peer !== s.host || !Number.isSafeInteger(m.seq)
+    if (m.op !== 'snapshot' || kind === 'worldparts' && s.pendingCommit || c.peer !== s.host || !Number.isSafeInteger(m.seq)
       || m.seq <= s.streamSeq[kind] || !Number.isInteger(m.part) || !Number.isInteger(m.total)
       || m.total < 1 || m.total > 128 || m.part < 0 || m.part >= m.total
       || typeof m.data !== 'string' || m.data.length > 3500) return false;
@@ -223,6 +262,30 @@ export function createSharedScene({ hostFor, live, admission, stateFor, send, ch
     catch { delete s.pending[kind]; return false; }
     delete s.pending[kind]; const merged = sceneValue(kind, s.streams[kind], payload);
     if (!merged) return false;
+    const oldReceipts = s.streams.worldparts?.receipts || [];
+    const economic = kind === 'worldparts' && typeof confirm === 'function' && merged.receipts.some(r =>
+      !oldReceipts.some(old => old.id === r.id && old.ownerAccount === r.ownerAccount && old.digest === r.digest));
+    if (economic) {
+      const ticket = { merged, seq: m.seq, payload, worldAdmission: { ...s.worldAdmission } };
+      s.pendingCommit = ticket;
+      if (!persist(room, s, true)) { s.pendingCommit = null; return refuse(c, s, m, 'scene_capacity'); }
+      let timer;
+      const deadline = new Promise((_, reject) => { timer = setTimeout(() => reject(Error('World checkpoint deadline')), 15000); timer.unref?.(); });
+      const current = () => sessions.get(room) === s && s.pendingCommit === ticket
+        && s.persistedRef === stateFor(room).activity && sameAdmission(ticket.worldAdmission, admission());
+      Promise.race([Promise.resolve().then(() => confirm(room)), deadline]).then(() => {
+        if (!current()) return;
+        s.streams.worldparts = merged; s.streamSeq.worldparts = ticket.seq; s.pendingCommit = null;
+        s.accepted = accepted(s);
+        for (const packet of chunks(s, kind, ticket.seq, ticket.payload)) broadcast(room, packet);
+        sync(room);
+      }).catch(() => {
+        if (!current()) return;
+        s.fenced = true;
+        broadcast(room, frame(s, kind, 'snapshot', [], { ok: false, reason: 'world_checkpoint_unconfirmed' }));
+      }).finally(() => clearTimeout(timer));
+      return true;
+    }
     s.streams[kind] = merged; s.streamSeq[kind] = m.seq;
     if (!persist(room, s)) return refuse(c, s, m, 'scene_capacity');
     for (const packet of chunks(s, kind, m.seq, payload)) broadcast(room, packet);
@@ -231,6 +294,7 @@ export function createSharedScene({ hostFor, live, admission, stateFor, send, ch
   function handle(c, m) {
     if (!c.room || !live(c) || !canMutate()) return false;
     const room = c.room, s = sync(room);
+    if (s.fenced) return false;
     if (!sameAdmission(m.worldAdmission, s.worldAdmission) || !sameAdmission(c.worldAdmission, s.worldAdmission)
       || m.authority !== s.authority) return refuse(c, s, m, 'stale_authority');
     if (['entities', 'worldparts'].includes(m.kind)) return streamHandle(c, m, s);
@@ -318,5 +382,9 @@ export function createSharedScene({ hostFor, live, admission, stateFor, send, ch
       && m.authority === s.authority && sameAdmission(m.worldAdmission, admission())
       && sameAdmission(c.worldAdmission, m.worldAdmission);
   }
-  return { handle, sync, leave, acceptsChunk };
+  function publicActivity(room) {
+    const s = sessions.get(room), kept = stateFor(room).activity;
+    return s?.pendingCommit && s.persistedRef === kept ? { ...kept, worldparts: s.streams.worldparts } : kept;
+  }
+  return { handle, sync, leave, acceptsChunk, publicActivity };
 }

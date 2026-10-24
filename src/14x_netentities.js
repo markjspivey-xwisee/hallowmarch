@@ -65,9 +65,45 @@ function netEntityPlain(value, depth = 0) {
   return o;
 }
 const netEntityR = v => Math.round((Number.isFinite(v) ? v : 0) * 100) / 100;
+const NET_ENTITY_DEFAULTS = { kind: 'humanoid', role: 'mob', faction: 3, name: '', level: 1,
+  cls: null, mobType: null, yaw: 0, alive: 1, a: 0, ph: 0, am: 0, scale: 1, radius: 0.45, speed: 6.5,
+  fixedY: null, hover: 0, home: null, game: false, deep: false, deepLord: false, l2risen: null,
+  elite: false, camp: null, dunPack: null, owner: null, seat: null, tame: null, keep: null, temple: null,
+  ai: null, flying: false, dragon: null, buffs: null, look: null };
+function netEntityPackLook(look) {
+  if (!look || Array.isArray(look)) return look;
+  const keys = Object.keys(look);
+  if (keys.every(k => ['colA', 'colB'].includes(k)) && look.colA?.length === 3 && look.colB?.length === 3)
+    return [2, ...look.colA, ...look.colB];
+  if (keys.every(k => ['tabard', 'armor', 'skin', 'hair', 'mask', 'flags', 'scale', 'outfit', 'emblem', 'fem', 'bulk'].includes(k))
+    && look.tabard?.length === 3 && look.armor?.length === 3
+    && [look.skin, look.hair, look.mask].every(Number.isFinite))
+    return [1, ...look.tabard, ...look.armor, look.skin, look.hair, look.mask, look.flags || 0,
+      look.scale ?? 1, look.outfit ?? 0, look.emblem ?? 3, look.fem ? 1 : 0, look.bulk || 0];
+  return look;
+}
+function netEntityUnpackLook(look) {
+  if (!Array.isArray(look)) return look;
+  if (!look.every(Number.isFinite)) return null;
+  if (look[0] === 2 && look.length === 7) return { colA: look.slice(1, 4), colB: look.slice(4, 7) };
+  if (look[0] === 1 && look.length === 16) return { tabard: look.slice(1, 4), armor: look.slice(4, 7),
+    skin: look[7], hair: look[8], mask: look[9], flags: look[10], scale: look[11], outfit: look[12],
+    emblem: look[13], fem: look[14], bulk: look[15] };
+  return null;
+}
+function netEntityWire(row) {
+  row.look = netEntityPackLook(row.look);
+  if (row.ai && Object.values(row.ai).every(v => v == null || v === false)) row.ai = null;
+  if (!row.buffs?.length) row.buffs = null;
+  else row.buffs = row.buffs.map(b => ({ kind: b.kind, value: Math.round(b.value * 1000) / 1000,
+    left: Math.round(b.left * 10) / 10 }));
+  for (const [key, value] of Object.entries(NET_ENTITY_DEFAULTS)) if (row[key] === value) delete row[key];
+  if (row.hp === row.maxHp) delete row.hp;
+  return row;
+}
 function netEntityRow(e) {
   netEntityRegister(e);
-  return { id: e.netEntityId, key: e.netEntityKey, kind: e.kind, role: e.role, faction: e.faction,
+  return netEntityWire({ id: e.netEntityId, key: e.netEntityKey, kind: e.kind, role: e.role, faction: e.faction,
     name: String(e.name || '').slice(0, 80), level: e.level, cls: e.cls, mobType: e.mobType,
     p: [netEntityR(e.x), netEntityR(e.y), netEntityR(e.z)], yaw: netEntityR(e.yaw),
     hp: netEntityR(e.hp), maxHp: netEntityR(e.maxHp), alive: e.alive ? 1 : 0,
@@ -84,9 +120,15 @@ function netEntityRow(e) {
     flying: !!e.flying, dragon: e.kind === 'dragon' && typeof DRAGON !== 'undefined'
       ? netEntityPlain({ state: DRAGON.state, stateT: DRAGON.stateT, act: DRAGON.act, flap: DRAGON.flap,
         glide: DRAGON.glide, alt: DRAGON.alt, yaw: DRAGON.yaw, walking: DRAGON.walking, circ: DRAGON.circ, perch: DRAGON.perch }) : null,
-    buffs: e.buffs.slice(0, 24).map(b => ({ kind: b.kind, value: b.value, left: Math.max(0, b.until - GAME.t) })) };
+    buffs: e.buffs.slice(0, 24).map(b => ({ kind: b.kind, value: b.value, left: Math.max(0, b.until - GAME.t) })) });
 }
-function netEntityReadRow(row) {
+function netEntityReadRow(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const row = { ...value };
+  for (const [key, fallback] of Object.entries(NET_ENTITY_DEFAULTS)) if (row[key] == null) row[key] = fallback;
+  if (row.hp == null) row.hp = row.maxHp;
+  row.look = netEntityUnpackLook(row.look);
+  if (Array.isArray(value.look) && row.look === null) return null;
   const finite = (v, lo, hi) => typeof v === 'number' && Number.isFinite(v) && v >= lo && v <= hi;
   if (!row || typeof row.id !== 'string' || !/^scene:[a-zA-Z0-9_-]{1,32}:\d{1,8}$/.test(row.id)
     || typeof row.key !== 'string' || row.key.length > 160 || typeof row.kind !== 'string' || row.kind.length > 24
@@ -102,8 +144,9 @@ function netEntityReadRow(row) {
 function netEntityEnsure(row) {
   let e = NET_ENTITIES.bodies.get(row.id);
   if (e && !e.removed && netEntityOwned(e)) return e;
-  // Reuse bootstrap bodies where possible: their keep, dungeon and rendering references stay valid.
-  e = ENT.find(x => netEntityOwned(x) && !x.removed && !NET_ENTITIES.rows.has(x.netEntityId)
+  // Reuse public bootstrap bodies only: private companions belong to their exact owner/id.
+  // A different player's same-kind pet must never consume the local saved companion.
+  e = ENT.find(x => !row.owner && netEntityOwned(x) && !netEntityPersonal(x) && !x.removed && !NET_ENTITIES.rows.has(x.netEntityId)
     && !x.netEntityConfirmed && (x.netEntityKey === row.key || x.kind === row.kind && x.role === row.role
       && ((row.kind === 'door' && Math.hypot(x.x - row.p[0], x.z - row.p[2]) < 1) || row.kind === 'dragon')));
   if (!e) {
@@ -118,6 +161,7 @@ function netEntityEnsure(row) {
   return e;
 }
 function netEntityApply(e, row, immediate = false) {
+  e.netEntityMissing = false;
   if (row.owner === NET.self && netEntityOwnPet(e)) return;
   e.netEntityMissing = false; e.netEntityPose = row.a;
   e.name = row.name; e.faction = row.faction; e.cls = row.cls; e.mobType = row.mobType; e.level = row.level;
@@ -128,7 +172,10 @@ function netEntityApply(e, row, immediate = false) {
   if (e.tame && row.owner && row.owner !== NET.self) e.tame.owner = 'remote';
   if (e.tame && e.role === 'animal' && typeof ANIMALS !== 'undefined' && !ANIMALS.list.includes(e)) ANIMALS.list.push(e);
   e.flying = !!row.flying;
-  if (row.ai && e.ai) Object.assign(e.ai, netEntityPlain(row.ai));
+  if (e.ai) {
+    delete e.ai.post; delete e.ai.slot; delete e.ai.wall;
+    if (row.ai) Object.assign(e.ai, netEntityPlain(row.ai));
+  }
   if (typeof WAR !== 'undefined') {
     if (Number.isInteger(row.keep) && WAR.keeps[row.keep]) {
       e.keep = WAR.keeps[row.keep];
@@ -143,8 +190,14 @@ function netEntityApply(e, row, immediate = false) {
   e.game = row.game; e.deep = row.deep; e.deepLord = row.deepLord; e.l2risen = row.l2risen; e.elite = row.elite; e.dunPack = row.dunPack;
   e.camp = row.camp;
   e.hp = row.hp; e.maxHp = row.maxHp;
-  if (e.alive && !row.alive) e.deadAt = GAME.t;
-  e.alive = !!row.alive; e.removeAt = Infinity; e.seat = netEntityPlain(row.seat);
+  const wasAlive = e.alive;
+  if (wasAlive && !row.alive) e.deadAt = GAME.t;
+  e.alive = !!row.alive;
+  // Replicas hold the corpse pose, but a later keeper must retire it normally.
+  // Repeated death frames preserve the first bounded deadline instead of extending it.
+  e.removeAt = e.alive || e.kind === 'door' ? Infinity
+    : !wasAlive && Number.isFinite(e.removeAt) && e.removeAt > 0 ? e.removeAt : GAME.t + 10;
+  e.seat = netEntityPlain(row.seat);
   e.anim.act = Math.floor(row.a); e.anim.actT = row.a % 1; e.anim.actDur = row.a ? 1 : 0;
   e.anim.death = e.alive ? 0 : Math.min(1, (GAME.t - e.deadAt) / 0.7);
   e.buffs = Array.isArray(row.buffs) ? row.buffs.slice(0, 24).filter(b => typeof b.kind === 'string' && Number.isFinite(b.value) && Number.isFinite(b.left))
@@ -424,6 +477,7 @@ function netEntityResult(result) {
   NET_ENTITIES.rewards.add(result.id); if (NET_ENTITIES.rewards.size > 256) NET_ENTITIES.rewards.delete(NET_ENTITIES.rewards.values().next().value);
   NET_ENTITIES.applying = true;
   try {
+    if (typeof netCombatFieldResult === 'function' && netCombatFieldResult(result)) return;
     const P = GAME.player, src = netEntityFind(result.source), target = result.target ? netEntityFind(result.target) : P;
     if (result.kind === 'realm-points' && P && result.amount === 500) {
       addRP(500); if (typeof uiToast === 'function') uiToast('Your realm receives the hallow. (+500 realm points)', 'relic');
@@ -513,6 +567,7 @@ function netEntityPump(now) {
       if (NET_ENTITIES.published && previous) {
         const old = JSON.parse(previous); delta = { id: row.id };
         for (const k of Object.keys(row)) if (k !== 'id' && JSON.stringify(old[k]) !== JSON.stringify(row[k])) delta[k] = row[k];
+        for (const k of Object.keys(old)) if (k !== 'id' && !Object.hasOwn(row, k)) delta[k] = null;
       }
       rows.push(delta); nextSent.set(row.id, key);
     }
@@ -549,7 +604,10 @@ queueMicrotask(() => {
     complete: NET_ENTITIES.complete, count: netEntityMine() ? NET_ENTITIES.sent.size : NET_ENTITIES.rows.size,
     published: NET_ENTITIES.published, lastRefusal: NET_ENTITIES.lastRefusal,
     bytes: [...NET_ENTITIES.sent.values()].reduce((n, v) => n + v.length, 0), stats: { ...NET_ENTITIES.stats } }),
-    rows: () => netEntityMine() ? ENT.filter(e => netEntityOwned(e) && !e.removed && !e.netEntityMissing).map(netEntityRow) : [...NET_ENTITIES.rows.values()], find: netEntityFind, take: netEntityMessage, pump: netEntityPump,
+    rows: () => netEntityMine() ? ENT.filter(e => netEntityOwned(e) && !e.removed && !e.netEntityMissing).map(e => netEntityReadRow(netEntityRow(e))) : [...NET_ENTITIES.rows.values()],
+    wireRows: () => netEntityMine() ? ENT.filter(e => netEntityOwned(e) && !e.removed && !e.netEntityMissing).map(netEntityRow)
+      : [...NET_ENTITIES.rows.values()].map(r => netEntityWire(netEntityPlain(r))),
+    find: netEntityFind, take: netEntityMessage, pump: netEntityPump,
     canSimulate: netEntityCanSimulateWorld,
     attack: (id, amount = 10) => dealDamage(GAME.player, netEntityFind(id), amount, { kind: 'melee' }) };
   window.__hm.netentities = window.__hm.entities;

@@ -6,9 +6,11 @@ import fs from 'node:fs';
 const moduleSource = fs.readFileSync(new URL('../../src/14z_networldparts.js', import.meta.url), 'utf8');
 function client({ self = 'phone', host = 'desktop', account = 'phone-account' } = {}) {
   let clock = 1000;
-  const sent = [], loaded = [];
+  const sent = [], loaded = []; let persisted = null; let uid = 0;
   const context = {
-    console, Map, Set, JSON, Math, Number, Object, Array, Infinity,
+    console, Map, Set, JSON, Math, Number, Object, Array, Infinity, setTimeout, clearTimeout,
+    crypto: { randomUUID: () => 'outcome-' + (++uid) },
+    SAVE: { native: true, ref: null, lastBody: '', nativeFlight: null, wiping: false },
     queueMicrotask() {}, performance: { now: () => clock },
     NETWS: { url: 'https://game.example', state: 'on', acct: { id: account } },
     NET: { self, peers: new Map() }, GAME: { player: { x: 0, y: 0, z: 0 }, prog: { level: 17 }, t: 1 },
@@ -30,11 +32,19 @@ function client({ self = 'phone', host = 'desktop', account = 'phone-account' } 
   context.addGold = n => { context.INV.gold += n; };
   context.bagAdd = it => { context.INV.bag.push(it); return true; };
   context.loreNote = () => {}; context.skillGain = () => {};
+  context.SAVE.ref = { get: async () => ({ exists: persisted !== null, data: () => structuredClone(persisted) }) };
+  context.saveNow = async () => {
+    if (context.commitHook) return context.commitHook();
+    persisted = { char: { x: { sharedWorldReservations: structuredClone(context.api.journalSave()) },
+      goods: structuredClone(context.INV.goods), bag: structuredClone(context.INV.bag), gold: context.INV.gold } };
+    context.SAVE.lastBody = JSON.stringify(persisted);
+  };
   vm.createContext(context);
-  vm.runInContext(moduleSource + '\nglobalThis.api={state:NETPARTS,register:netWorldPartsRegister,command:netWorldPartsRegisterCommand,message:netWorldPartsMessage,pump:netWorldPartsPump,request:netWorldPartsRequest,publish:netWorldPartsPublish,apply:netWorldPartsApply,canSim:netWorldPartsCanSimulate,reset:netWorldPartsReset};', context);
+  vm.runInContext(moduleSource + '\nglobalThis.api={state:NETPARTS,register:netWorldPartsRegister,command:netWorldPartsRegisterCommand,message:netWorldPartsMessage,pump:netWorldPartsPump,request:netWorldPartsRequest,publish:netWorldPartsPublish,apply:netWorldPartsApply,canSim:netWorldPartsCanSimulate,reset:netWorldPartsReset,journalSave:netWorldPartsJournalSave,journalLoad:netWorldPartsJournalLoad,flushPrivate:netWorldPartsFlushJournal};', context);
   const admission = { origin: 'https://game.example', epoch: 3 };
   context.api.message({ t: 'activity', kind: 'authority', authority: 'token', peer: host, worldAdmission: admission, worldpartsReady: false });
-  return { context, api: context.api, sent, loaded, admission, tick: ms => { clock += ms; context.api.pump(clock); } };
+  return { context, api: context.api, sent, loaded, admission, getPersisted: () => structuredClone(persisted),
+    setPersisted: value => { persisted = structuredClone(value); context.SAVE.lastBody = JSON.stringify(persisted); }, tick: ms => { clock += ms; context.api.pump(clock); } };
 }
 function frame(c, value, seq = 1) {
   const data = JSON.stringify(value);
@@ -82,11 +92,13 @@ test('large snapshots are paced, bounded, and followed by changed-part deltas', 
   assert.equal(delta.full, false); assert.deepEqual(Object.keys(delta.parts), ['build']);
 });
 
-test('command reserves only recipe costs and borrows tools without sending other inventory', () => {
+test('command reserves only recipe costs and borrows tools without sending other inventory', async () => {
   const c = client();
   c.api.command('build.place', { tools: ['tool_hammer'] });
   frame(c, { v: 1, full: true, parts: {}, remove: [] });
   assert.equal(c.api.request('build.place', { x: 1 }, [['stone', 6]]), true);
+  assert.equal(c.sent.some(m => m.op === 'command'), false);
+  await c.api.flushPrivate();
   assert.equal(c.context.INV.goods.stone, 14);
   const command = c.sent.find(m => m.op === 'command').command;
   assert.deepEqual(command.goods, { stone: 6, tool_hammer: 1 });
@@ -97,9 +109,10 @@ test('command reserves only recipe costs and borrows tools without sending other
   assert.equal(c.context.INV.goods.privateGem, 4);
 });
 
-test('refused command refunds once and receipt replay cannot duplicate refund', () => {
+test('refused command refunds once and receipt replay cannot duplicate refund', async () => {
   const c = client(); frame(c, { v: 1, full: true, parts: {}, remove: [] });
   c.api.request('build.place', {}, [['stone', 6]]);
+  await c.api.flushPrivate();
   const id = c.sent.find(m => m.op === 'command').command.id;
   const result = { t: 'activity', kind: 'worldparts', op: 'result', authority: 'token',
     worldAdmission: c.admission, id, to: 'phone', ownerAccount: 'phone-account', ok: false };
@@ -107,9 +120,10 @@ test('refused command refunds once and receipt replay cannot duplicate refund', 
   assert.equal(c.context.INV.goods.stone, 20);
 });
 
-test('cached receipt resolves an interrupted command after peer changes without reserving again', () => {
+test('cached receipt resolves an interrupted command after peer changes without reserving again', async () => {
   const c = client(); frame(c, { v: 1, full: true, parts: {}, remove: [] });
   c.api.request('build.place', {}, [['stone', 6]]);
+  await c.api.flushPrivate();
   const id = c.sent.find(m => m.op === 'command').command.id;
   c.api.reset(); c.context.NET.self = 'phone-new';
   c.api.message({ t: 'activity', kind: 'authority', authority: 'new-token', peer: 'desktop',
@@ -118,6 +132,7 @@ test('cached receipt resolves an interrupted command after peer changes without 
     worldAdmission: c.admission, seq: 1, part: 0, total: 1,
     data: JSON.stringify({ v: 1, full: true, parts: {}, remove: [], receipts: [
       { id, ownerAccount: 'phone-account', to: 'phone', ok: true, goods: [['stone', -6]] }] }) });
+  await c.api.flushPrivate();
   assert.equal(c.api.state.pending.size, 0); assert.equal(c.context.INV.goods.stone, 14);
 });
 
@@ -175,4 +190,203 @@ test('host withholds owner rewards until the server echoes the canonical mutatio
   assert.equal(results.length, 1);
   assert.equal(results[0].ownerAccount, 'phone-account');
   assert.equal(results[0].goods[0][1], 2);
+});
+
+
+test('native flight coalescing cannot dispatch before the exact reservation reaches readback', async () => {
+  const c = client(); frame(c, { v: 1, full: true, parts: {}, remove: [] });
+  const save = c.context.saveNow; let calls = 0;
+  c.context.saveNow = async options => { calls++; if (calls > 1) return save(options); };
+  c.api.request('build.place', {}, [['stone', 6]]);
+  assert.equal(c.sent.filter(m => m.op === 'command').length, 0);
+  await c.api.flushPrivate();
+  assert.equal(calls, 2);
+  const command = c.sent.find(m => m.op === 'command').command;
+  assert.equal(c.getPersisted().char.x.sharedWorldReservations.pending[0].id, command.id);
+  assert.equal(c.getPersisted().char.goods.stone, 14);
+});
+
+test('an acknowledged write with a mismatched canonical read holds the reservation and sends no command', async () => {
+  const c = client(); frame(c, { v: 1, full: true, parts: {}, remove: [] });
+  c.context.SAVE.ref.get = async () => ({ exists: true, data: () => ({ char: { x: {} } }) });
+  c.api.request('build.place', {}, [['stone', 6]]);
+  assert.equal(await c.api.flushPrivate(), false);
+  assert.equal(c.sent.filter(m => m.op === 'command').length, 0);
+  assert.equal(c.api.state.pending.size, 1);
+  assert.equal(c.context.INV.goods.stone, 14);
+  assert.equal(c.api.state.privateError, 'private_checkpoint_pending');
+});
+
+test('owner outcome remains pending until its private inventory and tombstone are confirmed together', async () => {
+  const c = client(); frame(c, { v: 1, full: true, parts: {}, remove: [] });
+  c.api.request('resource.take', {}, []);
+  await c.api.flushPrivate();
+  const id = c.sent.find(m => m.op === 'command').command.id;
+  const save = c.context.saveNow; let release;
+  c.context.saveNow = () => new Promise(resolve => { release = async () => { await save(); resolve(); }; });
+  const result = { t: 'activity', kind: 'worldparts', op: 'result', authority: 'token',
+    worldAdmission: c.admission, id, to: 'phone', ownerAccount: 'phone-account', digest: 'outcome-proof',
+    ok: true, goods: [['stone', 2]] };
+  c.api.message(result); c.api.message(result);
+  await Promise.resolve();
+  assert.equal(c.context.INV.goods.stone, 22);
+  assert.equal(c.api.state.pending.get(id).phase, 'applied');
+  assert.equal(c.sent.filter(m => m.op === 'settled').length, 0);
+  assert.equal(c.getPersisted().char.goods.stone, 20);
+  await release(); await c.api.flushPrivate();
+  assert.equal(c.api.state.pending.size, 0);
+  assert.equal(c.getPersisted().char.goods.stone, 22);
+  assert.equal(c.getPersisted().char.x.sharedWorldReservations.settled[0].digest, 'outcome-proof');
+  assert.equal(c.sent.filter(m => m.op === 'settled').length, 1);
+});
+
+test('reloading a confirmed applied journal never awards the same owner outcome twice', async () => {
+  const c = client(); frame(c, { v: 1, full: true, parts: {}, remove: [] });
+  c.api.request('resource.take', {}, []); await c.api.flushPrivate();
+  const id = c.sent.find(m => m.op === 'command').command.id;
+  const receipt = { id, ownerAccount: 'phone-account', digest: 'saved-outcome', to: 'phone', ok: true, goods: [['stone', 2]] };
+  c.api.message({ ...receipt, t: 'activity', kind: 'worldparts', op: 'result', authority: 'token', worldAdmission: c.admission });
+  await c.api.flushPrivate();
+  const checkpoint = c.getPersisted();
+  assert.equal(checkpoint.char.x.sharedWorldReservations.pending[0].phase, 'applied');
+  const restored = client(); restored.context.INV.goods = structuredClone(checkpoint.char.goods);
+  restored.api.command('resource.take', {});
+  restored.api.journalLoad(checkpoint.char.x.sharedWorldReservations);
+  frame(restored, { v: 1, full: true, parts: {}, remove: [], receipts: [receipt] });
+  assert.equal(restored.api.state.pending.size, 0);
+  assert.equal(restored.context.INV.goods.stone, 22);
+});
+
+test('changing the private profile while a journal is in flight cannot dispatch under the replacement identity', async () => {
+  const c = client(); frame(c, { v: 1, full: true, parts: {}, remove: [] });
+  let release;
+  c.context.saveNow = () => new Promise(resolve => { release = resolve; });
+  c.api.request('build.place', {}, [['stone', 6]]);
+  await Promise.resolve();
+  c.context.SAVE.ref = { get: async () => ({ exists: false }) };
+  release(); await c.api.flushPrivate();
+  assert.equal(c.sent.filter(m => m.op === 'command').length, 0);
+  assert.equal(c.api.state.pending.size, 1);
+});
+
+test('pure public work avoids private checkpoints while forced owner actions use the host self actor', async () => {
+  const follower = client(); frame(follower, { v: 1, full: true, parts: {}, remove: [] });
+  let writes = 0;
+  follower.context.saveNow = async () => { writes++; };
+  follower.api.command('build.work', { durable: false });
+  follower.api.request('build.work', { id: 1 }, []);
+  assert.equal(writes, 0); assert.equal(follower.sent.filter(m => m.op === 'command').length, 1);
+  const host = client({ self: 'desktop', host: 'desktop', account: 'desktop-account' });
+  let actor;
+  host.api.command('animal.hatch.claim', { run: () => { actor = host.context.GAME.player; return { ok: true }; } });
+  assert.equal(host.api.request('animal.hatch.claim', { id: 'chick' }, [], true), true);
+  await host.api.flushPrivate();
+  const command = host.sent.find(m => m.op === 'command').command;
+  const owner = host.context.GAME.player;
+  host.api.message({ t: 'activity', kind: 'worldparts', op: 'command', authority: 'token',
+    worldAdmission: host.admission, from: 'desktop', ownerAccount: 'desktop-account',
+    position: { x: 0, z: 0 }, command });
+  assert.equal(actor, owner);
+});
+
+test('a former account or replaced character cannot receive an old private outcome', async () => {
+  for (const replace of [c => { c.context.NETWS.acct = { id: 'another-account' }; },
+    c => { c.context.SAVE.ref = { get: async () => ({ exists: false }) }; },
+    c => { c.context.GAME.player = { x: 0, y: 0, z: 0 }; }]) {
+    const c = client(); frame(c, { v: 1, full: true, parts: {}, remove: [] });
+    c.api.request('resource.take', {}, []); await c.api.flushPrivate();
+    const id = c.sent.find(m => m.op === 'command').command.id;
+    replace(c); c.sent.length = 0;
+    c.api.message({ t: 'activity', kind: 'worldparts', op: 'result', authority: 'token',
+      worldAdmission: c.admission, id, ownerAccount: 'phone-account', digest: 'old-scope',
+      ok: true, goods: [['stone', 5]] });
+    assert.equal(c.context.INV.goods.stone, 20);
+    assert.equal(c.api.journalSave(), null, 'old reservations cannot enter the replacement profile');
+    c.tick(4000);
+    assert.equal(c.sent.filter(m => m.op === 'command' || m.op === 'settled').length, 0);
+  }
+});
+
+test('loading another character clears old reservations and rejects foreign journal rows', async () => {
+  const c = client(); frame(c, { v: 1, full: true, parts: {}, remove: [] });
+  c.api.command('resource.take', {});
+  c.api.request('resource.take', {}, []); await c.api.flushPrivate();
+  const old = c.api.journalSave();
+  c.api.journalLoad(null);
+  assert.equal(c.api.state.pending.size, 0); assert.equal(c.api.state.settled.size, 0);
+  c.context.NETWS.acct = { id: 'other-account' };
+  c.api.journalLoad(old);
+  assert.equal(c.api.state.pending.size, 0); assert.equal(c.api.journalSave(), null);
+});
+
+test('a replacement character can confirm its own reservation after an older private flight drains', async () => {
+  const c = client(); frame(c, { v: 1, full: true, parts: {}, remove: [] });
+  const save = c.context.saveNow; let release;
+  c.context.saveNow = () => new Promise(resolve => { release = resolve; });
+  c.api.request('build.place', { x: 1 }, [['stone', 6]]);
+  await Promise.resolve();
+  c.context.GAME.player = { x: 0, y: 0, z: 0 };
+  c.context.INV.goods = { stone: 100, tool_hammer: 1 };
+  c.api.journalLoad(null);
+  c.api.request('build.place', { x: 2 }, [['stone', 6]]);
+  c.context.saveNow = save; release(); await c.api.flushPrivate();
+  const commands = c.sent.filter(m => m.op === 'command');
+  assert.equal(commands.length, 1); assert.equal(commands[0].command.args.x, 2);
+  assert.equal(c.getPersisted().char.goods.stone, 94);
+});
+
+test('settlement retries until a canonical settled receipt arrives and then stops', async () => {
+  const c = client(); frame(c, { v: 1, full: true, parts: {}, remove: [] });
+  c.api.request('resource.take', {}, []); await c.api.flushPrivate();
+  const id = c.sent.find(m => m.op === 'command').command.id;
+  const receipt = { id, ownerAccount: 'phone-account', digest: 'retry-proof', ok: true, goods: [['stone', 2]] };
+  c.api.message({ ...receipt, t: 'activity', kind: 'worldparts', op: 'result', authority: 'token', worldAdmission: c.admission });
+  await c.api.flushPrivate();
+  assert.equal(c.sent.filter(m => m.op === 'settled').length, 1);
+  c.tick(3100);
+  assert.equal(c.sent.filter(m => m.op === 'settled').length, 2, 'a locally sent acknowledgement is not canonical confirmation');
+  frame(c, { v: 1, full: false, parts: {}, remove: [], receipts: [{ ...receipt, settled: true }] }, 2);
+  c.tick(3100);
+  assert.equal(c.sent.filter(m => m.op === 'settled').length, 2);
+  assert.equal(c.context.INV.goods.stone, 22);
+});
+
+test('forty private outcomes settle without exhausting the public receipt budget', async () => {
+  const host = client({ self: 'desktop', host: 'desktop', account: 'desktop-account' }), follower = client();
+  host.context.NET.peers.set('phone', { ghost: { x: 0, z: 0, level: 4 } });
+  let stock = 100;
+  host.api.register('stock', { save: () => stock, apply: value => { stock = value; } });
+  host.api.command('resource.take', { run: () => {
+    if (!stock) return false;
+    stock--; host.context.goodsAdd('stone', 1); return { ok: true };
+  } });
+  frame(follower, { v: 1, full: true, parts: {}, remove: [] });
+  for (let index = 0; index < 40; index++) {
+    follower.sent.length = 0; host.sent.length = 0;
+    follower.api.request('resource.take', {}, []); await follower.api.flushPrivate();
+    const command = follower.sent.find(m => m.op === 'command');
+    assert.ok(command, 'the next private reservation is admitted');
+    host.api.message({ ...command, from: 'phone', ownerAccount: 'phone-account', position: { x: 0, z: 0 } });
+    host.tick(2000);
+    for (const packet of host.sent.filter(m => m.op === 'snapshot')) {
+      host.api.message(packet); follower.api.message(packet);
+    }
+    for (const packet of host.sent.filter(m => m.op === 'result')) follower.api.message(packet);
+    await follower.api.flushPrivate();
+    for (let pass = 0; pass < 4 && host.api.state.receipts.some(r => r.id === command.command.id && !r.settled); pass++) {
+      follower.tick(3100);
+      for (const settled of follower.sent.filter(m => m.op === 'settled'))
+        host.api.message({ ...settled, ownerAccount: 'phone-account', from: 'phone' });
+      follower.sent.length = 0;
+      host.sent.length = 0; host.tick(2000);
+      for (const packet of host.sent.filter(m => m.op === 'snapshot')) {
+        host.api.message(packet); follower.api.message(packet);
+      }
+    }
+    assert.equal(follower.api.state.pending.size, 0);
+    assert.ok(host.api.state.receipts.length <= 8, 'settled outcomes leave room for the next action');
+  }
+  assert.equal(stock, 60); assert.equal(follower.context.INV.goods.stone, 60);
+  assert.equal(follower.context.INV.goods.privateGem, 4); assert.equal(host.context.INV.goods.stone, 20);
+  assert.equal(host.context.INV.gold, 900);
 });

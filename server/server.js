@@ -38,7 +38,7 @@ import { createMainWorldAgentTransport } from './gaming/main-world-agent-transpo
 import { makeCompanies, reservedNames, coPledgeApply, coText } from './companies.js'; // [companies]
 import { makeField } from './fieldarmies.js'; // [season2] the season's armies on the pages' fields
 import { createHumanPlayGate } from './human-play.js';
-import { createSharedScene } from './shared-scene.js';
+import { createSharedScene, confirmOwnedSceneCheckpoint } from './shared-scene.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '..');
@@ -316,6 +316,7 @@ const SHARED_SCENE = createSharedScene({ hostFor: roomHost, live: isHumanPlaying
   canMutate: () => !WORLD_STATE || WORLD_STATE.canMutate(),
   stateFor: R => R.diagnostic ? (R.diagnosticWorld ||= {}) : (WORLDS[R.name] ||= {}),
   changed: R => { if (!R.diagnostic) worldsSave(); },
+  confirm: R => R.diagnostic || !WORLD_STATE ? undefined : confirmOwnedSceneCheckpoint(WORLD_STATE),
   validatePersist: (R, candidate) => {
     const worlds = R.diagnostic ? WORLDS : { ...WORLDS, [R.name]: { ...(WORLDS[R.name] || {}), activity: candidate } };
     return Buffer.byteLength(JSON.stringify({ worlds, season: SEASON.RS || null })) <= 440 * 1024;
@@ -458,7 +459,8 @@ function regionsTell(R, force) {
 // the shard's war now: its kept word with the season's keeps (the season decides who holds them while nobody keeps them)
 function worldNow(R) {
   if (WORLD_STATE && !WORLD_STATE.canMutate()) return null;
-  const kept = (R.diagnostic ? R.diagnosticWorld : null) || WORLDS[R.name] || null, sk = SEASON.keepsOf();
+  const rawKept = (R.diagnostic ? R.diagnosticWorld : null) || WORLDS[R.name] || null;
+  const kept = rawKept?.activity ? { ...rawKept, activity: SHARED_SCENE.publicActivity(R) } : rawKept, sk = SEASON.keepsOf();
   // A new room has a complete authoritative baseline; a retained private save
   // must never supply its first keep, gate or campaign state.
   const w = { k: sk?.slice() || (WORLD.keeps?.map(k => k.home) || new Array(WORLD.keepCount).fill(0)), g: new Array(WORLD.keepCount).fill(1),

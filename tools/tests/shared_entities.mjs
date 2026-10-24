@@ -179,14 +179,14 @@ test('owned animal bodies are authored by their owner and appear in the shared s
 });
 
 test('failed publication retries every unchanged initial actor and successful motion deltas omit appearance', () => {
-  const a = page('a'); a.authority(); a.run('for(let i=0;i<7;i++)makeEnt({x:2+i})');
+  const a = page('a'); a.authority(); a.run('for(let i=0;i<20;i++)makeEnt({x:2+i})');
   a.run('failAfter=1;netEntityPump(clock)');
   assert.equal(a.run('NET_ENTITIES.sent.size'), 0, 'partially sent frames must not consume unchanged actors');
   assert.equal(a.run('NET_ENTITIES.published'), false);
   a.run('packets.length=0;failAfter=Infinity;clock+=600;netEntityPump(clock)');
   const first = a.json('packets').filter(p => p.op === 'snapshot');
   const payload = JSON.parse(first.map(p => p.data).join(''));
-  assert.equal(payload.full, true); assert.equal(payload.rows.length, 7);
+  assert.equal(payload.full, true); assert.equal(payload.rows.length, 20);
   a.run('packets.length=0;ENT[1].x=4;clock+=600;netEntityPump(clock)');
   const second = JSON.parse(a.json('packets').filter(p => p.op === 'snapshot').map(p => p.data).join(''));
   assert.equal(second.full, false); assert.equal(second.rows.length, 1);
@@ -201,4 +201,95 @@ test('partial entity frames preserve the existing descriptor and health remains 
   assert.equal(b.run('ENT[1].hp'), 20);
   assert.equal(b.run('ENT[1].name'), 'Wolf');
   assert.equal(b.run('ENT.length'), 2);
+});
+
+test('independent owned companions with the same bootstrap key retain both private owners', () => {
+  const a = page('a'), b = page('b'); a.authority(); b.authority();
+  a.run('const mine=makeEnt({role:"animal",kind:"horse",tame:{owner:"player",id:1,k:"horse"},x:5,name:"My horse"}); const remote=makeEnt({role:"remote",faction:0,netPeer:"b"}); NET.peers.set("b",{ghost:remote,slow:{on:1}})');
+  b.run('makeEnt({role:"animal",kind:"horse",tame:{owner:"player",id:2,k:"horse"},x:5,name:"Other horse"}); netEntityPump(clock)');
+  const request = b.json('packets.at(-1)');
+  a.message({ ...request, from: 'b', position: { x: 0, z: 0 } });
+  assert.equal(a.run('ENT.filter(e=>e.role==="animal").length'), 2);
+  assert.equal(a.run('mine.name'), 'My horse');
+  assert.equal(a.run('mine.tame.owner'), 'player');
+  assert.equal(a.run('mine.netEntityOwner'), 'a');
+  assert.equal(a.run('ENT.at(-1).name'), 'Other horse');
+  assert.equal(a.run('ENT.at(-1).netEntityOwner'), 'b');
+  snapshot(b, { v: 1, full: true, rows: hostRows(a), remove: [] });
+  assert.equal(b.run('ENT.filter(e=>e.role==="animal").length'), 2);
+  assert.equal(b.run('ENT[1].tame.owner'), 'player');
+  assert.equal(b.run('ENT[1].name'), 'Other horse');
+  assert.equal(b.run('ENT[1].netEntityOwner'), 'b');
+});
+
+test('a canonical public animal cannot reuse or overwrite a same-kind private companion', () => {
+  const a = page('a'), b = page('b'); a.authority(); b.authority();
+  a.run('makeEnt({role:"animal",kind:"horse",name:"Public horse",x:5})');
+  b.run('const mine=makeEnt({role:"animal",kind:"horse",name:"Private horse",x:5,tame:{owner:"player",id:8,k:"horse"}})');
+  snapshot(b, { v: 1, full: true, rows: hostRows(a), remove: [] });
+  assert.equal(b.run('ENT.filter(e=>e.role==="animal").length'), 2);
+  assert.equal(b.run('mine.name'), 'Private horse');
+  assert.equal(b.run('mine.tame.owner'), 'player');
+  assert.equal(b.run('netEntityOwnPet(mine)'), true);
+  assert.equal(b.run('ENT.at(-1).name'), 'Public horse');
+  assert.equal(b.run('ENT.at(-1).netEntityOwner'), null);
+});
+test('dead inherited actors retire within the normal ten seconds after keeper handoff', () => {
+  const a = page('a'), b = page('b'); a.authority(); b.authority();
+  a.run('makeEnt({x:5,alive:false,hp:0});makeEnt({kind:"door",role:"door",x:10,alive:false,hp:0})');
+  const rows = hostRows(a);
+  snapshot(b, { v: 1, full: true, rows, remove: [] });
+  assert.equal(b.run('ENT[1].removeAt'), 11);
+  assert.equal(b.run('ENT[2].removeAt'), Infinity, 'persistent doors never use corpse cleanup');
+  b.run('GAME.t=5');
+  snapshot(b, { v: 1, full: true, rows, remove: [] }, 2);
+  assert.equal(b.run('ENT[1].removeAt'), 11, 'repeated replica frames cannot renew the corpse lifetime');
+  assert.equal(b.run('ENT[1].deadAt'), 1, 'the first death pose keeps its animation clock');
+  b.authority('b', 'token-two', true);
+  snapshot(b, { v: 1, full: true, rows, remove: [], replay: true }, 0, 'token-two');
+  const ai = readFileSync(new URL('../../src/08_ai.js', import.meta.url), 'utf8');
+  const start = ai.indexOf('function updateNPCs('); assert.ok(start >= 0);
+  b.c.actorUpdate = ai.slice(start);
+  b.run('GAME.t=12;function updateAnim(){};eval(actorUpdate);updateNPCs(.1)');
+  assert.equal(b.run('ENT.some(e=>e.kind!=="door"&&e.role!=="player")'), false);
+  assert.equal(b.run('ENT.some(e=>e.kind==="door")'), true);
+});
+
+test('a representative 523-actor scene leaves room for the rest of the bounded world checkpoint', () => {
+  const a = page('a'), b = page('b'); a.authority(); b.authority();
+  a.run(`for(let i=0;i<523;i++){
+    const human=i%3===0;
+    makeEnt({kind:human?'humanoid':i%3===1?'wolf':'deer',role:human?'guard':i%3===1?'mob':'critter',
+      faction:human?i%3:3,cls:human?'warrior':null,mobType:human?null:'wolf',level:20,
+      x:i%31,y:0,z:Math.floor(i/31),home:{x:i%31,z:Math.floor(i/31),r:12},
+      hp:i===522?0:800,maxHp:800,alive:i!==522,
+      look:human?{tabard:[0.4,0.3,0.2],armor:[0.5,0.5,0.5],skin:0.35,hair:0.4,mask:32,
+        flags:0,scale:1,outfit:0,emblem:3,fem:0,bulk:0}:{colA:[0.4,0.5,0.6],colB:[0.2,0.3,0.4]}});
+  }`);
+  const wire = a.json('window.__hm.entities.wireRows()'), rich = a.json('window.__hm.entities.rows()');
+  const bytes = Buffer.byteLength(JSON.stringify({ v: 1, full: true, rows: wire, remove: [] }));
+  assert.equal(wire.length, 523);
+  assert.ok(bytes < 240 * 1024, `actor snapshot uses ${bytes} bytes`);
+  assert.ok(bytes + 128 * 1024 < 400 * 1024, 'reserve at least 128 KiB for NPCs, boats and mutable world parts');
+  snapshot(b, { v: 1, full: true, rows: wire, remove: [] });
+  const roundTrip = b.json('window.__hm.entities.rows()');
+  assert.equal(roundTrip.length, rich.length);
+  for (let i = 0; i < rich.length; i++) for (const key of ['id','kind','role','faction','name','cls','mobType','p','hp','maxHp','alive','look','home'])
+    assert.deepEqual(roundTrip[i][key], rich[i][key], `actor ${i} preserves ${key}`);
+  assert.equal(roundTrip[522].alive, 0); assert.equal(roundTrip[522].hp, 0, 'compaction must preserve a dead actor');
+});
+
+test('compact deltas explicitly clear optional state and restore full health and default animation', () => {
+  const a = page('a'), b = page('b'); a.authority(); b.authority();
+  a.run('makeEnt({hp:20,alive:false,game:true,buffs:[{kind:"root",value:1,until:5}],anim:{phase:0,amt:1,act:4,death:0,flash:0}});netEntityPump(clock)');
+  const first = JSON.parse(a.json('packets').map(p => p.data).join(''));
+  snapshot(b, first);
+  a.run('packets.length=0;ENT[1].hp=100;ENT[1].alive=true;ENT[1].game=false;ENT[1].buffs=[];ENT[1].anim.amt=0;ENT[1].anim.act=0;clock+=600;netEntityPump(clock)');
+  const delta = JSON.parse(a.json('packets').map(p => p.data).join(''));
+  assert.equal(delta.rows[0].hp, null); assert.equal(delta.rows[0].alive, null);
+  assert.equal(delta.rows[0].buffs, null); assert.equal(delta.rows[0].game, null);
+  snapshot(b, delta, 2);
+  assert.equal(b.run('ENT[1].hp'), 100); assert.equal(b.run('ENT[1].alive'), true);
+  assert.equal(b.run('ENT[1].game'), false); assert.equal(b.run('ENT[1].buffs.length'), 0);
+  assert.equal(b.run('ENT[1].netEntityPose'), 0);
 });
