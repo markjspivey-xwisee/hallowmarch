@@ -557,7 +557,10 @@ function netEntityBuff(dst, kind, value, dur, src, extra) {
   return true;
 }
 function netEntityKilled(e) {
-  if (!netEntityShared() || !netEntityMine() || !e.damagers || e.kind === 'door' || netEntityTown(e)) return;
+  // Grey Hunt spirits deliberately use a no-credit add/has sentinel, rather
+  // than a Set. Their public role also retains that rule after keeper handoff.
+  if (!netEntityShared() || !netEntityMine() || e.role === 'hound' || !(e.damagers instanceof Set)
+    || e.kind === 'door' || netEntityTown(e)) return;
   if (!e.netEntityLootMade && !e.damagers.has(GAME.player?.id)
     && [...e.damagers].some(id => getEnt(id)?.role === 'remote') && typeof rollLoot === 'function') {
     // Ground spoils belong to the shared scene. A keeper who did not take part
@@ -612,11 +615,49 @@ function netEntityHandleCommand(m) {
     }
   } finally { NET_ENTITIES.applying = false; }
 }
+// Private falling bodies are simulated by their owner. The scene keeper only
+// chooses the shared slab event and sends one bounded, deduplicated intent.
+function netEntityRemoteFall(o, slab, by) {
+  if (!netEntityShared() || !(o?.role === 'remote' || netEntityPersonal(o) && !netEntityOwnPet(o))) return false;
+  const owner = o.role === 'remote' ? o.netPeer : o.netEntityOwner;
+  if (netEntityMine() && typeof owner === 'string' && NET.peers.get(owner)?.slow?.on
+    && Number.isInteger(slab?.i) && slab.i >= 0 && slab.i < 128 && Number.isFinite(o.x) && Number.isFinite(o.z)) {
+    netEntitySend('result', { to: owner, result: { id: NET_ENTITIES.authority + ':fall:' + (++NET_ENTITIES.commands),
+      kind: 'dungeon-fall', slab: slab.i, x: o.x, z: o.z, by: netEntityReference(by),
+      ...(o.role === 'remote' ? {} : { target: o.netEntityId }) } });
+  }
+  return true;
+}
+function netEntityFallResult(result) {
+  if (result.kind !== 'dungeon-fall') return false;
+  const o = result.target ? netEntityFind(result.target) : GAME.player;
+  if (!o?.alive || result.target && !netEntityOwnPet(o) || typeof DEEP === 'undefined' || !DEEP.built
+    || !Number.isInteger(result.slab) || result.slab < 0 || result.slab >= 128
+    || !Number.isFinite(result.x) || !Number.isFinite(result.z) || Math.abs(result.x) > 4000 || Math.abs(result.z) > 4000
+    || Math.hypot(o.x - result.x, o.z - result.z) > 4 || !inDungeon(o)) return true;
+  const slab = DEEP.slabs[result.slab];
+  // The intent may arrive before the next canonical slab image. Its keeper
+  // already chose the event; validate the owner's current foot position.
+  if (slab && !o.l3fall && inSlab(slab, o.x, o.z, (o.radius || 0.4) * 0.4))
+    deepFall(o, slab, netEntityFind(result.by));
+  return true;
+}
+function netEntityPrivateFallStep(dt) {
+  if (!netEntityShared() || netEntityCanSimulateWorld() || typeof deepFallStep !== 'function') return;
+  const before = NET_ENTITIES.applying;
+  NET_ENTITIES.applying = true;
+  try {
+    const bodies = [GAME.player, ...ENT.filter(netEntityOwnPet)];
+    for (const o of new Set(bodies)) if (o?.alive && !o.removed && o.l3fall) deepFallStep(o, dt);
+  } finally { NET_ENTITIES.applying = before; }
+}
+
 function netEntityResult(result) {
   if (!result || typeof result.id !== 'string' || NET_ENTITIES.rewards.has(result.id)) return;
   NET_ENTITIES.rewards.add(result.id); if (NET_ENTITIES.rewards.size > 256) NET_ENTITIES.rewards.delete(NET_ENTITIES.rewards.values().next().value);
   NET_ENTITIES.applying = true;
   try {
+    if (netEntityFallResult(result)) return;
     if (typeof netCombatFieldResult === 'function' && netCombatFieldResult(result)) return;
     const P = GAME.player, src = netEntityFind(result.source), target = result.target ? netEntityFind(result.target) : P;
     if (result.kind === 'realm-points' && P && result.amount === 500) {

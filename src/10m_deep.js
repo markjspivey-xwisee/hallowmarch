@@ -955,6 +955,7 @@ function look6SlabTop(S, x, z, dt = 0) {
   return y + lx * Math.sin(c) * Math.cos(a) - lz * Math.sin(a);
 }
 function deepFall(o, S, by) {
+  if (typeof netEntityRemoteFall === 'function' && netEntityRemoteFall(o, S, by)) return;
   const out = deepEdgeOut(S, o.x, o.z);
   o.l3fall = { t: 0, x: o.x, z: o.z, y0: o.y, y1: DEEP_PIT + 0.05, out, landed: false, burnT: 0, by: by ? by.id : null, S }; // [look6] S: it rides its slab down
   o.casting = null;
@@ -1552,7 +1553,8 @@ function late3Update(dt) {
     if (INDOOR.on && Math.floor(was * 8) !== Math.floor(S.open * 8)) { sfxAt('grind', S.mesh.position.x, -6, S.mesh.position.z); cameraShake(0.06, S.mesh.position.x, S.mesh.position.z); }
   }
   DEEP.marks = DEEP.marks.filter((M) => M.until > now);
-  for (const o of ENT) if (o.l3fall && o.alive && !o.removed) deepFallStep(o, dt);
+  for (const o of ENT) if (o.l3fall && o.alive && !o.removed && o.role !== 'remote'
+    && (!netEntityPersonal(o) || netEntityOwnPet(o))) deepFallStep(o, dt);
   deepSlabStep(dt);
   deepPitchStep(dt);
   deepFloodStep(dt);
@@ -1575,6 +1577,7 @@ function late3Update(dt) {
 function late3LocalUpdate(dt) {
   late3VetStep(dt); // the owner's standard and private progression
   if (!DEEP.built) return;
+  if (typeof netEntityPrivateFallStep === 'function') netEntityPrivateFallStep(dt);
   const P = GAME.player, now = GAME.t, inDeep = !!P && P.alive && late3InDeep(P);
   if (inDeep && !DEEP.inDeep) { uiLog('You go down into the Deep Barrow, where the first kings were burned.', 'sys'); if (typeof loreNote === 'function') loreNote('l3deep'); }
   DEEP.inDeep = inDeep;

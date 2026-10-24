@@ -40,7 +40,7 @@ const a=dungeonPage(),b=dungeonPage('b',2000,20),image=a.api.capture();assert.eq
 
 test('static dungeon traps damage the remote owner once through the canonical combat result',()=>{
  const a=dungeonPage(),b=dungeonPage('b',2000,20);
- const trapNames=['netEntityFind','netEntityReference','netEntityPlain','netEntityDamage','netEntityResult'];
+ const trapNames=['netEntityFind','netEntityReference','netEntityPlain','netEntityDamage','netEntityFallResult','netEntityResult'];
  const trapCode=trapNames.map(name=>{const node=ast.body.find(n=>n.type==='FunctionDeclaration'&&n.id.name===name);return source.slice(node.start,node.end);}).join('\n');
  function prepare(page,mine){
   const c=page.ctx;c.NET_ENTITIES={authority:'token',commands:0,rewards:new Set(),bodies:new Map(),stats:{}};
