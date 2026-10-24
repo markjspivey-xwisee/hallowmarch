@@ -1,0 +1,26 @@
+name: Native lifecycle deadline focused proof
+on:
+  push:
+    branches: [qa/native-lifecycle-deadline-20261024]
+permissions:
+  contents: read
+concurrency:
+  group: native-lifecycle-deadline-qa
+  cancel-in-progress: false
+jobs:
+  focused:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Execute actual adapter and native profile regressions
+        run: |
+          node --check src/14v_nativeidentity.js
+          node --test client/native-pod/profile.test.mjs client/native-pod/provisional-session.test.mjs client/native-pod/native-load.test.mjs tools/tests/departing_save.test.mjs tools/tests/idle_lifecycle.test.mjs
+      - name: Install locked lint dependencies
+        run: npm ci --prefix tools --ignore-scripts
+      - name: Build and lint
+        run: bash tools/lint.sh 80
