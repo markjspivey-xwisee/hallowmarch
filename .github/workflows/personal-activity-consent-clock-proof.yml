@@ -1,0 +1,25 @@
+name: Personal activity consent clock proof
+on:
+  push:
+    branches: [test/personal-activity-consent-clock-proof-20261024]
+permissions:
+  contents: read
+jobs:
+  manual-guards:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci --prefix tools && npm ci --prefix server
+      - name: Verify deterministic consent and live owner guards
+        run: |
+          node --test \
+            tools/manual/main-world-live.test.mjs \
+            tools/manual/main-world-grant-diagnostics.test.mjs \
+            tools/manual/human-consulting-live.test.mjs \
+            tools/manual/personal-activity-live.test.mjs \
+            tools/manual/native-qa-episode.test.mjs \
+            tools/manual/native-player-live.guard.test.mjs
