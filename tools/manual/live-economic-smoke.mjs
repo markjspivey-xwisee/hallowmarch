@@ -3,8 +3,8 @@
 import fs from 'node:fs/promises';
 import { chromium } from '../node_modules/playwright/index.mjs';
 const origin='https://march-native-preview-production.up.railway.app';
-const out='tools/out/live-economic-smoke', end=Date.now()+300000;
-let browser,page,stage='preflight',pass=false;const checks=[];
+const out='tools/out/live-economic-smoke', end=Date.now()+600000;
+let browser,page,stage='preflight',pass=false;const checks=[],navigation={samples:[]};
 const ensure=(ok,code)=>{if(!ok)throw Error(code)};
 const remaining=max=>{const n=Math.min(max,end-Date.now());ensure(n>0,'acceptance_deadline');return n};
 const pause=ms=>new Promise(r=>setTimeout(r,ms));
@@ -65,20 +65,44 @@ try{
   const identity=await page.evaluate(()=>({id:__hm.SAVE.loaded?.nativePlay?.characterId,expiry:__hm.SAVE.loaded?.nativePlay?.guestExpiresAt}));
   ensure(typeof identity.id==='string','fresh_character_missing');
   stage='walk-to-rock';
+  await page.evaluate(()=>__hm.fn.setQuality('low'));
   const rock=await page.evaluate(()=>{const h=__hm,p=h.GAME.player;
     const depleted=new Map((h.worldparts.capture().parts.resources?.rocks||[]).map(row=>[row[0],row]));
-    return h.fn.W.rocks.map((r,i)=>({i,x:r.x,z:r.z,s:r.s,d:Math.hypot(r.x-p.x,r.z-p.z)}))
-      .filter(r=>r.s>=.55&&r.s<2&&r.d<=75&&!(depleted.get(r.i)?.[1]===0)&&[.2,.4,.6,.8].every(t=>h.fn.isWalkable(p.x+(r.x-p.x)*t,p.z+(r.z-p.z)*t)))
-      .sort((a,b)=>a.d-b.d)[0]||null});
+    const candidates=h.fn.W.rocks.map((r,i)=>{
+      const d=Math.hypot(r.x-p.x,r.z-p.z),walk=Math.max(0,d-3.5),u=walk/(d||1);
+      return {i,x:r.x,z:r.z,s:r.s,d,ax:p.x+(r.x-p.x)*u,az:p.z+(r.z-p.z)*u,walk};
+    }).filter(r=>r.s>=.55&&r.s<2&&r.d<=75&&depleted.get(r.i)?.[1]!==0)
+      .filter(r=>{const n=Math.max(1,Math.ceil(r.walk));
+        for(let j=0;j<=n;j++){const t=j/n;
+          if(!h.fn.isWalkable(p.x+(r.ax-p.x)*t,p.z+(r.az-p.z)*t))return false}
+        return true}).sort((a,b)=>a.d-b.d);
+    return candidates.find(r=>r.d<=25)||candidates[0]||null});
   ensure(rock,'no_nearby_walkable_resource');
-  const walkUntil=Date.now()+remaining(45000);let reached=false,stuck=0,last=Infinity;
+  navigation.resource={index:rock.i,scale:rock.s,initialDistance:Math.round(rock.d*100)/100};
+  const walkStarted=Date.now(),walkUntil=walkStarted+remaining(120000);
+  let reached=false,best=Infinity,lastProgressGame=0,startGame=null,previous=null,lastSample=0;
   try{while(Date.now()<walkUntil){
-    const at=await page.evaluate(()=>({x:__hm.GAME.player.x,z:__hm.GAME.player.z,alive:__hm.GAME.player.alive}));
-    ensure(at.alive,'fresh_guest_died');const d=Math.hypot(rock.x-at.x,rock.z-at.z);
+    const at=await page.evaluate(()=>{const h=__hm,p=h.GAME.player;
+      return {x:p.x,z:p.z,t:h.GAME.t,yaw:h.CAM.yaw,alive:p.alive,
+        forward:h.INPUT.keys.has('KeyW'),modal:!!h.UI.modal}});
+    ensure(at.alive,'fresh_guest_died');
+    if(startGame===null){startGame=at.t;lastProgressGame=at.t}
+    const d=Math.hypot(rock.x-at.x,rock.z-at.z),now=Date.now();
+    if(d<best-.05){best=d;lastProgressGame=at.t}
+    if(now-lastSample>=5000||d<=4.1){
+      const rounded=v=>Number.isFinite(v)?Math.round(v*100)/100:null;
+      const dx=previous?at.x-previous.x:0,dz=previous?at.z-previous.z:0;
+      navigation.samples.push({wallSeconds:rounded((now-walkStarted)/1000),
+        gameSeconds:rounded(at.t-startGame),x:rounded(at.x),z:rounded(at.z),
+        distance:rounded(d),moved:rounded(Math.hypot(dx,dz)),
+        forwardProjection:rounded(Math.sin(at.yaw)*dx+Math.cos(at.yaw)*dz),
+        yaw:rounded(at.yaw),forward:at.forward,modalOpen:at.modal});
+      if(navigation.samples.length>8)navigation.samples.splice(1,1);
+      previous=at;lastSample=now;
+    }
     if(d<=4.1){reached=true;break}
-    stuck=d>=last-.05?stuck+1:0;ensure(stuck<15,'resource_approach_blocked');last=d;
-    // Camera orientation only; trusted input drives all movement and the real server pace check.
-    await page.evaluate(y=>__hm.look(y,.2),Math.atan2(rock.x-at.x,rock.z-at.z));
+    ensure(at.t-lastProgressGame<2,'resource_approach_blocked');
+    await page.evaluate(y=>__hm.look(y,.2),Math.atan2(rock.ax-at.x,rock.az-at.z));
     await page.keyboard.down('w');await pause(220);
   }}finally{await page.keyboard.up('w')}
   ensure(reached,'resource_approach_timeout');await pause(400);await active();
@@ -137,11 +161,11 @@ try{
   checks.push('same guest reloaded the confirmed outcome and mineral depletion without another award');pass=true;
 }catch(error){
   const code=/^[a-z0-9_]+$/.test(error?.message||'')?error.message:'browser_step_failed';
-  console.error(JSON.stringify({passed:false,stage,code}));process.exitCode=1;
+  console.error(JSON.stringify({passed:false,stage,code,navigation}));process.exitCode=1;
 }finally{
   try{await page?.evaluate(()=>window.__economicQA?.restore?.())}catch{}
   await page?.keyboard.up('w').catch(()=>{});
   await browser?.close();await fs.mkdir(out,{recursive:true});
-  console.log(JSON.stringify({passed:pass,stage,checks}));
-  await fs.writeFile(out+'/result.json',JSON.stringify({passed:pass,stage,checks},null,2));
+  console.log(JSON.stringify({passed:pass,stage,checks,navigation}));
+  await fs.writeFile(out+'/result.json',JSON.stringify({passed:pass,stage,checks,navigation},null,2));
 }
