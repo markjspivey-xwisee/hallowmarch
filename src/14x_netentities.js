@@ -427,7 +427,15 @@ function netEntityBuff(dst, kind, value, dur, src, extra) {
 function netEntityKilled(e) {
   if (!netEntityShared() || !netEntityMine() || !e.damagers || e.kind === 'door' || netEntityTown(e)) return;
   if (!e.netEntityLootMade && !e.damagers.has(GAME.player?.id)
-    && [...e.damagers].some(id => getEnt(id)?.role === 'remote') && typeof rollLoot === 'function') rollLoot(e);
+    && [...e.damagers].some(id => getEnt(id)?.role === 'remote') && typeof rollLoot === 'function') {
+    // Ground spoils belong to the shared scene. A keeper who did not take part
+    // must not receive another character's gold, experience or realm points.
+    rollLoot(e, false);
+    if (typeof huntOnKill === 'function') huntOnKill(e);
+    if (typeof depthOnKill === 'function') depthOnKill(e);
+    if (typeof late2RisenSpoils === 'function' && (e.l4host && e.properName
+      || e.elite && e.camp != null && e.faction === FACTION_MONSTER && e.l2risen)) late2RisenSpoils(e, false);
+  }
   e.netEntityLootMade = true;
   e.netEntityDeaths = (e.netEntityDeaths || 0) + 1;
   const reward = { id: NET_ENTITIES.authority + ':reward:' + (e.netNpcId || e.netEntityId) + ':' + e.netEntityDeaths, kind: 'reward', row: netEntityRow(e) };

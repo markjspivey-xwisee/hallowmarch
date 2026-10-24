@@ -11,7 +11,7 @@ function row(extra = {}) {
 }
 function client(peer = 'self') {
   let now = 0;
-  const sends = [], notices = [], ghosts = new Map();
+  const sends = [], notices = [], requests = [], ghosts = new Map();
   const B = { ...row(), rider: null }, P = { id: 'local-player', alive: true, boat: null };
   const ctx = vm.createContext({ console, Map, Set, Infinity, Math, Number,
     performance: { now: () => now }, queueMicrotask() {}, window: {},
@@ -22,6 +22,7 @@ function client(peer = 'self') {
     netCurrentWorldAdmission: () => admission,
     netSameWorldAdmission: (a, b) => !!b && a.origin === b.origin && a.epoch === b.epoch,
     netWsSend: m => { sends.push(JSON.parse(JSON.stringify(m))); return true; },
+    netWorldPartsRequest: (...args) => { requests.push(JSON.parse(JSON.stringify(args))); return true; },
     uiToast: m => notices.push(m), netGhost: peer => ghosts.get(peer),
     getEnt: id => id === P.id ? P : [...ghosts.values()].find(e => e.id === id),
     clamp: (x, a, b) => Math.max(a, Math.min(b, x)), lerp: (a, b, t) => a + (b - a) * t,
@@ -31,10 +32,10 @@ function client(peer = 'self') {
     boatBoard(boat, e, approved) { assert.equal(approved, true); assert.equal(boat.rider, null); boat.rider = e.id; e.boat = boat; },
     boatLeave(e) { e.boat.rider = null; e.boat = null; },
   });
-  vm.runInContext(source + '\nthis.api = { NET_BOATS, netBoatRead, netBoatMessage, netBoatBoard, netBoatCanSimulate, netBoatPump, netBoatStep, netBoatRemoteRider, netBoatReset, netBoatAction, netBoatLoad };', ctx);
+  vm.runInContext(source + '\nthis.api = { NET_BOATS, netBoatRead, netBoatMessage, netBoatBoard, netBoatCanSimulate, netBoatPump, netBoatStep, netBoatRemoteRider, netBoatReset, netBoatAction, netBoatLoad, netBoatRebuildRequest };', ctx);
   const auth = (host = 'host', boats = [row()], token = 'lease-a') => ctx.api.netBoatMessage({ t: 'activity', kind: 'authority', peer: host, authority: token, worldAdmission: admission, boats });
   const message = (boats, op = 'state', extra = {}) => ctx.api.netBoatMessage({ t: 'activity', kind: 'boats', authority: 'lease-a', worldAdmission: admission, op, boats, ...extra });
-  return { ctx, api: ctx.api, B, P, sends, notices, ghosts, auth, message, time: n => { now = n; } };
+  return { ctx, api: ctx.api, B, P, sends, notices, requests, ghosts, auth, message, time: n => { now = n; } };
 }
 
 test('boarding waits for exclusive grant; refusal cannot seat a second character', () => {
@@ -116,10 +117,36 @@ test('ignite and rebuild wait for canonical replies on both host and followers',
     // follow-up to represent the completed hull burn on either client.
     c.message([row({ st: 'burnt', char: 1 })], 'ignite', { id: 1, ok: true });
     assert.equal(c.api.netBoatAction(c.B, 'restore'), true);
-    assert.equal(c.B.st, 'burnt'); assert.equal(c.sends.at(-1).op, 'restore');
+    assert.equal(c.B.st, 'burnt');
+    assert.deepEqual(c.requests.at(-1), ['boat.rebuild', { id: 1 }, [['plank', 6]], true]);
+    assert.equal(c.sends.some(m => m.op === 'restore'), false, 'no unpaid legacy restore is dispatched');
     c.message([row({ st: 'free', char: 0 })], 'restore', { id: 1, ok: true });
     assert.equal(c.B.st, 'free'); assert.equal(c.B.char, 0);
   }
+});
+
+test('boat rebuild completion reserves costs through the private journal before spending locally', () => {
+  const boats = fs.readFileSync(new URL('../../src/07e_boats.js', import.meta.url), 'utf8');
+  const body = boats.slice(boats.indexOf('function boatRebuild(B)'), boats.indexOf('function boatRestore(B)'));
+  const c = client(); c.auth('host', [row({ st: 'burnt' })]);
+  let job, spent = 0, restored = 0;
+  Object.assign(c.ctx, { goodsHave: () => true, uiError() {},
+    survStartJob: value => { job = value; }, goodsTake: (id, n) => { spent += n; },
+    boatRestore: () => { restored++; }, uiLog() {} });
+  vm.runInContext(body + '\nthis.rebuild = boatRebuild;', c.ctx);
+  c.ctx.rebuild(c.B); job.done();
+  assert.equal(spent, 0, 'the reservation owns the cost until a durable server receipt');
+  assert.equal(restored, 0); assert.equal(c.requests.length, 1);
+  c.ctx.NETWS.url = ''; c.ctx.rebuild(c.B); job.done();
+  assert.equal(spent, 6, 'standalone boats retain the original local cost');
+  assert.equal(restored, 1);
+});
+
+test('a disconnected rebuild leaves materials alone and waits for shared admission', () => {
+  const c = client(); c.auth('host', [row({ st: 'burnt' })]);
+  c.ctx.connected = false;
+  assert.equal(c.api.netBoatRebuildRequest(c.B), true);
+  assert.equal(c.requests.length, 0); assert.equal(c.B.st, 'burnt');
 });
 
 test('late boat construction and private save reload cannot replace the accepted public pose', () => {

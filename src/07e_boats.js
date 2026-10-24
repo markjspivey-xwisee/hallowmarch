@@ -673,6 +673,9 @@ function boatRebuild(B) {
   const P = GAME.player;
   survStartJob({ label: 'Rebuilding the boat', dur: 6, yaw: Math.atan2(B.x - P.x, B.z - P.z), tick: (J) => { J.k = (J.k || 0) - GAME.dt; if (J.k < 0) { J.k = 0.6; setAct(P, 1, 0.5); boatSfx('knock'); } }, done: () => {
     if (!goodsHave('plank', 6) || B.st !== 'burnt') return false;
+    // A shared rebuild reserves the owner's planks before sending its command.
+    // Only the canonical hull and receipt can settle that reservation.
+    if (typeof netBoatRebuildRequest === 'function' && netBoatRebuildRequest(B)) return false;
     goodsTake('plank', 6);
     if (boatRestore(B) !== false) uiLog('The boat is sound again: new strakes where the old ones burnt.', 'sys');
     return false;

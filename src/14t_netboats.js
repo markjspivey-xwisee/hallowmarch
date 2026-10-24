@@ -74,6 +74,14 @@ function netBoatLoad(B) {
   netBoatTake(row, true);
   return true;
 }
+function netBoatRebuildRequest(B) {
+  if (!netBoatEnabled()) return false;
+  if (!B || B.st !== 'burnt' || !netBoatLive() || !NET_BOATS.frames.has(B.id)
+    || typeof netWorldPartsRequest !== 'function') {
+    uiToast('Waiting for the shared boat before rebuilding.'); return true;
+  }
+  return netWorldPartsRequest('boat.rebuild', { id: B.id }, [['plank', 6]], true);
+}
 function netBoatAction(B, op, by = null) {
   if (!netBoatEnabled() || NET_BOATS.applying) return false;
   if (netBoatAmbient()) {
@@ -91,16 +99,7 @@ function netBoatAction(B, op, by = null) {
   const row = netBoatRow(B);
   row.rider = null;
   if (op === 'ignite') { row.st = 'burning'; row.char = 0; }
-  else if (op === 'restore') {
-    // A player rebuilds the hull where it burnt. Only the unattended town
-    // replacement is returned to its berth by the elected ambient authority.
-    row.st = B.grounded > 0.5 ? 'beached' : 'free'; row.char = 0;
-    row.vx = row.vz = row.wr = 0; row.launch = null;
-    const berth = B.home && BOATS.jetties[B.home.j]?.berths[B.home.b];
-    if (berth && Math.hypot(berth.x - B.x, berth.z - B.z) <= 8) {
-      row.x = berth.x; row.z = berth.z; row.yaw = berth.yaw; row.st = 'moored';
-    }
-  }
+  else if (op === 'restore') return netBoatRebuildRequest(B);
   if (netBoatSend(op, { id: B.id, boats: [row] })) NET_BOATS.actions.set(key, now);
   return true;
 }
@@ -122,6 +121,7 @@ function netBoatTake(row, force = false) {
   Object.assign(B, { x: row.x, z: row.z, yaw: row.yaw, vx: row.vx, vz: row.vz, wr: row.wr,
     st: row.st, ph: row.ph, eff: row.eff, grounded: row.grounded, char: row.char,
     still: row.still, home: row.home, launch: row.launch ? { ...row.launch } : null });
+  if (row.st !== 'burning' && row.st !== 'burnt') { B.burnT = 0; B.rebuildAt = 0; B.fireT = 0; }
   if (row.rider && row.rider !== NET.self) B.rider = netGhost(row.rider)?.id ?? 'net:' + row.rider;
   else if (row.rider === NET.self) B.rider = mine ? P.id : null;
   else if (oldRider && oldRider !== P && oldRider.role !== 'remote' && netBoatAmbient()) B.rider = oldRider.id;
@@ -211,6 +211,16 @@ function netBoatReset() {
   NET_BOATS.lastSnapshot = ''; NET_BOATS.lastSend = -Infinity; NET_BOATS.seq = 0;
 }
 queueMicrotask(() => {
+  if (typeof netWorldPartsRegisterCommand === 'function') {
+    netWorldPartsRegisterCommand('boat.rebuild', {
+      durable: true, tools: ['tool_hammer'],
+      // The server owns the hull and receipt together. A server without this
+      // operation refunds rather than running a second local restore.
+      run: () => ({ ok: false, why: 'This server cannot confirm a shared boat rebuild yet.' }),
+    });
+    netWorldPartsRegisterResult('boat.rebuild', () =>
+      uiLog('The boat is sound again: new strakes where the old ones burnt.', 'sys'));
+  }
   if (typeof window.__hm === 'object') window.__hm.netboats = { NET_BOATS, read: netBoatRead,
     row: netBoatRow, message: netBoatMessage, pump: netBoatPump, reset: netBoatReset, canSimulate: netBoatCanSimulate };
 });

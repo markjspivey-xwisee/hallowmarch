@@ -463,11 +463,12 @@ function late2Rally(e, t) {
   if (GAME.player && dist2(e.x, e.z, GAME.player.x, GAME.player.z) < 60 * 60) uiLog(`${capFirst(theName(e))} calls its pack to it!`, 'warn');
 }
 // a risen champion's spoils, beyond a champion's (late2OnKill)
-function late2RisenSpoils(e) {
+function late2RisenSpoils(e, personalRewards = true) {
   const P = GAME.player, prog = GAME.prog, L = prog.level;
   const it = makeItem({ cls: P.cls, realm: P.faction, lvl: dropIlvl(Math.max(e.level - 2, L)), q: rollQuality(DROP_WEIGHTS.boss) });
   dropItem(it, e.x, e.z, e.y + 1.0 * (e.scale || 1));
   dropGood('trophy', 1, e.x, e.z, e.y + 0.8);
+  if (!personalRewards) return;
   addXP(Math.round(20 * e.level * Math.max(0.5, CON[conIndex(e.level, L)].xp) * 6), e);
   addRP(250);
   uiToast(`${capFirst(e.name)} has fallen. The borderlands will tell of it.`, 'quest');

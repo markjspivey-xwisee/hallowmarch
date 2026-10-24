@@ -76,8 +76,11 @@ async def boot(ctx, cfg, name):
     await page.route('https://fonts.googleapis.com/**', font_route)
     await page.route('https://fonts.gstatic.com/**', font_route)
     async def doc_route(route): await route.fulfill(status=200, content_type='text/html', body=hm.SKELETON.replace('%s', hm.HTML.read_text()))
-    await page.route('http://hm.test/**', doc_route)
-    await page.goto('http://hm.test/' + cfg.get('q', ''), wait_until='commit')
+    document_origin = cfg.get('origin', 'http://hm.test')
+    # A supplied real origin leaves APIs/assets on their actual server and gives
+    # secure-only browser APIs the same context as the deployed HTTPS game.
+    await page.route(document_origin + ('/' if cfg.get('origin') else '/**'), doc_route)
+    await page.goto(document_origin + '/' + cfg.get('q', ''), wait_until='commit')
     await page.wait_for_function('window.__hm && window.__hm.ready', timeout=300000, polling=500)
     await page.evaluate("__hm.fn.setQuality('low')")
     await page.evaluate(HOLD)

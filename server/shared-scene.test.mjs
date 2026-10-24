@@ -168,7 +168,7 @@ test('latest-state persistence coalesces live frames and flushes final state wit
   assert.equal(f.send(f.b, {kind:'npcs',op:'snapshot',seq:11,npcs:[]}), false);
 });
 
-test('ignition ejects a granted occupant; only nearby burnt boats can be restored', () => {
+test('ignition ejects a granted occupant; legacy unpaid restore requests are refused', () => {
   const f = fixture();
   f.send(f.a, { kind: 'boats', op: 'snapshot', seq: 1, boats: [boat()] });
   f.send(f.b, { kind: 'boats', op: 'board', id: 1 });
@@ -177,8 +177,8 @@ test('ignition ejects a granted occupant; only nearby burnt boats can be restore
   assert.equal(f.out.get('b').at(-1).boats[0].st, 'burning');
   assert.equal(f.send(f.a, { kind: 'boats', op: 'restore', id: 1, boats: [boat()] }), false);
   f.send(f.a, { kind: 'boats', op: 'snapshot', seq: 2, boats: [{ ...boat(), st: 'burnt' }] });
-  assert.equal(f.send(f.b, { kind: 'boats', op: 'restore', id: 1, boats: [boat()] }), true);
-  assert.equal(f.out.get('a').at(-1).boats[0].st, 'free');
+  assert.equal(f.send(f.b, { kind: 'boats', op: 'restore', id: 1, boats: [boat()] }), false);
+  assert.equal(f.state.activity.boats[0].st, 'burnt');
 });
 
 test('canonical metadata and bounded receipts are retained in owned snapshots', () => {
@@ -469,6 +469,75 @@ test('private settlement reaches only the keeper after an exact canonical owner 
 
 const turn = () => new Promise(resolve => setImmediate(resolve));
 const economicReceipt = () => ({ id: 'b:economic', ownerAccount: 'account-b', digest: 'native-proof', ok: true, goods: [['stone', 2]] });
+const rebuild = (id = 'rebuild-1') => ({ kind: 'worldparts', op: 'command', command: {
+  id, op: 'boat.rebuild', args: { id: 1 }, goods: { plank: 6, tool_hammer: 1 }, capacity: 0,
+} });
+function burntFixture(options = {}) {
+  const f = fixture(undefined, options);
+  f.send(f.a, { kind: 'boats', op: 'snapshot', seq: 1, boats: [{ ...boat(), st: 'burnt', char: 1 }] });
+  f.publish(f.a, 'worldparts', { v: 1, full: true, parts: { build: [] }, remove: [], receipts: [] });
+  return f;
+}
+test('a rebuild publishes one hull and cost receipt only after the owned candidate confirms', async () => {
+  let release, calls = 0;
+  const f = burntFixture({ confirm: () => { calls++; return new Promise(resolve => { release = resolve; }); } });
+  assert.equal(f.send(f.b, rebuild()), true);
+  assert.equal(f.state.activity.boats[0].st, 'free', 'the captured candidate includes the rebuilt hull');
+  assert.deepEqual(f.state.activity.worldparts.receipts[0].goods, [['plank', -6]]);
+  assert.equal(f.scene.publicActivity(f.room).boats[0].st, 'burnt', 'the unconfirmed hull remains private to persistence');
+  assert.equal(f.out.get('b').some(m => m.op === 'receipt' || m.op === 'restore'), false);
+  await Promise.resolve(); release(); await turn();
+  assert.equal(calls, 1);
+  const result = f.out.get('b').find(m => m.op === 'receipt').receipt;
+  assert.equal(result.ok, true); assert.equal(result.ownerAccount, 'account-b');
+  assert.equal(f.out.get('a').find(m => m.op === 'restore').boats[0].st, 'free');
+  assert.equal(f.scene.publicActivity(f.room).boats[0].st, 'free');
+  f.tick(3000);
+  assert.equal(f.send(f.b, rebuild()), true);
+  assert.equal(calls, 1, 'an identical retry replays its receipt without rebuilding or charging twice');
+  assert.equal(f.state.activity.worldparts.receipts.length, 1);
+  assert.equal(f.out.get('b').at(-1).receipt.digest, result.digest);
+  // A queued ambient snapshot from before the reply cannot undo the new hull.
+  f.send(f.a, { kind: 'boats', op: 'snapshot', seq: 2, boats: [{ ...boat(), st: 'burnt', char: 1 }] });
+  assert.equal(f.state.activity.boats[0].st, 'free');
+  const resumed = fixture(structuredClone(f.state), { confirm: () => { throw Error('a confirmed rebuild must not repeat'); } });
+  assert.equal(resumed.send(resumed.b, rebuild()), true);
+  assert.equal(resumed.out.get('b').at(-1).receipt.digest, result.digest, 'restart replays the same owned receipt');
+  assert.equal(resumed.state.activity.boats[0].st, 'free');
+});
+test('racing rebuilders charge one owner and confirm a refund receipt for the loser', async () => {
+  const f = burntFixture({ confirm: async () => {} });
+  assert.equal(f.send(f.a, rebuild('a:rebuild')), true);
+  assert.equal(f.send(f.b, rebuild('b:rebuild')), false, 'a racing command waits while the first candidate confirms');
+  await turn(); f.tick(3000);
+  assert.equal(f.send(f.b, rebuild('b:rebuild')), true);
+  await turn();
+  const receipts = f.state.activity.worldparts.receipts;
+  assert.equal(receipts.length, 2);
+  assert.deepEqual(receipts.find(r => r.ownerAccount === 'account-a').goods, [['plank', -6]]);
+  const refused = receipts.find(r => r.ownerAccount === 'account-b');
+  assert.equal(refused.ok, false); assert.deepEqual(refused.goods, [], 'no consumption leaves all reserved planks refundable');
+  assert.equal(f.send(f.b, { kind: 'boats', op: 'restore', id: 1, boats: [boat()] }), false);
+});
+test('rebuild interruption cannot reveal a hull or spend receipt from a discarded world', async () => {
+  let release;
+  const f = burntFixture({ confirm: () => new Promise(resolve => { release = resolve; }) });
+  const before = structuredClone(f.state.activity);
+  f.send(f.b, rebuild()); await Promise.resolve();
+  f.state.activity = before; f.scene.sync(f.room);
+  release(); await turn();
+  assert.equal(f.state.activity.boats[0].st, 'burnt');
+  assert.equal(f.state.activity.worldparts.receipts.length, 0);
+  assert.equal(f.out.get('b').some(m => m.op === 'receipt' || m.op === 'restore'), false);
+});
+test('an unconfirmed rebuild fences the candidate without publicly acknowledging private costs', async () => {
+  const f = burntFixture({ confirm: async () => { throw Error('native storage unavailable'); } });
+  f.send(f.b, rebuild()); await turn();
+  assert.equal(f.scene.publicActivity(f.room).boats[0].st, 'burnt');
+  assert.equal(f.scene.publicActivity(f.room).worldparts.receipts.length, 0);
+  assert.equal(f.out.get('b').some(m => m.op === 'receipt' || m.op === 'restore'), false);
+  assert.equal(f.out.get('b').at(-1).reason, 'world_checkpoint_unconfirmed');
+});
 test('native confirmation gates economic echoes, late joins, results and authority handoff', async () => {
   let release;
   const f = fixture(undefined, { confirm: () => new Promise(resolve => { release = resolve; }) });

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
+import { parse } from 'acorn';
 
 const code = readFileSync(new URL('../../src/14x_netentities.js', import.meta.url), 'utf8');
 const admission = { origin: 'https://march.test', epoch: 2 };
@@ -55,6 +56,114 @@ function snapshot(p, payload, seq = 1, token = 'token-one') {
     authority: token, peer: 'a', worldAdmission: admission, seq, part, total, data: data.slice(part * 3500, (part + 1) * 3500) }), true);
 }
 function hostRows(host) { return host.json('window.__hm.entities.rows()'); }
+
+// Exercise the production reward chain, including its actual physical drops.
+// Rendering, item definitions and unrelated quest UI remain fixture services.
+const rewardSources = new Map();
+function realRewards(p) {
+  const functions = {
+    '07_entities.js': ['killEnt', 'grantKillRewards', 'addXP', 'addRP'],
+    '09c_loot.js': ['rollLoot', 'dropItem', 'addGold', 'makeJunk'],
+    '06d_goods.js': ['dropGood'],
+    '09s_survival.js': ['huntOnKill'],
+    '09u_depth.js': ['depthOnKill'],
+    '10l_late.js': ['late2OnKill', 'late2RisenSpoils'],
+  };
+  p.run(`
+    const INV={gold:0}, LOOT=[], LOOT_MAX=40, FACTION_MONSTER=3, LEVEL_CAP=50, TAU=Math.PI*2;
+    const CON=[{xp:0},{xp:1}], DROP_WEIGHTS={mob:[],soldier:[],elite:[],boss:[],dragon:[]};
+    const MOBS={skeleton:{kind:'humanoid'},wolf:{kind:'wolf'}}, JUNK={skeleton:['Grave dust'],wolf:['Wolf pelt']};
+    const HUNT_DROPS={deer:[['meat_raw',2,2],['hide',1,1]]}, DP_BIRD={};
+    const GOODS={meat_raw:{name:'Meat'},hide:{name:'Hide'},trophy:{name:'Trophy'}}, DEPTH={stats:{}}, LATE2={stats:{risenFell:0}};
+    let ITEM_SEQ=1;
+    Math=Object.create(Math); Math.random=()=>0.1;
+    GAME.prog={level:3,xp:0,rp:0,kills:0,realmKills:0}; GAME.player.level=3; GAME.player.cls='warrior';
+    const conIndex=()=>1, rollQuality=()=>0, dropIlvl=n=>n, pick=(random,a)=>a[0];
+    const makeItem=o=>({id:'gear-'+ITEM_SEQ++,slot:'weapon',q:0,...o}), goodName=id=>GOODS[id]?.name||id;
+    const heightAt=()=>0, inDungeon=()=>false, goodsHave=()=>false, dpKnife=()=>false;
+    const activityEntityEvent=()=>{}, deathEffects=()=>{}, onEntityKilled=()=>{}, dropRelic=()=>{};
+    const late2Deed=()=>{}, bountyOnKill=()=>{}, late2VetXP=()=>{}, late2RpMult=()=>1;
+    const xpToNext=()=>1e9, realmRank=()=>1, fmtInt=String, capFirst=String;
+    const uiLog=()=>{}, uiToast=()=>{}, uiFloatAt=()=>{}, sfx=()=>{};
+  `);
+  for (const [file, names] of Object.entries(functions)) {
+    if (!rewardSources.has(file)) {
+      const source = readFileSync(new URL('../../src/' + file, import.meta.url), 'utf8');
+      const declarations = parse(source, { ecmaVersion: 'latest', sourceType: 'module' }).body;
+      rewardSources.set(file, names.map(name => {
+        const node = declarations.find(node => node.type === 'FunctionDeclaration' && node.id.name === name);
+        assert.ok(node, `production ${file} must declare ${name}`);
+        return source.slice(node.start, node.end);
+      }).join('\n'));
+    }
+    p.run(rewardSources.get(file));
+  }
+}
+
+function killedByRemote(a, b, spec = {}, localParticipant = false) {
+  a.c.spec = spec;
+  a.run(`makeEnt({x:2,kind:'humanoid',mobType:'skeleton',...spec});
+    const remote=makeEnt({role:'remote',faction:0,netPeer:'b',level:3,cls:'mage'});
+    NET.peers.set('b',{ghost:remote,slow:{on:1}});
+    ENT[1].damagers=new Set([remote.id]);`);
+  if (localParticipant) a.run('ENT[1].damagers.add(GAME.player.id)');
+  snapshot(b, { v: 1, full: true, rows: hostRows(a), remove: [] });
+  a.run('killEnt(ENT[1],remote)');
+  const result = a.json('packets.find(p=>p.op==="result"&&p.result.kind==="reward")');
+  assert.ok(result, 'the keeper must send the participating follower its reward');
+  return result;
+}
+
+test('a remote-only kill creates one canonical ground drop and rewards only its participant', () => {
+  const a = page('a'), b = page('b'); a.authority(); b.authority(); realRewards(a); realRewards(b);
+  const result = killedByRemote(a, b);
+  const ground = a.json('LOOT');
+  assert.ok(ground.length > 0, 'the actual keeper roll creates physical spoils');
+  assert.equal(a.run('INV.gold'), 0, 'an uninvolved keeper cannot receive the follower\'s gold');
+  assert.equal(a.run('GAME.prog.xp'), 0);
+  b.message(result);
+  assert.ok(b.run('INV.gold') > 0, 'the real reward chain preserves the participant\'s gold');
+  assert.ok(b.run('GAME.prog.xp') > 0, 'the real reward chain preserves experience');
+  assert.equal(b.run('LOOT.length'), 0, 'the participant does not roll a second private ground scene');
+  const rewards = b.json('({gold:INV.gold,xp:GAME.prog.xp,kills:GAME.prog.kills})');
+  b.message(result);
+  assert.deepEqual(b.json('({gold:INV.gold,xp:GAME.prog.xp,kills:GAME.prog.kills})'), rewards);
+  assert.deepEqual(a.json('LOOT'), ground);
+});
+
+test('joint kill participation retains both private rewards with only the keeper\'s ground spoils', () => {
+  const a = page('a'), b = page('b'); a.authority(); b.authority(); realRewards(a); realRewards(b);
+  const result = killedByRemote(a, b, {}, true);
+  const ground = a.json('LOOT');
+  assert.ok(ground.length > 0); assert.ok(a.run('INV.gold') > 0); assert.ok(a.run('GAME.prog.xp') > 0);
+  b.message(result); b.message(result);
+  assert.ok(b.run('INV.gold') > 0); assert.ok(b.run('GAME.prog.xp') > 0);
+  assert.equal(b.run('GAME.prog.kills'), 1); assert.equal(b.run('LOOT.length'), 0);
+  a.run('killEnt(ENT[1],remote)');
+  assert.deepEqual(a.json('LOOT'), ground, 'a repeated death callback cannot roll the physical loot twice');
+});
+
+test('remote hunting and risen champions keep their material spoils in the canonical scene', () => {
+  for (const spec of [{ kind: 'deer', role: 'critter', faction: 4, mobType: null },
+    { elite: true, camp: 0, l2risen: true }]) {
+    const a = page('a'), b = page('b'); a.authority(); b.authority(); realRewards(a); realRewards(b);
+    const result = killedByRemote(a, b, spec);
+    assert.ok(a.json('LOOT').some(L => L.item.goods === (spec.kind === 'deer' ? 'meat_raw' : 'trophy')));
+    assert.equal(a.run('INV.gold'), 0); assert.equal(a.run('GAME.prog.xp'), 0); assert.equal(a.run('GAME.prog.rp'), 0);
+    b.message(result); b.message(result);
+    assert.equal(b.run('LOOT.length'), 0, 'hunt, depth and late reward hooks cannot create follower-only spoils');
+    if (spec.elite) {
+      assert.equal(b.run('GAME.prog.rp'), 250, 'the champion participant keeps its personal realm points');
+      assert.equal(b.run('GAME.prog.xp'), 420, 'the participant keeps both ordinary and risen experience');
+    }
+  }
+});
+
+test('standalone kills still produce their ordinary personal gold, experience and physical spoils', () => {
+  const p = page('solo', false); realRewards(p);
+  p.run('makeEnt({kind:"humanoid",mobType:"skeleton"});ENT[1].damagers=new Set([GAME.player.id]);killEnt(ENT[1],GAME.player)');
+  assert.ok(p.run('INV.gold') > 0); assert.ok(p.run('GAME.prog.xp') > 0); assert.ok(p.run('LOOT.length') > 0);
+});
 
 test('standalone simulation is preserved, connected scene waits for authority and owns no private character', () => {
   const local = page('solo', false);

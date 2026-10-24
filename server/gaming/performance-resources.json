@@ -60,7 +60,7 @@
     },
     {
       "path": "src/10l_late.js",
-      "digest": "sha256:0660bd6a051c1747ae7e7b55c374e2de26c4e5bf181b28ca6c6d0d134c69a6d8"
+      "digest": "sha256:90ee4293cdc14d3802cc6fd8f5eededa67a7cdeddd9a19e8724060adf169bd91"
     },
     {
       "path": "src/10m_deep.js",
@@ -1199,11 +1199,11 @@
       ],
       "source": {
         "path": "src/10l_late.js",
-        "digest": "sha256:0660bd6a051c1747ae7e7b55c374e2de26c4e5bf181b28ca6c6d0d134c69a6d8",
+        "digest": "sha256:90ee4293cdc14d3802cc6fd8f5eededa67a7cdeddd9a19e8724060adf169bd91",
         "selector": "FIELD_NOTES.l2name",
         "lines": {
-          "start": 861,
-          "end": 861
+          "start": 862,
+          "end": 862
         }
       },
       "requiresContext": true,
@@ -1215,7 +1215,7 @@
         "note": "l2name",
         "availability": "Collected in the game when relevant"
       },
-      "revisionDigest": "sha256:b57769812d15bbfb96c9d2f697b56e8dbe1b317220c0321ca057857c7348803e"
+      "revisionDigest": "sha256:0620238fd3c7d2c92d2d2b7edba999a9d7115a8e0ff76b982b835b78bdf5cbc5"
     },
     {
       "id": "field-note:l2risen",
@@ -1228,11 +1228,11 @@
       ],
       "source": {
         "path": "src/10l_late.js",
-        "digest": "sha256:0660bd6a051c1747ae7e7b55c374e2de26c4e5bf181b28ca6c6d0d134c69a6d8",
+        "digest": "sha256:90ee4293cdc14d3802cc6fd8f5eededa67a7cdeddd9a19e8724060adf169bd91",
         "selector": "FIELD_NOTES.l2risen",
         "lines": {
-          "start": 862,
-          "end": 862
+          "start": 863,
+          "end": 863
         }
       },
       "requiresContext": false,
@@ -1245,7 +1245,7 @@
         "note": "l2risen",
         "availability": "Collected in the game when relevant"
       },
-      "revisionDigest": "sha256:6c1e4bc99ec0796c60967d73c31c41feace03e72955b36e1a68b20cd7f631903"
+      "revisionDigest": "sha256:a95fce240c57f9a47fb5d36616efaa08b0ce40b4d2df45dbf6af64c5f21a26a0"
     },
     {
       "id": "field-note:l2std",
@@ -1258,11 +1258,11 @@
       ],
       "source": {
         "path": "src/10l_late.js",
-        "digest": "sha256:0660bd6a051c1747ae7e7b55c374e2de26c4e5bf181b28ca6c6d0d134c69a6d8",
+        "digest": "sha256:90ee4293cdc14d3802cc6fd8f5eededa67a7cdeddd9a19e8724060adf169bd91",
         "selector": "FIELD_NOTES.l2std",
         "lines": {
-          "start": 863,
-          "end": 863
+          "start": 864,
+          "end": 864
         }
       },
       "requiresContext": true,
@@ -1274,7 +1274,7 @@
         "note": "l2std",
         "availability": "Collected in the game when relevant"
       },
-      "revisionDigest": "sha256:8a0a7c5869f787e7002bb6df9fc32bc21a9a650c2c5b6fbeb0f90b099f327772"
+      "revisionDigest": "sha256:9872fef0f934e35070a1b4a99a7713387e32e4be8f85134aa65b6ebb5a097f85"
     },
     {
       "id": "field-note:l2vet",
@@ -1287,11 +1287,11 @@
       ],
       "source": {
         "path": "src/10l_late.js",
-        "digest": "sha256:0660bd6a051c1747ae7e7b55c374e2de26c4e5bf181b28ca6c6d0d134c69a6d8",
+        "digest": "sha256:90ee4293cdc14d3802cc6fd8f5eededa67a7cdeddd9a19e8724060adf169bd91",
         "selector": "FIELD_NOTES.l2vet",
         "lines": {
-          "start": 864,
-          "end": 864
+          "start": 865,
+          "end": 865
         }
       },
       "requiresContext": true,
@@ -1303,7 +1303,7 @@
         "note": "l2vet",
         "availability": "Collected in the game when relevant"
       },
-      "revisionDigest": "sha256:2d854ce78b3bf4b9eff5683704ad1b5c878d591bbcb4d8c7eba9a38e5a3fe95f"
+      "revisionDigest": "sha256:e168178b3eec6afae38a8f8ea6306102ee50abe1d656482c2fc1e62e663de790"
     },
     {
       "id": "field-note:l3bard",
@@ -3093,5 +3093,5 @@
       "assessment": null
     }
   ],
-  "revisionDigest": "sha256:7ee9c34e396c993b0deb5ce4196f5e5dc3ba8903c391637373ce8a658a0f2c02"
+  "revisionDigest": "sha256:13c3c343363277b27869d7fbce1bacbe1ca7e1a029e29a6661e05b46bd19aed5"
 }

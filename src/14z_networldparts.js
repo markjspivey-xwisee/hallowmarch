@@ -79,6 +79,21 @@ function netWorldPartsPublish(now, force = false) {
   NETPARTS.sentAt = now;
   return true;
 }
+function netWorldPartsOutcomeFits(delta, items) {
+  for (const [id, n] of delta) {
+    const have = INV.goods[id] || 0;
+    if (n > 0 && have + n > GOODS[id].stack || n < 0 && have < -n) return false;
+  }
+  // Match bagAdd's stacking without changing a pack until the whole outcome fits.
+  const bag = INV.bag.map(item => ({ ...item }));
+  for (const item of items) {
+    const stack = item.slot === 'junk' && bag.find(other => other.slot === 'junk' && other.name === item.name
+      && (other.n || 1) + (item.n || 1) <= 20);
+    if (stack) stack.n = (stack.n || 1) + (item.n || 1);
+    else { if (bag.length >= BAG_SIZE) return false; bag.push({ ...item }); }
+  }
+  return true;
+}
 function netWorldPartsResult(m) {
   const p = NETPARTS.pending.get(m.id);
   if (!p || !netWorldPartsOwnerScope(p) || m.ownerAccount !== p.ownerAccount) return;
@@ -88,11 +103,18 @@ function netWorldPartsResult(m) {
   const delta = new Map(p.cost.map(([id, n]) => [id, n]));
   if (m.ok && Array.isArray(m.goods)) for (const [id, n] of m.goods)
     if (GOODS[id] && Number.isFinite(n) && Math.abs(n) <= 9999) delta.set(id, (delta.get(id) || 0) + n);
+  const items = m.ok && Array.isArray(m.items) ? m.items.filter(item => item && typeof item.id === 'string') : [];
+  if (!netWorldPartsOutcomeFits(delta, items)) {
+    p.owedReceipt = netPartsClone(m);
+    if (!p.capacityBlocked) uiError('Make room in your packs to receive the waiting shared action. Its outcome is kept for you.');
+    p.capacityBlocked = true; return;
+  }
+  delete p.owedReceipt; p.capacityBlocked = false;
   for (const [id, n] of delta) if (n > 0) goodsAdd(id, n, true);
   else if (n < 0) goodsTake(id, -n);
   if (!m.ok && typeof uiError === 'function') uiError(m.reason || 'The shared world refused that action. Try again.');
   if (m.ok && Number.isFinite(m.gold) && m.gold > 0) addGold(m.gold);
-  if (m.ok && Array.isArray(m.items)) for (const item of m.items) if (item && typeof item.id === 'string') bagAdd(item);
+  for (const item of items) bagAdd(item);
   if (m.ok && Array.isArray(m.notes)) for (const id of m.notes) if (typeof id === 'string') loreNote(id);
   if (m.ok && Array.isArray(m.skills)) for (const [key, amount] of m.skills) if (Number.isFinite(amount) && amount > 0) skillGain(key, amount);
   if (m.ok && m.result?.pieceId && typeof BUILD !== 'undefined') {
@@ -201,6 +223,21 @@ function netWorldPartsMessage(m) {
     const pending = NETPARTS.pending.get(m.id);
     if (pending && m.ownerAccount === pending.ownerAccount) netWorldPartsResult(m); return;
   }
+  if (m.op === 'receipt') {
+    // Server-owned operations such as boat rebuilding do not pass through a
+    // keeper's snapshot sequence. Retain their confirmed receipts on every
+    // page so a later keeper cannot replay the action or erase its outcome.
+    const receipt = m.receipt;
+    if (!receipt || typeof receipt.id !== 'string' || typeof receipt.ownerAccount !== 'string'
+      || typeof receipt.digest !== 'string') return;
+    const prior = NETPARTS.receipts.find(r => r.id === receipt.id && r.ownerAccount === receipt.ownerAccount);
+    if (prior && prior.digest !== receipt.digest) return;
+    if (prior) Object.assign(prior, receipt, { settled: !!prior.settled || !!receipt.settled });
+    else NETPARTS.receipts.push(netPartsClone(receipt));
+    netWorldPartsPruneReceipts();
+    NETPARTS.confirmedReceipts.add(receipt.ownerAccount + ':' + receipt.id);
+    netWorldPartsResult(receipt); return;
+  }
   if (m.op === 'settled') { netWorldPartsTakeSettled(m); return; }
   if (m.op === 'command') { if (NETPARTS.peer === NET.self && NETPARTS.ready && netWorldPartsConnected()) netWorldPartsExecute(m); return; }
   if (m.op !== 'snapshot' || !Number.isSafeInteger(m.seq) || m.seq <= NETPARTS.readSeq
@@ -261,7 +298,10 @@ function netWorldPartsPump(now) {
     NETPARTS.privateObservedBody = SAVE.lastBody; NETPARTS.journalLoaded = true;
   }
   if (NETPARTS.journalLoaded) { NETPARTS.journalLoaded = false; void netWorldPartsFlushJournal(); }
-  if (NETPARTS.ready) for (const [id, p] of NETPARTS.pending) netWorldPartsDispatch(id, p);
+  if (NETPARTS.ready) for (const [id, p] of NETPARTS.pending) {
+    if (p.owedReceipt) netWorldPartsResult(p.owedReceipt);
+    if (NETPARTS.pending.get(id) === p) netWorldPartsDispatch(id, p);
+  }
   netWorldPartsSendSettled(now);
 }
 queueMicrotask(() => {

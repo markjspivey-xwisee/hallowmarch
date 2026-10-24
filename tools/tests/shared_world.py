@@ -142,7 +142,8 @@ async def boot(browser, origin, url, name, realm, cls, level, phone=False):
         page.on("websocket", socket_open)
     context.on("page", page_open)
     page = await fixture.boot(context, {"room": "shared-world", "shard": "shared-world",
-                              "user": name, "noRoom": True, "server": url}, name)
+                              "user": name, "noRoom": True, "server": url,
+                              "origin": url.replace("wss://", "https://").removesuffix("/ws")}, name)
     await fixture.start(page, realm, cls, level, name)
     await page.evaluate("NT.P.maxHp=100000; NT.P.hp=100000; 0")
     page._context = context
@@ -165,6 +166,22 @@ async def readiness(pages):
     peers = [await p.evaluate("NT.st().self") for p in pages]
     require(len(set(peers)) == len(pages), "phone and desktop have independent player identities", peers=peers)
     return peers
+
+
+async def join_while_playing(pages, browser, origin, url, name, realm, cls, level, phone=False):
+    """Keep existing humans active while the independent joining page boots."""
+    async def keep_playing():
+        while True:
+            await pulse(pages)
+    activity = asyncio.create_task(keep_playing())
+    try:
+        return await boot(browser, origin, url, name, realm, cls, level, phone=phone)
+    finally:
+        activity.cancel()
+        try:
+            await activity
+        except asyncio.CancelledError:
+            pass
 
 
 async def npc_rows(page):
@@ -450,7 +467,11 @@ async def run():
             browser = await playwright.chromium.launch(args=["--use-angle=swiftshader",
                        "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist", "--ignore-certificate-errors"])
             desktop = await boot(browser, origin, url, "DesktopKeeper", 0, "mage", 30)
-            phone = await boot(browser, origin, url, "PhoneFarmer", 0, "mage", 27, phone=True)
+            # A created page has not necessarily joined the server yet. Establish
+            # its real admission before another page can win the keeper election.
+            pages = [desktop]
+            await readiness(pages)
+            phone = await join_while_playing(pages, browser, origin, url, "PhoneFarmer", 0, "mage", 27, phone=True)
             pages = [desktop, phone]
             await readiness(pages)
             private_before = [await p.evaluate("({name:NT.P.name,level:__hm.GAME.prog.level})") for p in pages]
@@ -477,8 +498,8 @@ async def run():
             require(await eventually(pages, took_over), "the surviving character takes authority after the keeper leaves")
             require(await survivor.evaluate(piece_signature_js()) == pieces,
                     "host handoff preserves constructed structures")
-            late = await boot(browser, origin, url, "LatePhone" if late_phone else "LateDesktop",
-                              0, "priest", 17, phone=late_phone)
+            late = await join_while_playing(pages, browser, origin, url, "LatePhone" if late_phone else "LateDesktop",
+                                          0, "priest", 17, phone=late_phone)
             pages = [survivor, late]
             await readiness(pages)
             await diagnose(pages, "late join after authority handoff")
