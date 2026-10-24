@@ -944,14 +944,14 @@ function anBirth(e) {
   }
 }
 const anPlural = (w) => (w === 'calf' ? 'calves' : w === 'pup' ? 'pups' : w + 's');
-function anLay(e) {
+function anLay(e, ownerAccount = null) {
   if (anSharedProduction(e, 'animal.lay')) return;
   // eggs lie where the hen laid them (in the shed if she is in a pen); walk over them to pick them up
   const n = 1 + (Math.random() < (e.tame.tr.yield - 0.9) ? 1 : 0);
   const near = LOOT.filter((L) => L.item && L.item.goods === 'egg' && dist2(L.x, L.z, e.x, e.z) < 12 * 12).length;
   if (near >= 8) return;
   ANIMALS.eggsLaid = (ANIMALS.eggsLaid || 0) + n;
-  depthLaid(e, dropGood('egg', n, e.x + (Math.random() - 0.5) * 0.3, e.z + (Math.random() - 0.5) * 0.3)); // [depth] with a cockerel in the flock, an egg left lying hatches (09u_depth.js)
+  depthLaid(e, dropGood('egg', n, e.x + (Math.random() - 0.5) * 0.3, e.z + (Math.random() - 0.5) * 0.3), ownerAccount); // [depth] with a cockerel in the flock, an egg left lying hatches (09u_depth.js)
 }
 function anHearts(e, n) {
   if (!e || dist2(e.x, e.z, camera.position.x, camera.position.z) > 70 * 70) return;
@@ -1461,7 +1461,10 @@ const r3 = (v) => Math.round(v * 1000) / 1000;
 function anSaveTr(t) { return { coat: t.coat.map(r3), coat2: t.coat2.map(r3), al: t.al.slice(), seed: t.seed, size: r3(t.size), calm: r3(t.calm), yield: r3(t.yield), speed: r3(t.speed), strength: r3(t.strength) }; }
 function anSaveRec(rec, e) {
   const o = { a: rec.aid, k: rec.k, n: rec.name, s: rec.sex, g: rec.gen, age: Math.round(rec.age), tr: anSaveTr(rec.tr), c: rec.cmd, h: r3(rec.hunger), w: r3(rec.thirst), l: rec.lvl, xp: Math.round(rec.xp), pr: { wool: r3(rec.prod.wool), milk: r3(rec.prod.milk), egg: r3(rec.prod.egg) } };
+  if (rec.moult) o.mt = Math.round(rec.moult);
   if (rec.sharedClaim) o.sc = rec.sharedClaim;
+  if (rec.publicCycles) o.pc = { lay: rec.publicCycles.lay || 0, clutch: rec.publicCycles.clutch || 0, moult: rec.publicCycles.moult || 0 };
+  if (rec.publicPending) o.pp = { lay: rec.publicPending.lay || 0, clutch: rec.publicPending.clutch || 0, moult: rec.publicPending.moult || 0 };
   if (rec.ma) o.ma = [rec.ma.aid, rec.ma.name];
   if (rec.pa) o.pa = [rec.pa.aid, rec.pa.name];
   if (rec.pen != null) o.p = rec.pen;
@@ -1510,7 +1513,10 @@ function animalsLoad(d) {
   for (const o of (Array.isArray(d.list) ? d.list : []).slice(0, 80)) {
     if (!o || !AKIND[o.k]) continue;
     const rec = anRecord(o.k, { owner: 'player', sex: o.s === 'm' ? 'm' : 'f', tr: anCleanTraits(o.tr, o.k), name: typeof o.n === 'string' && o.n.trim() ? o.n.slice(0, 16).replace(/[<>&"]/g, '') : pick(Math.random, PET_NAMES), gen: Math.round(num(o.g, 0, 999, 0)), age: num(o.age, 0, 1e8, AKIND[o.k].grow * 2) });
+    rec.moult = num(o.mt, 0, 1000, 0);
     if (typeof o.sc === 'string') rec.sharedClaim = o.sc.slice(0, 160);
+    if (o.pc && typeof o.pc === 'object') rec.publicCycles = { lay: Math.floor(num(o.pc.lay, 0, 1e9, 0)), clutch: Math.floor(num(o.pc.clutch, 0, 1e9, 0)), moult: Math.floor(num(o.pc.moult, 0, 1e9, 0)) };
+    if (o.pp && typeof o.pp === 'object') rec.publicPending = { lay: Math.floor(num(o.pp.lay, 0, 1e9, 0)), clutch: Math.floor(num(o.pp.clutch, 0, 1e9, 0)), moult: Math.floor(num(o.pp.moult, 0, 1e9, 0)) };
     rec.aid = Math.round(num(o.a, 1, 1e9, ANIMALS.nextAid++));
     ANIMALS.nextAid = Math.max(ANIMALS.nextAid, rec.aid + 1);
     rec.cmd = ['follow', 'stay', 'guard', 'pen'].includes(o.c) ? o.c : (AKIND[o.k].live ? 'pen' : 'follow');
@@ -1608,17 +1614,53 @@ function anPenMuck(pen) {
   if (n < 1 || !goodsAdd('manure', n)) return false;
   pen.manure -= n; saveSoon(); return true;
 }
+function anSharedProductionRestore(rec, op, args) {
+  if (op === 'animal.lay') rec.prod.egg = Math.max(1, rec.prod.egg);
+  else if (op === 'animal.moult') rec.moult = Math.max(240, rec.moult || 0);
+  else rec.preg = { left: 1, sire: args.sire };
+}
 function anSharedProduction(e, op, args = {}) {
-  if (typeof netWorldPartsActive !== 'function' || !netWorldPartsActive() || anSharedWorldCanSimulate()) return false;
-  if (!e.netEntityId || typeof netWorldPartsConnected === 'function' && !netWorldPartsConnected()
+  if (typeof netWorldPartsActive !== 'function' || !netWorldPartsActive()
+    || typeof NETPARTS !== 'undefined' && NETPARTS.replay || !anSharedOwnAnimal(e)) return false;
+  const rec = e.tame, key = op.slice(7);
+  rec.publicCycles ||= {}; rec.publicPending ||= {};
+  if (rec.publicPending[key] || !e.netEntityId
+    || typeof netWorldPartsConnected === 'function' && !netWorldPartsConnected()
     || typeof NETPARTS !== 'undefined' && !NETPARTS.ready) {
-    // Keep the owner's saved production timer ready until the shared command
-    // can enter its durable reservation journal; a lost connection loses no egg.
-    if (op === 'animal.lay') e.tame.prod.egg = Math.max(1, e.tame.prod.egg);
-    else e.tame.preg = { left: 1, sire: args.sire };
-    return true;
+    anSharedProductionRestore(rec, op, args); return true;
   }
-  return netWorldPartsRequest(op, { id: e.netEntityId, ...args });
+  const cycle = (rec.publicCycles[key] || 0) + 1;
+  // Set the serial before the reservation asks for its private checkpoint.
+  // That checkpoint contains the reset egg/pregnancy timer and this command.
+  rec.publicCycles[key] = cycle; rec.publicPending[key] = cycle;
+  const before = typeof NETPARTS !== 'undefined' ? NETPARTS.next : null;
+  const deferred = netWorldPartsRequest(op, { id: e.netEntityId, aid: rec.aid, cycle, ...args }, [], true);
+  const reserved = deferred && (before === null || NETPARTS.next > before);
+  if (!reserved) {
+    rec.publicCycles[key] = cycle - 1; delete rec.publicPending[key];
+    anSharedProductionRestore(rec, op, args);
+  }
+  return true;
+}
+function anSharedProductionRecord(pending) {
+  if (!pending?.args || !Number.isSafeInteger(pending.args.aid)) return null;
+  return anMine().find(e => e.tame.aid === pending.args.aid)?.tame
+    || ANIMALS.down.find(rec => rec.aid === pending.args.aid) || null;
+}
+function anSharedProductionDone(result, receipt, pending) {
+  const rec = anSharedProductionRecord(pending);
+  if (!rec) return;
+  const key = pending.op.slice(7);
+  if (rec.publicPending?.[key] === pending.args.cycle) delete rec.publicPending[key];
+}
+function anSharedProductionFailed(receipt, pending) {
+  const rec = anSharedProductionRecord(pending);
+  if (!rec) return;
+  const key = pending.op.slice(7);
+  if (rec.publicPending?.[key] !== pending.args.cycle) return;
+  delete rec.publicPending[key];
+  if (rec.publicCycles?.[key] === pending.args.cycle) rec.publicCycles[key]--;
+  anSharedProductionRestore(rec, pending.op, pending.args);
 }
 function anSharedPenConsume(e, pen, mode) {
   if (typeof netWorldPartsActive !== 'function' || !netWorldPartsActive() || anSharedWorldCanSimulate()) return false;
@@ -1676,7 +1718,11 @@ function anSharedReceive(result, receipt) {
   if (!o || !AKIND[o.k] || anMine().some(e => e.tame.sharedClaim === claimKey)) return;
   const rec = anRecord(o.k, { owner: 'player', sex: o.s === 'm' ? 'm' : 'f', tr: anCleanTraits(o.tr, o.k),
     name: typeof o.n === 'string' ? o.n.slice(0, 16).replace(/[<>&"]/g, '') : undefined,
-    age: Number.isFinite(o.age) ? o.age : AKIND[o.k].grow, cmd: 'follow' });
+    age: Number.isFinite(o.age) ? o.age : AKIND[o.k].grow,
+    gen: Number.isSafeInteger(o.g) ? clamp(o.g, 0, 999) : 0,
+    ma: Array.isArray(o.ma) ? { aid: Math.max(0, Math.floor(+o.ma[0] || 0)), name: String(o.ma[1] || '').slice(0, 16).replace(/[<>&"]/g, '') } : null,
+    pa: Array.isArray(o.pa) ? { aid: Math.max(0, Math.floor(+o.pa[0] || 0)), name: String(o.pa[1] || '').slice(0, 16).replace(/[<>&"]/g, '') } : null,
+    pen: penById(o.p) ? o.p : null, cmd: o.c === 'pen' && penById(o.p) ? 'pen' : 'follow' });
   rec.sharedClaim = claimKey; ANIMALS_SHARED.received.add(claimKey);
   if (ANIMALS_SHARED.received.size > 256) ANIMALS_SHARED.received.delete(ANIMALS_SHARED.received.values().next().value);
   const P = GAME.player, x = Number.isFinite(o.x) ? o.x : P.x, z = Number.isFinite(o.z) ? o.z : P.z;
@@ -1724,6 +1770,10 @@ queueMicrotask(() => {
   netWorldPartsRegister('animals', { save: anSharedSave, apply: anSharedApply });
   netWorldPartsRegisterResult('animal.offer', anSharedReceive);
   netWorldPartsRegisterResult('animal.consume', anSharedReceive);
+  for (const op of ['animal.lay', 'animal.clutch', 'animal.moult']) {
+    netWorldPartsRegisterResult(op, anSharedProductionDone);
+    netWorldPartsRegisterFailure(op, anSharedProductionFailed);
+  }
   const animalPoint = a => { const e = netEntityFind(a.id); return e ? { x: e.x, z: e.z } : null; };
   const penPoint = a => { const p = penById(a.id); return p ? { x: p.x, z: p.z } : null; };
   netWorldPartsRegisterCommand('animal.offer', { point: animalPoint, range: 6, run: anSharedOffer });

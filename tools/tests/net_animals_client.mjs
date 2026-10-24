@@ -10,21 +10,26 @@ function body(name) {
   return next < 0 ? rest : rest.slice(0, next + 1);
 }
 const names = ['anSharedWorldCanSimulate', 'anSharedOwnAnimal', 'anSharedAccount', 'anSharedPenMine', 'anSharedGate',
-  'anPenFill', 'anPenMuck', 'anSharedProduction', 'anSharedPenConsume', 'anSharedOffer', 'anSharedReceive', 'anSharedSave', 'anSharedApply', 'updateAnimals'];
+  'anPenFill', 'anPenMuck', 'anSharedProductionRestore', 'anSharedProduction', 'anSharedProductionRecord', 'anSharedProductionDone', 'anSharedProductionFailed', 'anSharedPenConsume', 'anSharedOffer', 'anSharedReceive', 'anSharedSave', 'anSharedApply', 'updateAnimals'];
 function setup() {
-  const commands = new Map(), resultHandlers = new Map(), requests = [], clocks = [];
+  const commands = new Map(), resultHandlers = new Map(), failureHandlers = new Map(), requests = [], clocks = [];
   const entities = new Map(), inventory = { apple: 20, water: 8, feed: 5, plank: 20 };
   const A = { ready: false, trust: new Map(), claims: new Set(), consumed: new Map(), received: new Set() };
   const animalState = { list: [], pens: [], trust: new Map(), nextAid: 1, nextPen: 1, down: [], trail: [], inited: true };
   const ctx = vm.createContext({ Math, Number, Map, Set, console, host: true, HALF: 512,
     ANIMALS_SHARED: A, ANIMALS: animalState, NETWS: { acct: { id: 'host-account' } },
     GAME: { t: 0, started: true, player: { id: 'host', x: 0, z: 0, faction: 0, alive: true } },
-    NET: { peers: new Map() }, CAMPS: [],
+    NET: { peers: new Map() }, NETPARTS: { next: 0, ready: true, replay: false }, CAMPS: [],
     AKIND: { horse: { likes: ['apple'], need: 4, grow: 900 }, pig: { likes: ['apple'], need: 3, grow: 480 }, cattle: { grow: 900 } },
     netWorldPartsActive: () => true, netWorldPartsCanSimulate: () => ctx.host,
-    netWorldPartsRequest(op, args, cost = []) { if (ctx.host) return false; requests.push({ op, args, cost }); return true; },
+    netWorldPartsRequest(op, args, cost = [], forceOwner = false) {
+      if (ctx.host && !forceOwner) return false;
+      if (ctx.refuseReservation) return true;
+      ctx.NETPARTS.next++; requests.push({ op, args, cost, forceOwner }); return true;
+    },
     netWorldPartsRegister() {}, netWorldPartsRegisterCommand: (op, spec) => commands.set(op, spec),
     netWorldPartsRegisterResult: (op, fn) => resultHandlers.set(op, fn),
+    netWorldPartsRegisterFailure: (op, fn) => failureHandlers.set(op, fn),
     netEntityFind: id => entities.get(id), netEntityOwnPet: e => e?.tame?.owner === 'player' && !e.netEntityOwner,
     clamp: (x, a, b) => Math.max(a, Math.min(b, x)), r3: x => Math.round(x * 1000) / 1000,
     dist2: (x, z, a, b) => (x - a) ** 2 + (z - b) ** 2,
@@ -50,7 +55,7 @@ function setup() {
   });
   vm.runInContext(names.map(body).join('\n') + '\n' + source.slice(source.lastIndexOf('\nqueueMicrotask(() => {'))
     + '\nthis.api={anSharedOffer,anSharedReceive,anPenFill,anPenMuck,anSharedSave,anSharedApply,anSharedPenConsume,anSharedProduction,updateAnimals};', ctx);
-  return { ctx, api: ctx.api, commands, resultHandlers, requests, clocks, entities, inventory, A, animalState };
+  return { ctx, api: ctx.api, commands, resultHandlers, requests, clocks, entities, inventory, A, animalState, failureHandlers };
 }
 
 test('two independent tamers cannot claim the same public wild animal', () => {
@@ -138,7 +143,7 @@ test('public pen snapshot restores resources and ownership without importing pri
 });
 test('owned hen production defers to canonical commands and remains ready before admission', () => {
   const c = setup(); c.ctx.host = false;
-  const hen = { tame: { prod: { egg: 0 }, preg: null } };
+  const hen = { tame: { aid: 1, owner: 'player', prod: { egg: 0 }, preg: null } };
   assert.equal(c.api.anSharedProduction(hen, 'animal.lay'), true);
   assert.equal(hen.tame.prod.egg, 1); assert.equal(c.requests.length, 0);
   hen.netEntityId = 'pet:phone:hen';
@@ -153,4 +158,73 @@ test('a stable offspring claim remains single-owned across different recovery re
   c.api.anSharedReceive(result, { id: 'recovered-command' });
   assert.equal(c.animalState.list.length, 1);
   assert.equal(c.animalState.list[0].tame.sharedClaim, 'offspring:one');
+});
+test('keeper-owned hen production also uses a forced private reservation', () => {
+  const c = setup(), hen = { netEntityId: 'pet:self:7', tame: { aid: 7, owner: 'player', prod: { egg: 0 } } };
+  c.animalState.list.push(hen);
+  assert.equal(c.api.anSharedProduction(hen, 'animal.lay'), true);
+  assert.equal(c.requests[0].forceOwner, true); assert.equal(c.requests[0].args.cycle, 1);
+  assert.equal(hen.tame.publicPending.lay, 1);
+  c.resultHandlers.get('animal.lay')({}, { id: 'receipt' }, { op: 'animal.lay', args: { aid: 7, cycle: 1 } });
+  assert.equal(hen.tame.publicPending.lay, undefined);
+  assert.equal(hen.tame.publicCycles.lay, 1);
+});
+
+test('refused reservation and failed canonical production restore private timers', () => {
+  const c = setup(), hen = { netEntityId: 'pet:self:7', tame: { aid: 7, owner: 'player', prod: { egg: 0 } } };
+  c.animalState.list.push(hen); c.ctx.refuseReservation = true;
+  c.api.anSharedProduction(hen, 'animal.lay');
+  assert.equal(hen.tame.prod.egg, 1); assert.equal(hen.tame.publicCycles.lay, 0);
+  assert.equal(hen.tame.publicPending.lay, undefined);
+  c.ctx.refuseReservation = false;
+  const sire = { aid: 8, name: 'Red', tr: {} };
+  c.api.anSharedProduction(hen, 'animal.clutch', { sire });
+  c.failureHandlers.get('animal.clutch')({ ok: false }, { op: 'animal.clutch', args: { aid: 7, cycle: 1, sire } });
+  assert.equal(hen.tame.preg.left, 1); assert.equal(hen.tame.preg.sire, sire);
+  assert.equal(hen.tame.publicCycles.clutch, 0); assert.equal(hen.tame.publicPending.clutch, undefined);
+});
+
+test('an unacknowledged cycle is not reissued and replayed public production cannot recurse', () => {
+  const c = setup(), hen = { netEntityId: 'pet:self:7', tame: { aid: 7, owner: 'player', prod: { egg: 0 } } };
+  c.api.anSharedProduction(hen, 'animal.lay'); c.api.anSharedProduction(hen, 'animal.lay');
+  assert.equal(c.requests.length, 1); assert.equal(hen.tame.prod.egg, 1);
+  c.ctx.NETPARTS.replay = true;
+  assert.equal(c.api.anSharedProduction(hen, 'animal.lay'), false);
+  c.ctx.NETPARTS.replay = false; hen.tame.owner = 'town';
+  assert.equal(c.api.anSharedProduction(hen, 'animal.lay'), false);
+});
+
+test('offspring receipts retain generation, parents, and the shared pen', () => {
+  const c = setup(); c.animalState.pens.push({ id: 10 });
+  c.api.anSharedReceive({ claimId: 'offspring:lineage', animal: { a: 99, k: 'pig', s: 'f', n: 'Pip', age: 0, tr: {},
+    g: 4, ma: [12, 'Sow'], pa: [13, 'Boar'], p: 10, c: 'pen', x: 3, z: 1 } }, { id: 'receipt:lineage' });
+  const rec = c.animalState.list[0].tame;
+  assert.equal(rec.gen, 4); assert.equal(rec.ma.aid, 12); assert.equal(rec.pa.name, 'Boar');
+  assert.equal(rec.pen, 10); assert.equal(rec.cmd, 'pen'); assert.notEqual(rec.aid, 99);
+});
+test('moulting uses the same durable owner cycle and restores rejected feather production', () => {
+  const c = setup(), hen = { netEntityId: 'pet:self:7', tame: { aid: 7, owner: 'player', prod: { egg: 0 }, moult: 0 } };
+  c.animalState.list.push(hen);
+  c.api.anSharedProduction(hen, 'animal.moult');
+  assert.equal(c.requests[0].forceOwner, true); assert.equal(c.requests[0].args.cycle, 1);
+  assert.equal(hen.tame.publicCycles.moult, 1);
+  c.failureHandlers.get('animal.moult')({ ok: false }, { op: 'animal.moult', args: { aid: 7, cycle: 1 } });
+  assert.equal(hen.tame.moult, 240); assert.equal(hen.tame.publicCycles.moult, 0);
+  assert.equal(hen.tame.publicPending.moult, undefined);
+});
+
+test('private animal save and load retain production serials, reservations, and feather clock', () => {
+  const c = setup();
+  c.ctx.anSaveTr = t => t; c.ctx.isFiniteNum = Number.isFinite;
+  vm.runInContext(body('anSaveRec') + '\n' + body('animalsLoad') + '\nthis.privateCodec={save:anSaveRec,load:animalsLoad};', c.ctx);
+  const record = { aid: 7, k: 'pig', owner: 'player', name: 'Moss', sex: 'f', gen: 3, age: 1000, tr: {}, cmd: 'follow',
+    hunger: 0.9, thirst: 0.8, lvl: 1, xp: 0, prod: { wool: 0, milk: 0, egg: 0 },
+    publicCycles: { lay: 2, clutch: 1, moult: 4 }, publicPending: { moult: 4 }, moult: 120, sharedClaim: 'owned-claim' };
+  const saved = c.ctx.privateCodec.save(record);
+  assert.equal(saved.pc.moult, 4); assert.equal(saved.pp.moult, 4); assert.equal(saved.mt, 120);
+  c.ctx.privateCodec.load({ v: 1, next: 8, np: 1, list: [saved], pens: [], receipts: ['owned-claim'] });
+  const restored = c.animalState.list[0].tame;
+  assert.equal(restored.publicCycles.lay, 2); assert.equal(restored.publicPending.moult, 4);
+  assert.equal(restored.moult, 120); assert.equal(restored.sharedClaim, 'owned-claim');
+  assert.equal(c.A.received.has('owned-claim'), true);
 });

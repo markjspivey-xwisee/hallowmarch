@@ -1485,6 +1485,7 @@ function farmSharedSave() { return farmSaveData(); }
 function farmSharedApply(d) {
   if (!d) return;
   const job = FARM.job, plot = job && job.plot, herbal = FARM.herbal;
+  for (const herb of FARM.herbs) { herb.gone = 0; herb.regrow = 0; }
   farmLoadData(d);
   FARM.herbal = herbal;
   if (job && plot) {

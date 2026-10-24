@@ -229,7 +229,12 @@ function roomFor(policy) {
 }
 function roomHost(R) {
   let best = null;
-  for (const c of R.clients.values()) if (isHumanPlaying(c) && c.slow && c.slow.on === 1 && (!best || c.since < best.since || (c.since === best.since && c.peer < best.peer))) best = c;
+  for (const c of R.clients.values()) {
+    if (!isHumanPlaying(c) || !c.slow || c.slow.on !== 1) continue;
+    const capable = c.slow.sharedScene === 1, previous = best?.slow?.sharedScene === 1;
+    if (!best || capable && !previous || capable === previous
+      && (c.since < best.since || c.since === best.since && c.peer < best.peer)) best = c;
+  }
   return best;
 }
 const send = (c, o) => { if (c.ws.readyState !== 1 || (c.humanDormant && !['world-status', 'acct', 'save', 'saved'].includes(o.t))) return; const s = JSON.stringify(o); STATS.bytesOut += s.length; c.ws.send(s); };
@@ -614,7 +619,7 @@ function onFast(c, d) {
   if (evs.length) c.evSeq = evs[evs.length - 1][0];
   for (const e of evs) if (!c.room.diagnostic && e[1] === 'say' && Array.isArray(e[3]) && e[3][0] === 'r' && typeof e[3][1] === 'string' && c.realm >= 0) { SEASON.chatIn(c.realm, c.acct.name === 'Guest' && c.slow ? cleanName(c.slow.n) || 'Guest' : c.acct.name, e[3][1].replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff]/g, '')); STATS.chatKept++; }
   c.fast = { ...d, ev: [] };
-  const R = c.room;
+  const R = c.room, sceneKeeper = roomHost(c.room);
   for (const o of R.clients.values()) {
     if (o === c) continue;
     const mine = evs.filter((e) => {
@@ -624,10 +629,12 @@ function onFast(c, d) {
     });
     STATS.evDropped += evs.length - mine.length;
     const dd = o.pos ? dist(o.pos, c.pos) : 0, mate = c.party && o.party === c.party;
-    const near = !o.pos || dd < CFG.interest || mate;
+    // The simulation keeper must see every admitted player, including distant AI targets.
+    // Other viewers keep the normal render-interest budget.
+    const keeper = o === sceneKeeper, near = keeper || !o.pos || dd < CFG.interest || mate;
     // a phone's budget: a body near at the sender's own pace (10 a second), farther ones less often (60 m: 5, 140 m: 2.5),
     // a moment always at once; the reader's own interpolation draws them between
-    let gap = mate || dd < 60 ? 0 : dd < 140 ? 190 : 390;
+    let gap = keeper || mate || dd < 60 ? 0 : dd < 140 ? 190 : 390;
     if (near && gap && !mine.length) { o.nearAt = o.nearAt || new Map(); if (now - (o.nearAt.get(c.peer) || 0) < gap) { STATS.thinned++; continue; } o.nearAt.set(c.peer, now); }
     if (near) { send(o, { t: 'peer', peer: c.peer, fast: { ...d, ev: mine } }); STATS.relayed++; }
     else {
@@ -805,6 +812,11 @@ function onMsg(c, raw) {
   if (!c.acct) return;
   if (m.t === 'slow') {
     const principalVerified = !nativePlayersRequired || !!PLAYER_ACCOUNTS.humanPrincipalFor(c);
+    if (nativePlayersRequired && principalVerified && m.d?.on === 1 && m.d.sharedScene !== 1) {
+      const why = 'Reload Hallowmarch to join the shared world. Your saved character is preserved.';
+      send(c, { t: 'reload-required', code: 'shared_scene_upgrade_required', why });
+      c.ws.close(4006, why); return;
+    }
     const playing = HUMAN_PLAY.update(c, principalVerified ? m.d : null);
     if (!playing) {
       c.slow = { ...(m.d && typeof m.d === 'object' ? m.d : {}), on: 0, humanLive: 0 };

@@ -34,6 +34,7 @@ const reconstruct = packets => JSON.parse(packets.sort((a,b) => a.part-b.part).m
 test('boat and town rows preserve shared numeric pose, tools and boat attachment', () => {
   assert.equal(activityBoat(boat()).grounded, 0.3);
   assert.equal(activityNpc(npc()).lk[8], 65536);
+  const carrying = npc(); carrying.lk[8] = 1 << 24; assert.equal(activityNpc(carrying).lk[8], 1 << 24);
   assert.equal(activityNpc(npc()).bt, 1);
   assert.equal(activityBoat({ ...boat(), id: 0 }), null);
   assert.equal(activityNpc({ ...npc(), id: 'town:1:villager:0' }), null);
@@ -134,7 +135,7 @@ test('commands are stamped, bounded and deduplicated; only host targets results'
   const seen = f.out.get('a').at(-1);
   assert.equal(seen.from, 'b'); assert.deepEqual(seen.position, { x: 0, z: 0 });
   assert.equal(seen.realm, 0);
-  assert.equal(f.send(f.b, { kind: 'worldparts', op: 'command', command }), false);
+  assert.equal(f.send(f.b, { kind: 'worldparts', op: 'command', command }), true, 'canonical host may replay a world outcome after a lost reply');
   assert.equal(f.send(f.b, { kind: 'worldparts', op: 'result', to: 'a', id: 'b:5', ok: true }), false);
   assert.equal(f.send(f.a, { kind: 'worldparts', op: 'result', to: 'b', id: 'b:5', ok: true, goods: [['timber', -2]], result: { pieceId: 1 } }), true);
   assert.equal(f.out.get('b').at(-1).id, 'b:5');
@@ -238,14 +239,14 @@ test('actual ingress accepts more than 60 bounded snapshot fragments interleaved
   assert.equal(stats.rateDropped, 0); assert.equal(f.state.activity.entities.rows.length,100);
   assert.ok(fast()>=7);
 });
-async function ingress(f) {
+async function ingress(f, extra = {}) {
   const fs = await import('node:fs'), vm = await import('node:vm');
   const source = fs.readFileSync(new URL('./server.js',import.meta.url),'utf8');
   const start=source.indexOf('function onMsg(c, raw) {'), end=source.indexOf('\n/* ------------------------------------------------------------------ */\n/* HTTP:',start);
   assert.ok(start>=0 && end>start);
   const stats={msgs:0,bytesIn:0,badMsgs:0,rateDropped:0,kicked:0};let fastCount=0;
   const context={STATS:stats,CFG:{maxMsg:8192,maxSave:768*1024},SHARED_SCENE:f.scene,Date,Buffer,console,
-    nativePlayersRequired:false,WORLD_STATE:null,isHumanPlaying:c=>c.live,onFast:()=>fastCount++};
+    nativePlayersRequired:false,WORLD_STATE:null,isHumanPlaying:c=>c.live,onFast:()=>fastCount++, ...extra};
   f.a.winT=Date.now();f.a.winN=0;f.a.ws={close:()=>{throw Error('unexpected transport close')}};
   f.b.winT=Date.now();f.b.winN=0;f.b.ws=f.a.ws;
   vm.createContext(context);vm.runInContext(source.slice(start,end)+'\nglobalThis.onMsg=onMsg;',context);
@@ -367,4 +368,63 @@ test('actual keep reporting follows the shared host even when another player sta
   assert.equal(room.regions.f1,'b');
   assert.equal(context.worldReport(b,report(2),admission),true);
   assert.equal(worlds.march.k[0],2);assert.equal(calls[1].who,'B');
+});
+
+test('authenticated private settlement is account-bound and cannot be downgraded by a stale host frame', () => {
+  const f=fixture(), receipt={id:'b:done',to:'b',ownerAccount:'account-b',digest:'opaque-outcome-token',ok:true,goods:[['timber',-2]],result:{pieceId:1}};
+  f.publish(f.a,'worldparts',{v:1,full:true,parts:{build:{pieces:[1]}},remove:[],receipts:[receipt]});
+  assert.equal(f.send(f.a,{kind:'worldparts',op:'settled',id:receipt.id,digest:receipt.digest,ownerAccount:'account-b'}),false,'another account cannot acknowledge the owner outcome');
+  assert.equal(f.send(f.b,{kind:'worldparts',op:'settled',id:receipt.id,digest:'wrong'}),false);
+  assert.equal(f.send(f.b,{kind:'worldparts',op:'settled',id:receipt.id,digest:receipt.digest,ownerAccount:'spoofed'}),true);
+  assert.equal(f.state.activity.worldparts.receipts[0].settled,true);
+  assert.equal(f.out.get('a').at(-1).ownerAccount,'account-b');
+  assert.equal(f.out.get('a').at(-1).op,'settled');
+  assert.equal(f.out.get('b').at(-1).op,'settled'); assert.equal(f.out.get('b').at(-1).digest,receipt.digest);
+  f.publish(f.a,'worldparts',{v:1,full:false,parts:{},remove:[],receipts:[receipt]},2);
+  assert.equal(f.state.activity.worldparts.receipts[0].settled,true,'a delayed old frame cannot reopen settled outcomes');
+});
+
+test('canonical receipts retain all unsettled outcomes and apply backpressure at 24', () => {
+  const f=fixture(), receipts=[...Array(24)].map((_,i)=>({id:'b:'+i,to:'b',ownerAccount:'account-b',digest:'result-'+i,ok:true,goods:[],result:null}));
+  assert.equal(f.publish(f.a,'worldparts',{v:1,full:true,parts:{farm:{stage:1}},remove:[],receipts}),true);
+  assert.equal(f.publish(f.a,'worldparts',{v:1,full:false,parts:{farm:{stage:2}},remove:[],receipts:[]},2),true);
+  assert.equal(f.state.activity.worldparts.receipts.length,24,'a publisher cannot silently evict unacknowledged outcomes');
+  const next={id:'b:24',to:'b',ownerAccount:'account-b',digest:'result-24',ok:true,goods:[],result:null};
+  assert.equal(f.publish(f.a,'worldparts',{v:1,full:false,parts:{farm:{stage:3}},remove:[],receipts:[next]},3),false);
+  assert.equal(f.state.activity.worldparts.parts.farm.stage,2);
+  assert.equal(f.send(f.b,{kind:'worldparts',op:'settled',id:'b:0',digest:'result-0'}),true);
+  assert.equal(f.publish(f.a,'worldparts',{v:1,full:false,parts:{farm:{stage:3}},remove:[],receipts:[next]},3),true);
+  assert.equal(f.state.activity.worldparts.receipts.filter(r=>!r.settled).length,24);
+});
+
+test('verified old production pages receive a reload notice without acquiring a human lease', async () => {
+  const f=fixture(), sent=[],closed=[];let leases=0;
+  const {onMsg}=await ingress(f,{nativePlayersRequired:true,PLAYER_ACCOUNTS:{humanPrincipalFor:()=>({subject:'owner'})},
+    HUMAN_PLAY:{update(){leases++;return true}},send:(c,m)=>sent.push(m)});
+  f.a.ws.close=(code,reason)=>closed.push({code,reason});
+  onMsg(f.a,JSON.stringify({t:'slow',d:{on:1,humanLive:1,humanActivity:1}}));
+  assert.equal(leases,0);assert.equal(closed[0].code,4006);
+  assert.equal(sent[0].code,'shared_scene_upgrade_required');assert.match(sent[0].why,/saved character is preserved/);
+});
+
+test('unauthenticated legacy identity refusal is preserved before a protocol-upgrade notice', async () => {
+  const f=fixture(), sent=[],closed=[];let profile='not-called';
+  const {onMsg}=await ingress(f,{nativePlayersRequired:true,PLAYER_ACCOUNTS:{humanPrincipalFor:()=>null},
+    HUMAN_PLAY:{update(c,p){profile=p;return false}},send:(c,m)=>sent.push(m)});
+  f.a.ws.close=(code,reason)=>closed.push({code,reason});
+  onMsg(f.a,JSON.stringify({t:'slow',d:{on:1,humanLive:1,humanActivity:1}}));
+  assert.equal(profile,null);assert.equal(closed[0].code,4000);
+  assert.equal(sent.some(m=>m.t==='reload-required'),false);
+});
+
+test('capable room hosts are preferred over older legacy pages without breaking all-legacy fixtures', async () => {
+  const fs=await import('node:fs'),vm=await import('node:vm'),source=fs.readFileSync(new URL('./server.js',import.meta.url),'utf8');
+  const start=source.indexOf('function roomHost(R) {'),end=source.indexOf('const send =',start);
+  const context={isHumanPlaying:c=>c.live};vm.createContext(context);vm.runInContext(source.slice(start,end),context);
+  const old={peer:'old',live:true,since:1,slow:{on:1}}, fresh={peer:'new',live:true,since:2,slow:{on:1}};
+  const room={clients:new Map([['old',old],['new',fresh]])};
+  assert.equal(context.roomHost(room).peer,'old','legacy-only protocol fixtures retain the previous host rule');
+  fresh.slow.sharedScene=1;
+  assert.equal(context.roomHost(room).peer,'new','updated actor authority is never held by an earlier old page');
+  fresh.live=false;assert.equal(context.roomHost(room).peer,'old');
 });

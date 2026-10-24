@@ -5,6 +5,9 @@ import vm from 'node:vm';
 import { activityNpc } from '../server/shared-scene.js';
 
 const source = fs.readFileSync(new URL('../src/14y_netnpcs.js', import.meta.url), 'utf8');
+const rigSource = fs.readFileSync(new URL('../src/05a_rig.js', import.meta.url), 'utf8');
+const workerBits = vm.runInNewContext('(' + rigSource.match(/const WB = (\{[\s\S]*?\n\});/)[1] + ')');
+const weaponBits = vm.runInNewContext(fs.readFileSync(new URL('../src/06b_items.js', import.meta.url), 'utf8').match(/const WEAPON_BITS = ([^;]+);/)[1], { WB: workerBits });
 const admission = { origin: 'https://march.example', epoch: 9 };
 const copy = value => JSON.parse(JSON.stringify(value));
 function client(peer, offset = 0) {
@@ -12,7 +15,7 @@ function client(peer, offset = 0) {
   const state = { now: 0, live: true, connected: true, ready: true, server: 'wss://march.example', admission };
   let next = offset;
   const context = vm.createContext({
-    Math, Number, Object, Array, Map, Set, URL, JSON, console,
+    Math, Number, Object, Array, Map, Set, URL, JSON, console, WB: workerBits, WEAPON_BITS: weaponBits, LOOPS: { workers: [] },
     CLASSES: { priest: {}, warrior: {} }, FACTION_NEUTRAL: 4,
     GAME: { built: true, t: 10 }, NET: { self: peer }, NETWS: { state: 'on' },
     REALMS: [0, 1, 2].map(id => ({ town: { x: id * 200, z: 0 } })),
@@ -35,12 +38,12 @@ function client(peer, offset = 0) {
   });
   vm.runInContext(source + '\n globalThis.api = { netNpcRegister, netNpcMessage, netNpcPump, netNpcReset, netNpcStep, netNpcVisible, netNpcSnapshot, netNpcRowsRead, NET_NPCS };', context);
   return { context, api: context.api, sent, bodies, state,
-    entity(overrides = {}, id = 'town:0:villager:0') {
+    entity(overrides = {}) {
       const e = context.makeEnt({ kind: 'humanoid', role: 'villager', name: 'Fenn', faction: 4,
         cls: null, level: 5, x: 7, y: 2, z: 9, yaw: .6,
         look: { tabard: [.3, .4, .5], armor: [.4, .3, .2], skin: .2, hair: .7, mask: 32,
-          flags: 0, scale: 1, outfit: 0, emblem: 3, fem: 0, bulk: 0 }, ...overrides });
-      context.api.netNpcRegister(e, id); return e;
+          flags: 0, scale: 1, outfit: 4, emblem: 3, fem: 0, bulk: 0 }, ...overrides });
+      context.api.netNpcRegister(e, 'town:0:villager:0'); return e;
     },
   };
 }
@@ -225,32 +228,6 @@ test('appearance transport quantizes continuous traits and preserves exact equip
   assert.equal(row.lk[8], 14554754); assert.equal(row.lk[9], 345); assert.equal(row.lk[11], 2);
 });
 
-test('actual villager, merchant and herald rig outfits survive client and server roundtrips', () => {
-  const rig = fs.readFileSync(new URL('../src/05a_rig.js', import.meta.url), 'utf8');
-  const declaration = rig.match(/^const OUTFIT = \{[^\n]+\};/m);
-  assert.ok(declaration, 'the production rig owns the outfit enumeration');
-  const outfits = vm.runInNewContext(declaration[0] + '\nOUTFIT;');
-  const a = client('phone'), b = client('desktop');
-  for (const [role, outfit] of [['villager', outfits.villager], ['merchant', outfits.villager], ['herald', outfits.herald]]) {
-    const e = a.entity({ role }, `town:0:${role}:0`);
-    e.look.outfit = outfit;
-  }
-  a.api.netNpcMessage(authority('phone'));
-  a.api.netNpcPump(0);
-  const rows = a.sent[0].npcs;
-  assert.equal(rows.length, 3, 'the complete authored town roster is published');
-  assert.deepEqual(rows.map(r => [r.role, r.lk[11]]), [['villager', outfits.villager], ['merchant', outfits.villager], ['herald', outfits.herald]]);
-  const normalized = rows.map(activityNpc);
-  assert.ok(normalized.every(Boolean));
-  b.api.netNpcMessage(authority('phone', normalized));
-  assert.equal(b.bodies.length, 3);
-  assert.deepEqual(copy(b.api.netNpcSnapshot()).map(r => [r.role, r.lk[11]]), rows.map(r => [r.role, r.lk[11]]));
-  for (const outfit of [-1, .5, outfits.bandit, outfits.skeleton, outfits.draugr, outfits.troll, outfits.lord, 11, 999]) {
-    const invalid = copy(rows[0]); invalid.lk[11] = outfit;
-    assert.equal(a.api.netNpcRowsRead([invalid]), null, `unsupported NPC outfit ${outfit} is refused`);
-  }
-});
-
 test('a stale fisher frame cannot replace a later exclusive human boat occupant', () => {
   const a = client('a'), b = client('b'); a.entity({ boat: { id: 7 } });
   const local = b.entity();
@@ -285,4 +262,87 @@ test('the elected town keeper waits for canonical fields before running AI witho
   assert.equal(a.sent.length, 1, 'initial roster publication remains independent of world readiness');
   a.context.netWorldPartsCanSimulate = () => true;
   assert.equal(a.api.netNpcStep(e, .1), false, 'town AI resumes after the admitted core is ready');
+});
+
+test('the real renderer villager and herald outfits survive a complete town roster round-trip', () => {
+  const rig = fs.readFileSync(new URL('../src/05a_rig.js', import.meta.url), 'utf8');
+  const declaration = rig.match(/const OUTFIT = (\{[^\r\n]+\});/);
+  assert.ok(declaration, 'renderer outfit contract is present');
+  const outfit = vm.runInNewContext('(' + declaration[1] + ')');
+  assert.equal(outfit.villager, 4); assert.equal(outfit.herald, 9);
+  const a = client('a'), b = client('b');
+  for (let r = 0; r < 3; r++) for (let i = 0; i < 9; i++) {
+    const role = i === 0 ? 'herald' : i <= 6 ? 'villager' : 'merchant';
+    const slot = role === 'herald' ? 0 : role === 'villager' ? i - 1 : i - 7;
+    const e = a.context.makeEnt({ kind: 'humanoid', role, cls: role === 'herald' ? 'priest' : null,
+      level: role === 'herald' ? 30 : role === 'villager' ? 5 : 20, name: role + r + ':' + slot,
+      look: { tabard: [.3, .4, .5], armor: [.4, .3, .2], skin: .2, hair: .7, mask: 32, flags: 0,
+        scale: 1, outfit: role === 'herald' ? outfit.herald : outfit.villager, emblem: 3, fem: 0, bulk: 0 } });
+    a.api.netNpcRegister(e, `town:${r}:${role}:${slot}`);
+  }
+  a.api.netNpcMessage(authority('a')); b.api.netNpcMessage(authority('a'));
+  a.api.netNpcPump(0); assert.equal(a.sent[0].npcs.length, 27, 'no real town outfit is silently dropped');
+  const normalized = a.sent[0].npcs.map(activityNpc); assert.ok(normalized.every(Boolean));
+  assert.equal(b.api.netNpcMessage({ ...snapshot(a.sent[0], 'a'), npcs: normalized }), true);
+  assert.equal(b.api.NET_NPCS.entities.size, 27);
+  const received = b.api.netNpcSnapshot(); assert.equal(received.length, 27);
+  assert.ok(received.every(row => row.lk[11] === (row.role === 'herald' ? outfit.herald : outfit.villager)));
+});
+
+
+test('real worker carry masks survive server normalization and keeper handoff without a second delivery', () => {
+  assert.equal(workerBits.stoneLoad, 1 << 24);
+  const a = client('a'), b = client('b');
+  for (const slot of [6, 7, 8]) {
+    const e = a.context.makeEnt({ role: 'villager', name: 'Worker ' + slot, cls: null, level: 5,
+      look: { tabard: [.3, .4, .5], armor: [.4, .3, .2], skin: .2, hair: .7, mask: workerBits.belt | workerBits.axe,
+        flags: 0, scale: 1, outfit: 4, emblem: 3, fem: 0, bulk: 0 } });
+    a.api.netNpcRegister(e, 'town:0:villager:' + slot);
+    e.ai.lj = { job: slot === 8 ? 'stone' : 'wood', realm: 0, look: workerBits.belt, haul: slot === 8 ? 'stone' : 'wood' };
+  }
+  // The initial elected host starts fresh plans; put workers mid-haul afterwards.
+  a.api.netNpcMessage(authority('a'));
+  for (const e of a.bodies) e.ai.lj.haul = e.ai.lj.job;
+  a.api.netNpcPump(0);
+  const frame = snapshot(a.sent[0], 'a'); frame.npcs = frame.npcs.map(activityNpc);
+  assert.ok(frame.npcs.every(Boolean), 'the real stone carry bit is accepted by the server');
+  b.api.netNpcMessage(authority('a'));
+  assert.equal(b.api.netNpcMessage(frame), true);
+  for (const e of b.bodies) {
+    assert.equal(e.ai.lj, null, 'replicas have no independent worker plan');
+    const slot = +e.netNpcId.split(':')[3], carry = slot === 8 ? workerBits.stoneLoad : workerBits.timberLoad;
+    assert.equal(e.look.mask, workerBits.belt | carry);
+  }
+  const rows = copy(b.api.netNpcSnapshot());
+  assert.equal(b.api.netNpcMessage(authority('b', rows, 'worker-takeover')), true);
+  for (const e of b.bodies) {
+    const job = e.netNpcId.endsWith(':8') ? 'stone' : 'wood';
+    assert.equal(e.ai.lj.job, job); assert.equal(e.ai.lj.haul, job);
+    assert.equal(e.ai.lj.look, workerBits.belt); assert.equal(e.look.mask, workerBits.belt);
+    assert.equal(e.ai.plan, null, 'new keeper does not resume old source accounting');
+  }
+  assert.equal(b.context.LOOPS.workers.length, 3);
+  assert.deepEqual(copy(b.api.netNpcSnapshot()), rows, 'handoff preserves the exact visible load');
+});
+
+
+test('real economic bootstrap reuses canonical workers and quartermasters without local duplicates', () => {
+  const b = client('b'), loops = fs.readFileSync(new URL('../src/08m_loops.js', import.meta.url), 'utf8');
+  b.context.REALMS.forEach((r, i) => { r.id = i; });
+  for (let r = 0; r < 3; r++) for (const slot of [6, 7, 8, 1]) {
+    const role = slot === 1 ? 'merchant' : 'villager';
+    const e = b.context.makeEnt({ role, cls: null, level: 5, name: 'Canonical', look: { mask: workerBits.belt } });
+    b.api.netNpcRegister(e, 'town:' + r + ':' + role + ':' + slot);
+  }
+  const before = b.bodies.length;
+  b.context.makeEnt = () => { throw Error('canonical bootstrap must not create another local NPC'); };
+  for (const [first, last] of [['function loopsSpawnWorkers()', '// from houseLife'], ['function loopsSpawnQuartermasters()', '// E beside the quartermaster']]) {
+    const start = loops.indexOf(first), end = loops.indexOf(last, start);
+    assert.ok(start >= 0 && end > start);
+    vm.runInContext(loops.slice(start, end), b.context);
+  }
+  vm.runInContext('loopsSpawnWorkers(); loopsSpawnQuartermasters(); loopsSpawnWorkers(); loopsSpawnQuartermasters();', b.context);
+  assert.equal(b.bodies.length, before); assert.equal(b.context.LOOPS.workers.length, 9);
+  assert.equal(new Set(b.context.LOOPS.workers).size, 9);
+  for (const r of b.context.REALMS) assert.equal(r.quartermaster.netNpcId, 'town:' + r.id + ':merchant:1');
 });

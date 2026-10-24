@@ -1,8 +1,8 @@
 /* Shared mutable world save parts. Personal save parts never enter this channel. */
 const NETPARTS = { authority: '', peer: '', admission: null, ready: false, seq: 0, readSeq: -1,
   key: '', sentAt: -Infinity, assembly: null, keys: {}, pending: new Map(), commands: new Map(),
-  receipts: [], confirmedReceipts: new Set(), resultQueue: new Map(), notes: [], skills: [], lootSeq: 0, outbox: null, awaiting: null, paused: '', outAt: -Infinity, sentKeys: {}, receiptsKey: '', replay: false, applying: false, next: 0, received: 0, sent: 0, refused: 0 };
-const NETPART_ADAPTERS = new Map(), NETPART_COMMANDS = new Map(), NETPART_RESULTS = new Map();
+  receipts: [], confirmedReceipts: new Set(), resultQueue: new Map(), notes: [], skills: [], lootSeq: 0, outbox: null, awaiting: null, paused: '', outAt: -Infinity, sentKeys: {}, receiptsKey: '', replay: false, applying: false, next: 0, received: 0, sent: 0, refused: 0, settled: new Map(), privateFlight: null, privateError: '', privateAttempt: 0, journalLoaded: false, settleAt: -Infinity };
+const NETPART_ADAPTERS = new Map(), NETPART_COMMANDS = new Map(), NETPART_RESULTS = new Map(), NETPART_FAILURES = new Map();
 const netWorldPartsActive = () => typeof NETWS !== 'undefined' && !!NETWS.url;
 const netWorldPartsConnected = () => netWorldPartsActive() && NETWS.state === 'on' && netOn()
   && netHumanLive() && netSharedWorldReady() && !!NETPARTS.authority && !NETPARTS.paused;
@@ -12,6 +12,7 @@ function netWorldPartsCanSimulate() {
 function netWorldPartsRegister(key, adapter) { NETPART_ADAPTERS.set(key, adapter); }
 function netWorldPartsRegisterCommand(op, command) { NETPART_COMMANDS.set(op, command); }
 function netWorldPartsRegisterResult(op, receive) { NETPART_RESULTS.set(op, receive); }
+function netWorldPartsRegisterFailure(op, receive) { NETPART_FAILURES.set(op, receive); }
 function netWorldPartsReset() {
   NETPARTS.authority = ''; NETPARTS.peer = ''; NETPARTS.ready = false; NETPARTS.readSeq = -1;
   NETPARTS.assembly = null; NETPARTS.outbox = null; NETPARTS.awaiting = null; NETPARTS.paused = ''; NETPARTS.resultQueue.clear(); NETPARTS.confirmedReceipts.clear(); NETPARTS.keys = {}; NETPARTS.sentKeys = {}; NETPARTS.key = ''; NETPARTS.sentAt = -Infinity;
@@ -41,6 +42,11 @@ function netWorldPartsApply(frame) {
     }
     if (Array.isArray(frame.receipts)) {
       NETPARTS.receipts = frame.receipts.slice(-32);
+      for (const receipt of NETPARTS.receipts) {
+        const own = NETPARTS.settled.get(receipt.id);
+        if (own && receipt.settled && own.ownerAccount === receipt.ownerAccount
+          && own.digest === (receipt.digest || 'legacy:' + receipt.id)) own.ackConfirmed = true;
+      }
       NETPARTS.confirmedReceipts = new Set(NETPARTS.receipts.map(r => r.ownerAccount + ':' + r.id));
       for (const receipt of NETPARTS.receipts) {
         const pending = NETPARTS.pending.get(receipt.id);
@@ -73,7 +79,7 @@ function netWorldPartsPublish(now, force = false) {
 function netWorldPartsResult(m) {
   const p = NETPARTS.pending.get(m.id);
   if (!p) return;
-  NETPARTS.pending.delete(m.id);
+  if (p.phase === 'applied') { if (p.durable) void netWorldPartsFlushJournal(); return; }
   // Reserved costs were removed on request. Return unused costs and apply only
   // this command's receipt; never replace the character's inventory or progress.
   const delta = new Map(p.cost.map(([id, n]) => [id, n]));
@@ -90,7 +96,12 @@ function netWorldPartsResult(m) {
     const pc = BUILD.pieces.find(b => b.id === m.result.pieceId);
     if (pc && pc.st === 'build') BUILD.work = { pc, x: GAME.player.x, z: GAME.player.z, t: 0, auto: true };
   }
-  if (m.ok && NETPART_RESULTS.has(p.op)) NETPART_RESULTS.get(p.op)(m.result, m);
+  if (m.ok && NETPART_RESULTS.has(p.op)) NETPART_RESULTS.get(p.op)(m.result, m, p);
+  if (!m.ok && NETPART_FAILURES.has(p.op)) NETPART_FAILURES.get(p.op)(m, p);
+  p.phase = 'applied'; p.outcomeToken = m.digest || 'legacy:' + m.id;
+  NETPARTS.settled.set(m.id, { id: m.id, ownerAccount: p.ownerAccount, digest: p.outcomeToken, confirmed: !p.durable, ackSent: false });
+  if (p.durable) void netWorldPartsFlushJournal();
+  else { NETPARTS.pending.delete(m.id); netWorldPartsSendSettled(); }
   GOODS_UI.dirty = true; saveSoon();
 }
 function netWorldPartsExecute(m) {
@@ -105,7 +116,8 @@ function netWorldPartsExecute(m) {
     else NETPARTS.resultQueue.set(key, { ...prior, to: m.from });
     return;
   }
-  const peer = NET.peers.get(m.from), actor = peer?.ghost;
+  if (NETPARTS.receipts.filter(r => !r.settled).length >= 24) return;
+  const peer = NET.peers.get(m.from), actor = m.from === NET.self ? GAME.player : peer?.ghost;
   const position = m.position;
   const location = spec.point?.(c.args);
   if (!actor || !position || !Number.isFinite(position.x) || !Number.isFinite(position.z)
@@ -115,7 +127,7 @@ function netWorldPartsExecute(m) {
   const before = { ...declared }, saved = { player: GAME.player, prog: GAME.prog, goods: INV.goods, gold: INV.gold,
     buildWork: typeof BUILD !== 'undefined' ? BUILD.work : null, bag: INV.bag };
   const capacity = Number.isSafeInteger(c.capacity) ? clamp(c.capacity, 0, BAG_SIZE) : BAG_SIZE;
-  let result, ok = false, reason = '';
+  let result, failure, ok = false, reason = '';
   NETPARTS.replay = true;
   GAME.player = actor; GAME.prog = { ...(saved.prog || {}), level: actor.level || 1 };
   INV.goods = declared; INV.gold = 0; INV.bag = Array.from({ length: capacity }, () => ({ slot: '__occupied' }));
@@ -124,33 +136,40 @@ function netWorldPartsExecute(m) {
     result = spec.run(c.args, { from: m.from, ownerAccount: m.ownerAccount, position: m.position, realm: m.realm, commandId: c.id });
     ok = result !== false && result?.ok !== false;
     if (!ok) reason = result?.why || 'The action is no longer available.';
-  } catch (error) { reason = 'The shared action could not complete.'; reportError(error); }
+  } catch (error) { reason = 'The shared action could not complete.'; failure = error; }
   const after = { ...INV.goods }, gold = INV.gold, items = INV.bag.slice(capacity);
   GAME.player = saved.player; GAME.prog = saved.prog; INV.goods = saved.goods; INV.gold = saved.gold; INV.bag = saved.bag;
   if (typeof BUILD !== 'undefined') BUILD.work = saved.buildWork;
   NETPARTS.replay = false;
   const goods = [...new Set([...Object.keys(before), ...Object.keys(after)])]
     .map(id => [id, (after[id] || 0) - (before[id] || 0)]).filter(([, n]) => n !== 0);
-  const receipt = { to: m.from, ownerAccount: m.ownerAccount, id: c.id, ok, reason, goods, gold, items,
+  const receipt = { digest: crypto.randomUUID(), to: m.from, ownerAccount: m.ownerAccount, id: c.id, ok, reason, goods, gold, items,
     notes: NETPARTS.notes.slice(0, 20), skills: NETPARTS.skills.slice(0, 20), result: result && typeof result === 'object' ? result.result ?? result : null };
-  NETPARTS.receipts.push(receipt); if (NETPARTS.receipts.length > 32) NETPARTS.receipts.shift();
+  NETPARTS.receipts.push(receipt); netWorldPartsPruneReceipts();
   NETPARTS.resultQueue.set(receipt.ownerAccount + ':' + receipt.id, receipt);
   netWorldPartsPublish(performance.now(), true);
+  if (failure) reportError(failure);
 }
-function netWorldPartsRequest(op, args, cost = []) {
-  if (!netWorldPartsActive() || NETPARTS.replay || NETPARTS.applying || netWorldPartsCanSimulate()) return false;
-  if (!netWorldPartsConnected() || !NETPARTS.ready || NETPARTS.pending.size >= 8) {
-    uiError('Waiting for the shared world.'); return true;
+function netWorldPartsRequest(op, args, cost = [], forceOwner = false) {
+  if (!netWorldPartsActive() || NETPARTS.replay || NETPARTS.applying) return false;
+  const spec = NETPART_COMMANDS.get(op);
+  const durable = typeof spec?.durable === 'function' ? spec.durable(args) !== false : spec?.durable !== false;
+  if (netWorldPartsCanSimulate() && !forceOwner && !durable) return false;
+  if (!netWorldPartsConnected() || !NETPARTS.ready || NETPARTS.pending.size >= 8 || NETPARTS.receipts.filter(r => !r.settled).length >= 24) {
+    uiError('Waiting for the shared world or a private checkpoint.'); return true;
   }
-  const spec = NETPART_COMMANDS.get(op), declared = {};
+  const declared = {};
   for (const [id, n] of cost) if (GOODS[id] && n > 0) declared[id] = n;
   for (const id of spec?.tools || []) if (goodsHave(id)) declared[id] = Math.max(declared[id] || 0, 1);
   if (!goodsTakeAll(cost)) { uiError('You do not have the materials for that action.'); return true; }
-  const id = NET.self + ':' + (++NETPARTS.next);
-  NETPARTS.pending.set(id, { op, args, cost, declared, owner: NET.self, ownerAccount: NETWS.acct?.id, capacity: INV.bag.length, at: performance.now(), lastSent: performance.now(), authority: NETPARTS.authority });
-  const sent = netWsSend({ t: 'activity', kind: 'worldparts', op: 'command', authority: NETPARTS.authority,
-    worldAdmission: NETPARTS.admission, command: { id, op, args, goods: declared, capacity: INV.bag.length } });
-  if (sent === false) netWorldPartsResult({ id, ok: false, reason: 'The shared connection is unavailable.' });
+  const id = NET.self + ':' + crypto.randomUUID();
+  NETPARTS.next++;
+  const pending = { op, args, cost, declared, forceOwner, durable, phase: 'reserved',
+    privateConfirmed: !durable, owner: NET.self, ownerAccount: NETWS.acct?.id,
+    capacity: INV.bag.length, at: performance.now(), lastSent: -Infinity, authority: NETPARTS.authority };
+  NETPARTS.pending.set(id, pending);
+  if (durable) void netWorldPartsFlushJournal();
+  else netWorldPartsDispatch(id, pending);
   return true;
 }
 function netWorldPartsMessage(m) {
@@ -160,7 +179,7 @@ function netWorldPartsMessage(m) {
     if (!admission || typeof m.authority !== 'string' || typeof m.peer !== 'string') return;
     const changed = NETPARTS.authority !== m.authority;
     NETPARTS.authority = m.authority; NETPARTS.peer = m.peer; NETPARTS.admission = admission;
-    if (changed) { NETPARTS.seq = 0; NETPARTS.readSeq = -1; NETPARTS.assembly = null; NETPARTS.outbox = null; NETPARTS.awaiting = null; NETPARTS.paused = ''; NETPARTS.sentKeys = {}; NETPARTS.key = ''; }
+    if (changed) { for (const row of NETPARTS.settled.values()) row.ackSent = false; NETPARTS.seq = 0; NETPARTS.readSeq = -1; NETPARTS.assembly = null; NETPARTS.outbox = null; NETPARTS.awaiting = null; NETPARTS.paused = ''; NETPARTS.sentKeys = {}; NETPARTS.key = ''; }
     // A new authority must take the canonical cache before publishing. A fresh
     // world without a cache may be seeded only by the server-elected host.
     if (m.worldpartsReady === false && m.peer === NET.self) NETPARTS.ready = true;
@@ -176,6 +195,7 @@ function netWorldPartsMessage(m) {
     const pending = NETPARTS.pending.get(m.id);
     if (pending && m.ownerAccount === pending.ownerAccount) netWorldPartsResult(m); return;
   }
+  if (m.op === 'settled') { netWorldPartsTakeSettled(m); return; }
   if (m.op === 'command') { if (NETPARTS.peer === NET.self && NETPARTS.ready && netWorldPartsConnected()) netWorldPartsExecute(m); return; }
   if (m.op !== 'snapshot' || !Number.isSafeInteger(m.seq) || m.seq <= NETPARTS.readSeq
     || !Number.isInteger(m.part) || !Number.isInteger(m.total) || m.total < 1 || m.total > 128
@@ -230,12 +250,12 @@ function netWorldPartsPump(now) {
       NETPARTS.awaiting = { ...out, sentAt: now }; NETPARTS.outbox = null;
     }
   }
-  if (NETPARTS.ready) for (const [id, p] of NETPARTS.pending) {
-    if (p.ownerAccount !== NETWS.acct?.id || now - p.lastSent < 3000) continue;
-    p.lastSent = now;
-    netWsSend({ t: 'activity', kind: 'worldparts', op: 'command', authority: NETPARTS.authority,
-      worldAdmission: NETPARTS.admission, command: { id, op: p.op, args: p.args, goods: p.declared, capacity: p.capacity } });
+  if (NETPARTS.privateError && SAVE.lastBody !== NETPARTS.privateObservedBody) {
+    NETPARTS.privateObservedBody = SAVE.lastBody; NETPARTS.journalLoaded = true;
   }
+  if (NETPARTS.journalLoaded) { NETPARTS.journalLoaded = false; void netWorldPartsFlushJournal(); }
+  if (NETPARTS.ready) for (const [id, p] of NETPARTS.pending) netWorldPartsDispatch(id, p);
+  netWorldPartsSendSettled(now);
 }
 queueMicrotask(() => {
   for (const [key, part] of Object.entries(SAVE_PARTS.world)) {
@@ -248,21 +268,26 @@ queueMicrotask(() => {
   if (typeof campaignSaveData === 'function') netWorldPartsRegister('campaign', { save: campaignSaveData, apply: applyCampaignSave });
   if (window.__hm) window.__hm.worldparts = { NETPARTS, capture: netWorldPartsCapture, apply: netWorldPartsApply,
     request: netWorldPartsRequest, publish: () => netWorldPartsPublish(performance.now(), true),
-    adapters: () => [...NETPART_ADAPTERS.keys()] };
+    adapters: () => [...NETPART_ADAPTERS.keys()], flushPrivate: netWorldPartsFlushJournal,
+    journalSave: netWorldPartsJournalSave, journalLoad: netWorldPartsJournalLoad };
 });
 
 
 function netWorldPartsLocalStep(dt) {
-  if (!netWorldPartsActive() || netWorldPartsCanSimulate()) return;
+  if (!netWorldPartsActive()) return;
+  netWorldPartsLootStep();
+  if (typeof dpHatchClaimStep === 'function') dpHatchClaimStep();
+  if (typeof dpMoult === 'function') dpMoult(dt);
+  if (netWorldPartsCanSimulate()) return;
   if (typeof stepJob === 'function') stepJob(dt);
   if (typeof dpJobStep === 'function') dpJobStep(dt);
-  netWorldPartsLootStep();
 }
 function netWorldPartsLootSave() {
   return LOOT.map(L => {
     if (!L.sharedId) L.sharedId = NETPARTS.authority + ':loot:' + (++NETPARTS.lootSeq);
     return { id: L.sharedId, item: L.item, x: L.x, y: L.y, z: L.z,
       vx: L.vx || 0, vy: L.vy || 0, vz: L.vz || 0, age: GAME.t - L.t0,
+      hatch: L.hatch ? { ...netPartsClone(L.hatch), at: undefined, left: Math.max(0, L.hatch.at - GAME.t) } : null,
       left: Math.max(0, L.until - GAME.t), seed: L.seed, landed: !!L.landed, bounce: L.bounce || 0 };
   });
 }
@@ -274,7 +299,8 @@ function netWorldPartsLootApply(rows) {
     const L = current.get(row.id) || {};
     Object.assign(L, { sharedId: row.id, item: netPartsClone(row.item), x: row.x, y: row.y, z: row.z,
       vx: row.vx, vy: row.vy, vz: row.vz, t0: GAME.t - row.age, until: GAME.t + row.left,
-      seed: row.seed, landed: row.landed, bounce: row.bounce });
+      seed: row.seed, landed: row.landed, bounce: row.bounce,
+      hatch: row.hatch ? { ...netPartsClone(row.hatch), at: GAME.t + row.hatch.left } : null });
     result.push(L);
   }
   LOOT.splice(0, LOOT.length, ...result);
@@ -285,7 +311,7 @@ function netWorldPartsLootStep() {
   for (const L of LOOT) {
     if (!L.sharedId || GAME.t - L.t0 < 0.45 || Math.hypot(P.x - L.x, P.z - L.z) >= 1.7 || Math.abs(P.y - L.y) >= 2.5) continue;
     if ([...NETPARTS.pending.values()].some(p => p.op === 'loot.take' && p.args.id === L.sharedId)) continue;
-    netWorldPartsRequest('loot.take', { id: L.sharedId });
+    netWorldPartsRequest('loot.take', { id: L.sharedId }, [], true);
   }
 }
 function netWorldPartsLoopsSave() {
@@ -357,7 +383,7 @@ queueMicrotask(() => {
     return rawLight(p);
   };
   netWorldPartsRegisterCommand('nature.light', {
-    point: a => ({ x: a.x, z: a.z }), range: 4,
+    durable: false, point: a => ({ x: a.x, z: a.z }), range: 4,
     run: a => { const p = NATURE.piles.find(q => Math.hypot(q.x - a.x, q.z - a.z) < 0.2); if (!p || p.lit) return false; rawLight(p); return { ok: p.lit }; },
   });
   netWorldPartsRegisterCommand('nature.job', {
@@ -442,27 +468,16 @@ queueMicrotask(() => {
     return rawDrop(e);
   };
   netWorldPartsRegisterCommand('relic.take', {
-    range: 6, point: a => WAR.relics[a.id] ? relicPosition(WAR.relics[a.id]) : { x: Infinity, z: Infinity },
+    durable: false, range: 6, point: a => WAR.relics[a.id] ? relicPosition(WAR.relics[a.id]) : { x: Infinity, z: Infinity },
     run: a => { const rel = WAR.relics[a.id]; if (!rel || !relicTakeable(rel, GAME.player)) return false; rawTake(rel, GAME.player); return { ok: true }; },
   });
   netWorldPartsRegisterCommand('relic.drop', {
-    run: () => { if (GAME.player.carrying == null) return false; rawDrop(GAME.player); return { ok: true }; },
+    durable: false, run: () => { if (GAME.player.carrying == null) return false; rawDrop(GAME.player); return { ok: true }; },
   });
 });
 
 queueMicrotask(() => registerSavePart('char', 'sharedWorldReservations', {
-  save: () => NETPARTS.pending.size ? [...NETPARTS.pending].slice(0, 8).map(([id, p]) => ({
-    id, op: p.op, args: p.args, cost: p.cost, declared: p.declared, owner: p.owner,
-    ownerAccount: p.ownerAccount, capacity: p.capacity,
-  })) : null,
-  load: rows => {
-    if (!Array.isArray(rows)) return;
-    for (const row of rows.slice(0, 8)) {
-      if (!row || typeof row.id !== 'string' || typeof row.ownerAccount !== 'string'
-        || typeof row.op !== 'string' || !Array.isArray(row.cost) || !NETPART_COMMANDS.has(row.op)) continue;
-      NETPARTS.pending.set(row.id, { ...row, lastSent: -Infinity, at: performance.now() });
-    }
-  },
+  save: netWorldPartsJournalSave, load: netWorldPartsJournalLoad,
 }));
 
 queueMicrotask(() => {
@@ -496,3 +511,159 @@ queueMicrotask(() => {
     },
   });
 });
+
+
+// A reservation and its eventual owner outcome are committed to the existing
+// encrypted character profile. No separate plaintext recovery log is created.
+function netWorldPartsJournalSave() {
+  const pending = [...NETPARTS.pending].filter(([, p]) => p.durable && p.ownerAccount === NETWS.acct?.id).slice(0, 8).map(([id, p]) => ({
+    id, op: p.op, args: p.args, cost: p.cost, declared: p.declared, owner: p.owner,
+    ownerAccount: p.ownerAccount, capacity: p.capacity, forceOwner: p.forceOwner,
+    phase: p.phase === 'applied' ? 'applied' : 'reserved', outcomeToken: p.outcomeToken || null,
+  }));
+  const settled = [...NETPARTS.settled.values()].filter(r => r.ownerAccount === NETWS.acct?.id).slice(-64).map(r => ({ id: r.id, ownerAccount: r.ownerAccount, digest: r.digest }));
+  return pending.length || settled.length ? { v: 2, pending, settled } : null;
+}
+function netWorldPartsJournalLoad(value) {
+  const rows = Array.isArray(value) ? value : value?.v === 2 && Array.isArray(value.pending) ? value.pending : [];
+  for (const row of value?.v === 2 && Array.isArray(value.settled) ? value.settled.slice(-64) : []) {
+    if (row && typeof row.id === 'string' && typeof row.ownerAccount === 'string' && typeof row.digest === 'string')
+      NETPARTS.settled.set(row.id, { ...row, confirmed: true, ackSent: false });
+  }
+  for (const row of rows.slice(0, 8)) {
+    if (!row || typeof row.id !== 'string' || typeof row.ownerAccount !== 'string'
+      || typeof row.op !== 'string' || !Array.isArray(row.cost) || !NETPART_COMMANDS.has(row.op)) continue;
+    if (row.phase === 'applied' && typeof row.outcomeToken === 'string') {
+      NETPARTS.settled.set(row.id, { id: row.id, ownerAccount: row.ownerAccount, digest: row.outcomeToken, confirmed: true, ackSent: false });
+    } else if (!NETPARTS.settled.has(row.id)) NETPARTS.pending.set(row.id, {
+      ...row, durable: true, phase: 'reserved', privateConfirmed: false, lastSent: -Infinity, at: performance.now(),
+    });
+  }
+  NETPARTS.journalLoaded = true;
+}
+function netWorldPartsJournalFromSave(save) {
+  const value = save?.char?.x?.sharedWorldReservations;
+  return Array.isArray(value) ? { pending: value, settled: [] }
+    : value?.v === 2 ? value : { pending: [], settled: [] };
+}
+function netWorldPartsStable(value) {
+  if (Array.isArray(value)) return '[' + value.map(netWorldPartsStable).join(',') + ']';
+  if (value && typeof value === 'object') return '{' + Object.keys(value).sort()
+    .map(key => JSON.stringify(key) + ':' + netWorldPartsStable(value[key])).join(',') + '}';
+  return JSON.stringify(value);
+}
+function netWorldPartsPrivateProof(save, id, p) {
+  const journal = netWorldPartsJournalFromSave(save);
+  if (p.phase === 'applied') return (journal.settled || []).some(r =>
+    r.id === id && r.ownerAccount === p.ownerAccount && r.digest === p.outcomeToken);
+  return (journal.pending || []).some(r => r.id === id && r.ownerAccount === p.ownerAccount
+    && r.phase !== 'applied' && r.op === p.op
+    && netWorldPartsStable(r.args) === netWorldPartsStable(p.args)
+    && netWorldPartsStable(r.cost) === netWorldPartsStable(p.cost));
+}
+function netWorldPartsJournalNeeded() {
+  return [...NETPARTS.pending].some(([, p]) => p.durable
+    && (p.phase === 'applied' || !p.privateConfirmed) && p.ownerAccount === NETWS.acct?.id);
+}
+async function netWorldPartsFlushJournal() {
+  if (NETPARTS.privateFlight) return NETPARTS.privateFlight;
+  if (!netHumanLive()) { if (netWorldPartsJournalNeeded()) NETPARTS.journalLoaded = true; return false; }
+  if (!netWorldPartsJournalNeeded()) return true;
+  const attempt = ++NETPARTS.privateAttempt;
+  const account = NETWS.acct?.id, ref = SAVE.ref, player = GAME.player;
+  const owned = () => NETPARTS.privateAttempt === attempt && NETWS.acct?.id === account
+    && SAVE.ref === ref && GAME.player === player && !SAVE.wiping;
+  NETPARTS.privateError = '';
+  let timer;
+  const work = Promise.resolve().then(async () => {
+    // An existing native flight may resolve before the newly coalesced body was
+    // committed. Drain bounded passes and verify the exact journal on readback.
+    for (let pass = 0; pass < 3 && netHumanLive() && owned(); pass++) {
+      await saveNow({ final: true });
+      await Promise.resolve();
+      if (!owned() || !netHumanLive()) return false;
+      if (SAVE.nativeFlight) await SAVE.nativeFlight;
+      if (!owned()) return false;
+      const goals = [...NETPARTS.pending].filter(([, p]) => p.durable && p.ownerAccount === account
+        && (p.phase === 'applied' || !p.privateConfirmed));
+      if (!goals.length) return true;
+      if (SAVE.native) {
+        let acknowledged;
+        try { acknowledged = JSON.parse(SAVE.lastBody || 'null'); } catch { acknowledged = null; }
+        if (!goals.every(([id, p]) => netWorldPartsPrivateProof(acknowledged, id, p))) continue;
+        if (!ref?.get) return false;
+      }
+      const snap = ref?.get ? await ref.get() : null;
+      if (!owned()) return false;
+      const confirmed = snap?.exists === true && typeof snap.data === 'function' ? snap.data()
+        : !SAVE.native && !ref ? readLocal() : null;
+      if (!confirmed) return false;
+      let advanced = false;
+      for (const [id, p] of goals) if (NETPARTS.pending.get(id) === p && netWorldPartsPrivateProof(confirmed, id, p)) {
+        advanced = true;
+        if (p.phase === 'applied') {
+          const settled = NETPARTS.settled.get(id);
+          if (settled) settled.confirmed = true;
+          NETPARTS.pending.delete(id);
+          saveSoon(); // Compaction is optional; the confirmed tombstone prevents replay.
+        } else p.privateConfirmed = true;
+      }
+      for (const [id, p] of NETPARTS.pending) netWorldPartsDispatch(id, p);
+      netWorldPartsSendSettled();
+      if (!netWorldPartsJournalNeeded()) return true;
+      if (!advanced && pass === 2) return false;
+    }
+    return false;
+  });
+  const flight = Promise.race([work, new Promise(resolve => {
+    timer = setTimeout(() => { if (owned()) NETPARTS.privateAttempt++; resolve(false); }, 20000);
+  })]).catch(error => { NETPARTS.privateError = error?.code || 'private_checkpoint_pending'; return false; }).then(ok => {
+    if (!ok) {
+      NETPARTS.privateError = NETPARTS.privateError || 'private_checkpoint_pending';
+      NETPARTS.privateObservedBody = SAVE.lastBody;
+      uiError('Your private checkpoint is not confirmed. The shared action is waiting; keep this character open and retry saving.');
+    }
+    return ok;
+  }).finally(() => {
+    clearTimeout(timer);
+    if (NETPARTS.privateFlight === flight) NETPARTS.privateFlight = null;
+  });
+  NETPARTS.privateFlight = flight;
+  return flight;
+}
+function netWorldPartsDispatch(id, p) {
+  if (p.phase !== 'reserved' || !p.privateConfirmed || p.ownerAccount !== NETWS.acct?.id
+    || !netWorldPartsConnected() || !NETPARTS.ready || performance.now() - p.lastSent < 3000) return false;
+  p.lastSent = performance.now();
+  return netWsSend({ t: 'activity', kind: 'worldparts', op: 'command', authority: NETPARTS.authority,
+    worldAdmission: NETPARTS.admission, command: { id, op: p.op, args: p.args, goods: p.declared, capacity: p.capacity } });
+}
+function netWorldPartsSendSettled(now = performance.now()) {
+  const due = row => row.confirmed && row.ownerAccount === NETWS.acct?.id && !row.ackConfirmed
+    && (!row.ackSent || now - (row.ackAt ?? -Infinity) >= 3000);
+  if (!netWorldPartsConnected() || now - NETPARTS.settleAt < 200
+    || ![...NETPARTS.settled.values()].some(due)) return;
+  NETPARTS.settleAt = now;
+  let sent = 0;
+  for (const row of NETPARTS.settled.values()) {
+    if (!due(row) || sent >= 2) continue;
+    row.ackSent = netWsSend({ t: 'activity', kind: 'worldparts', op: 'settled', authority: NETPARTS.authority,
+      worldAdmission: NETPARTS.admission, id: row.id, digest: row.digest }) !== false;
+    if (row.ackSent) row.ackAt = now;
+    sent++;
+  }
+  while (NETPARTS.settled.size > 64) NETPARTS.settled.delete(NETPARTS.settled.keys().next().value);
+}
+function netWorldPartsTakeSettled(m) {
+  if (typeof m.id !== 'string' || typeof m.digest !== 'string') return;
+  const own = NETPARTS.settled.get(m.id);
+  if (own && own.ownerAccount === m.ownerAccount && own.digest === m.digest) own.ackConfirmed = true;
+  if (NETPARTS.peer !== NET.self) return;
+  const row = NETPARTS.receipts.find(r => r.id === m.id && r.ownerAccount === m.ownerAccount);
+  if (!row || (row.digest || 'legacy:' + row.id) !== m.digest) return;
+  row.settled = true; netWorldPartsPruneReceipts(); netWorldPartsPublish(performance.now(), true);
+}
+function netWorldPartsPruneReceipts() {
+  const waiting = NETPARTS.receipts.filter(r => !r.settled), recent = NETPARTS.receipts.filter(r => r.settled).slice(-8);
+  NETPARTS.receipts = [...waiting, ...recent];
+}

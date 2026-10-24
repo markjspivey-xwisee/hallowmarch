@@ -30,12 +30,12 @@ async function endpoint() {
   }
   throw Error('Fixture did not become ready: '+output);
 }
-async function connect(url,room,name) {
+async function connect(url,room,name,sharedScene=1) {
   const ws=new WebSocket(url), client={ws,messages:[],peer:null,admission:null,authority:null,name};
   ws.addEventListener('message',event=>{
     const m=JSON.parse(event.data);client.messages.push(m);
     if(client.messages.length>2000)client.messages.shift();
-    if(m.t==='welcome'){client.peer=m.peer;client.admission=m.worldAdmission}
+    if(m.t==='welcome'){client.peer=m.peer;client.admission=m.worldAdmission;client.acct=m.acct}
     if(m.t==='activity'&&m.kind==='authority')client.authority=m.authority;
   });
   client.wait=async(fn,after=0)=>{
@@ -46,7 +46,7 @@ async function connect(url,room,name) {
   client.activity=m=>client.send({t:'activity',authority:client.authority,worldAdmission:client.admission,...m});
   await new Promise((resolve,reject)=>{ws.addEventListener('open',resolve,{once:true});ws.addEventListener('error',reject,{once:true})});
   client.send({t:'hello',room});await client.wait(m=>m.t==='welcome');
-  client.send({t:'slow',d:{on:1,humanLive:1,humanActivity:1,r:0,c:'warrior',l:20,n:name,dn:name}});
+  client.send({t:'slow',d:{on:1,humanLive:1,humanActivity:1,...(sharedScene===1?{sharedScene:1}:{}),r:0,c:'warrior',l:20,n:name,dn:name}});
   await client.wait(m=>m.t==='activity'&&m.kind==='authority');
   client.send({t:'fast',d:{s:1,p:[0,0,0],y:0,v:[0,0],a:0,h:1,m:100,d:0,ev:[]}});
   return client;
@@ -107,6 +107,18 @@ try {
   const worldFrom=b.messages.length;
   publish(a,'worldparts',{v:1,full:true,parts:{farm:{plots:[{id:1,stage:3}]},build:{pieces:[{id:1,st:'built'}]}},remove:[],receipts:[]},1);
   const world=await stream(b,'worldparts',worldFrom,1);assert.equal(world.parts.farm.plots[0].stage,3);
+  const receipt={id:b.peer+':proof',to:b.peer,ownerAccount:b.acct.id,digest:'settlement-proof',ok:true,goods:[],result:{pieceId:1}};
+  const receiptFrom=b.messages.length;
+  publish(a,'worldparts',{v:1,full:false,parts:{},remove:[],receipts:[receipt]},2);
+  assert.equal((await stream(b,'worldparts',receiptFrom,2)).receipts[0].settled,undefined);
+  const settledFrom=a.messages.length;
+  b.activity({kind:'worldparts',op:'settled',id:receipt.id,digest:receipt.digest,ownerAccount:'spoofed'});
+  const settled=await a.wait(m=>m.kind==='worldparts'&&m.op==='settled',settledFrom);
+  assert.equal(settled.ownerAccount,b.acct.id);
+  await b.wait(m=>m.kind==='worldparts'&&m.op==='settled'&&m.digest===receipt.digest&&m.ownerAccount===b.acct.id,receiptFrom);
+  const confirmedFrom=b.messages.length;
+  publish(a,'worldparts',{v:1,full:false,parts:{},remove:[],receipts:[receipt]},3);
+  assert.equal((await stream(b,'worldparts',confirmedFrom,3)).receipts[0].settled,true);
   const oldAuthority=b.authority,afterHandoff=b.messages.length;
   a.ws.close();await b.wait(m=>m.kind==='authority'&&m.peer===b.peer&&m.authority!==oldAuthority,afterHandoff);
   const takeover=await b.wait(m=>m.kind==='authority'&&m.authority!==oldAuthority,afterHandoff);
@@ -122,7 +134,33 @@ try {
   for(let i=0;i<100;i++){health=await(await fetch(healthUrl)).json();if(health.players===baseline.players)break;await delay(50)}
   assert.equal(health.players,baseline.players);
   if(baseline.players===0)assert.equal(health.livePlay.mode,'standby');
-  console.log(JSON.stringify({ok:true,boatRace:'exclusive',boatX:3,workers:27,entityChunks:chunks,entities:100,lateJoin:true,hostHandoff:true,playersAfter:health.players,idleMode:health.livePlay.mode}));
+  const mixedRoom=('mixed-proof-'+Date.now().toString(36)).slice(0,32);
+  const old=await connect(url,mixedRoom,'Old page fixture',0);clients.push(old);
+  const oldToken=old.authority, mark=old.messages.length;
+  const modern=await connect(url,mixedRoom,'Updated page fixture',1);clients.push(modern);
+  const upgraded=await old.wait(m=>m.kind==='authority'&&m.authority!==oldToken,mark);
+  assert.equal(upgraded.peer,modern.peer,'new capable page displaces an earlier legacy host');
+  modern.activity({kind:'boats',op:'snapshot',seq:1,boats:[{...boat(),x:7}]});
+  await old.wait(m=>m.kind==='boats'&&m.op==='snapshot'&&m.boats?.[0]?.x===7,mark);
+  old.ws.close();modern.ws.close();
+  for(let i=0;i<100;i++){health=await(await fetch(healthUrl)).json();if(health.players===baseline.players)break;await delay(50)}
+  assert.equal(health.players,baseline.players);
+  const farRoom=('far-proof-'+Date.now().toString(36)).slice(0,32);
+  const keeper=await connect(url,farRoom,'Far keeper fixture');clients.push(keeper);
+  const far=await connect(url,farRoom,'Far actor fixture');clients.push(far);
+  const observer=await connect(url,farRoom,'Normal observer fixture');clients.push(observer);
+  const keeperFrom=keeper.messages.length,observerFrom=observer.messages.length;
+  far.send({t:'fast',d:{s:200,p:[1500,0,0],y:0,v:[0,0],a:0,h:1,m:100,d:0,ev:[]}});
+  await keeper.wait(m=>m.t==='peer'&&m.peer===far.peer&&m.fast?.p?.[0]===1500&&!m.far,keeperFrom);
+  far.send({t:'fast',d:{s:201,p:[1501,0,0],y:0,v:[1,0],a:0,h:1,m:100,d:0,ev:[]}});
+  await keeper.wait(m=>m.t==='peer'&&m.peer===far.peer&&m.fast?.p?.[0]===1501&&!m.far,keeperFrom);
+  await delay(100);
+  assert.equal(observer.messages.slice(observerFrom).some(m=>m.peer===far.peer&&m.fast&&!m.far),false,'distant nonkeepers retain map-only throttled updates');
+  assert.equal(observer.messages.slice(observerFrom).some(m=>m.peer===far.peer&&m.fast?.p?.[0]===1501),false,'the ordinary far observer does not receive each fast frame');
+  keeper.ws.close();far.ws.close();observer.ws.close();
+  for(let i=0;i<100;i++){health=await(await fetch(healthUrl)).json();if(health.players===baseline.players)break;await delay(50)}
+  assert.equal(health.players,baseline.players);
+  console.log(JSON.stringify({ok:true,boatRace:'exclusive',boatX:3,workers:27,entityChunks:chunks,entities:100,lateJoin:true,hostHandoff:true,mixedCapabilityHost:true,privateSettlement:true,keeperReceivesDistant:true,playersAfter:health.players,idleMode:health.livePlay.mode}));
 } finally {
   for(const client of clients){try{client.ws.close()}catch{}}
   if(child){child.kill();await Promise.race([new Promise(resolve=>child.once('exit',resolve)),delay(3000)])}

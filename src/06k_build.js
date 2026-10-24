@@ -1328,7 +1328,7 @@ queueMicrotask(() => {
     const r = buildPlace(a.t, a.x, a.z, a.rot, {});
     return { ok: r.ok, why: r.why, pieceId: r.pc && r.pc.id };
   } });
-  netWorldPartsRegisterCommand('build.work', { point, range: 5, tools: ['tool_hammer'], run: a => {
+  netWorldPartsRegisterCommand('build.work', { durable: false, point, range: 5, tools: ['tool_hammer'], run: a => {
     const pc = piece(a);
     if (!pc || pc.st !== 'build' || !bHasHammer() || !Number.isFinite(a.dt) || a.dt <= 0 || a.dt > 0.5) return false;
     bWork(pc, a.dt); return { ok: true };
@@ -1342,7 +1342,7 @@ queueMicrotask(() => {
     if (!cost.every(([id, n]) => goodsHave(id, n))) return false;
     buildRepair(pc); return { ok: true };
   } });
-  netWorldPartsRegisterCommand('build.open', { point, run: a => {
+  netWorldPartsRegisterCommand('build.open', { durable: false, point, run: a => {
     const pc = piece(a); return pc ? buildSetOpen(pc, !!a.open) : false;
   } });
   netWorldPartsRegisterCommand('build.chest', { point, range: 4, run: a => {

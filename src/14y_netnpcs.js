@@ -2,13 +2,10 @@
  * other pages draw its bounded, complete roster instead of running another town.
  * The server stamps the authority token and world admission on every frame.
  */
-const NET_NPCS = { entities: new Map(), rows: new Map(), buffers: new Map(),
+const NET_NPCS = { entities: new Map(), rows: new Map(), confirmed: new Map(), buffers: new Map(), lastFrameAt: 0,
   authority: '', peer: '', admission: null, recv: -1, seq: 0, sentAt: -Infinity,
   complete: false, ensurePending: false, stats: { sent: 0, received: 0, refused: 0, made: 0 } };
 const NET_NPC_MAX = 64;
-// The four class appearances plus the actual villager and herald rig outfits.
-// Town merchants use the villager outfit; combat-only outfits are not NPC rows.
-const NET_NPC_OUTFITS = new Set([0, 1, 2, 3, 4, 9]);
 const netNpcServer = () => typeof netServerUrl === 'function' && !!netServerUrl();
 const netNpcMine = () => !!NET_NPCS.authority && NET_NPCS.peer === NET.self;
 const netNpcId = (id) => typeof id === 'string' && /^town:[0-2]:(villager|herald|merchant):[0-9]{1,2}$/.test(id);
@@ -29,11 +26,11 @@ function netNpcRowRead(o) {
     || !netNpcFinite(o.ph, 0, Math.PI * 128) || !netNpcFinite(o.am, 0, 4)
     || !netNpcFinite(o.h, 0, 1e6) || !netNpcFinite(o.m, 1, 1e6) || o.h > o.m
     || !netNpcBit(o.d) || !netNpcBit(o.g) || !netNpcBit(o.hm)
-    || !Array.isArray(o.lk) || o.lk.length !== 15 || !o.lk.every((v) => netNpcFinite(v, 0, (1 << 24) - 1))) return null;
+    || !Array.isArray(o.lk) || o.lk.length !== 15 || !o.lk.every((v) => netNpcFinite(v, 0, (1 << 25) - 1))) return null;
   const lk = o.lk;
   if (!lk.slice(0, 6).every((v) => v <= 2) || lk[6] > 1 || lk[7] > 1
     || !Number.isInteger(lk[8]) || !Number.isInteger(lk[9]) || lk[9] > 1023
-    || lk[10] < 0.85 || lk[10] > 1.12 || !Number.isInteger(lk[11]) || !NET_NPC_OUTFITS.has(lk[11])
+    || lk[10] < 0.85 || lk[10] > 1.12 || !Number.isInteger(lk[11]) || lk[11] > 10
     || !Number.isInteger(lk[12]) || lk[12] > 3 || !netNpcBit(lk[13]) || lk[14] > 0.5) return null;
   if (!(o.st === null || Array.isArray(o.st) && o.st.length === 4
     && netNpcFinite(o.st[0], -500, 500) && netNpcFinite(o.st[1], -50, 50)
@@ -61,11 +58,30 @@ function netNpcRegister(e, id) {
   NET_NPCS.entities.set(id, e);
   const row = NET_NPCS.rows.get(id);
   if (row) netNpcApply(e, row, true);
+  if (netNpcMine()) netNpcResumeWorker(e);
   return true;
 }
 function netNpcLook(lk) {
   return { tabard: lk.slice(0, 3), armor: lk.slice(3, 6), skin: lk[6], hair: lk[7],
     mask: lk[8], flags: lk[9], scale: lk[10], outfit: lk[11], emblem: lk[12], fem: lk[13], bulk: lk[14] };
+}
+// Carrying is an effective renderer mask, separate from the worker's idle look.
+// Encode that visible load so replicas need no local economic plan to draw it.
+function netNpcMask(e) {
+  const haul = e.ai?.lj?.haul;
+  return haul && typeof WB !== 'undefined' && typeof WEAPON_BITS !== 'undefined'
+    ? (e.look.mask & ~WEAPON_BITS) | (haul === 'wood' ? WB.timberLoad : WB.stoneLoad) : e.look.mask;
+}
+function netNpcResumeWorker(e) {
+  const slot = Number(e.netNpcId?.split(':')[3]);
+  if (e.role !== 'villager' || slot < 6 || slot > 8 || !Number.isInteger(slot)) { e.ai.lj = null; return; }
+  const bits = typeof WB !== 'undefined' ? WB : {}, mask = e.look.mask;
+  const carry = (bits.timberLoad || 0) | (bits.stoneLoad || 0);
+  const base = mask & ~((typeof WEAPON_BITS !== 'undefined' ? WEAPON_BITS : 0) | carry);
+  e.ai.lj = { job: slot === 8 ? 'stone' : 'wood', realm: e.netNpcRealm, look: base,
+    next: GAME.t + 20, haul: mask & (bits.stoneLoad || 0) ? 'stone' : mask & (bits.timberLoad || 0) ? 'wood' : null };
+  e.look.mask = base;
+  if (typeof LOOPS !== 'undefined' && !LOOPS.workers.includes(e.id)) LOOPS.workers.push(e.id);
 }
 function netNpcBoat(e, row) {
   if (!row.bt) {
@@ -100,6 +116,7 @@ function netNpcApply(e, row, immediate = false) {
   e.maxHp = row.m; e.hp = row.h;
   if (e.alive && row.d) e.deadAt = GAME.t;
   e.alive = !row.d; e.removeAt = Infinity;
+  if (!netNpcMine()) e.ai.lj = null;
   e.ai.farmer = !!row.fm; e.ai.fieldHand = !!row.fm?.[1]; e.ai.seedSeller = !!row.fm?.[2];
   if (row.fm) e.farmTown = row.fm[0];
   if (immediate) {
@@ -164,11 +181,12 @@ function netNpcMessage(m) {
       if (e.ai.fisher?.J?.fisher === e.id) e.ai.fisher.J.fisher = null;
       e.ai.fisher = null; e.ai.fishWait = 0;
     }
+    NET_NPCS.confirmed = new Map(rows.map(r => [r.id, r])); NET_NPCS.lastFrameAt = performance.now();
     netNpcReceiveRows(rows, true);
     if (netNpcMine()) {
       // Local plans contain local entity/field references. Resume from the shared
       // pose with fresh plans rather than replaying a former private simulation.
-      for (const e of NET_NPCS.entities.values()) { e.netNpcPose = null; e.ai.plan = null; e.ai.lj = null; e.ai.lifeWait = 0; e.ai.farmNext = 0; }
+      for (const e of NET_NPCS.entities.values()) { e.netNpcPose = null; e.ai.plan = null; netNpcResumeWorker(e); e.ai.lifeWait = 0; e.ai.farmNext = 0; }
       if (typeof FARM !== 'undefined') for (const p of FARM.plots) if (p.own === 't') p.stand.worker = null;
     }
     return true;
@@ -177,6 +195,7 @@ function netNpcMessage(m) {
     || m.peer !== NET_NPCS.peer || !Number.isSafeInteger(m.seq) || m.seq <= NET_NPCS.recv) { NET_NPCS.stats.refused++; return false; }
   const rows = netNpcRowsRead(m.npcs); if (!rows) { NET_NPCS.stats.refused++; return false; }
   NET_NPCS.recv = m.seq; NET_NPCS.stats.received++;
+  NET_NPCS.confirmed = new Map(rows.map(r => [r.id, r])); NET_NPCS.lastFrameAt = performance.now();
   if (!netNpcMine()) netNpcReceiveRows(rows);
   return true;
 }
@@ -215,7 +234,7 @@ function netNpcSnapshot() {
       p: [r2(e.x), r2(e.y), r2(e.z)], y: r2(e.yaw), a: Math.min(63.999, Math.round(animActValue(e) * 1000) / 1000),
       ph: Math.min(Math.PI * 128, r2(e.anim.phase)), am: r2(Math.max(0, Math.min(4, e.anim.amt))),
       h: r2(Math.max(0, Math.min(e.maxHp, e.hp))), m: r2(e.maxHp), d: e.alive ? 0 : 1, g: e.removed || e.netNpcMissing ? 1 : 0,
-      lk: [...L.tabard, ...L.armor, L.skin, L.hair, L.mask, L.flags || 0, L.scale || e.scale || 1,
+      lk: [...L.tabard, ...L.armor, L.skin, L.hair, netNpcMask(e), L.flags || 0, L.scale || e.scale || 1,
         L.outfit || 0, L.emblem ?? 3, L.fem ? 1 : 0, L.bulk || 0]
         .map((v, i) => [8, 9, 11, 12, 13].includes(i) ? v : Math.round(v * 1000) / 1000),
       st: e.seat ? [e.seat.y, e.seat.yaw ?? e.yaw, e.seat.sx ?? e.x, e.seat.sz ?? e.z].map(r2) : null,
@@ -241,10 +260,30 @@ function netNpcPump(now) {
 function netNpcReset() {
   NET_NPCS.authority = ''; NET_NPCS.peer = ''; NET_NPCS.admission = null;
   NET_NPCS.recv = -1; NET_NPCS.seq = 0; NET_NPCS.sentAt = -Infinity;
-  NET_NPCS.rows.clear(); NET_NPCS.buffers.clear(); NET_NPCS.complete = false; NET_NPCS.ensurePending = false;
+  NET_NPCS.rows.clear(); NET_NPCS.confirmed.clear(); NET_NPCS.lastFrameAt = 0; NET_NPCS.buffers.clear(); NET_NPCS.complete = false; NET_NPCS.ensurePending = false;
   for (const e of NET_NPCS.entities.values()) e.netNpcPose = null;
 }
+function netNpcAudit() {
+  const actual = new Map(netNpcSnapshot().map(r => [r.id, r]));
+  const canonical = NET_NPCS.confirmed.size ? NET_NPCS.confirmed : NET_NPCS.rows;
+  const changes = [];
+  for (const [id, expected] of canonical) {
+    const value = actual.get(id), fields = [];
+    if (!value) fields.push('unserializable-or-missing');
+    else for (const key of ['n', 'role', 'r', 'lk', 'fm', 'd', 'g', 'bt'])
+      if (JSON.stringify(value[key]) !== JSON.stringify(expected[key])) fields.push(key);
+    const error = value ? Math.hypot(...value.p.map((v, i) => v - expected.p[i])) : null;
+    if (fields.length || error > 2.5) changes.push({ id, fields, distance: error,
+      expected: { n: expected.n, lk: expected.lk, fm: expected.fm, p: expected.p },
+      actual: value && { n: value.n, lk: value.lk, fm: value.fm, p: value.p } });
+  }
+  return { self: NET.self, keeper: NET_NPCS.peer, mine: netNpcMine(), seq: NET_NPCS.recv,
+    age: performance.now() - NET_NPCS.lastFrameAt, registered: NET_NPCS.entities.size,
+    serializable: actual.size, canonical: canonical.size, changes,
+    invalid: [...NET_NPCS.entities].filter(([id]) => !actual.has(id)).map(([id, e]) =>
+      ({ id, role: e.role, name: e.name, realm: e.netNpcRealm, cls: e.cls, level: e.level, hp: e.hp, maxHp: e.maxHp, look: e.look })) };
+}
 if (typeof window !== 'undefined' && window.__hm) window.__hm.npcs = {
-  state: NET_NPCS, snapshot: netNpcSnapshot, receive: netNpcMessage, visible: netNpcVisible,
+  state: NET_NPCS, snapshot: netNpcSnapshot, receive: netNpcMessage, visible: netNpcVisible, audit: netNpcAudit,
 };
 

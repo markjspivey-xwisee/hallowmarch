@@ -37,7 +37,7 @@ export function activityNpc(r) {
     || !finite(r.a, 0, 63.999) || !finite(r.ph, 0, Math.PI * 128) || !finite(r.am, 0, 4)
     || !finite(r.h, 0, 1e6) || !finite(r.m, 1, 1e6) || r.h > r.m
     || ![0, 1].includes(r.d) || ![0, 1].includes(r.g) || ![0, 1].includes(r.hm)
-    || !array(r.lk, 15, 0, (1 << 24) - 1)) return null;
+    || !array(r.lk, 15, 0, (1 << 25) - 1)) return null;
   if (r.st != null && (!array(r.st, 4, -4000, 4000) || Math.abs(r.st[0]) > 500 || Math.abs(r.st[1]) > 50)) return null;
   if (r.fm != null && (!Array.isArray(r.fm) || r.fm.length !== 3 || !Number.isInteger(r.fm[0]) || r.fm[0] < 0 || r.fm[0] > 2
     || ![0, 1].includes(r.fm[1]) || ![0, 1].includes(r.fm[2]))) return null;
@@ -73,8 +73,20 @@ function sceneValue(kind, old, payload) {
     const parts = Object.assign(Object.create(null), payload.full ? {} : old?.parts || {}, payload.parts);
     for (const key of payload.remove) delete parts[key];
     if (Object.keys(parts).length > 128) return null;
-    const receipts = payload.receipts === undefined ? old?.receipts || [] : payload.receipts;
-    if (!Array.isArray(receipts) || receipts.length > 32 || !receipts.every(r => r && typeof r === 'object' && safeJson(r))) return null;
+    const incoming = payload.receipts === undefined ? old?.receipts || [] : payload.receipts;
+    if (!Array.isArray(incoming) || incoming.length > 32 || !incoming.every(r => r && typeof r === 'object' && safeJson(r))) return null;
+    const receiptKey = r => String(r.ownerAccount || r.to || '') + ':' + String(r.id) + ':' + String(r.digest || '');
+    const prior = new Map((old?.receipts || []).map(r => [receiptKey(r), r]));
+    const retained = new Map(incoming.map(r => {
+      const before = prior.get(receiptKey(r));
+      return [receiptKey(r), before?.settled ? { ...r, settled: true } : r];
+    }));
+    // An outcome remains canonical until its authenticated owner acknowledges private readback.
+    for (const r of prior.values()) if (!r.settled && !retained.has(receiptKey(r))) retained.set(receiptKey(r), r);
+    const waiting = [...retained.values()].filter(r => !r.settled);
+    if (waiting.length > 24) return null;
+    const recent = [...retained.values()].filter(r => r.settled).slice(-8);
+    const receipts = [...waiting, ...recent];
     value = { v: 1, full: true, parts, remove: [], receipts };
   }
   // A cached full snapshot must itself fit the same 128 x 3500-char transport.
@@ -187,12 +199,34 @@ export function createSharedScene({ hostFor, live, admission, stateFor, send, ch
       const seen = s.commands.get(c.peer) || { at: now(), count: 0, ids: new Set() };
       if (now() - seen.at > 1000) { seen.at = now(); seen.count = 0; }
       const id = kind + ':' + command.id;
-      if (seen.ids.has(id) || ++seen.count > 20 || !c.pos || now() - c.posT > 5000) return false;
+      if (kind !== 'worldparts' && seen.ids.has(id) || ++seen.count > 20 || !c.pos || now() - c.posT > 5000) return false;
       seen.ids.add(id); if (seen.ids.size > 128) seen.ids.delete(seen.ids.values().next().value);
       s.commands.set(c.peer, seen); const host = room.clients.get(s.host);
       if (!host || !live(host)) return false;
       send(host, { t: 'activity', kind, op: 'command', authority: s.authority, worldAdmission: s.worldAdmission,
         peer: s.host, from: c.peer, ownerAccount: c.acct?.id || c.peer, position: { x: c.pos.x, z: c.pos.z }, realm: c.slow?.r ?? -1, at: now(), command });
+      return true;
+    }
+    if (kind === 'worldparts' && m.op === 'settled') {
+      if (typeof m.id !== 'string' || !m.id || m.id.length > 100
+        || typeof m.digest !== 'string' || !m.digest || m.digest.length > 128) return false;
+      const ownerAccount = c.acct?.id || c.peer;
+      const receipt = s.streams.worldparts?.receipts?.find(r => r.id === m.id && r.ownerAccount === ownerAccount);
+      if (!receipt || (receipt.digest || 'legacy:' + receipt.id) !== m.digest) return false;
+      const seen = s.commands.get(c.peer) || { at: now(), count: 0, ids: new Set() };
+      if (now() - seen.at > 1000) { seen.at = now(); seen.count = 0; }
+      if (++seen.count > 20) return false;
+      s.commands.set(c.peer, seen);
+      if (!receipt.settled) {
+        s.streams.worldparts = { ...s.streams.worldparts, receipts: s.streams.worldparts.receipts.map(r =>
+          r === receipt ? { ...r, settled: true } : r) };
+        if (!persist(room, s, true)) return refuse(c, s, m, 'scene_capacity');
+      }
+      const host = room.clients.get(s.host);
+      const acknowledged = { t: 'activity', kind, op: 'settled', authority: s.authority,
+        worldAdmission: s.worldAdmission, peer: s.host, from: c.peer, ownerAccount, id: m.id, digest: m.digest };
+      if (host && live(host)) send(host, acknowledged);
+      if (host !== c) send(c, acknowledged);
       return true;
     }
     if (m.op === 'result') {
@@ -225,7 +259,8 @@ export function createSharedScene({ hostFor, live, admission, stateFor, send, ch
     if (!merged) return false;
     s.streams[kind] = merged; s.streamSeq[kind] = m.seq;
     if (!persist(room, s)) return refuse(c, s, m, 'scene_capacity');
-    for (const packet of chunks(s, kind, m.seq, payload)) broadcast(room, packet);
+    const publicPayload = kind === 'worldparts' ? { ...payload, receipts: merged.receipts } : payload;
+    for (const packet of chunks(s, kind, m.seq, publicPayload)) broadcast(room, packet);
     return true;
   }
   function handle(c, m) {

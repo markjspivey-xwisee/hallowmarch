@@ -159,6 +159,7 @@ function updateLoot(dt) {
       }
     }
     if (!P || !P.alive || GAME.t - L.t0 < 0.45) continue;
+    if (typeof netWorldPartsActive === 'function' && netWorldPartsActive()) continue;
     const d2 = dist2(P.x, P.z, L.x, L.z);
     if (d2 < 1.7 * 1.7 && Math.abs(P.y - L.y) < 2.5) {
       if (L.item.goods) {
