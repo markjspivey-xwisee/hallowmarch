@@ -5,6 +5,7 @@ on:
     paths:
       - '.github/workflows/release-browser-smoke.yml'
       - 'tools/manual/release-browser-smoke.mjs'
+      - 'tools/manual/live-economic-smoke.mjs'
 permissions:
   contents: read
 concurrency:
@@ -47,7 +48,7 @@ jobs:
           node tools/node_modules/playwright/cli.js install --with-deps chromium
       - uses: actions/checkout@v4
         with:
-          ref: 970f5efda4b046bd66ecce9739d825378c03f341
+          ref: 728975d9660da20101fca8c5574360c5b9c2a980
           path: candidate
       - name: Build exact candidate page
         run: python3 candidate/build.py
@@ -77,12 +78,18 @@ jobs:
             native: true, confirmed: true, publicStatsBounded: true }));
           JS
       - name: Check script syntax
-        run: node --check tools/manual/release-browser-smoke.mjs
+        run: |
+          node --check tools/manual/release-browser-smoke.mjs
+          node --check tools/manual/live-economic-smoke.mjs
       - name: Exercise actual deployed guest UI
         run: node tools/manual/release-browser-smoke.mjs
+      - name: Confirm a real native mining receipt on preview
+        run: node tools/manual/live-economic-smoke.mjs
       - uses: actions/upload-artifact@v4
         if: ${{ always() }}
         with:
           name: release-browser-smoke-public-evidence
-          path: tools/out/release-browser-smoke/
+          path: |
+            tools/out/release-browser-smoke/
+            tools/out/live-economic-smoke/
           retention-days: 7
