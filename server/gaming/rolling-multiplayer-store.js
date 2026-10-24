@@ -43,6 +43,9 @@ export class RollingMultiplayerStore extends InteregoGamingStore {
       error('Bounded multiplayer native checkpoint support is required.', 'INVALID_CONFIGURATION', 500);
     }
     this.resourceUrl = options.resourceUrl; this.clock = options.clock ?? Date.now; this.lastEnvelope = null;
+    this.capacityBytes = { stateBytes: -1, eventBytes: -1, jsonBytes: -1, gzipBytes: -1,
+      maxStateBytes: this.maxStateBytes, maxEventBytes: this.maxEventBytes, maxJsonBytes: MAX_JSON, maxGzipBytes: MAX_GZIP,
+      rejectedStateBytes: -1, rejectedEventBytes: -1, rejectedJsonBytes: -1, rejectedGzipBytes: -1 };
   }
   now() { const n = this.clock(); if (!Number.isSafeInteger(n) || n < 0) error('Invalid multiplayer clock.'); return n; }
   empty(now) { return { schema: SCHEMA, owner: this.owner, namespace: this.namespace, resourceUrl: this.resourceUrl,
@@ -89,9 +92,11 @@ export class RollingMultiplayerStore extends InteregoGamingStore {
   }
   artifact(doc) {
     const bytes = Buffer.from(canonical(doc));
-    if (bytes.length > MAX_JSON) error('Rollback window exceeds its uncompressed budget.', 'PAYLOAD_TOO_LARGE', 413);
+    this.capacityBytes.jsonBytes = bytes.length; this.capacityBytes.gzipBytes = -1;
+    if (bytes.length > MAX_JSON) { this.capacityBytes.rejectedJsonBytes = bytes.length; error('Rollback window exceeds its uncompressed budget.', 'PAYLOAD_TOO_LARGE', 413); }
     const compressed = gzipSync(bytes);
-    if (compressed.length > MAX_GZIP) error('Rollback window exceeds its compressed storage budget.', 'PAYLOAD_TOO_LARGE', 413);
+    this.capacityBytes.gzipBytes = compressed.length;
+    if (compressed.length > MAX_GZIP) { this.capacityBytes.rejectedGzipBytes = compressed.length; error('Rollback window exceeds its compressed storage budget.', 'PAYLOAD_TOO_LARGE', 413); }
     return this.artifactCodec.createNativeByteArtifact({ owner: this.owner, contentType: TYPE, bytes: compressed });
   }
   prepareWrite(doc) {
@@ -161,7 +166,10 @@ export class RollingMultiplayerStore extends InteregoGamingStore {
     const keys = this.keys(streamId, idempotencyKey);
     if (!Number.isSafeInteger(expectedVersion) || expectedVersion < 0 || !plain(state)) error('Invalid multiplayer commit.', 'INVALID_INPUT', 400);
     const clean = copy(state), cleanEvent = copy(event);
-    if (Buffer.byteLength(canonical(clean)) > this.maxStateBytes || Buffer.byteLength(canonical(cleanEvent)) > this.maxEventBytes) error('Multiplayer commit exceeds capacity.', 'PAYLOAD_TOO_LARGE', 413);
+    this.capacityBytes.stateBytes = Buffer.byteLength(canonical(clean)); this.capacityBytes.eventBytes = -1;
+    if (this.capacityBytes.stateBytes > this.maxStateBytes) { this.capacityBytes.rejectedStateBytes = this.capacityBytes.stateBytes; error('Multiplayer commit exceeds capacity.', 'PAYLOAD_TOO_LARGE', 413); }
+    this.capacityBytes.eventBytes = Buffer.byteLength(canonical(cleanEvent));
+    if (this.capacityBytes.eventBytes > this.maxEventBytes) { this.capacityBytes.rejectedEventBytes = this.capacityBytes.eventBytes; error('Multiplayer commit exceeds capacity.', 'PAYLOAD_TOO_LARGE', 413); }
     const inputDigest = hash(canonical({ expectedVersion, state: clean, event: cleanEvent }));
     const next = { schema: 'urn:interego:gaming:stream:v1', namespace: this.namespace, streamId,
       version: expectedVersion + 1, state: clean, event: cleanEvent, operationId: keys.operationId };
@@ -256,6 +264,7 @@ export class RollingMultiplayerStore extends InteregoGamingStore {
     } catch (e) { const recovered = replay(await this.read()); if (recovered) return recovered; throw e; }
   }
   performanceStatus() { return { ...super.performanceStatus(), snapshotMode: 'bounded-rolling-hour', retentionMs: MULTIPLAYER_HISTORY_MS,
+    capacityBytes: { ...this.capacityBytes },
     checkpointResolutionMs: 60000, maxEncryptedBytes: 1024 * 1024, writeBudgetBytes: MULTIPLAYER_WRITE_BYTES,
     reservedWriteBytes: (this.lastEnvelope?.writeBudget ?? []).filter(bucket => bucket.minute >= Math.floor((this.now() - MULTIPLAYER_HISTORY_MS) / 60000))
       .reduce((sum, bucket) => sum + bucket.bytes, 0), checkpoints: this.lastEnvelope?.checkpoints.length ?? 0 }; }
