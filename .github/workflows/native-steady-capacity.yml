@@ -2,7 +2,7 @@ name: Native steady capacity proof
 on:
   push:
     branches: ['test/native-steady-capacity-20261024']
-    paths: ['.github/workflows/native-steady-capacity.yml']
+    paths: ['.github/workflows/native-steady-capacity.yml', 'tools/manual/column-experiment.mjs']
 permissions:
   contents: read
 jobs:
