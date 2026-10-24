@@ -8,8 +8,8 @@ the top meshes by triangles (instances x triangles each) and the JS cost of a fr
 simulation step and the top systems by JS time (every update and draw function timed); then the boot.
 usage: python3 tools/tests/perf.py [high|medium|low ...] [views=town,keep,...] [tag=before] [rows=8] [w=640] [h=360] [js|render] [settle=16] [budget] [seed] [audio] [war=MIN]
 (budget: [perf2] fails when a view goes over its budget, BUDGET below; [war3] budget and seed: the same war each run, Math.random seeded and the page's own frames held)
-(js: only the JS costs; render: only the draw counts; shots [shotq=low,medium]: a picture of each view; audio: a click
-first, so the sound runs: without a gesture there is no AudioContext and updateAudio does nothing)
+(js: only the JS costs; render: only the draw counts; shots [shotq=low,medium]: a picture of each view; audio: enable
+Web Audio and click first; by default the optional AudioContext capability is absent so trusted test input cannot start it)
 Writes tools/out/perf_<tag>.json and prints a table."""
 import asyncio, json, sys, time, pathlib, subprocess
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
@@ -189,6 +189,12 @@ HOLD = """(() => { let s = 1234567; Math.random = () => { s |= 0; s = (s + 0x6D2
 (() => { window.__rafHold = false; const raf = window.requestAnimationFrame.bind(window);
   window.requestAnimationFrame = (cb) => raf((t) => { if (window.__rafHold) window.requestAnimationFrame(cb); else cb(t); }); })();"""
 
+# Trusted human_play input also unlocks audio. Its wall-clock scheduler consumes
+# Math.random, so mute gains cannot isolate a seeded rendering benchmark.
+NO_AUDIO = """for (const name of ['AudioContext', 'webkitAudioContext']) {
+  Object.defineProperty(window, name, { value: undefined, configurable: true });
+}"""
+
 def fmt_m(n):
     return f'{n/1e6:.2f}M' if n >= 1e6 else f'{n/1e3:.0f}k'
 
@@ -196,14 +202,18 @@ async def main():
     res = {'tag': TAG, 'views': {}, 'sim': {}, 'systems': [], 'boot': {}}
     async with async_playwright() as p:
         t0 = time.time()
-        b, page, logs = await setup(p, touch=False, w=W, h=H, init=HOLD if SEED else None)
+        init = (HOLD if SEED else '') + ('\n' + NO_AUDIO if 'audio' not in ARGS else '')
+        b, page, logs = await setup(p, touch=False, w=W, h=H, init=init)
         if SEED: await ev(page, "window.__rafHold = true; 0")  # [war3] only the steps and frames asked for from here
         res['boot']['wall'] = round(time.time() - t0, 1)
         res['boot'].update(await ev(page, '__hm.perf.boot()'))
         await ev(page, HELP)
-        if 'audio' in ARGS:  # [audio2] a click first, so the sound runs in what is measured (no gesture, no AudioContext: updateAudio does nothing)
+        if 'audio' in ARGS:  # [audio2] retain the optional benchmark with real audio
             await page.mouse.click(8, 8); await page.wait_for_timeout(1500)
             res['boot']['audio'] = await ev(page, "__hm.fn.AUDIO.ctx ? __hm.fn.AUDIO.ctx.state : 'none'")
+        else:
+            res['boot']['audio'] = await ev(page, "__hm.fn.AUDIO.ctx ? __hm.fn.AUDIO.ctx.state : 'none'")
+            assert res['boot']['audio'] == 'none', 'Default rendering benchmark unexpectedly started audio'
         await ev(page, "(async () => { await __hm.start({realm:0, cls:'warrior', level:30}); PV.calm(); __hm.setTod(0.55); return 0; })()")
         # let the war get going and the town wake up
         await ev(page, "__hm.simulate(40); 0")
@@ -266,6 +276,8 @@ async def main():
         if 'budget' in ARGS:
             for o in over: print('OVER BUDGET', o, flush=True)
             print('budget: ' + ('every view within its budget' if not over else f'{len(over)} over'), flush=True)
+        if 'audio' not in ARGS:
+            assert await ev(page, "__hm.fn.AUDIO.ctx === null"), 'Default rendering benchmark started audio during simulation'
         res['errors'] = await ev(page, "__hm.errors")
         res['heap'] = await ev(page, "performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) : null")
         print('boot', json.dumps(res['boot']), 'heap now', res['heap'], 'MB')
@@ -306,7 +318,8 @@ def run_isolated_qualities():
         pathlib.Path(OUT + "perf_" + TAG + ".json").write_text(json.dumps(merged, indent=1))
     sys.exit(1 if any(codes) else 0)
 
-if len(QUALS) > 1:
-    run_isolated_qualities()
-else:
-    asyncio.run(main())
+if __name__ == '__main__':
+    if len(QUALS) > 1:
+        run_isolated_qualities()
+    else:
+        asyncio.run(main())
