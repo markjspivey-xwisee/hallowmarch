@@ -64,6 +64,12 @@ function expand(node, count) {
   return rows;
 }
 const doc = realisticRollingWindow();
+const sdkRoot = process.env.INTEREGO_SDK_TEST_ROOT;
+const [native, core] = await Promise.all(['pgsl', 'core'].map(name => import(pathToFileURL(sdkRoot + '/packages/' + name + '/dist/index.js').href)));
+const owner = doc.owner, senderKeyPair = core.deriveEncryptionKeyPair('a'.repeat(64), owner);
+const scope = { owner, pod: 'https://pod.example/game/', headUrl: 'https://pod.example/game/gaming/head', artifactContainer: 'https://pod.example/game/gaming/artifacts/' };
+const client = new native.NativeCommitStore({ scope, senderKeyPair, ownerPublicKey: senderKeyPair.publicKey,
+  recipientPublicKeys: [senderKeyPair.publicKey], atomicCheckpoint: true, fetch: async () => { throw Error('sizing_must_not_perform_io'); } });
 for (const numbers of [false, true]) {
   const began = performance.now(), col = columns(doc.checkpoints, numbers);
   const encoded = { schema: 'experimental-columns-v1', document: { ...doc, checkpoints: [] }, count: doc.checkpoints.length, columns: col };
@@ -75,6 +81,12 @@ for (const numbers of [false, true]) {
   console.log(JSON.stringify({ typedColumns: true, numericSeries: numbers, snapshots: doc.checkpoints.length, bindings: 500, wireBytes: bytes.length, encodeMs, decodeMs, exact: true }));
   for (const quality of [4, 6, 9, 10]) {
     const began = performance.now(), compressed = brotliCompressSync(bytes, { params: { [constants.BROTLI_PARAM_QUALITY]: quality, [constants.BROTLI_PARAM_LGWIN]: 22 } });
-    console.log(JSON.stringify({ numericSeries: numbers, quality, compressedBytes: compressed.length, compressionMs: Math.round(performance.now() - began) }));
+    const compressionMs = Math.round(performance.now() - began);
+    const artifact = native.createNativeByteArtifact({ owner, contentType: 'application/vnd.interego.rolling-checkpoint-delta-v1+br', bytes: compressed });
+    const encryptedBytes = client.atomicCheckpointSize(artifact), reservedBytes = Math.ceil((encryptedBytes + 4096) / 4096) * 4096;
+    const steadyHourlyBytes = reservedBytes * 122, budgetBytes = 64 * 1024 * 1024;
+    console.log(JSON.stringify({ numericSeries: numbers, quality, compressedBytes: compressed.length, compressionMs,
+      actualSdkEncryptedBytes: encryptedBytes, reservedBytes, steadyHourlyBytes, budgetBytes }));
+    if (numbers && quality === 6) assert(steadyHourlyBytes < budgetBytes * 0.75, 'regular writes leave admission headroom under the existing budget');
   }
 }
