@@ -1012,7 +1012,7 @@ function drawProjectiles() {
 function grantKillRewards(e) {
   const prog = GAME.prog, P = GAME.player;
   if (!prog || !P) return;
-  if (e.kind === 'door') return;
+  if (e.kind === 'door' || e.role === 'hound') return;
   activityEntityEvent('combat.defeated', P, e, 1, { success: true });
   const ci = conIndex(e.level, prog.level);
   rollLoot(e);
