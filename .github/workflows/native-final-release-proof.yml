@@ -1,0 +1,26 @@
+name: Combined native release proof
+on:
+  push:
+    branches: [test/native-final-release-20261024]
+    paths: [.github/workflows/native-final-release-proof.yml]
+permissions:
+  contents: read
+jobs:
+  native-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci --prefix server && npm ci --prefix tools
+      - run: python3 build.py
+      - name: Build exact pinned native SDK
+        env:
+          INTEREGO_SDK_TEST_ROOT: ${{ runner.temp }}/combined-native-sdk
+        run: |
+          node tools/setup-native-sdk.mjs
+          echo "INTEREGO_SDK_TEST_ROOT=$INTEREGO_SDK_TEST_ROOT" >> "$GITHUB_ENV"
+      - name: Verify actual native storage, scene and character contracts
+        run: node --test server/*.test.mjs server/gaming/*.test.mjs client/native-pod/profile.test.mjs tools/tests/departing_save.test.mjs tools/tests/net_worldparts.mjs
