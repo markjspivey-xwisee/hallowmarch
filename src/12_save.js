@@ -1,7 +1,7 @@
 /* ================================================================== */
 /* saves: a private per-player document, or this browser as fallback   */
 /* ================================================================== */
-const SAVE = { ref: null, backend: 'local', lsKey: 'hallowmarch.save.v1', timer: 0, chain: Promise.resolve(), lastBody: '', lastCore: '', loaded: null, wiping: false, native: false, pending: null, readConfirmed: false, nativeFlight: null, nativePaused: false, loading: null, guestWriteAt: 0, guestTimer: 0, guestFlush: false };
+const SAVE = { ref: null, backend: 'local', lsKey: 'hallowmarch.save.v1', timer: 0, chain: Promise.resolve(), lastBody: '', lastCore: '', loaded: null, wiping: false, native: false, pending: null, readConfirmed: false, nativeFlight: null, nativePaused: false, nativeFinal: null, loading: null, guestWriteAt: 0, guestTimer: 0 };
 
 const withTimeout = (p, ms) => Promise.race([p, new Promise((res) => setTimeout(() => res(null), ms))]);
 async function initSaveBackend(initialization) {
@@ -183,20 +183,27 @@ function saveSoon(delay = 2500) {
 // Native saves retain one active publication and the latest unsaved state. A
 // stalled grant cannot queue an unbounded list of complete character copies.
 function nativeSavePending({ immediate = false } = {}) {
-  if (immediate) { SAVE.guestFlush = true; clearTimeout(SAVE.guestTimer); SAVE.guestTimer = 0; }
-  if (SAVE.nativeFlight) return SAVE.nativeFlight;
-  if (SAVE.nativePaused || !SAVE.pending) return SAVE.chain;
   const now = () => typeof performance !== 'undefined' && typeof performance.now === 'function'
     ? performance.now() : Date.now();
+  if (immediate) {
+    // A final request authorizes this exact body and owner reference, including
+    // when an older publication is still in flight. It never drains later idle work.
+    SAVE.nativeFinal = SAVE.pending ? { body: SAVE.pending, ref: SAVE.ref, until: now() + 10000 } : null;
+    clearTimeout(SAVE.guestTimer); SAVE.guestTimer = 0;
+  }
+  if (SAVE.nativeFlight) return SAVE.nativeFlight;
+  if (SAVE.nativePaused || !SAVE.pending) return SAVE.chain;
+  const finalReady = () => !!SAVE.nativeFinal && SAVE.nativeFinal.body === SAVE.pending && SAVE.nativeFinal.ref === SAVE.ref
+    && now() < SAVE.nativeFinal.until;
   const idleUntil = now() + 10000;
   const flight = SAVE.chain.catch(() => {}).then(async () => {
     let first = true;
-    while (SAVE.pending && !SAVE.nativePaused && (first || typeof netHumanLive !== 'function' || netHumanLive())) {
+    while (SAVE.pending && !SAVE.nativePaused && (first || typeof netHumanLive !== 'function' || netHumanLive() || finalReady())) {
       // A queued explicit/final save cannot become a fresh idle write long
       // after its request. Keep the exact pending body for the next live session.
-      if (first && typeof netHumanLive === 'function' && !netHumanLive() && now() >= idleUntil) break;
+      if (first && typeof netHumanLive === 'function' && !netHumanLive() && !finalReady() && now() >= idleUntil) break;
       const provisional = typeof nativePlayerIsProvisional === 'function' && nativePlayerIsProvisional();
-      const wait = provisional && !SAVE.guestFlush ? SAVE.guestWriteAt - Date.now() : 0;
+      const wait = provisional && !finalReady() ? SAVE.guestWriteAt - Date.now() : 0;
       if (wait > 0) {
         if (!SAVE.guestTimer) SAVE.guestTimer = setTimeout(() => {
           SAVE.guestTimer = 0;
@@ -206,13 +213,14 @@ function nativeSavePending({ immediate = false } = {}) {
       }
       first = false;
       const s = SAVE.pending, body = JSON.stringify({ ...s, savedAt: 0 });
+      if (SAVE.nativeFinal?.body === s) SAVE.nativeFinal = null;
       try {
         if (!SAVE.ref) throw nativePlayerError('native_signin_required', 'Reconnect your identity before saving.');
         await SAVE.ref.set(s);
         if (provisional) SAVE.guestWriteAt = Date.now() + 30000;
-        SAVE.guestFlush = false;
         SAVE.lastBody = body; SAVE.lastCore = coreKey(s);
         if (SAVE.pending === s) SAVE.pending = null;
+        if (SAVE.nativeFinal?.body === s) SAVE.nativeFinal = null;
       } catch (error) {
         NATIVE_PLAYER.state = error.code || 'uncertain'; nativePlayerRender();
         break; // Keep the latest progress; a later explicit retry resumes it.
@@ -233,7 +241,7 @@ function saveNow() {
   const body = JSON.stringify({ ...s, savedAt: 0 });
   if (body === SAVE.lastBody && !(SAVE.native && SAVE.pending) && !(final && SAVE.server)) return Promise.resolve();
   if (!SAVE.native) { SAVE.lastBody = body; SAVE.lastCore = coreKey(s); }
-  else SAVE.pending = s;
+  else { SAVE.pending = s; SAVE.nativeFinal = null; }
   s.savedAt = Date.now();
   if (SAVE.native) return nativeSavePending({ immediate: final });
   // One departing legacy save may follow its withdrawal, within the same bounded

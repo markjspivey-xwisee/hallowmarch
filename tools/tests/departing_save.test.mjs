@@ -106,3 +106,98 @@ test('ordinary queued legacy saves skip idle dispatch before the final capture',
   const pending=c.save();release();await pending;
   assert.equal(writes,0);assert.equal(local,1);
 });
+
+function nativeSaving({ provisional = false, queued = false } = {}) {
+  let now = 1000, live = true, release, releaseQueue, version = 1;
+  const calls = [], timers = new Map(); let nextTimer = 0;
+  const ref = { set(value) {
+    calls.push(structuredClone(value));
+    if (calls.length === 1) return new Promise(resolve => { release = resolve; });
+    return Promise.resolve();
+  } };
+  const SAVE = { timer: 0, wiping: false, native: true, nativePaused: false, nativeFlight: null,
+    pending: null, lastBody: '', lastCore: '', guestWriteAt: 0, guestTimer: 0, ref,
+    chain: queued ? new Promise(resolve => { releaseQueue = resolve; }) : Promise.resolve() };
+  const context = vm.createContext({ SAVE, GAME: { ready: true, player: {} }, CAPTURE: { on: false },
+    Date: { now: () => now }, performance: { now: () => now }, Promise, JSON, Math,
+    netHumanLive: () => live, nativePlayerIsProvisional: () => provisional,
+    buildSave: () => ({ v: 1, char: { name: 'Same native owner', xp: version } }),
+    coreKey: value => JSON.stringify(value), NATIVE_PLAYER: {}, nativePlayerRender() {},
+    nativePlayerError: code => Object.assign(Error(code), { code }),
+    setTimeout(fn) { const id = ++nextTimer; timers.set(id, fn); return id; },
+    clearTimeout(id) { timers.delete(id); } });
+  vm.runInContext(between(client, 'function nativeSavePending(', '// a slow heartbeat:')
+    + '\nglobalThis.H={saveNow,nativeSavePending};', context);
+  return { SAVE, calls, timers, ref, save: options => context.H.saveNow(options),
+    async started() { for (let n = 0; n < 8; n++) await Promise.resolve(); },
+    pause() { live = false; }, resume() { live = true; },
+    next() { version++; }, advance(ms) { now += ms; },
+    release() { release(); }, releaseQueue() { releaseQueue(); } };
+}
+
+test('a final native snapshot queued during another write is confirmed after pause, including paced guests', async () => {
+  for (const provisional of [false, true]) {
+    const f = nativeSaving({ provisional });
+    const active = f.save(); await f.started();
+    assert.equal(f.calls.length, 1);
+    f.next(); f.pause(); const final = f.save({ final: true });
+    assert.equal(active, final, 'one native publication flight owns the final capture too');
+    f.release(); await final; await f.started();
+    assert.deepEqual(f.calls.map(value => value.char.xp), [1, 2]);
+    assert.equal(f.SAVE.pending, null);
+    assert.equal(f.SAVE.nativeFlight, null);
+    assert.equal(JSON.parse(f.SAVE.lastBody).char.xp, 2);
+    assert.equal(f.SAVE.ref, f.ref, 'the original character reference is retained');
+    assert.equal(f.timers.size, 0, 'a final guest capture bypasses pacing without an idle retry');
+  }
+});
+
+test('a departing native request cannot authorize a different later idle snapshot', async () => {
+  const f = nativeSaving(); const active = f.save(); await f.started();
+  f.next(); f.pause(); f.save({ final: true });
+  f.next(); f.save(); // A later callback dirties another body without a new final request.
+  f.release(); await active; await f.started();
+  assert.deepEqual(f.calls.map(value => value.char.xp), [1]);
+  assert.equal(f.SAVE.pending.char.xp, 3);
+  assert.equal(f.timers.size, 0);
+  f.resume(); await f.save();
+  assert.deepEqual(f.calls.map(value => value.char.xp), [1, 3]);
+});
+
+test('a final native capture expires while waiting behind an active write', async () => {
+  const f = nativeSaving(); const active = f.save(); await f.started();
+  f.next(); f.pause(); f.save({ final: true });
+  f.advance(10001); f.release(); await active; await f.started();
+  assert.deepEqual(f.calls.map(value => value.char.xp), [1]);
+  assert.equal(f.SAVE.pending.char.xp, 2);
+  assert.equal(f.timers.size, 0, 'standby cannot schedule the expired final capture');
+});
+
+test('a queued native final capture cannot start from standby after its request window', async () => {
+  const f = nativeSaving({ queued: true }); f.pause();
+  const final = f.save({ final: true }); f.advance(10001); f.releaseQueue();
+  await final; await f.started();
+  assert.equal(f.calls.length, 0);
+  assert.equal(f.SAVE.pending.char.xp, 1);
+  assert.equal(f.timers.size, 0);
+});
+
+test('a final native request gets its own bounded window behind an older queued save', async () => {
+  const f = nativeSaving({ queued: true }); const active = f.save();
+  f.advance(9000); f.next(); f.pause(); f.save({ final: true });
+  f.advance(2000); f.releaseQueue(); await f.started();
+  assert.deepEqual(f.calls.map(value => value.char.xp), [2], 'the final request is fresh despite the older queue deadline');
+  f.release(); await active; await f.started();
+  assert.equal(f.SAVE.pending, null);
+  assert.equal(f.timers.size, 0);
+});
+
+test('a departing native capture does not carry its idle authorization to a changed character reference', async () => {
+  const f = nativeSaving(); const active = f.save(); await f.started();
+  f.next(); f.pause(); f.save({ final: true });
+  let foreignWrites = 0;
+  f.SAVE.ref = { async set() { foreignWrites++; } };
+  f.release(); await active; await f.started();
+  assert.equal(foreignWrites, 0);
+  assert.equal(f.SAVE.pending.char.xp, 2);
+});
