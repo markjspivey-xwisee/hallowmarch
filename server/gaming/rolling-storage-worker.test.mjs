@@ -114,3 +114,24 @@ test('an abort while CPU preparation is active retains the native permit until t
   release();await first;await turn();assert.equal(f.writes(),1);assert.equal(f.store.pendingCommits,0);
  }finally{release?.();await pool.fail()}
 });
+
+test('queued worker payloads retain their original scope and bytes',async()=>{
+ const pool=new RollingStorageWorker({idleMs:10}),a=context(),b=context('urn:worker:queued','queued-context'),doc=empty(b);
+ try {
+  const active=pool.run('encode',{doc:empty(a),context:a});
+  const queued=pool.run('encode',{doc,context:b});
+  doc.owner='urn:mutated';b.owner='urn:mutated';doc.streams.push({invalid:true});
+  await active;const result=await queued;
+  assert.equal(result.wire.current.owner,'urn:worker:queued');assert.deepEqual(result.wire.current.streams,[]);
+ }finally{await pool.fail()}
+});
+test('unproven termination fences the CPU lane instead of starting a replacement',async()=>{
+ const pool=new RollingStorageWorker({idleMs:10}),c=context();
+ const first=pool.run('encode',{doc:empty(c),context:c}),old=pool.worker,terminate=old.terminate.bind(old);
+ old.terminate=async()=>{await terminate();throw Error('unproven termination')};
+ const failure=assert.rejects(first,{code:'DURABILITY_UNAVAILABLE'});
+ pool.fail(old);await failure;await turn();
+ assert.equal(pool.fenced,true);
+ await assert.rejects(pool.run('validate',{doc:empty(c),context:c}),{code:'DURABILITY_UNAVAILABLE'});
+ assert.equal(pool.worker,null);
+});

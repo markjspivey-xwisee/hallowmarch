@@ -15,22 +15,24 @@ const diagnostic=value=>{
 export class RollingStorageWorker {
   constructor({capacity=64,idleMs=1000,workerUrl=new URL('./rolling-storage-worker.js',import.meta.url)}={}) {
     if(!Number.isSafeInteger(capacity)||capacity<1||capacity>64||!Number.isSafeInteger(idleMs)||idleMs<0||idleMs>60000)throw failed();
-    this.capacity=capacity;this.idleMs=idleMs;this.workerUrl=workerUrl;this.retiring=null;this.retiringCount=0;
+    this.capacity=capacity;this.idleMs=idleMs;this.workerUrl=workerUrl;this.retiring=null;this.retiringCount=0;this.fenced=false;
     this.queue=[];this.active=null;this.worker=null;this.sequence=0;this.timer=null;
   }
   run(operation,payload) {
+    if(this.fenced)return Promise.reject(failed());
     if(this.queue.length+(this.active?1:0)+this.retiringCount>=this.capacity)
       return Promise.reject(new DurableStoreError('Rolling storage admission is at capacity.','NATIVE_COMMIT_CAPACITY',503));
-    // Capture when queued, not when dispatched: later caller mutations cannot
-    // change a pending scope, document, buffer or reservation.
+    // Immediate postMessage captures synchronously. Pending requests require
+    // their own capture now so caller mutation cannot alter a queued job.
+    const immediate=!this.active&&!this.retiring&&!this.queue.length;
     let captured;
-    try {captured=structuredClone(payload);}catch{return Promise.reject(failed())}
+    try {captured=immediate?payload:structuredClone(payload);}catch{return Promise.reject(failed())}
     return new Promise((resolve,reject)=>{
       this.queue.push({id:++this.sequence,operation,payload:captured,resolve,reject});this.next();
     });
   }
   next() {
-    if(this.active||this.retiring||!this.queue.length)return;
+    if(this.fenced||this.active||this.retiring||!this.queue.length)return;
     clearTimeout(this.timer);this.timer=null;
     if(!this.worker) {
       let worker;
@@ -72,9 +74,15 @@ export class RollingStorageWorker {
     // A rejected CPU job retains its caller's native permit until the old
     // thread has actually stopped. New jobs cannot overlap a retiring thread.
     this.retiringCount+=tasks.length;
-    this.retiring=Promise.resolve().then(()=>worker?.terminate()).catch(()=>{}).then(()=>{
+    this.retiring=Promise.resolve().then(()=>worker?.terminate()).then(()=>{
       for(const task of tasks)task.reject(failed());
       this.retiringCount-=tasks.length;this.retiring=null;this.next();
+    },()=>{
+      // A failed termination is not proof that the old CPU thread stopped.
+      // Fence this lane rather than overlap it with a replacement.
+      this.fenced=true;
+      for(const task of [...tasks,...this.queue])task.reject(failed());
+      this.queue=[];this.retiringCount=0;this.retiring=null;
     });
     return this.retiring;
   }
