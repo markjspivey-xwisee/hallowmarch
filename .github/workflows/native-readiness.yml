@@ -5,6 +5,7 @@ on:
     paths: ['.github/workflows/native-readiness.yml']
 permissions:
   contents: read
+  actions: read
 jobs:
   readiness:
     runs-on: ubuntu-latest
@@ -34,3 +35,26 @@ jobs:
           scan(relay);
           console.log('HM_RELAY_REVISIONS ' + JSON.stringify({ http: relayResponse.status, revisions }));
           JS
+      - name: Read safe prior two-player acceptance evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          node --input-type=module <<'JS'
+          import fs from 'node:fs/promises';
+          const r=await fetch('https://api.github.com/repos/markjspivey-xwisee/hallowmarch/actions/artifacts/12550870754/zip',
+            {headers:{Authorization:'Bearer '+process.env.GH_TOKEN,Accept:'application/vnd.github+json'},redirect:'manual'});
+          if(r.status!==302)throw Error('artifact_redirect_unavailable');
+          const url=new URL(r.headers.get('location'));
+          if(!url.hostname.endsWith('.blob.core.windows.net')&&!url.hostname.endsWith('.githubusercontent.com'))throw Error('unexpected_artifact_host');
+          const zip=await fetch(url,{signal:AbortSignal.timeout(30000)});
+          if(!zip.ok)throw Error('artifact_download_failed');
+          await fs.writeFile('native-qa-safe.zip',new Uint8Array(await zip.arrayBuffer()));
+          JS
+          python3 - <<'PY'
+          import zipfile,json
+          with zipfile.ZipFile('native-qa-safe.zip') as z:
+              name=next(n for n in z.namelist() if n.endswith('result.json'))
+              data=json.loads(z.read(name))
+          allowed=['ok','failure','pageErrorCount','consoleErrorCount','diagnostics','finalHealth','cases']
+          print('HM_NATIVE_QA_SAFE_RESULT '+json.dumps({k:data[k] for k in allowed if k in data}))
+          PY
