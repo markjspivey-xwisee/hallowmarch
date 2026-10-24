@@ -257,7 +257,10 @@ async def boat_case(pages):
     moved = math.hypot(a["x"]-before["x"], a["z"]-before["z"])
     require(moved > 0.75, "a boarded boat really rows away from its berth", distance=moved,
             stroke=candidate["strokeKey"], before=before, desktop=a, phone=b)
-    require(math.hypot(a["x"]-b["x"], a["z"]-b["z"]) < 1.25,
+    async def boat_views_converge():
+        one, two = await asyncio.gather(*(p.evaluate("i=>__hm.water.boats.state(i)", index) for p in pages))
+        return math.hypot(one["x"]-two["x"], one["z"]-two["z"]) < 1.25
+    require(await eventually(pages, boat_views_converge, 15),
             "both devices show the moved boat at the same position", desktop=a, phone=b)
     rider_peer = await rider.evaluate("NT.st().self")
     seat = await observer.evaluate("""peer=>{const H=__hm,g=H.net.ghost(peer);
@@ -295,7 +298,7 @@ async def combat_fields_case(pages):
     rune = await eventually(pages, rune_shared, 25)
     require(bool(rune), "a follower's frost rune has one shared identity, position and caster")
     for page in pages:
-        visual = await page.evaluate("""id=>{const r=__hm.cls.CLS.runes.find(r=>r.netFieldId===id);
+        visual = await page.evaluate("""id=>{__hm.frame(1/30);const r=__hm.cls.CLS.runes.find(r=>r.netFieldId===id);
           return {count:__hm.cls.CLS.runes.filter(r=>r.netFieldId===id).length,cut:!!r?.cut?.on,disc:!!r?.disc?.on};}""", rune["id"])
         require(visual["count"] == 1 and visual["cut"] and visual["disc"],
                 "the shared rune has real visible geometry on each device", view=getattr(page, "_name", ""), visual=visual)
@@ -318,7 +321,7 @@ async def combat_fields_case(pages):
         return False
     ice = await eventually(pages, ice_shared, 25)
     require(bool(ice), "water frozen by the follower has the same sheet and dimensions on both devices")
-    floors = [await page.evaluate("""p=>{const f=__hm.cls.iceAt(p.x,p.z);
+    floors = [await page.evaluate("""p=>{__hm.frame(1/30);const f=__hm.cls.iceAt(p.x,p.z);
       return f&&{id:f.netFieldId,active:!!f.floor?.active,height:f.wy,mesh:!!f.mesh};}""", water) for page in pages]
     require(all(f and f["id"] == ice["id"] and f["active"] and f["mesh"] for f in floors),
             "the mirrored ice is physical, visible, walkable geometry on both devices", floors=floors)
