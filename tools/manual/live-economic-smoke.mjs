@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import { chromium } from '../node_modules/playwright/index.mjs';
 const origin='https://march-native-preview-production.up.railway.app';
 const out='tools/out/live-economic-smoke', end=Date.now()+900000;
-let browser,page,stage='preflight',pass=false;const checks=[],navigation={samples:[]};
+let browser,page,stage='preflight',pass=false,privateProof=null;const checks=[],navigation={samples:[]};
 const ensure=(ok,code)=>{if(!ok)throw Error(code)};
 const remaining=max=>{const n=Math.min(max,end-Date.now());ensure(n>0,'acceptance_deadline');return n};
 const pause=ms=>new Promise(r=>setTimeout(r,ms));
@@ -154,8 +154,15 @@ try{
   },request.id,{timeout:remaining(60000)});
   const owned=await privateRecord(),journal=owned.char?.x?.sharedWorldReservations;
   ensure((owned.char?.x?.goods?.stone||0)===before+gained,'private_inventory_readback_mismatch');
-  ensure(journal?.settled?.some(r=>r.id===request.id&&r.digest===receipt.digest)
-    &&!(journal.pending||[]).some(r=>r.id===request.id),'private_outcome_tombstone_missing');
+  const tombstone=journal?.settled?.find(r=>r.id===request.id&&r.digest===receipt.digest);
+  const serialized=(journal?.pending||[]).filter(r=>r.id===request.id);
+  privateProof={journalVersion:journal?.v??null,settledMatch:!!tombstone,serializedPendingCount:serialized.length,
+    serializedPendingPhases:serialized.map(r=>['reserved','applied'].includes(r.phase)?r.phase:'other'),
+    serializedAppliedMatches:serialized.every(r=>r.phase==='applied'&&r.outcomeToken===receipt.digest&&r.ownerAccount===tombstone?.ownerAccount)};
+  ensure(!!tombstone,'private_outcome_tombstone_missing');
+  // The confirmed outcome may retain its applied row until optional compaction.
+  // A matching tombstone makes that row consumed; reserved or unmatched rows fail.
+  ensure(privateProof.serializedAppliedMatches,'private_outcome_has_unsettled_reservation');
   ensure(await page.evaluate(n=>__hm.fn.goodsCount('stone')===n,before+gained),'live_inventory_mismatch');
   const depletion=await page.evaluate(i=>__hm.worldparts.capture().parts.resources?.rocks.find(row=>row[0]===i)?.slice(0,2),rock.i);
   ensure(depletion&&depletion[1]>=0&&depletion[1]<=2,'shared_depletion_missing');
@@ -170,6 +177,7 @@ try{
   await page.getByRole('button',{name:'Return to the march',exact:true}).click();if(await skip.isVisible())await skip.click();
   await page.locator('#scene').click({position:{x:500,y:350}});await page.keyboard.press('Shift');await active();await pause(3500);
   ensure(await page.evaluate(n=>__hm.fn.goodsCount('stone')===n,before+gained),'reload_duplicated_or_lost_outcome');
+  ensure(await page.evaluate(id=>!__hm.worldparts.NETPARTS.pending.has(id)&&__hm.worldparts.NETPARTS.settled.get(id)?.confirmed===true,request.id),'reload_requeued_consumed_outcome');
   const reloadedDepletion=await page.evaluate(i=>__hm.worldparts.capture().parts.resources?.rocks.find(row=>row[0]===i)?.slice(0,2),rock.i);
   ensure(reloadedDepletion&&reloadedDepletion[1]===depletion[1],'native_reload_restored_mined_resource');
   const restored=await privateRecord();ensure((restored.char?.x?.goods?.stone||0)===before+gained
@@ -187,11 +195,11 @@ try{
       humanSuspended:w?.humanSuspended===true,documentFocused:document.hasFocus(),documentVisible:!document.hidden,
       guestTimer:!!h?.SAVE.guestTimer,guestWriteDelayMs:Math.max(0,Math.round((h?.SAVE.guestWriteAt||0)-Date.now())),finalAuthorized:!!h?.SAVE.nativeFinal};
   }),pause(2000).then(()=>null)])}catch{}
-  console.error(JSON.stringify({passed:false,stage,code,navigation,state,wireStats}));process.exitCode=1;
+  console.error(JSON.stringify({passed:false,stage,code,navigation,state,wireStats,privateProof}));process.exitCode=1;
 }finally{
   try{await page?.evaluate(()=>window.__economicQA?.restore?.())}catch{}
   await page?.keyboard.up('w').catch(()=>{});
   await browser?.close();await fs.mkdir(out,{recursive:true});
-  console.log(JSON.stringify({passed:pass,stage,checks,navigation,wireStats}));
-  await fs.writeFile(out+'/result.json',JSON.stringify({passed:pass,stage,checks,navigation,wireStats},null,2));
+  console.log(JSON.stringify({passed:pass,stage,checks,navigation,wireStats,privateProof}));
+  await fs.writeFile(out+'/result.json',JSON.stringify({passed:pass,stage,checks,navigation,wireStats,privateProof},null,2));
 }
