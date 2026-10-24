@@ -43,6 +43,7 @@ export class RollingMultiplayerStore extends InteregoGamingStore {
       error('Bounded multiplayer native checkpoint support is required.', 'INVALID_CONFIGURATION', 500);
     }
     this.resourceUrl = options.resourceUrl; this.clock = options.clock ?? Date.now; this.lastEnvelope = null;
+    this.lastCommitSize = null; this.lastCommitSizeFailure = null;
   }
   now() { const n = this.clock(); if (!Number.isSafeInteger(n) || n < 0) error('Invalid multiplayer clock.'); return n; }
   empty(now) { return { schema: SCHEMA, owner: this.owner, namespace: this.namespace, resourceUrl: this.resourceUrl,
@@ -87,26 +88,38 @@ export class RollingMultiplayerStore extends InteregoGamingStore {
     }
     this.lastEnvelope = doc; return doc;
   }
-  artifact(doc) {
+  artifact(doc, measured) {
+    if (measured) Object.assign(measured, { phase: 'document-json', streams: doc.streams.length,
+      checkpoints: doc.checkpoints.length, receipts: doc.receipts.length, writeBudgetBuckets: doc.writeBudget.length,
+      bindings: doc.streams.find(row => row.streamId === 'player-bindings-v1')?.state?.bindings?.length ?? 0 });
     const bytes = Buffer.from(canonical(doc));
+    if (measured) { measured.rawBytes = bytes.length; measured.phase = 'document-raw-limit'; }
     if (bytes.length > MAX_JSON) error('Rollback window exceeds its uncompressed budget.', 'PAYLOAD_TOO_LARGE', 413);
     const compressed = gzipSync(bytes);
+    if (measured) { measured.gzipBytes = compressed.length; measured.phase = 'document-gzip-limit'; }
     if (compressed.length > MAX_GZIP) error('Rollback window exceeds its compressed storage budget.', 'PAYLOAD_TOO_LARGE', 413);
+    if (measured) measured.phase = 'native-byte-artifact';
     return this.artifactCodec.createNativeByteArtifact({ owner: this.owner, contentType: TYPE, bytes: compressed });
   }
-  prepareWrite(doc) {
-    const artifact = this.artifact(doc);
+  prepareWrite(doc, measured = { phase: 'preparing' }) {
+    this.lastCommitSize = measured;
+    const artifact = this.artifact(doc, measured);
     // Reserve a little above the real encrypted size before encoding the
     // reservation itself. The SDK enforces this exact ceiling before PUT.
+    measured.phase = 'native-sizing';
     const estimate = this.nativeClient.atomicCheckpointSize?.(artifact) ?? 1024 * 1024;
+    measured.encryptedEstimateBytes = estimate;
     if (!Number.isSafeInteger(estimate) || estimate < 1 || estimate > 1024 * 1024) error('Invalid native checkpoint byte estimate.');
     const charge = Math.min(1024 * 1024, Math.ceil((estimate + 4096) / 4096) * 4096);
     const used = doc.writeBudget.reduce((sum, bucket) => sum + bucket.bytes, 0);
+    Object.assign(measured, { phase: 'write-budget', reservedBytes: charge, usedBudgetBytes: used });
     if (used + charge > MULTIPLAYER_WRITE_BYTES) error('Multiplayer save budget is full; pending saves will retry after capacity returns.', 'NATIVE_WRITE_BUDGET', 503);
     const minute = Math.floor(doc.writtenAt / 60000), last = doc.writeBudget.at(-1);
     doc.writeBudget = [...doc.writeBudget.filter(bucket => bucket.minute !== minute), { minute, bytes: (last?.minute === minute ? last.bytes : 0) + charge }];
     this.checked(doc);
-    return { artifact: this.artifact(doc), maxEncryptedBytes: charge };
+    const finalArtifact = this.artifact(doc, measured);
+    measured.phase = 'prepared';
+    return { artifact: finalArtifact, maxEncryptedBytes: charge };
   }
   async read(migrationRetries = 3) {
     const stored = await this.nativeClient.readAtomicCheckpoint();
@@ -161,7 +174,13 @@ export class RollingMultiplayerStore extends InteregoGamingStore {
     const keys = this.keys(streamId, idempotencyKey);
     if (!Number.isSafeInteger(expectedVersion) || expectedVersion < 0 || !plain(state)) error('Invalid multiplayer commit.', 'INVALID_INPUT', 400);
     const clean = copy(state), cleanEvent = copy(event);
-    if (Buffer.byteLength(canonical(clean)) > this.maxStateBytes || Buffer.byteLength(canonical(cleanEvent)) > this.maxEventBytes) error('Multiplayer commit exceeds capacity.', 'PAYLOAD_TOO_LARGE', 413);
+    const measured = { phase: 'stream-limits', stateBytes: Buffer.byteLength(canonical(clean)),
+      eventBytes: Buffer.byteLength(canonical(cleanEvent)) };
+    this.lastCommitSize = measured;
+    if (measured.stateBytes > this.maxStateBytes || measured.eventBytes > this.maxEventBytes) {
+      this.lastCommitSizeFailure = { ...measured };
+      error('Multiplayer commit exceeds capacity.', 'PAYLOAD_TOO_LARGE', 413);
+    }
     const inputDigest = hash(canonical({ expectedVersion, state: clean, event: cleanEvent }));
     const next = { schema: 'urn:interego:gaming:stream:v1', namespace: this.namespace, streamId,
       version: expectedVersion + 1, state: clean, event: cleanEvent, operationId: keys.operationId };
@@ -172,6 +191,7 @@ export class RollingMultiplayerStore extends InteregoGamingStore {
       return this.view(next, revision, true);
     };
     return this.admitCommit(async () => {
+      this.lastCommitSize = measured;
       for (let attempt = 0; attempt <= this.conflictRetries; attempt++) {
         const current = await this.read(), recovered = replay(current.doc, current.revision);
         if (recovered) return recovered;
@@ -193,12 +213,16 @@ export class RollingMultiplayerStore extends InteregoGamingStore {
         if (world) doc.checkpoints.push({ at: now, streams: [copy(world)] });
         this.checked(doc);
         try {
-          const prepared = this.prepareWrite(doc);
+          const prepared = this.prepareWrite(doc, measured);
+          measured.phase = 'native-commit';
           await this.nativeClient.commitAtomicCheckpoint(current.revision, prepared.artifact, { maxEncryptedBytes: prepared.maxEncryptedBytes });
+          measured.phase = 'native-readback';
           const confirmed = await this.read(), result = replay(confirmed.doc, confirmed.revision);
           if (!result) error('Multiplayer commit lacks verified receipt readback.', 'COMMIT_UNCERTAIN', 503);
+          measured.phase = 'confirmed';
           return { ...result, replayed: false };
         } catch (e) {
+          this.lastCommitSizeFailure = { ...measured };
           // Settle the dispatched native request before reading/retrying. No
           // timeout permits a second overlapping writer to the same head.
           await this.waitForNativeWrites();
@@ -257,6 +281,8 @@ export class RollingMultiplayerStore extends InteregoGamingStore {
   }
   performanceStatus() { return { ...super.performanceStatus(), snapshotMode: 'bounded-rolling-hour', retentionMs: MULTIPLAYER_HISTORY_MS,
     checkpointResolutionMs: 60000, maxEncryptedBytes: 1024 * 1024, writeBudgetBytes: MULTIPLAYER_WRITE_BYTES,
+    lastCommitSize: this.lastCommitSize ? { ...this.lastCommitSize } : null,
+    lastCommitSizeFailure: this.lastCommitSizeFailure ? { ...this.lastCommitSizeFailure } : null,
     reservedWriteBytes: (this.lastEnvelope?.writeBudget ?? []).filter(bucket => bucket.minute >= Math.floor((this.now() - MULTIPLAYER_HISTORY_MS) / 60000))
       .reduce((sum, bucket) => sum + bucket.bytes, 0), checkpoints: this.lastEnvelope?.checkpoints.length ?? 0 }; }
 }

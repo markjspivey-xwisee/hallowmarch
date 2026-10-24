@@ -167,6 +167,32 @@ test('compressed history overflow preserves the previously confirmed head', asyn
   const after = await f.client.readAtomicCheckpoint();
   assert.equal(after.revision, before.revision); assert.deepEqual(after.artifact, before.artifact);
   assert.deepEqual((await f.make().load(WORLD)).state, firstState); assert.equal(f.control.commits, 1);
+  const size = store.performanceStatus().lastCommitSizeFailure;
+  assert.equal(size.phase, 'document-gzip-limit');
+  assert.ok(size.gzipBytes > 384 * 1024); assert.ok(size.rawBytes < 64 * 1024 * 1024);
+  assert.ok(size.stateBytes < 512 * 1024); assert.equal(size.eventBytes, 4);
+  assert.equal(size.streams, 1); assert.equal(size.checkpoints, 2); assert.equal(size.receipts, 2);
+  assert.equal(size.bindings, 0);
+});
+
+test('native size diagnostics are detached numeric metadata and idle polling performs no encoding or native reads', async () => {
+  const f = fixture(), store = f.make();
+  const marker = 'PRIVATE_OWNER_CONTENT_NOT_FOR_SIZE_STATUS';
+  await store.commit('private-stream-name', { expectedVersion: 0, state: { marker }, idempotencyKey: 'private-operation' });
+  const status = store.performanceStatus(), size = status.lastCommitSize;
+  assert.equal(size.phase, 'confirmed'); assert.ok(size.stateBytes > marker.length);
+  assert.ok(size.rawBytes > size.stateBytes); assert.ok(size.gzipBytes > 0);
+  assert.ok(size.encryptedEstimateBytes > 0); assert.ok(size.reservedBytes > 0);
+  assert.equal(size.streams, 1); assert.equal(size.checkpoints, 0); assert.equal(size.receipts, 1);
+  assert.equal(status.lastCommitSizeFailure, null);
+  assert(!JSON.stringify(status).includes(marker)); assert(!JSON.stringify(status).includes('private-stream-name'));
+  assert(!JSON.stringify(status).includes('private-operation'));
+  const expected = structuredClone(size);
+  size.phase = marker; size.rawBytes = -1;
+  f.client.readAtomicCheckpoint = () => { throw new Error('Status polling must not read native state'); };
+  f.client.atomicCheckpointSize = () => { throw new Error('Status polling must not encode native state'); };
+  store.artifact = () => { throw new Error('Status polling must not compress or serialize'); };
+  for (let i = 0; i < 20; i++) assert.deepEqual(store.performanceStatus().lastCommitSize, expected);
 });
 
 test('malformed compressed checkpoint fails closed without an empty-state write', async () => {
