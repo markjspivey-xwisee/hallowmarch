@@ -2,7 +2,7 @@
 import fs from 'node:fs/promises';
 import { chromium } from '../node_modules/playwright/index.mjs';
 
-const preview = 'https://march-native-preview-production.up.railway.app/?safe=1';
+const preview = 'https://march-production-f6d9.up.railway.app/?safe=1';
 const relayHealth = 'https://relay.interego.xwisee.com/health';
 const expectedRelay = 'e5d4db9a8af9830663fbc5d984cf65b6465b837a';
 const out = 'tools/out/release-browser-smoke';
@@ -71,7 +71,7 @@ try {
   browser = await chromium.launch({ headless: true, args: [
     '--no-sandbox', '--disable-dev-shm-usage', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'
   ] });
-  const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  const context = await browser.newContext({ viewport: { width: 1280, height: 900 }, deviceScaleFactor: 0.5 });
   page = await context.newPage();
   let popups = 0, pageErrors = 0;
   context.on('page', candidate => { if (candidate !== page) popups++; });
