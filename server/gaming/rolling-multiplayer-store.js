@@ -1,26 +1,39 @@
 import { createHash } from 'node:crypto';
-import { gzipSync, gunzipSync } from 'node:zlib';
+import { gunzipSync, brotliCompressSync, brotliDecompressSync, constants as zlibConstants } from 'node:zlib';
 import { InteregoGamingStore, createNativeTransport, DurableStoreError, DurableStoreConflictError } from './interego-store.js';
+import { encodeRollingHistory, decodeRollingHistory } from './rolling-history-codec.js';
 
 export const MULTIPLAYER_HISTORY_MS = 60 * 60 * 1000;
 export const MULTIPLAYER_WRITE_BYTES = 64 * 1024 * 1024;
-const TYPE = 'application/vnd.interego.rolling-checkpoint+gzip';
+const LEGACY_TYPE = 'application/vnd.interego.rolling-checkpoint+gzip';
+const TYPE = 'application/vnd.interego.rolling-checkpoint-delta-v1+br';
 const SCHEMA = 'urn:hallowmarch:multiplayer-rolling-hour:v1';
 const WORLD = 'hallowmarch-world-season-v1';
-const MAX_JSON = 64 * 1024 * 1024, MAX_GZIP = 384 * 1024, MAX_RECEIPTS = 16384, MAX_STREAMS = 16384;
+const MAX_JSON = 64 * 1024 * 1024, MAX_COMPRESSED = 384 * 1024, MAX_RECEIPTS = 16384, MAX_STREAMS = 16384;
+const BROTLI_WINDOW_BITS = 22, WIRE_DEPTH = 264;
 const error = (message, code = 'CORRUPT_DURABLE_STATE', status = 503) => { throw new DurableStoreError(message, code, status); };
 const hash = text => createHash('sha256').update(text).digest('hex');
 const plain = x => x !== null && typeof x === 'object' && !Array.isArray(x) && [Object.prototype, null].includes(Object.getPrototypeOf(x));
-function canonical(x, depth = 0) {
-  if (depth > 64) error('Multiplayer snapshot nesting exceeds capacity.', 'PAYLOAD_TOO_LARGE', 413);
+function canonical(x, depth = 0, maximumDepth = 64) {
+  if (depth > maximumDepth) error('Multiplayer snapshot nesting exceeds capacity.', 'PAYLOAD_TOO_LARGE', 413);
   if (x === null || typeof x === 'string' || typeof x === 'boolean') return JSON.stringify(x);
   if (typeof x === 'number' && Number.isFinite(x)) return JSON.stringify(x);
-  if (Array.isArray(x)) return '[' + Array.from(x, v => canonical(v, depth + 1)).join(',') + ']';
-  if (plain(x)) return '{' + Object.keys(x).sort().map(k => JSON.stringify(k) + ':' + canonical(x[k], depth + 1)).join(',') + '}';
+  if (Array.isArray(x)) return '[' + Array.from(x, v => canonical(v, depth + 1, maximumDepth)).join(',') + ']';
+  if (plain(x)) return '{' + Object.keys(x).sort().map(k => JSON.stringify(k) + ':' + canonical(x[k], depth + 1, maximumDepth)).join(',') + '}';
   error('Multiplayer state must be finite JSON.', 'INVALID_INPUT', 400);
 }
 const copy = x => JSON.parse(canonical(x));
 const conflict = e => e?.status === 412 || e?.name === 'NativeCommitConflictError';
+function boundedBrotli(bytes) {
+  if (!bytes.length) error('Empty compressed multiplayer checkpoint.');
+  // RFC 7932 section 9.1: inspect WBITS before a decoder allocates its window.
+  // The reserved 0010001 code also rejects the large-window extension.
+  const first = bytes[0], short = (first >> 1) & 7, extended = (first >> 4) & 7;
+  const bits = !(first & 1) ? 16 : short ? 17 + short : extended === 0 ? 17 : extended === 1 ? 0 : 8 + extended;
+  if (bits < 10 || bits > BROTLI_WINDOW_BITS) error('Compressed multiplayer window exceeds capacity.');
+  return brotliDecompressSync(bytes, { maxOutputLength: MAX_JSON,
+    params: { [zlibConstants.BROTLI_DECODER_PARAM_LARGE_WINDOW]: 0 } });
+}
 
 /** Current shared state plus one checkpoint per minute for a rolling hour.
  * One encrypted native CAS resource replaces permanent per-operation archives.
@@ -88,22 +101,34 @@ export class RollingMultiplayerStore extends InteregoGamingStore {
     }
     this.lastEnvelope = doc; return doc;
   }
-  artifact(doc, measured) {
+  artifact(doc, measured, preparedHistory) {
     if (measured) Object.assign(measured, { phase: 'document-json', streams: doc.streams.length,
       checkpoints: doc.checkpoints.length, receipts: doc.receipts.length, writeBudgetBuckets: doc.writeBudget.length,
       bindings: doc.streams.find(row => row.streamId === 'player-bindings-v1')?.state?.bindings?.length ?? 0 });
     const bytes = Buffer.from(canonical(doc));
     if (measured) { measured.rawBytes = bytes.length; measured.phase = 'document-raw-limit'; }
     if (bytes.length > MAX_JSON) error('Rollback window exceeds its uncompressed budget.', 'PAYLOAD_TOO_LARGE', 413);
-    const compressed = gzipSync(bytes);
-    if (measured) { measured.gzipBytes = compressed.length; measured.phase = 'document-gzip-limit'; }
-    if (compressed.length > MAX_GZIP) error('Rollback window exceeds its compressed storage budget.', 'PAYLOAD_TOO_LARGE', 413);
+    // The logical document keeps its original schema and byte/depth bounds.
+    // Storage-only delta tags require more nesting than the reconstructed JSON.
+    const encoded = preparedHistory?.wire ?? encodeRollingHistory(doc);
+    if (preparedHistory) preparedHistory.wire = encoded;
+    const wire = Buffer.from(canonical(encoded, 0, WIRE_DEPTH));
+    if (measured) { measured.wireBytes = wire.length; measured.phase = 'document-wire-limit'; }
+    if (wire.length > MAX_JSON) error('Encoded rollback window exceeds its uncompressed budget.', 'PAYLOAD_TOO_LARGE', 413);
+    const compressed = brotliCompressSync(wire, { params: {
+      [zlibConstants.BROTLI_PARAM_QUALITY]: 6, [zlibConstants.BROTLI_PARAM_LGWIN]: BROTLI_WINDOW_BITS,
+    } });
+    if (measured) { measured.compressedBytes = compressed.length; measured.phase = 'document-compressed-limit'; }
+    if (compressed.length > MAX_COMPRESSED) error('Rollback window exceeds its compressed storage budget.', 'PAYLOAD_TOO_LARGE', 413);
     if (measured) measured.phase = 'native-byte-artifact';
     return this.artifactCodec.createNativeByteArtifact({ owner: this.owner, contentType: TYPE, bytes: compressed });
   }
   prepareWrite(doc, measured = { phase: 'preparing' }) {
     this.lastCommitSize = measured;
-    const artifact = this.artifact(doc, measured);
+    // Budget reservation changes current metadata only. Reuse this operation's
+    // exact history encoding while sizing the final reserved representation.
+    const preparedHistory = {};
+    const artifact = this.artifact(doc, measured, preparedHistory);
     // Reserve a little above the real encrypted size before encoding the
     // reservation itself. The SDK enforces this exact ceiling before PUT.
     measured.phase = 'native-sizing';
@@ -117,7 +142,8 @@ export class RollingMultiplayerStore extends InteregoGamingStore {
     const minute = Math.floor(doc.writtenAt / 60000), last = doc.writeBudget.at(-1);
     doc.writeBudget = [...doc.writeBudget.filter(bucket => bucket.minute !== minute), { minute, bytes: (last?.minute === minute ? last.bytes : 0) + charge }];
     this.checked(doc);
-    const finalArtifact = this.artifact(doc, measured);
+    preparedHistory.wire.current.writeBudget = doc.writeBudget;
+    const finalArtifact = this.artifact(doc, measured, preparedHistory);
     measured.phase = 'prepared';
     return { artifact: finalArtifact, maxEncryptedBytes: charge };
   }
@@ -151,9 +177,16 @@ export class RollingMultiplayerStore extends InteregoGamingStore {
         throw error;
       }
     }
-    if (decoded.owner !== this.owner || decoded.contentType !== TYPE) error('Multiplayer artifact ownership or type changed.');
+    if (decoded.owner !== this.owner || ![TYPE, LEGACY_TYPE].includes(decoded.contentType)) error('Multiplayer artifact ownership or type changed.');
+    if (decoded.bytes.length > MAX_COMPRESSED) error('Multiplayer artifact exceeds its compressed storage budget.', 'PAYLOAD_TOO_LARGE', 413);
     let doc;
-    try { doc = JSON.parse(gunzipSync(decoded.bytes, { maxOutputLength: MAX_JSON }).toString('utf8')); }
+    try {
+      if (decoded.contentType === LEGACY_TYPE) doc = JSON.parse(gunzipSync(decoded.bytes, { maxOutputLength: MAX_JSON }).toString('utf8'));
+      else {
+        const wire = JSON.parse(boundedBrotli(decoded.bytes).toString('utf8'));
+        doc = decodeRollingHistory(wire);
+      }
+    }
     catch { error('Multiplayer rollback window cannot be decoded.'); }
     return { revision: stored.revision, doc: this.checked(doc) };
   }
@@ -281,6 +314,8 @@ export class RollingMultiplayerStore extends InteregoGamingStore {
   }
   performanceStatus() { return { ...super.performanceStatus(), snapshotMode: 'bounded-rolling-hour', retentionMs: MULTIPLAYER_HISTORY_MS,
     checkpointResolutionMs: 60000, maxEncryptedBytes: 1024 * 1024, writeBudgetBytes: MULTIPLAYER_WRITE_BYTES,
+    storageCodec: 'lossless-history-delta-v1+brotli', maxLogicalBytes: MAX_JSON, maxCompressedBytes: MAX_COMPRESSED,
+    brotliWindowBits: BROTLI_WINDOW_BITS,
     lastCommitSize: this.lastCommitSize ? { ...this.lastCommitSize } : null,
     lastCommitSizeFailure: this.lastCommitSizeFailure ? { ...this.lastCommitSizeFailure } : null,
     reservedWriteBytes: (this.lastEnvelope?.writeBudget ?? []).filter(bucket => bucket.minute >= Math.floor((this.now() - MULTIPLAYER_HISTORY_MS) / 60000))
