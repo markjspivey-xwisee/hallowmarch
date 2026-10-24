@@ -1,0 +1,17 @@
+name: Personal activity consent fixture proof
+on:
+  push:
+    branches: [qa/personal-activity-consent-clock-20261024]
+permissions:
+  contents: read
+jobs:
+  focused:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify the actual personal activity observer and consent cases
+        run: node --test tools/manual/personal-activity-live.test.mjs
