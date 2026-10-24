@@ -4,9 +4,9 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { chromium } from '../node_modules/playwright/index.mjs';
 
 const TARGET = Object.freeze({
-  origin: 'https://march-native-preview-production.up.railway.app',
+  origin: 'https://march-production-f6d9.up.railway.app',
   expectedRuntimeCommit: '95856e48efe9755172600e97c6d2d8a55bad9856',
-  railwayDeploymentReceipt: 'bd793be3-a00a-4738-8826-14fae0710c49',
+  railwayDeploymentReceipt: '8d0a4b5c-606c-4e73-879a-3fc3352d7c28',
 });
 const OUT = 'tools/out/native-release-acceptance/result.json';
 const result = { schema: 'hallowmarch.native-release-acceptance/v1', target: TARGET,
