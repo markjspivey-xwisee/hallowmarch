@@ -548,7 +548,7 @@ function renderCraft() {
   $('craft-title').textContent = st ? (st === 'fire' ? `Cooking at ${fireName(U2.ref || {})}` : `The ${STATION_DEF[st].name}`) : 'Crafting';
   const key = st === 'fire' || st === 'oven' ? 'cook' : 'craft';
   const sv = SURV.skill[key] || 0;
-  $('craft-skill').innerHTML = `${SKILL_NAMES[key]} <b>${Math.floor(sv)}</b> � ${skillRank(sv)}`;
+  $('craft-skill').innerHTML = `${SKILL_NAMES[key]} <b>${Math.floor(sv)}</b> · ${skillRank(sv)}`;
   const tabs = [];
   if (st) tabs.push(['here', STATIONS[st].short]);
   if (st && st !== 'fire' && fireNear(P, 3.2)) tabs.push(['fire', 'Cooking']); // the forge, the oven and the still have fires
@@ -564,7 +564,7 @@ function renderCraft() {
     const why = craftBlock(r, craftCtx(r));
     const can = recipeCanMake(r) ? Math.max(0, Math.min(...r.need.map(([id, n]) => Math.floor(goodsCount(id) / n)))) : 0;
     const icon = r.gear ? itemIcon({ slot: r.gear.slot, vis: r.gear.vis || '' }, r.gear.slot) : r.make ? (GOODS[r.make[0]] || {}).icon || 'bag' : r.icon || (r.act === 'draught' ? 'potion' : r.act === 'mend' ? 'hammer' : 'bag');
-    html += `<button type="button" class="crow${U2.sel === r.id ? ' sel' : ''}${why ? '' : ' can'}" data-rec="${r.id}"><span class="ic">${iconSvg(icon, 20)}</span><span class="nm">${esc(r.name)}<small>${r.need.map(([id, n]) => `${n} ${esc(goodName(id, n).toLowerCase())}`).join(' � ')}</small></span>${can ? `<span class="ct">${can}</span>` : ''}</button>`;
+    html += `<button type="button" class="crow${U2.sel === r.id ? ' sel' : ''}${why ? '' : ' can'}" data-rec="${r.id}"><span class="ic">${iconSvg(icon, 20)}</span><span class="nm">${esc(r.name)}<small>${r.need.map(([id, n]) => `${n} ${esc(goodName(id, n).toLowerCase())}`).join(' · ')}</small></span>${can ? `<span class="ct">${can}</span>` : ''}</button>`;
   }
   $('craft-list').innerHTML = html || '<p class="fineprint">Nothing to make here.</p>';
   // the card for the chosen recipe
@@ -573,12 +573,12 @@ function renderCraft() {
   if (rec) {
     const ctx = craftCtx(rec), why = craftBlock(rec, ctx);
     const out = rec.make ? `${rec.make[1]} ${esc(goodName(rec.make[0], rec.make[1]).toLowerCase())}` : rec.gear ? `a piece of ${SLOT_NAME[rec.gear.slot].toLowerCase()} gear for a ${CLASSES[P.cls].name.toLowerCase()}, item level ${depthCraftLvl(rec)}` : rec.act === 'draught' ? 'a healing draught' : '';
-    card += `<b class="cn">${esc(rec.name)}</b><span class="sub">${esc(STATIONS[rec.st].name)}${rec.min ? ` � needs crafting ${rec.min}` : ''}${rec.pot ? ' � needs a pot or a hearth' : ''}</span><p>${esc(rec.desc || '')}</p>`;
+    card += `<b class="cn">${esc(rec.name)}</b><span class="sub">${esc(STATIONS[rec.st].name)}${rec.min ? ` · needs crafting ${rec.min}` : ''}${rec.pot ? ' · needs a pot or a hearth' : ''}</span><p>${esc(rec.desc || '')}</p>`;
     card += `<div class="needs-list">${needLine(rec)}</div>`;
     if (out) card += `<span class="out">Makes ${out}</span>`;
     if (rec.gear) {
       const od = craftOdds(SURV.skill.craft || 0), tot = od.reduce((a, b) => a + b, 0);
-      card += `<div class="odds" aria-label="Chances of each grade">${od.map((w, q) => (w > 0.2 ? `<i style="--w:${(w / tot * 100).toFixed(1)}%;--qc:${QUALITY[q].col}" title="${QUALITY[q].name} ${Math.round(w / tot * 100)}%"></i>` : '')).join('')}</div><span class="sub">${od.map((w, q) => (w / tot >= 0.01 ? `<span style="color:${QUALITY[q].col}">${QUALITY[q].name} ${Math.round(w / tot * 100)}%</span>` : '')).filter(Boolean).join(' � ')}. Better skill, better odds.</span>`;
+      card += `<div class="odds" aria-label="Chances of each grade">${od.map((w, q) => (w > 0.2 ? `<i style="--w:${(w / tot * 100).toFixed(1)}%;--qc:${QUALITY[q].col}" title="${QUALITY[q].name} ${Math.round(w / tot * 100)}%"></i>` : '')).join('')}</div><span class="sub">${od.map((w, q) => (w / tot >= 0.01 ? `<span style="color:${QUALITY[q].col}">${QUALITY[q].name} ${Math.round(w / tot * 100)}%</span>` : '')).filter(Boolean).join(' · ')}. Better skill, better odds.</span>`;
     }
     const J = SURV.job;
     if (J && J.kind === 'craft' && J.rec === rec) card += `<div class="cprog"><div class="bar thin" style="--c:#e8c46a"><i style="width:${(clamp(J.t / J.dur, 0, 1) * 100).toFixed(1)}%"></i></div><span>${J.i + 1} / ${J.n}</span><button class="btn" type="button" data-stop="1">Stop</button></div>`;

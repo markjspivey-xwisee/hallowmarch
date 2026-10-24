@@ -1233,7 +1233,7 @@ registerSavePart('world', 'build', { save: buildSaveData, load: buildLoadData, k
 function chronHalls() {
   const P = GAME.player;
   const rows = WAR.keeps.map((K) => `<li><b>${esc(K.site.name)}</b>: ${esc(REALMS[K.realm].name)} holds it${K.realm === P.faction ? ', so its war table answers to you' : ''}.</li>`).join('');
-  return `<p class="lead">Every keep has its great hall at the back of the courtyard, behind the lord who holds it. Logres builds a tall hall of stone under slate, �riu a great roundhouse under thatch, Thule a longhall of logs under shingles with a long hearth down the middle.</p>
+  return `<p class="lead">Every keep has its great hall at the back of the courtyard, behind the lord who holds it. Logres builds a tall hall of stone under slate, Ériu a great roundhouse under thatch, Thule a longhall of logs under shingles with a long hearth down the middle.</p>
     <h3>What is inside</h3>
     <ul class="plain"><li><b>The war table.</b> A map of the March on a hide, with the keeps and the warbands marked. Anyone of the realm that holds the keep can command its warbands from here, whatever their rank: choose a band on the map, then a keep to attack or defend, a temple to raid, or call it to rally to you.</li>
     <li><b>The armourer's bench.</b> Mends worn and broken gear for gold, and cleans off mud and blood and beats out the dents for nothing.</li>
@@ -1265,7 +1265,7 @@ function buildHelpHTML() {
   return IS_TOUCH
     ? `<div class="keys"><kbd>Hammer button</kbd><span>Build: pick a piece, Turn, Place, Done. Work an unfinished piece by standing by it with a hammer.</span></div>
       <h3>Keep halls and building</h3><p>Every keep has a great hall: its war table lets anyone of the realm holding the keep command the warbands, the armourer mends and cleans gear, the hearth dries you, and the stores sell building goods. With a hammer and goods you can build on your own realm's lands: foundations, walls, doors, windows, roofs, stairs, fences, a bed that becomes your return point, chests and campfires. See the Chronicle.</p>`
-    : `<div class="keys"><kbd>G</kbd><span>Build: a ghost follows the mouse. R turns it, Z � X change piece, click or Enter sets it down, Esc or G stops.</span></div>
+    : `<div class="keys"><kbd>G</kbd><span>Build: a ghost follows the mouse. R turns it, Z · X change piece, click or Enter sets it down, Esc or G stops.</span></div>
       <h3>Keep halls and building</h3><p>Every keep has a great hall: its war table lets anyone of the realm holding the keep command the warbands, the armourer mends and cleans gear, the hearth dries you, and the stores sell building goods. With a hammer and goods you can build on your own realm's lands: foundations, walls, doors, windows, roofs, stairs, fences, a bed that becomes your return point, chests and campfires. See the Chronicle.</p>`;
 }
 

@@ -231,7 +231,7 @@ function depthOffers(P, offer) {
   // with a brand in hand: set a bush or an apple tree alight
   if (P.brand) {
     const b = dpPlantNear(P, 2.4, (p) => DP_BURN[p.k] && !p.gone && !(p.fire > 0) && (p.char || 0) < 0.6 && !(p.cut && !p.log));
-    if (b && (b.p.k === 'bush' || b.p.k === 'apple')) offer(Math.min(b.d, 0.05), 2.6, `Set the ${FORAGE_KINDS[b.p.k].name} alight`, () => { if (dpPlayerIgnite(b.p)) { setAct(P, 5, 0.6); uiLog(`The ${FORAGE_KINDS[b.p.k].name} catches.`, 'warn'); } else uiError('It is too wet to catch'); }, 0.3);
+    if (b && (b.p.k === 'bush' || b.p.k === 'apple')) offer(Math.min(b.d, 0.05), 2.6, `Set the ${FORAGE_KINDS[b.p.k].name} alight`, () => { const lit = dpPlayerIgnite(b.p); if (lit === true) { setAct(P, 5, 0.6); uiLog(`The ${FORAGE_KINDS[b.p.k].name} catches.`, 'warn'); } else if (lit === false) uiError('It is too wet to catch'); }, 0.3);
     return;
   }
   const blade = dpKnife() || dpAxe();
@@ -337,7 +337,9 @@ function dpWorkFinish(J) {
 }
 function dpPlayerIgnite(p) {
   if (!p) return false;
-  if (typeof netWorldPartsRequest === 'function' && netWorldPartsRequest('depth.ignite', { id: p.i })) return false;
+  if (typeof netWorldPartsRequest === 'function' && netWorldPartsRequest('depth.ignite', { id: p.i })) {
+    if (GAME.player) setAct(GAME.player, 5, 0.6); return null;
+  }
   return dpIgnite(p, 1);
 }
 function dpCutBush(p) {

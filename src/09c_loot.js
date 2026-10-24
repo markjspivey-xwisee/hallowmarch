@@ -264,7 +264,7 @@ function sellItem(it) {
   const v = sellValue(it);
   INV.gold += v;
   sfx('coins');
-  uiLog(`You sell ${it.slot === 'junk' && it.n > 1 ? it.n + ' x ' : ''}${it.name} for ${fmtInt(v)} gold.`, 'sys');
+  uiLog(`You sell ${it.slot === 'junk' && it.n > 1 ? it.n + ' × ' : ''}${it.name} for ${fmtInt(v)} gold.`, 'sys');
   saveSoon();
   return true;
 }

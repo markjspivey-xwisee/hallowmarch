@@ -84,7 +84,7 @@ function boatOarGeo(col) {
 }
 const BOAT_LOOK = [
   { hull: [0.2, 0.15, 0.11], bottom: [0.1, 0.085, 0.07], sheer: [0.52, 0.16, 0.12], trim: [0.36, 0.26, 0.17], inner: [0.42, 0.32, 0.2], seat: [0.46, 0.35, 0.22], oar: [0.55, 0.42, 0.26] }, // Logres: tarred, a red sheer strake
-  { hull: [0.4, 0.31, 0.2], bottom: [0.24, 0.2, 0.14], sheer: [0.22, 0.38, 0.27], trim: [0.44, 0.34, 0.22], inner: [0.46, 0.36, 0.24], seat: [0.5, 0.4, 0.26], oar: [0.58, 0.46, 0.3] }, // �riu: oak, a green sheer strake
+  { hull: [0.4, 0.31, 0.2], bottom: [0.24, 0.2, 0.14], sheer: [0.22, 0.38, 0.27], trim: [0.44, 0.34, 0.22], inner: [0.46, 0.36, 0.24], seat: [0.5, 0.4, 0.26], oar: [0.58, 0.46, 0.3] }, // Ériu: oak, a green sheer strake
   { hull: [0.47, 0.39, 0.27], bottom: [0.08, 0.075, 0.07], sheer: [0.72, 0.7, 0.62], trim: [0.38, 0.3, 0.21], inner: [0.5, 0.42, 0.29], seat: [0.52, 0.43, 0.3], oar: [0.6, 0.5, 0.34] }, // Thule: pine, a tarred bottom, a white stripe
 ];
 

@@ -14,7 +14,7 @@ function netWorldPartsRegisterCommand(op, command) { NETPART_COMMANDS.set(op, co
 function netWorldPartsRegisterResult(op, receive) { NETPART_RESULTS.set(op, receive); }
 function netWorldPartsReset() {
   NETPARTS.authority = ''; NETPARTS.peer = ''; NETPARTS.ready = false; NETPARTS.readSeq = -1;
-  NETPARTS.assembly = null; NETPARTS.outbox = null; NETPARTS.awaiting = null; NETPARTS.paused = ''; NETPARTS.keys = {}; NETPARTS.sentKeys = {}; NETPARTS.key = ''; NETPARTS.sentAt = -Infinity;
+  NETPARTS.assembly = null; NETPARTS.outbox = null; NETPARTS.awaiting = null; NETPARTS.paused = ''; NETPARTS.resultQueue.clear(); NETPARTS.confirmedReceipts.clear(); NETPARTS.keys = {}; NETPARTS.sentKeys = {}; NETPARTS.key = ''; NETPARTS.sentAt = -Infinity;
 }
 const netPartsClone = value => JSON.parse(JSON.stringify(value));
 const netPartsEqualAdmission = a => !!a && !!NETPARTS.admission && a.origin === NETPARTS.admission.origin
@@ -94,6 +94,7 @@ function netWorldPartsResult(m) {
   GOODS_UI.dirty = true; saveSoon();
 }
 function netWorldPartsExecute(m) {
+  if (!netWorldPartsConnected() || NETPARTS.resultQueue.size >= 32) return;
   const c = m.command, spec = c && NETPART_COMMANDS.get(c.op);
   if (!spec || typeof c.id !== 'string' || c.id.length > 100) return;
   const prior = NETPARTS.receipts.find(r => r.id === c.id && r.ownerAccount === m.ownerAccount);
@@ -175,7 +176,7 @@ function netWorldPartsMessage(m) {
     const pending = NETPARTS.pending.get(m.id);
     if (pending && m.ownerAccount === pending.ownerAccount) netWorldPartsResult(m); return;
   }
-  if (m.op === 'command') { if (NETPARTS.peer === NET.self && NETPARTS.ready) netWorldPartsExecute(m); return; }
+  if (m.op === 'command') { if (NETPARTS.peer === NET.self && NETPARTS.ready && netWorldPartsConnected()) netWorldPartsExecute(m); return; }
   if (m.op !== 'snapshot' || !Number.isSafeInteger(m.seq) || m.seq <= NETPARTS.readSeq
     || !Number.isInteger(m.part) || !Number.isInteger(m.total) || m.total < 1 || m.total > 128
     || m.part < 0 || m.part >= m.total || typeof m.data !== 'string' || m.data.length > 4000) return;

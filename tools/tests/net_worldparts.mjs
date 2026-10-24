@@ -156,3 +156,23 @@ test('live land reconciliation never accumulates crater depth and removing a cra
   c.apply(value); c.apply(value); assert.equal(heights[2 * HN + 2], 8);
   c.apply({ v: 1 }); assert.equal(heights[2 * HN + 2], 10);
 });
+
+test('host withholds owner rewards until the server echoes the canonical mutation snapshot', () => {
+  const c = client({ self: 'desktop', host: 'desktop', account: 'desktop-account' });
+  c.context.NET.peers.set('phone', { ghost: { x: 1, y: 0, z: 1, level: 4 } });
+  c.api.command('resource.take', { point: () => ({ x: 1, z: 1 }), run: () => {
+    c.context.goodsAdd('stone', 2); return { ok: true };
+  } });
+  c.api.message({ t: 'activity', kind: 'worldparts', op: 'command', authority: 'token',
+    worldAdmission: c.admission, from: 'phone', ownerAccount: 'phone-account', position: { x: 1, z: 1 },
+    command: { id: 'resource-once', op: 'resource.take', args: {}, goods: {}, capacity: 0 } });
+  assert.equal(c.sent.filter(m => m.op === 'result').length, 0);
+  c.tick(200);
+  const packets = c.sent.filter(m => m.op === 'snapshot');
+  assert.ok(packets.length > 0);
+  for (const packet of packets) c.api.message(packet);
+  const results = c.sent.filter(m => m.op === 'result');
+  assert.equal(results.length, 1);
+  assert.equal(results[0].ownerAccount, 'phone-account');
+  assert.equal(results[0].goods[0][1], 2);
+});

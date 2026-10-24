@@ -230,7 +230,7 @@ function netCompanionSync(R) {
   }
   if (R.companion?.id !== s.id) netCompanionDrop(R);
   const C = R.companion || (R.companion = { id: s.id, peer: R.peer, ghost: null, buf: [], off: Infinity, offT: 0, lastFS: -1 });
-  C.slow = { n: s.n, dn: s.n + ' � AI companion', c: s.c, l: s.l, r: R.slow.r, lk: s.lk };
+  C.slow = { n: s.n, dn: s.n + ' · AI companion', c: s.c, l: s.l, r: R.slow.r, lk: s.lk };
   C.fast = { ...f, s: R.fast.s, t: R.fast.t };
   if (C.lastFS !== R.fast.s) { C.lastFS = R.fast.s; netBufPush(C, C.fast); }
   if (!C.ghost || C.ghost.removed) { netGhostMake(C); C.ghost.netCompanion = s.id; }

@@ -175,7 +175,7 @@ test('owned animal bodies are authored by their owner and appear in the shared s
   snapshot(b, { v: 1, full: true, rows, remove: [] });
   assert.equal(b.run('ENT[1].tame.owner'), 'player');
   assert.equal(b.run('netEntityStep(ENT[1],0.1)'), false, 'owner continues its own companion AI');
-  assert.equal(b.run('ENT.length'), 2, 'canonical echoes must not duplicate the owner's animal');
+  assert.equal(b.run('ENT.length'), 2, 'canonical echoes must not duplicate the owner’s animal');
 });
 
 test('failed publication retries every unchanged initial actor and successful motion deltas omit appearance', () => {

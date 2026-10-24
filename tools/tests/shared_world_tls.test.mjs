@@ -8,7 +8,8 @@ import https from 'node:https';
 import net from 'node:net';
 import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { WebSocket, WebSocketServer } from 'ws';
+import { createRequire } from 'node:module';
+const { WebSocket, WebSocketServer } = createRequire(new URL('../../server/package.json', import.meta.url))('ws');
 
 const listen = server => new Promise(resolve => server.listen(0, '127.0.0.1', () => resolve(server.address().port)));
 const ready = child => new Promise((resolve, reject) => {
