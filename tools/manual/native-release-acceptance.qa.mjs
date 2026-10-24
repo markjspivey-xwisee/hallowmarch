@@ -338,8 +338,12 @@ try {
     if (result.finalHealth.ok && result.finalHealth.players === 0 && result.finalHealth.connections === 0 && result.finalHealth.standby && result.finalHealth.worldConfirmed) break;
     await delay(1000);
   } while (Date.now() < quietUntil);
-  const quiet = result.finalHealth.ok && result.finalHealth.players === 0 && result.finalHealth.connections === 0 && result.finalHealth.standby;
+  const quiet = result.finalHealth.ok && result.finalHealth.players === 0 && result.finalHealth.connections === 0
+    && result.finalHealth.standby && result.finalHealth.worldConfirmed;
   result.cases.push({ name: 'closed_browsers_and_public_standby_confirmed', ok: !!quiet });
+  result.cases.push({ name: 'final_public_world_checkpoint_confirmed', ok: result.finalHealth.worldConfirmed === true,
+    liveVersion: result.finalHealth.worldLiveVersion ?? null, confirmedLiveVersion: result.finalHealth.worldConfirmedLiveVersion ?? null,
+    pendingSnapshots: result.finalHealth.worldPendingSnapshots ?? null });
   if (!quiet) { result.ok = false; process.exitCode = 1; }
   result.admissionRecovery = actors.map(actor => ({ role: actor.label, exactPlay503: actor.exactPlay503, sameButtonRetries: actor.retryCount }));
   result.finishedAt = new Date().toISOString();
