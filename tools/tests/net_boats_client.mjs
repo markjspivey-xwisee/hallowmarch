@@ -11,10 +11,11 @@ function row(extra = {}) {
 }
 function client(peer = 'self') {
   let now = 0;
-  const sends = [], notices = [], requests = [], ghosts = new Map();
-  const B = { ...row(), rider: null }, P = { id: 'local-player', alive: true, boat: null };
+  const sends = [], notices = [], ghosts = new Map(), worldRequests = [], commands = new Map(), microtasks = [], charges = [], jobs = [];
+  const inventory = { plank: 20, tool_hammer: 1 };
+  const B = { ...row(), rider: null }, P = { id: 'local-player', alive: true, boat: null, x: 0, z: 0 };
   const ctx = vm.createContext({ console, Map, Set, Infinity, Math, Number,
-    performance: { now: () => now }, queueMicrotask() {}, window: {},
+    performance: { now: () => now }, queueMicrotask: fn => microtasks.push(fn), window: {},
     BOATS: { list: [B], built: true, jetties: [] }, GAME: { player: P, t: 1 },
     NET: { self: peer, cfg: { delay: 120 } }, NETWS: { url: 'wss://march.example', state: 'on' },
     live: true, connected: true, ready: true,
@@ -22,20 +23,30 @@ function client(peer = 'self') {
     netCurrentWorldAdmission: () => admission,
     netSameWorldAdmission: (a, b) => !!b && a.origin === b.origin && a.epoch === b.epoch,
     netWsSend: m => { sends.push(JSON.parse(JSON.stringify(m))); return true; },
-    netWorldPartsRequest: (...args) => { requests.push(JSON.parse(JSON.stringify(args))); return true; },
-    uiToast: m => notices.push(m), netGhost: peer => ghosts.get(peer),
+    uiToast: m => notices.push(m), uiError: m => notices.push(m), uiLog: m => notices.push(m), netGhost: peer => ghosts.get(peer),
     getEnt: id => id === P.id ? P : [...ghosts.values()].find(e => e.id === id),
     clamp: (x, a, b) => Math.max(a, Math.min(b, x)), lerp: (a, b, t) => a + (b - a) * t,
     angDiff: (a, b) => ((b - a + Math.PI * 3) % (Math.PI * 2)) - Math.PI,
     netR2: x => Math.round(x * 100) / 100, netR3: x => Math.round(x * 1000) / 1000,
+    goodsHave: (id, n = 1) => (inventory[id] || 0) >= n,
+    goodsTake(id, n) { if ((inventory[id] || 0) < n) return false; inventory[id] -= n; charges.push([id, n]); return true; },
+    netWorldPartsRegisterCommand: (op, spec) => commands.set(op, spec), netWorldPartsRegisterResult() {},
+    netWorldPartsRequest(op, args, cost, forceOwner) {
+      if (ctx.refuseReservation) return true;
+      for (const [id, n] of cost) { if (!ctx.goodsTake(id, n)) return true; }
+      worldRequests.push({ op, args, cost, forceOwner }); return true;
+    },
+    survStartJob: job => jobs.push(job), setAct() {}, boatSfx() {},
+    boatRestore(boat) { boat.st = 'free'; },
     boatPose() {}, boatSeat(e, boat) { e.x = boat.x; e.z = boat.z; e.seat = { y: 1 }; },
     boatBoard(boat, e, approved) { assert.equal(approved, true); assert.equal(boat.rider, null); boat.rider = e.id; e.boat = boat; },
     boatLeave(e) { e.boat.rider = null; e.boat = null; },
   });
   vm.runInContext(source + '\nthis.api = { NET_BOATS, netBoatRead, netBoatMessage, netBoatBoard, netBoatCanSimulate, netBoatPump, netBoatStep, netBoatRemoteRider, netBoatReset, netBoatAction, netBoatLoad, netBoatRebuildRequest };', ctx);
+  for (const fn of microtasks) fn();
   const auth = (host = 'host', boats = [row()], token = 'lease-a') => ctx.api.netBoatMessage({ t: 'activity', kind: 'authority', peer: host, authority: token, worldAdmission: admission, boats });
   const message = (boats, op = 'state', extra = {}) => ctx.api.netBoatMessage({ t: 'activity', kind: 'boats', authority: 'lease-a', worldAdmission: admission, op, boats, ...extra });
-  return { ctx, api: ctx.api, B, P, sends, notices, requests, ghosts, auth, message, time: n => { now = n; } };
+  return { ctx, api: ctx.api, B, P, sends, notices, ghosts, auth, message, worldRequests, commands, inventory, charges, jobs, time: n => { now = n; } };
 }
 
 test('boarding waits for exclusive grant; refusal cannot seat a second character', () => {
@@ -117,36 +128,11 @@ test('ignite and rebuild wait for canonical replies on both host and followers',
     // follow-up to represent the completed hull burn on either client.
     c.message([row({ st: 'burnt', char: 1 })], 'ignite', { id: 1, ok: true });
     assert.equal(c.api.netBoatAction(c.B, 'restore'), true);
-    assert.equal(c.B.st, 'burnt');
-    assert.deepEqual(c.requests.at(-1), ['boat.rebuild', { id: 1 }, [['plank', 6]], true]);
-    assert.equal(c.sends.some(m => m.op === 'restore'), false, 'no unpaid legacy restore is dispatched');
+    assert.equal(c.B.st, 'burnt'); assert.equal(c.worldRequests.at(-1).op, 'boat.rebuild');
+    assert.equal(c.worldRequests.at(-1).forceOwner, true);
     c.message([row({ st: 'free', char: 0 })], 'restore', { id: 1, ok: true });
     assert.equal(c.B.st, 'free'); assert.equal(c.B.char, 0);
   }
-});
-
-test('boat rebuild completion reserves costs through the private journal before spending locally', () => {
-  const boats = fs.readFileSync(new URL('../../src/07e_boats.js', import.meta.url), 'utf8');
-  const body = boats.slice(boats.indexOf('function boatRebuild(B)'), boats.indexOf('function boatRestore(B)'));
-  const c = client(); c.auth('host', [row({ st: 'burnt' })]);
-  let job, spent = 0, restored = 0;
-  Object.assign(c.ctx, { goodsHave: () => true, uiError() {},
-    survStartJob: value => { job = value; }, goodsTake: (id, n) => { spent += n; },
-    boatRestore: () => { restored++; }, uiLog() {} });
-  vm.runInContext(body + '\nthis.rebuild = boatRebuild;', c.ctx);
-  c.ctx.rebuild(c.B); job.done();
-  assert.equal(spent, 0, 'the reservation owns the cost until a durable server receipt');
-  assert.equal(restored, 0); assert.equal(c.requests.length, 1);
-  c.ctx.NETWS.url = ''; c.ctx.rebuild(c.B); job.done();
-  assert.equal(spent, 6, 'standalone boats retain the original local cost');
-  assert.equal(restored, 1);
-});
-
-test('a disconnected rebuild leaves materials alone and waits for shared admission', () => {
-  const c = client(); c.auth('host', [row({ st: 'burnt' })]);
-  c.ctx.connected = false;
-  assert.equal(c.api.netBoatRebuildRequest(c.B), true);
-  assert.equal(c.requests.length, 0); assert.equal(c.B.st, 'burnt');
 });
 
 test('late boat construction and private save reload cannot replace the accepted public pose', () => {
@@ -157,4 +143,50 @@ test('late boat construction and private save reload cannot replace the accepted
   c.B.x = 0; c.B.z = 0;
   assert.equal(c.api.netBoatLoad(c.B), true);
   assert.equal(c.B.x, 81); assert.equal(c.B.z, 22);
+});
+const boatSource = fs.readFileSync(new URL('../../src/07e_boats.js', import.meta.url), 'utf8');
+const rebuildSource = boatSource.slice(boatSource.indexOf('function boatRebuild(B) {'), boatSource.indexOf('function boatRestore(B) {'));
+
+test('actual rebuild completion reserves six planks once through the durable command before restoring', () => {
+  const c = client(); c.auth('host', [row({ st: 'burnt', char: 1 })]);
+  vm.runInContext(rebuildSource + '\nthis.rebuild = boatRebuild;', c.ctx);
+  c.inventory.plank = 6;
+  c.ctx.rebuild(c.B); assert.equal(c.jobs.length, 1); assert.equal(c.inventory.plank, 6);
+  c.jobs[0].done();
+  assert.equal(c.B.st, 'burnt', 'no hull is restored before the server confirms it');
+  assert.equal(c.inventory.plank, 0); assert.equal(c.charges.length, 1, 'no debit outside the reservation');
+  assert.equal(c.worldRequests[0].op, 'boat.rebuild'); assert.equal(c.worldRequests[0].forceOwner, true);
+  assert.equal(c.worldRequests[0].cost[0][0], 'plank'); assert.equal(c.worldRequests[0].cost[0][1], 6);
+  assert.equal(c.commands.get('boat.rebuild').tools[0], 'tool_hammer');
+  assert.equal(c.sends.some(m => m.op === 'restore'), false, 'manual rebuild cannot bypass its receipt');
+});
+
+test('unavailable reservation leaves materials and burnt hull intact', () => {
+  const c = client(); c.auth('host', [row({ st: 'burnt', char: 1 })]);
+  vm.runInContext(rebuildSource + '\nthis.rebuild = boatRebuild;', c.ctx);
+  c.inventory.plank = 6; c.ctx.refuseReservation = true;
+  c.ctx.rebuild(c.B); c.jobs[0].done();
+  assert.equal(c.inventory.plank, 6); assert.equal(c.charges.length, 0); assert.equal(c.B.st, 'burnt');
+  assert.equal(c.worldRequests.length, 0);
+});
+
+test('standalone rebuild keeps its local six-plank behavior', () => {
+  const c = client(); c.ctx.NETWS.url = ''; c.B.st = 'burnt'; c.inventory.plank = 6;
+  vm.runInContext(rebuildSource + '\nthis.rebuild = boatRebuild;', c.ctx);
+  c.ctx.rebuild(c.B); c.jobs[0].done();
+  assert.equal(c.inventory.plank, 0); assert.equal(c.B.st, 'free');
+  assert.equal(c.worldRequests.length, 0); assert.equal(c.charges.length, 1);
+});
+test('unattended town replacement waits for an explicit keeper replacement outcome', () => {
+  const c = client(); c.auth('self', [row({ st: 'burnt', char: 1, home: { j: 0, b: 0 } })]);
+  c.ctx.BOATS.jetties.push({ berths: [{ x: 6, z: 2, yaw: 0.5 }] });
+  c.B.rebuildAt = 300; c.ctx.GAME.t = 301; c.P.x = 100; c.P.z = 0;
+  assert.equal(c.api.netBoatAction(c.B, 'restore'), true);
+  assert.equal(c.B.st, 'burnt', 'a timer cannot locally revive the shared hull');
+  assert.equal(c.worldRequests.length, 0, 'ambient replacement is separate from a paid rebuild');
+  assert.equal(c.sends.at(-1).op, 'replace'); assert.equal(c.sends.at(-1).ambient, true);
+  assert.equal(c.sends.at(-1).boats[0].x, 6); assert.equal(c.sends.at(-1).boats[0].st, 'moored');
+  c.api.netBoatAction(c.B, 'restore'); assert.equal(c.sends.length, 1, 'replacement retries are bounded');
+  c.message([row({ x: 6, z: 2, yaw: 0.5, st: 'moored', home: { j: 0, b: 0 } })], 'replace', { id: 1, ok: true });
+  assert.equal(c.B.st, 'moored'); assert.equal(c.B.x, 6); assert.equal(c.inventory.plank, 20);
 });

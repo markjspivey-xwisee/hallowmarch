@@ -74,7 +74,14 @@ function sceneValue(kind, old, payload) {
     for (const key of payload.remove) delete parts[key];
     if (Object.keys(parts).length > 128) return null;
     const incoming = payload.receipts === undefined ? old?.receipts || [] : payload.receipts;
-    if (!Array.isArray(incoming) || incoming.length > 32 || !incoming.every(r => r && typeof r === 'object' && safeJson(r))) return null;
+    if (!Array.isArray(incoming) || incoming.length > 32 || !incoming.every(r => r && typeof r === 'object' && !Array.isArray(r) && safeJson(r)
+      && (r.goods === undefined || Array.isArray(r.goods) && r.goods.length <= 256 && r.goods.every(row =>
+        Array.isArray(row) && row.length === 2 && typeof row[0] === 'string' && row[0].length <= 64 && finite(row[1], -1e9, 1e9)))
+      && (r.items === undefined || Array.isArray(r.items) && r.items.length <= 256)
+      && (r.skills === undefined || Array.isArray(r.skills) && r.skills.length <= 256)
+      && (r.gold === undefined || finite(r.gold, -1e9, 1e9))
+      && (r.durable === undefined || typeof r.durable === 'boolean')
+      && (r.settled === undefined || typeof r.settled === 'boolean'))) return null;
     const receiptKey = r => String(r.ownerAccount || r.to || '') + ':' + String(r.id) + ':' + String(r.digest || '');
     const prior = new Map((old?.receipts || []).map(r => [receiptKey(r), r]));
     const retained = new Map(incoming.map(r => {
@@ -109,6 +116,22 @@ export function checkedSharedScene(value) {
   return Buffer.byteLength(JSON.stringify(normalized)) <= 400 * 1024 ? normalized : null;
 }
 
+
+function stableScene(value) {
+  if (Array.isArray(value)) return '[' + value.map(stableScene).join(',') + ']';
+  if (value && typeof value === 'object') return '{' + Object.keys(value).sort().map(k => JSON.stringify(k) + ':' + stableScene(value[k])).join(',') + '}';
+  return JSON.stringify(value);
+}
+function receiptNeedsCommit(receipt) {
+  return receipt.durable !== false || (receipt.goods || []).some(row => Array.isArray(row) && row[1] !== 0)
+    || !!receipt.gold || (receipt.items || []).length > 0 || (receipt.skills || []).length > 0;
+}
+function receiptChangesNeedCommit(before, after) {
+  const prior = new Map((before?.receipts || []).map(r => [String(r.ownerAccount || r.to) + ':' + r.id, r]));
+  return (after?.receipts || []).some(r => receiptNeedsCommit(r)
+    && stableScene(r) !== stableScene(prior.get(String(r.ownerAccount || r.to) + ':' + r.id)));
+}
+
 export async function confirmOwnedSceneCheckpoint(world) {
   const target = world.capture().liveVersion;
   if (!Number.isSafeInteger(target) || target < 1) throw Error('Invalid owned checkpoint version');
@@ -122,7 +145,7 @@ export async function confirmOwnedSceneCheckpoint(world) {
   if (state.fenced || state.error || state.confirmedLiveVersion < target) throw Error('Owned world checkpoint was not confirmed');
 }
 
-export function createSharedScene({ hostFor, live, admission, stateFor, send, changed = () => {}, now = Date.now, canMutate = () => true, validatePersist = () => true, confirm = null, writeState = null }) {
+export function createSharedScene({ hostFor, live, admission, stateFor, send, changed = () => {}, now = Date.now, canMutate = () => true, validatePersist = () => true, writeState = null, confirm = null, confirmPersist = confirm }) {
   const sessions = new WeakMap();
   function session(room) {
     const worldAdmission = admission(), persisted = stateFor(room).activity; let s = sessions.get(room);
@@ -136,7 +159,11 @@ export function createSharedScene({ hostFor, live, admission, stateFor, send, ch
         seq: { boats: -1, npcs: -1 }, motion: new Map(), lastPersist: -Infinity, dirty: false,
         streams: { entities: valid ? sceneValue('entities', null, kept.entities) : null,
           worldparts: valid ? sceneValue('worldparts', null, kept.worldparts) : null },
-        streamSeq: { entities: 0, worldparts: 0 }, pending: {}, commands: new Map(), pendingCommit: null, fenced: false };
+        streamSeq: { entities: 0, worldparts: 0 }, pending: {}, commands: new Map() };
+      s.burntSince = new Map(s.boats.filter(b => b.st === 'burnt').map(b => [b.id, now()])); s.rebuildAwaitSnapshot = new Set();
+      s.publicWorldparts = s.streams.worldparts; s.publicWorldSeq = 0; s.worldBarrier = null;
+      s.needsReadback = typeof confirmPersist === 'function' && !!s.publicWorldparts?.receipts?.some(receiptNeedsCommit);
+      if (s.needsReadback) s.publicWorldparts = null;
       s.accepted = accepted(s); sessions.set(room, s);
     }
     return s;
@@ -147,16 +174,15 @@ export function createSharedScene({ hostFor, live, admission, stateFor, send, ch
   }
   function persist(room, s, force = false) {
     const candidate = { v: 1, worldAdmission: s.worldAdmission,
-      boats: s.boats.map(b => ({ ...(s.pendingCommit?.boat?.id === b.id ? s.pendingCommit.boat : b), rider: null })), npcs: s.npcs,
+      boats: s.boats.map(b => ({ ...(s.pendingBoatRebuild?.id === b.id ? s.pendingBoatRebuild : b), rider: null })), npcs: s.npcs,
       entities: s.streams.entities ? { ...s.streams.entities, rows: s.streams.entities.rows.filter(row => !row.owner) } : null,
-      worldparts: s.pendingCommit?.merged || s.streams.worldparts };
+      worldparts: s.streams.worldparts };
     if (!checkedSharedScene(candidate) || !validatePersist(room, candidate)) {
       Object.assign(s, { ...s.accepted, boats: s.accepted.boats.map(b => ({ ...b })),
         streams: { ...s.accepted.streams }, seq: { ...s.accepted.seq }, streamSeq: { ...s.accepted.streamSeq } });
       return false;
     }
-    if (writeState) writeState(room, candidate); else stateFor(room).activity = candidate;
-    s.persistedRef = candidate; s.accepted = accepted(s); s.dirty = true;
+    (writeState ? writeState(room, candidate) : stateFor(room).activity = candidate); s.persistedRef = candidate; s.accepted = accepted(s); s.dirty = true;
     if (force || now() - s.lastPersist >= 10000) { s.lastPersist = now(); s.dirty = false; changed(room); }
     return true;
   }
@@ -165,7 +191,7 @@ export function createSharedScene({ hostFor, live, admission, stateFor, send, ch
   }
   function authorityFrame(s) {
     return { t: 'activity', kind: 'authority', authority: s.authority, peer: s.host, worldAdmission: s.worldAdmission,
-      boats: s.boats, npcs: s.npcs, hasEntities: !!s.streams.entities, entitiesReady: !!s.streams.entities, worldpartsReady: !!s.pendingCommit || !!s.streams.worldparts };
+      boats: s.boats, npcs: s.npcs, hasEntities: !!s.streams.entities, entitiesReady: !!s.streams.entities, worldpartsReady: !!(s.publicWorldparts || s.worldBarrier || s.needsReadback) };
   }
   function frame(s, kind, op, rows, extra = {}) {
     return { t: 'activity', kind, op, authority: s.authority, peer: s.host, worldAdmission: s.worldAdmission,
@@ -180,80 +206,113 @@ export function createSharedScene({ hostFor, live, admission, stateFor, send, ch
   }
   function tell(c, s) {
     send(c, authorityFrame(s)); c.sceneAuthority = s.authority;
-    for (const kind of ['entities', 'worldparts']) if (s.streams[kind])
-      for (const m of chunks(s, kind, s.streamSeq[kind], s.streams[kind])) send(c, m);
+    for (const kind of ['entities', 'worldparts']) {
+      const value = kind === 'worldparts' ? (!s.worldBarrier && !s.needsReadback ? s.publicWorldparts : null) : s.streams[kind];
+      if (value) for (const m of chunks(s, kind, kind === 'worldparts' ? s.publicWorldSeq : s.streamSeq[kind], value)) send(c, m);
+    }
   }
   function sync(room, target = null) {
-    if (!room || !canMutate()) return null;
-    if (!sessions.has(room) && !hostFor(room)) return null;
-    const s = session(room), host = hostFor(room)?.peer || ''; let released = false;
-    // An accepted economic mutation is not available for another keeper to replay
-    // until native storage confirms it. Late viewers hold the prior image.
-    if (s.pendingCommit || s.fenced) {
-      if (target && live(target) && target.sceneAuthority !== s.authority) tell(target, s);
-      return s;
-    }
+    if (!room || !canMutate() || !sessions.has(room) && !hostFor(room)) return null;
+    const s = session(room), selected = hostFor(room), host = selected && live(selected) ? selected.peer : ''; let released = false;
     for (const b of s.boats) if (b.rider && ![...room.clients.values()].some(c => c.peer === b.rider && live(c))) {
       b.rider = null; b.vx = 0; b.vz = 0; released = true;
     }
     if (host !== s.host || !s.authority) {
       s.host = host; s.authority = randomBytes(16).toString('hex'); s.seq = { boats: -1, npcs: -1 };
-      s.motion.clear(); s.pending = {}; s.streamSeq = { entities: 0, worldparts: 0 }; s.commands.clear(); s.accepted = accepted(s);
+      s.motion.clear(); s.pending = {}; s.rebuildAwaitSnapshot.clear(); s.rebuildReceiptAwaitHost = null; s.streamSeq = { entities: 0, worldparts: 0 }; s.commands.clear(); s.publicWorldSeq = 0; s.accepted = accepted(s);
       for (const c of room.clients.values()) if (live(c)) tell(c, s);
     } else {
       if (released) broadcast(room, frame(s, 'boats', 'snapshot', s.boats));
       if (target && live(target) && target.sceneAuthority !== s.authority) tell(target, s);
     }
     if (released) persist(room, s, true);
+    if (host && s.worldBarrier?.failed && now() - s.worldBarrier.lastAttempt >= 3000) void s.worldBarrier.retry();
+    if (s.needsReadback && !s.worldBarrier) {
+      s.needsReadback = false;
+      confirmWorldParts(room, s, s.streams.worldparts, null, () => {
+        for (const packet of chunks(s, 'worldparts', 0, s.publicWorldparts)) broadcast(room, packet);
+      });
+    }
     return s;
   }
   function refuse(c, s, m, reason) {
     send(c, frame(s, m.kind, m.op, [], { ok: false, id: m.id ?? m.boats?.[0]?.id, reason }));
     return false;
   }
-  function boatRebuild(c, command, s) {
-    const room = c.room, ownerAccount = c.acct?.id || c.peer;
-    const prior = s.streams.worldparts?.receipts?.find(r => r.id === command.id && r.ownerAccount === ownerAccount);
-    const receiptFrame = receipt => ({ t: 'activity', kind: 'worldparts', op: 'receipt', authority: s.authority,
-      worldAdmission: s.worldAdmission, peer: s.host, receipt });
-    if (prior) { send(c, receiptFrame(prior)); return true; }
-    // The previous image remains public until its exact hull and economic
-    // outcome are confirmed together. A racing builder retries against it.
-    if (s.pendingCommit || !s.streams.worldparts) return false;
-    const id = command.args?.id, boat = boatId(id) && s.boats.find(b => b.id === id);
-    const goods = command.goods;
-    const nearby = c.pos && now() - c.posT < 5000 && boat && Math.hypot(c.pos.x - boat.x, c.pos.z - boat.z) <= 18;
-    const ok = !!(boat && boat.st === 'burnt' && nearby && Number.isSafeInteger(goods?.plank) && goods.plank >= 6
-      && Number.isSafeInteger(goods?.tool_hammer) && goods.tool_hammer >= 1);
-    const rebuilt = ok ? { ...boat, st: boat.grounded > 0.5 ? 'beached' : 'free', char: 0,
-      vx: 0, vz: 0, wr: 0, eff: 0, ph: 0, rider: null, launch: null } : null;
-    const receipt = { id: command.id, ownerAccount, to: c.peer, durable: true, digest: randomBytes(16).toString('hex'),
-      ok, reason: ok ? '' : 'The boat is no longer burnt, within reach, or supplied with six planks and a hammer.',
-      goods: ok ? [['plank', -6]] : [], gold: 0, items: [], notes: [], skills: [], result: { boatId: id ?? null } };
-    const merged = sceneValue('worldparts', s.streams.worldparts, { ...s.streams.worldparts,
-      receipts: [...s.streams.worldparts.receipts, receipt] });
-    if (!merged) return false;
-    const ticket = { merged, boat: rebuilt, payload: { receipts: merged.receipts }, worldAdmission: { ...s.worldAdmission } };
-    s.pendingCommit = ticket;
-    if (!persist(room, s, true)) { s.pendingCommit = null; return false; }
-    let timer;
-    const deadline = new Promise((_, reject) => { timer = setTimeout(() => reject(Error('World checkpoint deadline')), 15000); timer.unref?.(); });
-    const current = () => sessions.get(room) === s && s.pendingCommit === ticket
-      && s.persistedRef === stateFor(room).activity && sameAdmission(ticket.worldAdmission, admission());
-    Promise.race([Promise.resolve().then(() => confirm?.(room)), deadline]).then(() => {
-      if (!current()) return;
-      s.streams.worldparts = ticket.merged;
-      if (rebuilt) s.boats = s.boats.map(b => b.id === id ? rebuilt : b);
-      s.pendingCommit = null; s.accepted = accepted(s);
-      if (rebuilt) broadcast(room, frame(s, 'boats', 'restore', [rebuilt], { ok: true, id }));
-      broadcast(room, receiptFrame(receipt));
-      sync(room);
+
+  function confirmWorldParts(room, s, target, requester, publish) {
+    const required = typeof confirmPersist === 'function' && (s.needsReadback || receiptChangesNeedCommit(s.publicWorldparts, target)
+      || !s.publicWorldparts && target?.receipts?.some(receiptNeedsCommit));
+    if (!required) {
+      s.publicWorldparts = target;
+      publish(false); return true;
+    }
+    const record = { target, authority: s.authority, candidate: stateFor(room).activity, boatIds: s.pendingBoatRebuild ? [s.pendingBoatRebuild.id] : [], failed: false, promise: null, lastAttempt: -Infinity, retry: null };
+    s.worldBarrier = record;
+    record.retry = () => {
+      record.failed = false; record.lastAttempt = now();
+      record.promise = Promise.resolve().then(() => confirmPersist(room, record.candidate, { boatIds: record.boatIds })).then(() => {
+      if (sessions.get(room) !== s || s.worldBarrier !== record || s.persistedRef !== stateFor(room).activity
+        || s.streams.worldparts !== target || !sameAdmission(s.worldAdmission, admission()) || !canMutate())
+        throw new Error('The owned world changed during outcome confirmation.');
+      s.publicWorldparts = target; s.worldBarrier = null; s.needsReadback = false;
+      publish(s.authority !== record.authority);
+      return true;
     }).catch(() => {
-      if (!current()) return;
-      s.fenced = true;
-      broadcast(room, frame(s, 'worldparts', 'snapshot', [], { ok: false, reason: 'world_checkpoint_unconfirmed' }));
-    }).finally(() => clearTimeout(timer));
-    return true;
+      if (sessions.get(room) === s && s.worldBarrier === record) {
+        record.failed = true;
+        if (requester && live(requester)) refuse(requester, s, { kind: 'worldparts', op: 'snapshot' }, 'checkpoint_unconfirmed');
+      }
+      return false;
+      });
+      return record.promise;
+    };
+    return record.retry();
+  }
+
+
+  function receiptPacket(s, receipt) {
+    return { ...receipt, t: 'activity', kind: 'worldparts', op: 'receipt',
+      authority: s.authority, worldAdmission: s.worldAdmission, peer: s.host };
+  }
+  function rebuildBoat(c, command, s) {
+    if (typeof command.id !== 'string' || !s.streams.worldparts || s.worldBarrier) return false;
+    const ownerAccount = c.acct?.id || c.peer;
+    const prior = s.publicWorldparts?.receipts?.find(r => r.id === command.id && r.ownerAccount === ownerAccount);
+    if (prior) { send(c, receiptPacket(s, prior)); return true; }
+    if (s.pending.worldparts && now() - s.pending.worldparts.at > 30000) delete s.pending.worldparts;
+    if (s.rebuildReceiptAwaitHost || s.pending.worldparts) return false;
+    if ((s.streams.worldparts.receipts || []).filter(r => !r.settled).length >= 24) return false;
+    const id = command.args?.id, boat = s.boats.find(b => b.id === id), goods = command.goods;
+    const declared = goods && !Array.isArray(goods) && goods.plank === 6 && goods.tool_hammer === 1
+      && Object.keys(goods).every(k => ['plank', 'tool_hammer'].includes(k));
+    const nearby = boat && c.pos && now() - c.posT <= 5000 && Math.hypot(c.pos.x - boat.x, c.pos.z - boat.z) <= 18;
+    const valid = !!(boatId(id) && command.args && Object.keys(command.args).length === 1
+      && declared && nearby && boat.st === 'burnt' && !boat.rider);
+    const receipt = { id: command.id, to: c.peer, ownerAccount, digest: randomBytes(16).toString('hex'),
+      action: 'boat.rebuild', durable: valid, ok: !!valid, goods: valid ? [['plank', -6]] : [],
+      gold: 0, items: [], skills: [], result: valid ? { boatId: id } : null,
+      reason: valid ? '' : !declared ? 'rebuild_materials_required' : !nearby ? 'boat_out_of_reach' : 'boat_not_burnt' };
+    const restored = valid ? { ...boat, st: boat.grounded > 0.5 ? 'beached' : 'free', char: 0,
+      vx: 0, vz: 0, wr: 0, ph: 0, eff: 0, launch: null, rider: null, still: false } : null;
+    const before = s.streams.worldparts;
+    s.streams.worldparts = sceneValue('worldparts', before, { v: 1, full: false, parts: {}, remove: [], receipts: [...before.receipts, receipt] });
+    if (!s.streams.worldparts) { s.streams.worldparts = before; return false; }
+    s.pendingBoatRebuild = restored;
+    if (!persist(c.room, s, true)) { s.pendingBoatRebuild = null; return false; }
+    return confirmWorldParts(c.room, s, s.streams.worldparts, c, changedAuthority => {
+      if (restored) {
+        s.boats = s.boats.map(b => b.id === restored.id ? { ...restored } : b);
+        s.pendingBoatRebuild = null; s.burntSince.delete(restored.id); s.rebuildAwaitSnapshot.add(restored.id); s.accepted = accepted(s);
+        broadcast(c.room, frame(s, 'boats', 'rebuild', [{ ...restored }], { ok: true, id: restored.id }));
+      }
+      if (changedAuthority) {
+        s.publicWorldSeq = 0;
+        for (const packet of chunks(s, 'worldparts', 0, s.publicWorldparts)) broadcast(c.room, packet);
+      }
+      s.rebuildReceiptAwaitHost = { id: receipt.id, ownerAccount, digest: receipt.digest };
+      broadcast(c.room, receiptPacket(s, receipt));
+    });
   }
   function streamHandle(c, m, s) {
     const room = c.room, kind = m.kind;
@@ -264,21 +323,21 @@ export function createSharedScene({ hostFor, live, admission, stateFor, send, ch
       const seen = s.commands.get(c.peer) || { at: now(), count: 0, ids: new Map() };
       if (now() - seen.at > 1000) { seen.at = now(); seen.count = 0; }
       const id = kind + ':' + command.id;
-      const serialized = JSON.stringify(command), prior = seen.ids.get(id);
+      const serialized = stableScene(command), prior = seen.ids.get(id);
       if (++seen.count > 20 || !c.pos || now() - c.posT > 5000
         || prior && (kind !== 'worldparts' || prior.serialized !== serialized || now() - prior.at < 2000)) return false;
       seen.ids.set(id, { serialized, at: now() });
       if (seen.ids.size > 128) seen.ids.delete(seen.ids.keys().next().value);
-      s.commands.set(c.peer, seen);
-      if (kind === 'worldparts' && command.op === 'boat.rebuild') return boatRebuild(c, command, s);
-      const host = room.clients.get(s.host);
+      s.commands.set(c.peer, seen); const host = room.clients.get(s.host);
       if (!host || !live(host)) return false;
+      if (kind === 'worldparts' && command.op === 'boat.rebuild') return rebuildBoat(c, command, s);
       send(host, { t: 'activity', kind, op: 'command', authority: s.authority, worldAdmission: s.worldAdmission,
         peer: s.host, from: c.peer, ownerAccount: c.acct?.id || c.peer, position: { x: c.pos.x, z: c.pos.z }, realm: c.slow?.r ?? -1, at: now(), command });
       return true;
     }
-    if (m.op === 'settled') {
-      if (kind !== 'worldparts' || typeof m.id !== 'string' || !m.id || m.id.length > 100
+    if (kind === 'worldparts' && s.worldBarrier && ['snapshot', 'settled'].includes(m.op)) return false;
+    if (kind === 'worldparts' && m.op === 'settled') {
+      if (typeof m.id !== 'string' || !m.id || m.id.length > 100
         || typeof m.digest !== 'string' || !m.digest || m.digest.length > 200) return false;
       const ownerAccount = c.acct?.id || c.peer;
       const receipt = s.streams.worldparts?.receipts?.find(r => r.id === m.id && r.ownerAccount === ownerAccount);
@@ -287,37 +346,37 @@ export function createSharedScene({ hostFor, live, admission, stateFor, send, ch
       if (now() - seen.at > 1000) { seen.at = now(); seen.count = 0; }
       if (++seen.count > 20) return false;
       s.commands.set(c.peer, seen);
-      const settle = rows => (rows || []).map(r => r.id === receipt.id && r.ownerAccount === ownerAccount
-        && (r.digest || 'legacy:' + r.id) === m.digest ? { ...r, settled: true } : r);
-      s.streams.worldparts = { ...s.streams.worldparts, receipts: settle(s.streams.worldparts.receipts) };
-      if (s.pendingCommit) {
-        s.pendingCommit.merged.receipts = settle(s.pendingCommit.merged.receipts);
-        if (s.pendingCommit.payload.receipts) s.pendingCommit.payload.receipts = settle(s.pendingCommit.payload.receipts);
+      if (!receipt.settled) {
+        s.streams.worldparts = { ...s.streams.worldparts, receipts: s.streams.worldparts.receipts.map(r =>
+          r === receipt ? { ...r, settled: true } : r) };
+        if (!persist(room, s, true)) return refuse(c, s, m, 'scene_capacity');
       }
-      if (!persist(room, s, true)) return refuse(c, s, m, 'scene_capacity');
-      const host = room.clients.get(s.host);
-      const acknowledged = { t: 'activity', kind, op: 'settled', authority: s.authority,
-        worldAdmission: s.worldAdmission, peer: s.host, from: c.peer, ownerAccount, id: m.id, digest: m.digest };
-      if (host && live(host)) send(host, acknowledged);
-      if (host !== c) send(c, acknowledged);
-      return true;
+      const acknowledge = () => {
+        const host = room.clients.get(s.host);
+        const acknowledged = { t: 'activity', kind, op: 'settled', authority: s.authority,
+          worldAdmission: s.worldAdmission, peer: s.host, from: c.peer, ownerAccount, id: m.id, digest: m.digest };
+        if (host && live(host)) send(host, acknowledged);
+        if (host !== c && live(c)) send(c, acknowledged);
+      };
+      return confirmWorldParts(room, s, s.streams.worldparts, c, acknowledge);
     }
     if (m.op === 'result') {
       if (c.peer !== s.host || typeof m.to !== 'string') return false;
       const target = room.clients.get(m.to);
-      if (kind === 'worldparts') {
-        const receipt = s.streams.worldparts?.receipts?.find(r => r.id === m.id && r.ownerAccount === (target?.acct?.id || target?.peer));
-        if (!receipt || !target || !live(target) || receipt.digest !== m.digest) return false;
-        send(target, { ...receipt, t: 'activity', kind, op: 'result', authority: s.authority,
-          worldAdmission: s.worldAdmission, peer: s.host }); return true;
-      }
       const result = kind !== 'worldparts' && m.result || Object.fromEntries(Object.entries(m).filter(([k]) =>
         !['t', 'kind', 'op', 'authority', 'worldAdmission', 'peer', 'to'].includes(k)));
       if (!target || !live(target) || !safeJson(result) || JSON.stringify(result).length > 6000) return false;
+      if (kind === 'worldparts') {
+        const receipt = s.publicWorldparts?.receipts?.find(r => r.id === result.id && r.ownerAccount === (target.acct?.id || target.peer)
+          && (r.digest || 'legacy:' + r.id) === (result.digest || 'legacy:' + result.id));
+        if (!receipt) return false;
+        send(target, { ...receipt, to: target.peer, t: 'activity', kind, op: 'result', authority: s.authority,
+          worldAdmission: s.worldAdmission, peer: s.host }); return true;
+      }
       send(target, { ...result, t: 'activity', kind, op: 'result', authority: s.authority,
-        worldAdmission: s.worldAdmission, peer: s.host, ...(kind === 'worldparts' ? {} : { result }) }); return true;
+        worldAdmission: s.worldAdmission, peer: s.host, result }); return true;
     }
-    if (m.op !== 'snapshot' || kind === 'worldparts' && s.pendingCommit || c.peer !== s.host || !Number.isSafeInteger(m.seq)
+    if (m.op !== 'snapshot' || c.peer !== s.host || !Number.isSafeInteger(m.seq)
       || m.seq <= s.streamSeq[kind] || !Number.isInteger(m.part) || !Number.isInteger(m.total)
       || m.total < 1 || m.total > 128 || m.part < 0 || m.part >= m.total
       || typeof m.data !== 'string' || m.data.length > 3500) return false;
@@ -336,40 +395,23 @@ export function createSharedScene({ hostFor, live, admission, stateFor, send, ch
     catch { delete s.pending[kind]; return false; }
     delete s.pending[kind]; const merged = sceneValue(kind, s.streams[kind], payload);
     if (!merged) return false;
-    const oldReceipts = s.streams.worldparts?.receipts || [];
-    const economic = kind === 'worldparts' && typeof confirm === 'function' && merged.receipts.some(r => r.durable !== false &&
-      !oldReceipts.some(old => old.id === r.id && old.ownerAccount === r.ownerAccount && old.digest === r.digest));
-    if (economic) {
-      const ticket = { merged, seq: m.seq, payload, worldAdmission: { ...s.worldAdmission } };
-      s.pendingCommit = ticket;
-      if (!persist(room, s, true)) { s.pendingCommit = null; return refuse(c, s, m, 'scene_capacity'); }
-      let timer;
-      const deadline = new Promise((_, reject) => { timer = setTimeout(() => reject(Error('World checkpoint deadline')), 15000); timer.unref?.(); });
-      const current = () => sessions.get(room) === s && s.pendingCommit === ticket
-        && s.persistedRef === stateFor(room).activity && sameAdmission(ticket.worldAdmission, admission());
-      Promise.race([Promise.resolve().then(() => confirm(room)), deadline]).then(() => {
-        if (!current()) return;
-        s.streams.worldparts = merged; s.streamSeq.worldparts = ticket.seq; s.pendingCommit = null;
-        s.accepted = accepted(s);
-        for (const packet of chunks(s, kind, ticket.seq, { ...ticket.payload, receipts: merged.receipts })) broadcast(room, packet);
-        sync(room);
-      }).catch(() => {
-        if (!current()) return;
-        s.fenced = true;
-        broadcast(room, frame(s, kind, 'snapshot', [], { ok: false, reason: 'world_checkpoint_unconfirmed' }));
-      }).finally(() => clearTimeout(timer));
-      return true;
-    }
+    if (kind === 'worldparts' && s.rebuildReceiptAwaitHost && payload.receipts?.some(r =>
+      r.id === s.rebuildReceiptAwaitHost.id && r.ownerAccount === s.rebuildReceiptAwaitHost.ownerAccount
+      && r.digest === s.rebuildReceiptAwaitHost.digest)) s.rebuildReceiptAwaitHost = null;
     s.streams[kind] = merged; s.streamSeq[kind] = m.seq;
     if (!persist(room, s)) return refuse(c, s, m, 'scene_capacity');
-    const publicPayload = kind === 'worldparts' ? { ...payload, receipts: merged.receipts } : payload;
-    for (const packet of chunks(s, kind, m.seq, publicPayload)) broadcast(room, packet);
-    return true;
+    const publish = changedAuthority => {
+      const publicPayload = kind === 'worldparts' ? changedAuthority ? s.publicWorldparts : { ...payload, receipts: s.publicWorldparts.receipts } : payload;
+      const seq = changedAuthority ? 0 : m.seq;
+      if (kind === 'worldparts') s.publicWorldSeq = seq;
+      for (const packet of chunks(s, kind, seq, publicPayload)) broadcast(room, packet);
+    };
+    if (kind === 'worldparts') return confirmWorldParts(room, s, merged, c, publish);
+    publish(false); return true;
   }
   function handle(c, m) {
     if (!c.room || !live(c) || !canMutate()) return false;
     const room = c.room, s = sync(room);
-    if (s.fenced) return false;
     // Buffered input from a retired scope must not manufacture a refusal in
     // the current scope: that would fence a client which has already resumed.
     if (!sameAdmission(m.worldAdmission, s.worldAdmission) || !sameAdmission(c.worldAdmission, s.worldAdmission)
@@ -382,10 +424,18 @@ export function createSharedScene({ hostFor, live, admission, stateFor, send, ch
       if (!rows) return false;
       if (m.kind === 'boats') {
         const incoming = new Map(rows.map(b => [b.id, b]));
-        for (const b of s.boats) if (b.rider || !incoming.has(b.id)
-          || incoming.get(b.id).st === 'burnt' && !['burning', 'burnt'].includes(b.st)) incoming.set(b.id, b);
+        for (const b of s.boats) {
+          const row = incoming.get(b.id);
+          const terminalRegression = b.st === 'burnt' && row?.st !== 'burnt'
+            || b.st === 'burning' && !['burning', 'burnt'].includes(row?.st);
+          const staleBurn = s.rebuildAwaitSnapshot.has(b.id) && ['burning', 'burnt'].includes(row?.st)
+            && !['burning', 'burnt'].includes(b.st);
+          if (b.rider || s.pendingBoatRebuild?.id === b.id || !row || terminalRegression || staleBurn) incoming.set(b.id, b);
+          else if (s.rebuildAwaitSnapshot.has(b.id)) s.rebuildAwaitSnapshot.delete(b.id);
+        }
         if (incoming.size > 128) return false;
         s.boats = [...incoming.values()];
+        for (const b of s.boats) if (b.st === 'burnt' && !s.burntSince.has(b.id)) s.burntSince.set(b.id, now());
       } else s.npcs = rows;
       s.seq[m.kind] = m.seq; if (!persist(room, s)) return refuse(c, s, m, 'scene_capacity');
       broadcast(room, frame(s, m.kind, 'snapshot', s[m.kind])); return true;
@@ -393,6 +443,7 @@ export function createSharedScene({ hostFor, live, admission, stateFor, send, ch
     if (m.kind !== 'boats') return false;
     const raw = m.boats?.[0], id = m.id ?? raw?.id, boat = s.boats.find(b => b.id === id);
     if (!boat) return refuse(c, s, m, 'boat_unavailable');
+    if (s.pendingBoatRebuild?.id === id) return refuse(c, s, m, 'rebuild_confirmation_pending');
     const nearby = c.pos && now() - c.posT < 5000 && Math.hypot(c.pos.x - boat.x, c.pos.z - boat.z) <= 18;
     if (m.op === 'board') {
       if (!nearby || (boat.rider && boat.rider !== c.peer) || s.boats.some(b => b.id !== id && b.rider === c.peer)
@@ -422,17 +473,25 @@ export function createSharedScene({ hostFor, live, admission, stateFor, send, ch
     }
     if (m.op === 'ignite') {
       if ((!nearby && !(m.ambient === true && c.peer === s.host)) || ['burning', 'burnt'].includes(boat.st)) return false;
-      Object.assign(boat, { st: 'burning', char: 0, rider: null, vx: 0, vz: 0 }); s.motion.delete(id);
+      Object.assign(boat, { st: 'burning', char: 0, rider: null, vx: 0, vz: 0 }); s.motion.delete(id); s.burntSince.delete(id); s.rebuildAwaitSnapshot.delete(id);
       if (!persist(room, s, true)) return refuse(c, s, m, 'scene_capacity');
       broadcast(room, frame(s, 'boats', 'ignite', [boat], { ok: true, id })); return true;
     }
-    if (m.op === 'restore') {
-      // Paid player rebuilds require a private reservation and canonical receipt.
-      // Unattended ambient replacement remains an elected-host snapshot.
-      return false;
+    if (m.op === 'replace') {
+      const age = now() - (s.burntSince.get(id) ?? now());
+      const unattended = [...room.clients.values()].filter(live).every(p => p.pos && now() - p.posT <= 5000
+        && Math.hypot(p.pos.x - boat.x, p.pos.z - boat.z) > 30);
+      if (c.peer !== s.host || m.ambient !== true || boat.st !== 'burnt' || !boat.home || age < 300000 || !unattended
+        || row.st !== 'moored' || !row.home || row.home.j !== boat.home.j || row.home.b !== boat.home.b
+        || row.char !== 0 || row.vx !== 0 || row.vz !== 0 || row.wr !== 0) return false;
+      Object.assign(boat, row, { rider: null, launch: null, char: 0 });
+      s.burntSince.delete(id); s.rebuildAwaitSnapshot.add(id);
+      if (!persist(room, s)) return refuse(c, s, m, 'scene_capacity');
+      broadcast(room, frame(s, 'boats', 'replace', [boat], { ok: true, id })); return true;
     }
+    if (m.op === 'restore') return refuse(c, s, m, 'durable_rebuild_required');
     if (m.op === 'launch') {
-      if (!nearby || boat.rider || Math.hypot(row.x - boat.x, row.z - boat.z) > 8) return false;
+      if (!nearby || boat.rider || ['burning', 'burnt'].includes(boat.st) || Math.hypot(row.x - boat.x, row.z - boat.z) > 8) return false;
       Object.assign(boat, row, { rider: null });
       if (!persist(room, s, true)) return refuse(c, s, m, 'scene_capacity');
       broadcast(room, frame(s, 'boats', 'launch', [boat], { ok: true, id })); return true;
@@ -459,8 +518,12 @@ export function createSharedScene({ hostFor, live, admission, stateFor, send, ch
       && sameAdmission(c.worldAdmission, m.worldAdmission);
   }
   function publicActivity(room) {
-    const s = sessions.get(room), kept = stateFor(room).activity;
-    return s?.pendingCommit && s.persistedRef === kept ? { ...kept, boats: s.boats.map(b => ({ ...b, rider: null })), worldparts: s.streams.worldparts } : kept;
+    const kept = stateFor(room).activity, s = sessions.get(room);
+    if (!kept) return kept;
+    if (s && s.persistedRef === kept) return { ...kept, boats: s.boats.map(b => ({ ...b, rider: null })), worldparts: s.publicWorldparts };
+    // A cold retained outcome is read back by the first live sync before exposure.
+    return typeof confirmPersist === 'function' && kept.worldparts?.receipts?.some(receiptNeedsCommit)
+      ? { ...kept, worldparts: null } : kept;
   }
   return { handle, sync, leave, acceptsChunk, publicActivity };
 }

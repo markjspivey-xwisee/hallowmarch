@@ -28,7 +28,7 @@
     },
     {
       "path": "src/08m_loops.js",
-      "digest": "sha256:ef0aa57a512bd116473d7c3587d21b2f8c68e83a1210ee6bb2243939bb5cd086"
+      "digest": "sha256:73d7636e890854b7cf89fca139e3470a5d7aaea66a29b3232c1e7448b93d80df"
     },
     {
       "path": "src/08n_season.js",
@@ -64,7 +64,7 @@
     },
     {
       "path": "src/10m_deep.js",
-      "digest": "sha256:c999649cbc6fc6ea60e0f20184da60fa2b926901b900bed70166a6f5e6bc67a6"
+      "digest": "sha256:cce7b81d947f068de9ffbac93dd43052c3f273796cce2eede5dfe248cc50d95c"
     },
     {
       "path": "src/10n_veteran.js",
@@ -72,7 +72,7 @@
     },
     {
       "path": "src/10o_late4.js",
-      "digest": "sha256:1826b06af305bef9be3fdef3463c143455515b894b290d3b87ceef40f210f43f"
+      "digest": "sha256:2c1ca370a45605aa83bb109f0721d197be9973523b8746c4b8442ae7b50ddea5"
     },
     {
       "path": "src/12c_weather2.js",
@@ -1345,11 +1345,11 @@
       ],
       "source": {
         "path": "src/10m_deep.js",
-        "digest": "sha256:c999649cbc6fc6ea60e0f20184da60fa2b926901b900bed70166a6f5e6bc67a6",
+        "digest": "sha256:cce7b81d947f068de9ffbac93dd43052c3f273796cce2eede5dfe248cc50d95c",
         "selector": "FIELD_NOTES.l3deep",
         "lines": {
-          "start": 1646,
-          "end": 1646
+          "start": 1653,
+          "end": 1653
         }
       },
       "requiresContext": false,
@@ -1362,7 +1362,7 @@
         "note": "l3deep",
         "availability": "Collected in the game when relevant"
       },
-      "revisionDigest": "sha256:920f0eb8bb30e34f900bea4213266ef600be932c6e5c3eac728f597154d6cd02"
+      "revisionDigest": "sha256:a509b960c6c9bf10e7ed4f660792c5e9a77207b1c40b784d7f3556f442e2b449"
     },
     {
       "id": "field-note:l3flood",
@@ -1375,11 +1375,11 @@
       ],
       "source": {
         "path": "src/10m_deep.js",
-        "digest": "sha256:c999649cbc6fc6ea60e0f20184da60fa2b926901b900bed70166a6f5e6bc67a6",
+        "digest": "sha256:cce7b81d947f068de9ffbac93dd43052c3f273796cce2eede5dfe248cc50d95c",
         "selector": "FIELD_NOTES.l3flood",
         "lines": {
-          "start": 1649,
-          "end": 1649
+          "start": 1656,
+          "end": 1656
         }
       },
       "requiresContext": false,
@@ -1392,7 +1392,7 @@
         "note": "l3flood",
         "availability": "Collected in the game when relevant"
       },
-      "revisionDigest": "sha256:fcac7ac15d14ca78ca070f30b13c64491d8928f3ad10b096b0d3a417d4813c75"
+      "revisionDigest": "sha256:0b92f03efcaa31e15d833003b78a9b61a89ddf6a3892eaa21e401e15046c64de"
     },
     {
       "id": "field-note:l3lord",
@@ -1405,11 +1405,11 @@
       ],
       "source": {
         "path": "src/10m_deep.js",
-        "digest": "sha256:c999649cbc6fc6ea60e0f20184da60fa2b926901b900bed70166a6f5e6bc67a6",
+        "digest": "sha256:cce7b81d947f068de9ffbac93dd43052c3f273796cce2eede5dfe248cc50d95c",
         "selector": "FIELD_NOTES.l3lord",
         "lines": {
-          "start": 1650,
-          "end": 1650
+          "start": 1657,
+          "end": 1657
         }
       },
       "requiresContext": false,
@@ -1422,7 +1422,7 @@
         "note": "l3lord",
         "availability": "Collected in the game when relevant"
       },
-      "revisionDigest": "sha256:db6fecbd4ca58b1a79102295d51035252656f75a22bad76ea1cc179910fa0796"
+      "revisionDigest": "sha256:105f9b45bd60e5db51f1031a25c4dd210402f008ade94051c7d98b3101906558"
     },
     {
       "id": "field-note:l3mantle",
@@ -1464,11 +1464,11 @@
       ],
       "source": {
         "path": "src/10m_deep.js",
-        "digest": "sha256:c999649cbc6fc6ea60e0f20184da60fa2b926901b900bed70166a6f5e6bc67a6",
+        "digest": "sha256:cce7b81d947f068de9ffbac93dd43052c3f273796cce2eede5dfe248cc50d95c",
         "selector": "FIELD_NOTES.l3pitch",
         "lines": {
-          "start": 1648,
-          "end": 1648
+          "start": 1655,
+          "end": 1655
         }
       },
       "requiresContext": false,
@@ -1481,7 +1481,7 @@
         "note": "l3pitch",
         "availability": "Collected in the game when relevant"
       },
-      "revisionDigest": "sha256:a9c46e657a16d7d76822ef8a6aaf189c6005fd91cd15fcf083e7662b9a02e9f7"
+      "revisionDigest": "sha256:1669c9b7243da53ebe44f6984ff817c11b4afbaf9624d6b462bb5932fca1cb9f"
     },
     {
       "id": "field-note:l3seal",
@@ -1494,11 +1494,11 @@
       ],
       "source": {
         "path": "src/10m_deep.js",
-        "digest": "sha256:c999649cbc6fc6ea60e0f20184da60fa2b926901b900bed70166a6f5e6bc67a6",
+        "digest": "sha256:cce7b81d947f068de9ffbac93dd43052c3f273796cce2eede5dfe248cc50d95c",
         "selector": "FIELD_NOTES.l3seal",
         "lines": {
-          "start": 1645,
-          "end": 1645
+          "start": 1652,
+          "end": 1652
         }
       },
       "requiresContext": true,
@@ -1510,7 +1510,7 @@
         "note": "l3seal",
         "availability": "Collected in the game when relevant"
       },
-      "revisionDigest": "sha256:68d7ae3cd49044c2e7dd79cc3d74c91749cc45c10334667d848cb4b1f3a505b7"
+      "revisionDigest": "sha256:d67b825d545eba5bdafce78cdeda85ecd1a6079a3cb87c22f126336f2fd5b433"
     },
     {
       "id": "field-note:l3slab",
@@ -1523,11 +1523,11 @@
       ],
       "source": {
         "path": "src/10m_deep.js",
-        "digest": "sha256:c999649cbc6fc6ea60e0f20184da60fa2b926901b900bed70166a6f5e6bc67a6",
+        "digest": "sha256:cce7b81d947f068de9ffbac93dd43052c3f273796cce2eede5dfe248cc50d95c",
         "selector": "FIELD_NOTES.l3slab",
         "lines": {
-          "start": 1647,
-          "end": 1647
+          "start": 1654,
+          "end": 1654
         }
       },
       "requiresContext": false,
@@ -1540,7 +1540,7 @@
         "note": "l3slab",
         "availability": "Collected in the game when relevant"
       },
-      "revisionDigest": "sha256:9321d03649417ac018aee6e8c956bddbc1ec409d05a6c9a5bdf6c25160c9be24"
+      "revisionDigest": "sha256:660c9b1bf513d6a29a06b0722dc75d38e95310660d12a341b974ce5cd523709d"
     },
     {
       "id": "field-note:l3stdfall",
@@ -1582,7 +1582,7 @@
       ],
       "source": {
         "path": "src/10o_late4.js",
-        "digest": "sha256:1826b06af305bef9be3fdef3463c143455515b894b290d3b87ceef40f210f43f",
+        "digest": "sha256:2c1ca370a45605aa83bb109f0721d197be9973523b8746c4b8442ae7b50ddea5",
         "selector": "FIELD_NOTES.l4host",
         "lines": {
           "start": 836,
@@ -1599,7 +1599,7 @@
         "note": "l4host",
         "availability": "Collected in the game when relevant"
       },
-      "revisionDigest": "sha256:50b84bc79a6313e87b33346d3f91aeaeb7726a49884aa49e394e1ec119f15d3d"
+      "revisionDigest": "sha256:069075e57cb71329c049c7b400f50a55d03e9bfa2d52af6da8a523cc1915940f"
     },
     {
       "id": "field-note:l4second",
@@ -1612,7 +1612,7 @@
       ],
       "source": {
         "path": "src/10o_late4.js",
-        "digest": "sha256:1826b06af305bef9be3fdef3463c143455515b894b290d3b87ceef40f210f43f",
+        "digest": "sha256:2c1ca370a45605aa83bb109f0721d197be9973523b8746c4b8442ae7b50ddea5",
         "selector": "FIELD_NOTES.l4second",
         "lines": {
           "start": 837,
@@ -1629,7 +1629,7 @@
         "note": "l4second",
         "availability": "Collected in the game when relevant"
       },
-      "revisionDigest": "sha256:8b05bdc5734d307792ecc56ba28269eb2cdfe29173764ad274d69fae3e1b987a"
+      "revisionDigest": "sha256:0577a4ce41ec174a0b75a0436a6092731f7d794401cf97e30bbad06aa07497b2"
     },
     {
       "id": "field-note:l5fold",
@@ -1729,7 +1729,7 @@
       ],
       "source": {
         "path": "src/08m_loops.js",
-        "digest": "sha256:ef0aa57a512bd116473d7c3587d21b2f8c68e83a1210ee6bb2243939bb5cd086",
+        "digest": "sha256:73d7636e890854b7cf89fca139e3470a5d7aaea66a29b3232c1e7448b93d80df",
         "selector": "FIELD_NOTES.lcart",
         "lines": {
           "start": 1415,
@@ -1746,7 +1746,7 @@
         "note": "lcart",
         "availability": "Collected in the game when relevant"
       },
-      "revisionDigest": "sha256:d959829d6b667da5ef83095be79ab469962902c39d61107a7dfa9e68b85b9fa4"
+      "revisionDigest": "sha256:34e4c849b38847f234488c41e6ca745c4913d613df342e9b97a3e8a187087215"
     },
     {
       "id": "field-note:loffensive",
@@ -1875,7 +1875,7 @@
       ],
       "source": {
         "path": "src/08m_loops.js",
-        "digest": "sha256:ef0aa57a512bd116473d7c3587d21b2f8c68e83a1210ee6bb2243939bb5cd086",
+        "digest": "sha256:73d7636e890854b7cf89fca139e3470a5d7aaea66a29b3232c1e7448b93d80df",
         "selector": "FIELD_NOTES.lshort",
         "lines": {
           "start": 1416,
@@ -1891,7 +1891,7 @@
         "note": "lshort",
         "availability": "Collected in the game when relevant"
       },
-      "revisionDigest": "sha256:73303f46fc1b4cd15b3684d56d8cd1cce1ff056ccc602a9cfec814385ba33311"
+      "revisionDigest": "sha256:58a4a0aae40ec8ab95b47665fa498bc0bf4fc9ca558ae7108cc9b6ca3b0908c2"
     },
     {
       "id": "field-note:lstores",
@@ -1904,7 +1904,7 @@
       ],
       "source": {
         "path": "src/08m_loops.js",
-        "digest": "sha256:ef0aa57a512bd116473d7c3587d21b2f8c68e83a1210ee6bb2243939bb5cd086",
+        "digest": "sha256:73d7636e890854b7cf89fca139e3470a5d7aaea66a29b3232c1e7448b93d80df",
         "selector": "FIELD_NOTES.lstores",
         "lines": {
           "start": 1414,
@@ -1920,7 +1920,7 @@
         "note": "lstores",
         "availability": "Collected in the game when relevant"
       },
-      "revisionDigest": "sha256:2527c3ec52ad22b65dfb7d21918fbde8600653819b4be90940041b9dd39cfe73"
+      "revisionDigest": "sha256:52628b0babb9642e5b93ae5e72632529b6d01571c8d2adbd69f259d59b17c4c6"
     },
     {
       "id": "field-note:mount",
@@ -3093,5 +3093,5 @@
       "assessment": null
     }
   ],
-  "revisionDigest": "sha256:13c3c343363277b27869d7fbce1bacbe1ca7e1a029e29a6661e05b46bd19aed5"
+  "revisionDigest": "sha256:445cb6185306a0907acc57db73c12bb1b84418672fb284c0faeaa8d7d4babbf7"
 }

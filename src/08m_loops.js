@@ -561,7 +561,7 @@ function loopsCarHome(c) {
   for (const id of c.esc) { const e = getEnt(id); if (e && e.alive) e.lCar = null; }
 }
 // is a place in sight of the player (near enough that a body there should not simply be gone)?
-function loopsSeenBy(x, z, r = 95) { const P = GAME.player; return !!P && dist2(P.x, P.z, x, z) < r * r; }
+function loopsSeenBy(x, z, r = 95) { return netEntityLivePlayers().some(p => dist2(p.x, p.z, x, z) < r * r); }
 function loopsCarGone(c) {
   c.state = 'gone';
   for (const id of [c.horse, c.carter, ...c.esc]) { const e = getEnt(id); if (e && !e.removed) { if (e.alive) { e.alive = false; e.removeAt = GAME.t; } e.lCar = null; } }

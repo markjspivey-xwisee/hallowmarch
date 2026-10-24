@@ -19,6 +19,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import crypto from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import { WebSocketServer } from 'ws';
 import { makeSeason, loadRealmModule, seasonRoomPolicy } from './season.js';
 import { createGamingRuntime } from './gaming/runtime.js';
@@ -38,7 +39,7 @@ import { createMainWorldAgentTransport } from './gaming/main-world-agent-transpo
 import { makeCompanies, reservedNames, coPledgeApply, coText } from './companies.js'; // [companies]
 import { makeField } from './fieldarmies.js'; // [season2] the season's armies on the pages' fields
 import { createHumanPlayGate } from './human-play.js';
-import { createSharedScene, confirmOwnedSceneCheckpoint } from './shared-scene.js';
+import { createSharedScene, checkedSharedScene } from './shared-scene.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '..');
@@ -317,15 +318,46 @@ const worldAgentHost = await configuredNativeAgentHost({ gaming: GAMING, account
   environment: gamingEnvironment, active: false, worldControl: { store: gamingStore, active: false, ...worldAgentTransport } });
 const worldAdmission = () => ({ origin: new URL(gamingEnvironment.HM_PUBLIC_ORIGIN || ('https://' + (gamingEnvironment.RAILWAY_PUBLIC_DOMAIN || 'march-production-f6d9.up.railway.app'))).origin, epoch: Number.isSafeInteger(SEASON.RS?.n) && SEASON.RS.n > 0 ? SEASON.RS.n : 1 });
 const sameWorldAdmission = (a, b) => a && b && a.origin === b.origin && Number.isSafeInteger(a.epoch) && a.epoch === b.epoch;
+async function confirmSharedSceneOutcome(R, candidate, context = {}) {
+  if (R.diagnostic) throw new Error('Diagnostic rooms cannot confirm public outcomes.');
+  const expected = checkedSharedScene(candidate);
+  if (!expected) throw new Error('The public outcome exceeds its owned scene contract.');
+  if (!WORLD_STATE) {
+    // Explicit legacy fixture persistence is still an atomic write followed by readback.
+    fileStore.write('worlds.json', WORLDS);
+    const restored = checkedSharedScene(fileStore.read('worlds.json', {})?.[R.name]?.activity);
+    if (!restored || !isDeepStrictEqual(restored.worldparts, expected.worldparts)
+      || (context.boatIds || []).some(id => !isDeepStrictEqual(restored.boats.find(b => b.id === id), expected.boats.find(b => b.id === id))))
+      throw new Error('The legacy world outcome was not read back.');
+    return;
+  }
+  WORLD_STATE.assertMutable();
+  const captured = WORLD_STATE.capture(), target = captured.liveVersion;
+  if (!Number.isSafeInteger(target) || target < 1) throw new Error('An owned checkpoint target is required.');
+  // An older in-flight commit does not confirm this capture. Ongoing pose updates
+  // may create newer snapshots, so wait for the target rather than global idleness.
+  for (let attempt = 0; attempt < 3 && WORLD_STATE.status().confirmedLiveVersion < target; attempt++)
+    await WORLD_STATE.checkpoint({ allowInactive: true });
+  const status = WORLD_STATE.status();
+  if (!WORLD_STATE.canMutate() || status.confirmedLiveVersion < target || status.confirmedVersion < 1)
+    throw new Error('The public outcome checkpoint is not confirmed.');
+  const loaded = await gamingStore.load('hallowmarch-world-season-v1');
+  const envelope = loaded?.state;
+  const restored = checkedSharedScene(envelope?.value?.worlds?.[R.name]?.activity);
+  const restoredBoats = context.boatIds || [];
+  const sameRestorations = restoredBoats.every(id => isDeepStrictEqual(
+    restored?.boats?.find(b => b.id === id), expected.boats.find(b => b.id === id)));
+  if (!Number.isSafeInteger(loaded?.version) || loaded.version < status.confirmedVersion
+    || envelope?.schema !== 'urn:bridge:owned-state-checkpoint:v1' || envelope.owner !== gamingStore.owner
+    || envelope.liveVersion < target || !sameWorldAdmission(restored?.worldAdmission, expected.worldAdmission)
+    || !isDeepStrictEqual(restored?.worldparts, expected.worldparts) || !sameRestorations)
+    throw new Error('The exact public outcome was not read back from its owned checkpoint.');
+}
 const SHARED_SCENE = createSharedScene({ hostFor: roomHost, live: isHumanPlaying, admission: worldAdmission, send,
   canMutate: () => !WORLD_STATE || WORLD_STATE.canMutate(),
-  stateFor: R => R.diagnostic ? (R.diagnosticWorld ||= {}) : (WORLDS[R.name] || {}),
-  writeState: (R, candidate) => {
-    const world = R.diagnostic ? (R.diagnosticWorld ||= {}) : (WORLDS[R.name] ||= {});
-    world.activity = candidate;
-  },
-  changed: R => { if (!R.diagnostic) worldsSave(); },
-  confirm: R => R.diagnostic || !WORLD_STATE ? undefined : confirmOwnedSceneCheckpoint(WORLD_STATE),
+  stateFor: R => R.diagnostic ? (R.diagnosticWorld || {}) : (WORLDS[R.name] || {}),
+  writeState: (R, candidate) => { if (R.diagnostic) (R.diagnosticWorld ||= {}).activity = candidate; else (WORLDS[R.name] ||= {}).activity = candidate; },
+  changed: R => { if (!R.diagnostic) worldsSave(); }, confirmPersist: confirmSharedSceneOutcome,
   validatePersist: (R, candidate) => {
     const worlds = R.diagnostic ? WORLDS : { ...WORLDS, [R.name]: { ...(WORLDS[R.name] || {}), activity: candidate } };
     return Buffer.byteLength(JSON.stringify({ worlds, season: SEASON.RS || null })) <= 440 * 1024;

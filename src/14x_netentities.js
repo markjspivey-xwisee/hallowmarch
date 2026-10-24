@@ -35,6 +35,8 @@ function netEntityRegister(e) {
 }
 function netEntityFind(id) {
   if (typeof id !== 'string') return null;
+  if (id === 'hazard:barrow-vents' && typeof VENT_SRC !== 'undefined') return VENT_SRC;
+  if (id === 'hazard:deep-pitch' && typeof DEEP_FIRE_SRC !== 'undefined') return DEEP_FIRE_SRC;
   if (id.startsWith('peer:')) return id.slice(5) === NET.self ? GAME.player : NET.peers.get(id.slice(5))?.ghost || null;
   const e = NET_ENTITIES.bodies.get(id);
   if (e && !e.removed) return e;
@@ -242,9 +244,133 @@ function netEntityReceive(payload, immediate = false) {
   }
   return true;
 }
+// Dungeon references use scene/peer identities; every absolute encounter clock
+// is translated to the receiving page's clock before a keeper can resume it.
+const NET_DUNGEON_CLOCKS = new Set(['giveUpAt', 'lostAt', 'nextAggro', 'nextChill', 'nextCleave',
+  'nextLance', 'nextStamp', 'nextWord', 'riseUntil', 'wanderUntil', 't0']);
+function netEntityReference(id) {
+  const e = typeof id === 'object' ? id : getEnt(id);
+  if (typeof VENT_SRC !== 'undefined' && e === VENT_SRC) return 'hazard:barrow-vents';
+  if (typeof DEEP_FIRE_SRC !== 'undefined' && e === DEEP_FIRE_SRC) return 'hazard:deep-pitch';
+  return !e ? null : e === GAME.player ? 'peer:' + NET.self : e.role === 'remote'
+    ? 'peer:' + e.netPeer : e.netNpcId || e.netEntityId || null;
+}
+function netEntityDungeonTimers(value, restore = false, depth = 0) {
+  const copy = netEntityPlain(value);
+  if (!copy || typeof copy !== 'object' || depth > 5) return copy;
+  for (const [key, v] of Object.entries(copy)) {
+    if (NET_DUNGEON_CLOCKS.has(key) && typeof v === 'number') copy[key] = netEntityR(v + (restore ? GAME.t : -GAME.t));
+    else if (v && typeof v === 'object') copy[key] = netEntityDungeonTimers(v, restore, depth + 1);
+  }
+  return copy;
+}
+function netEntityDungeonMeta() {
+  if (typeof DUN === 'undefined' || !DUN.built || typeof BARROW_STATE === 'undefined') return null;
+  const ref = netEntityReference, remaining = t => netEntityR((t || 0) - GAME.t);
+  const packs = list => list.slice(0, 64).map((p, i) => ({ i, members: [...(p.members || [])].map(ref).filter(Boolean),
+    respawn: (p.respawn || []).slice(0, 64).map(r => ({ left: remaining(r.at), spec: netEntityPlain(r.spec) })) }));
+  const actors = ENT.filter(e => !e.removed && netEntityOwned(e) && (e.role === 'dungeonBoss'
+    || e.deep || e.dunPack != null)).slice(0, 256).map(e => ({ id: ref(e), ai: netEntityDungeonTimers(e.ai),
+    target: ref(e.target), threat: [...(e.threat || [])].slice(0, 32).map(([id, n]) => [ref(id), n]).filter(r => r[0]),
+    combat: remaining(e.combatUntil), swing: remaining(e.swingAt), casting: e.casting
+      ? { ...netEntityDungeonTimers(e.casting), targetId: ref(e.casting.targetId) } : null,
+    rise: netEntityDungeonTimers(e.rise), fall: e.l3fall ? { ...netEntityPlain({ ...e.l3fall, S: null }), by: ref(e.l3fall.by), slab: e.l3fall.S?.i ?? null } : null }));
+  const image = { actors, king: ref(BARROW_STATE.king), warden: ref(BARROW_STATE.warden),
+    kingDead: !!BARROW_STATE.kingDead, kingIn: remaining(BARROW_STATE.kingAt),
+    wardenDead: !!BARROW_STATE.wardenDead, wardenIn: remaining(BARROW_STATE.wardenAt),
+    adds: [...BARROW_STATE.adds].map(ref).filter(Boolean), packs: packs(BARROW_PACKS),
+    gates: Object.fromEntries(Object.entries(DUN.gates || {}).map(([k, g]) => [k, [g.open, g.target]])),
+    tombs: (DUN.tombs || []).slice(0, 64).map(t => [t.open, t.target]) };
+  if (typeof DEEP !== 'undefined' && DEEP.built) image.deep = {
+    lord: ref(DEEP.lord), lordDead: !!DEEP.lordDead, lordIn: remaining(DEEP.lordAt),
+    adds: [...DEEP.adds].map(ref).filter(Boolean), packs: packs(DEEP_PACKS), wy: DEEP.wy,
+    flood: DEEP.flood ? { ...netEntityPlain(DEEP.flood), next: remaining(DEEP.flood.next),
+      drowned: DEEP.flood.drowned.map(ref).filter(Boolean) } : null,
+    slabs: DEEP.slabs.slice(0, 128).map(t => [t.st, t.t, t.load, t.dur, t.down, t.tilt, ref(t.by)]),
+    pitch: DEEP.cells.slice(0, 512).map(c => [c.st, c.t, c.heat, c.ch, c.catchAt ? remaining(c.catchAt) : null, remaining(c.rearm), !!c.spread, c.by]),
+  };
+  return JSON.parse(JSON.stringify(image, (key, value) => typeof value === 'number'
+    ? Number.isFinite(value) ? Math.round(value * 1000) / 1000 : null : value));
+}
+function netEntityApplyDungeon(image) {
+  if (!image || typeof image !== 'object' || typeof DUN === 'undefined' || !DUN.built || typeof BARROW_STATE === 'undefined') return;
+  const ref = id => netEntityFind(id)?.id ?? null, clock = v => GAME.t + Math.max(-86400, Math.min(86400, +v || 0));
+  const links = rows => Array.isArray(rows) ? rows.slice(0, 256).map(ref).filter(id => id != null) : [];
+  const packs = (list, rows) => {
+    if (!Array.isArray(rows) || rows.length > 64) return;
+    for (const row of rows) {
+      const p = list[row.i]; if (!p || !Array.isArray(row.members) || !Array.isArray(row.respawn)) continue;
+      p.members = new Set(links(row.members));
+      p.respawn = row.respawn.slice(0, 64).filter(r => Number.isFinite(r.left) && Array.isArray(r.spec))
+        .map(r => ({ at: clock(r.left), spec: netEntityPlain(r.spec) }));
+    }
+  };
+  Object.assign(BARROW_STATE, { king: ref(image.king), warden: ref(image.warden), kingDead: !!image.kingDead,
+    kingAt: clock(image.kingIn), wardenDead: !!image.wardenDead, wardenAt: clock(image.wardenIn), adds: new Set(links(image.adds)) });
+  packs(BARROW_PACKS, image.packs);
+  if (Array.isArray(image.actors) && image.actors.length <= 256) for (const row of image.actors) {
+    const e = netEntityFind(row.id); if (!e || !netEntityOwned(e)) continue;
+    e.ai = netEntityDungeonTimers(row.ai, true) || {};
+    e.target = ref(row.target);
+    e.threat = Array.isArray(row.threat) ? new Map(row.threat.slice(0, 32)
+      .filter(r => Array.isArray(r) && Number.isFinite(r[1]) && ref(r[0]) != null).map(r => [ref(r[0]), r[1]])) : null;
+    e.combatUntil = clock(row.combat); e.swingAt = clock(row.swing);
+    e.casting = row.casting ? { ...netEntityDungeonTimers(row.casting, true), targetId: ref(row.casting.targetId) } : null;
+    e.rise = netEntityDungeonTimers(row.rise, true);
+    if (row.fall && typeof DEEP !== 'undefined') e.l3fall = { ...netEntityPlain(row.fall), by: ref(row.fall.by), S: DEEP.slabs[row.fall.slab] || null };
+    else e.l3fall = null;
+  }
+  if (image.gates && typeof image.gates === 'object') for (const [key, row] of Object.entries(image.gates)) {
+    const g = DUN.gates[key]; if (!g || !Array.isArray(row) || row.length !== 2 || !row.every(Number.isFinite)) continue;
+    g.open = Math.max(0, Math.min(1, row[0])); g.target = Math.max(0, Math.min(1, row[1]));
+    if (g.mesh?.position) g.mesh.position.y = g.fy + smooth(g.open) * (g.h + 0.2) * (g.kind === 'bars' ? 1 : -1);
+    if (g.coll) g.coll.active = g.open < 0.55;
+  }
+  if (Array.isArray(image.tombs)) image.tombs.slice(0, 64).forEach((row, i) => {
+    const t = DUN.tombs[i]; if (!t || !Array.isArray(row) || !row.every(Number.isFinite)) return;
+    [t.open, t.target] = row; const k = smooth(t.open), side = dunV(t.z) > 0 ? 1 : -1, d = 0.82 * k * side;
+    t.lid?.position?.set?.(t.x + Math.cos(t.yaw) * d, t.y + 0.06 * Math.sin(k * Math.PI), t.z - Math.sin(t.yaw) * d);
+    if (t.lid?.rotation) t.lid.rotation.y = t.yaw + 0.3 * k * side;
+  });
+  const d = image.deep;
+  if (!d || typeof DEEP === 'undefined' || !DEEP.built) return;
+  Object.assign(DEEP, { lord: ref(d.lord), lordDead: !!d.lordDead, lordAt: clock(d.lordIn), adds: new Set(links(d.adds)) });
+  packs(DEEP_PACKS, d.packs);
+  if (Number.isFinite(d.wy)) { DEEP.wy = d.wy; if (DEEP.water) DEEP.water.position.y = d.wy; }
+  if (d.flood && typeof d.flood === 'object') DEEP.flood = { ...netEntityPlain(d.flood), next: clock(d.flood.next), drowned: links(d.flood.drowned) };
+  if (Array.isArray(d.slabs) && d.slabs.length <= 128) d.slabs.forEach((row, i) => {
+    const t = DEEP.slabs[i]; if (!t || !Array.isArray(row) || !row.slice(0, 5).every(Number.isFinite)) return;
+    [t.st, t.t, t.load, t.dur, t.down] = row;
+    if (Array.isArray(row[5]) && row[5].length === 2 && row[5].every(Number.isFinite)) t.tilt = row[5];
+    t.by = ref(row[6]);
+    if (typeof deepSlabCells === 'function') deepSlabCells(t, t.st === 0 || t.st === 1);
+    if (t.mesh && typeof DEEP_SLAB !== 'undefined') {
+      const down = t.st < 2 ? 0 : t.st === 2 ? Math.min(1, t.t / DEEP_SLAB.fall) ** 2
+        : t.st === 4 ? 1 - smooth(Math.min(1, t.t / DEEP_SLAB.rise)) : 1;
+      t.mesh.position.set(t.x, lerp(DEEP_Y, DEEP_PIT + 0.35, down), t.z);
+      t.mesh.rotation.set(t.tilt[0] * down, 0, t.tilt[1] * down);
+    }
+  });
+  if (Array.isArray(d.pitch) && d.pitch.length <= 512) d.pitch.forEach((row, i) => {
+    const c = DEEP.cells[i]; if (!c || !Array.isArray(row) || !row.slice(0, 4).every(Number.isFinite) || !Number.isFinite(row[5])) return;
+    [c.st, c.t, c.heat, c.ch] = row; c.catchAt = row[4] == null ? 0 : clock(row[4]); c.rearm = clock(row[5]);
+    c.spread = !!row[6]; c.by = row[7];
+    if (!c.fire && c.st === 1 && c.heat > 0.35 && c.i % 2 === 0
+      && typeof INDOOR !== 'undefined' && INDOOR.on && typeof camera !== 'undefined'
+      && dist2(c.x, c.z, camera.position.x, camera.position.z) < 50 * 50
+      && typeof addFire === 'function' && DEEP.fires.length < 24) {
+      addFire(c.x, c.y + 0.05, c.z, 0.55, false, Infinity, { r: 6, k: 1 });
+      c.fire = FIRES[FIRES.length - 1]; DEEP.fires.push(c.fire);
+    }
+    if (c.fire) c.fire.size = 0.3 + 0.35 * c.heat;
+    if (c.st !== 1 && c.fire && typeof deepFireOut === 'function') deepFireOut(c);
+  });
+  if (DEEP.heat && DEEP.heatTex && typeof deepHeatUpload === 'function') deepHeatUpload();
+}
+
 function netEntityMeta() {
   const ref = id => getEnt(id)?.netEntityId || null;
-  const meta = {};
+  const meta = { dungeon: netEntityDungeonMeta() };
   if (typeof WAR !== 'undefined') meta.warbands = WAR.warbands.slice(0, 96).map(w => ({
     id: w.id, realm: w.realm, ord: w.ord || 0, members: w.members.map(ref).filter(Boolean),
     season: w.season ? netEntityPlain(w.season) : null,
@@ -264,6 +390,7 @@ function netEntityMeta() {
   return meta;
 }
 function netEntityApplyMeta(meta) {
+  netEntityApplyDungeon(meta.dungeon);
   const ref = id => netEntityFind(id)?.id || null;
   if (typeof WAR !== 'undefined' && Array.isArray(meta.warbands) && meta.warbands.length <= 96) {
     const old = new Map(WAR.warbands.map(w => [w.id, w]));
@@ -335,12 +462,17 @@ function netEntityStep(e, dt) {
   e.anim.flash = Math.max(0, e.anim.flash - dt * 5);
   return true;
 }
-function netEntityHumanDistance(e) {
-  let d = GAME.player ? dist2(e.x, e.z, GAME.player.x, GAME.player.z) : Infinity;
+function netEntityLivePlayers() {
+  const players = GAME.player?.alive && !GAME.player.removed ? [GAME.player] : [];
   if (netEntityShared() && netEntityMine()) for (const peer of NET.peers.values()) {
-    const p = peer.ghost || peer.fast;
-    if (peer.slow?.on && p && p.alive !== false) d = Math.min(d, dist2(e.x, e.z, p.x, p.z));
+    const p = peer.ghost;
+    if (peer.slow?.on && p?.alive && !p.removed && !players.includes(p)) players.push(p);
   }
+  return players;
+}
+function netEntityHumanDistance(e) {
+  let d = Infinity;
+  for (const p of netEntityLivePlayers()) d = Math.min(d, dist2(e.x, e.z, p.x, p.z));
   return d === Infinity ? 0 : d;
 }
 function netEntityRemoteEnemy(a, b) {
@@ -368,7 +500,7 @@ function netEntityDamage(src, dst, amount, opts = {}) {
   const worldSrc = netEntityOwned(src) || netEntityTown(src), worldDst = netEntityOwned(dst) || netEntityTown(dst);
   if (worldDst && dst.netEntityOwner && dst.netEntityOwner !== NET.self && netEntityMine()) {
     netEntitySend('result', { to: dst.netEntityOwner, result: { id: NET_ENTITIES.authority + ':pet-hurt:' + (++NET_ENTITIES.commands),
-      kind: 'damage', source: src?.netNpcId || src?.netEntityId || (src?.netPeer ? 'peer:' + src.netPeer : null),
+      kind: 'damage', source: netEntityReference(src),
       target: dst.netEntityId, amount, opts: netEntityPlain(opts) } });
     return amount;
   }
@@ -381,7 +513,7 @@ function netEntityDamage(src, dst, amount, opts = {}) {
   }
   if (worldSrc && dst?.role === 'remote' && netEntityMine()) {
     netEntitySend('result', { to: dst.netPeer, result: { id: NET_ENTITIES.authority + ':hurt:' + (++NET_ENTITIES.commands), kind: 'damage',
-      source: src.netNpcId || src.netEntityId, amount, opts: netEntityPlain(opts) } });
+      source: netEntityReference(src), amount, opts: netEntityPlain(opts) } });
     return amount;
   }
   if (worldSrc && dst === GAME.player && !netEntityCanSimulateWorld()) return 0;
@@ -425,10 +557,7 @@ function netEntityBuff(dst, kind, value, dur, src, extra) {
   return true;
 }
 function netEntityKilled(e) {
-  // Grey Hunt spirits deliberately use a no-credit add/has sentinel, rather
-  // than a Set. Their public role also retains that rule after keeper handoff.
-  if (!netEntityShared() || !netEntityMine() || e.role === 'hound' || !(e.damagers instanceof Set)
-    || e.kind === 'door' || netEntityTown(e)) return;
+  if (!netEntityShared() || !netEntityMine() || !e.damagers || e.kind === 'door' || netEntityTown(e)) return;
   if (!e.netEntityLootMade && !e.damagers.has(GAME.player?.id)
     && [...e.damagers].some(id => getEnt(id)?.role === 'remote') && typeof rollLoot === 'function') {
     // Ground spoils belong to the shared scene. A keeper who did not take part

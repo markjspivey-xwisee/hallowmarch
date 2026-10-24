@@ -650,6 +650,7 @@ function simStep(dt) {
   if (sharedSim) updateGates(dt);
   if (sharedSim) updateCastles(dt); // castles: gates swing for their own side, walls are repaired (04g_castles.js)
   if (sharedSim) updateBarrow(dt);
+  updateBarrowLocal(dt);
   if (sharedSim) updateHouses(dt);
   updateWear(dt); // feature/weather: soaking, snow, mud, blood and lightning on the ground (05h_wear.js)
   if (sharedSim) updateNature(dt); // nature (05h_nature.js): falling and burning trees, grass fire, regrowth, craters

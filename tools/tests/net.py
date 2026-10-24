@@ -58,7 +58,7 @@ window.NT = {
 };
 0"""
 
-async def boot(ctx, cfg, name):
+async def boot(ctx, cfg, name, *, page_url=None):
     page = await ctx.new_page()
     # Each multiplayer fixture page represents a different person's foreground
     # browser. Keep that focus model local to these pages; trusted input is still
@@ -79,8 +79,10 @@ async def boot(ctx, cfg, name):
     document_origin = cfg.get('origin', 'http://hm.test')
     # A supplied real origin leaves APIs/assets on their actual server and gives
     # secure-only browser APIs the same context as the deployed HTTPS game.
-    await page.route(document_origin + ('/' if cfg.get('origin') else '/**'), doc_route)
-    await page.goto(document_origin + '/' + cfg.get('q', ''), wait_until='commit')
+    if page_url is None:
+        await page.route(document_origin + ('/' if cfg.get('origin') else '/**'), doc_route)
+    target = page_url if page_url is not None else document_origin + '/' + cfg.get('q', '')
+    await page.goto(target, wait_until='commit')
     await page.wait_for_function('window.__hm && window.__hm.ready', timeout=300000, polling=500)
     await page.evaluate("__hm.fn.setQuality('low')")
     await page.evaluate(HOLD)

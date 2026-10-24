@@ -530,7 +530,7 @@ function netWorldKeep(now) {
 /* ------------------------------------------------------------------ */
 function netGhosts() {
   const P = GAME.player;
-  const keeper = NET.serverSceneHost === NET.self && typeof NETWS !== 'undefined' && NETWS.state === 'on';
+  const keeper = !!NET.serverSceneHost && NET.serverSceneHost === NET.self && typeof NETWS !== 'undefined' && NETWS.state === 'on';
   for (const R of NET.peers.values()) {
     netCompanionSync(R);
     const want = R.slow && R.slow.on && R.fast && GAME.started && (keeper || !P || dist2(R.fast.x, R.fast.z, P.x, P.z) < NET.cfg.ghostR * NET.cfg.ghostR || (R.slow.pt && R.slow.pt === NET.party));
