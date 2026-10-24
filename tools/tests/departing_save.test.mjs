@@ -201,3 +201,39 @@ test('a departing native capture does not carry its idle authorization to a chan
   assert.equal(foreignWrites, 0);
   assert.equal(f.SAVE.pending.char.xp, 2);
 });
+
+test('a native final capture queued before first dispatch cannot follow a changed character reference', async () => {
+  const f = nativeSaving({ queued: true }); f.pause();
+  const pending = f.save({ final: true });
+  let foreignWrites = 0;
+  f.SAVE.ref = { async set() { foreignWrites++; } };
+  f.releaseQueue(); await pending; await f.started();
+  assert.equal(foreignWrites, 0);
+  assert.equal(f.calls.length, 0);
+  assert.equal(f.SAVE.pending.char.xp, 1);
+  assert.equal(f.timers.size, 0);
+});
+
+test('a queued native final request cannot authorize a later idle body before first dispatch', async () => {
+  const f = nativeSaving({ queued: true }); const pending = f.save();
+  f.next(); f.pause(); f.save({ final: true });
+  f.next(); f.save();
+  f.releaseQueue(); await f.started();
+  if (f.calls.length) f.release(); // Fail promptly if a regression started an unauthorized publication.
+  await pending; await f.started();
+  assert.deepEqual(f.calls, []);
+  assert.equal(f.SAVE.pending.char.xp, 3);
+  assert.equal(f.timers.size, 0);
+  f.resume(); const resumed = f.save(); await f.started(); f.release(); await resumed;
+  assert.deepEqual(f.calls.map(value => value.char.xp), [3]);
+});
+
+test('an unchanged initial native capture may dispatch from its bounded idle window', async () => {
+  const f = nativeSaving({ queued: true }); const pending = f.save();
+  f.pause(); f.advance(9000); f.releaseQueue(); await f.started();
+  assert.deepEqual(f.calls.map(value => value.char.xp), [1]);
+  assert.equal(f.SAVE.ref, f.ref);
+  f.release(); await pending; await f.started();
+  assert.equal(f.SAVE.pending, null);
+  assert.equal(f.timers.size, 0);
+});

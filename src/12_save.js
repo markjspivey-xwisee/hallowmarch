@@ -196,12 +196,14 @@ function nativeSavePending({ immediate = false } = {}) {
   const finalReady = () => !!SAVE.nativeFinal && SAVE.nativeFinal.body === SAVE.pending && SAVE.nativeFinal.ref === SAVE.ref
     && now() < SAVE.nativeFinal.until;
   const idleUntil = now() + 10000;
+  const initialBody = SAVE.pending, initialRef = SAVE.ref;
   const flight = SAVE.chain.catch(() => {}).then(async () => {
     let first = true;
     while (SAVE.pending && !SAVE.nativePaused && (first || typeof netHumanLive !== 'function' || netHumanLive() || finalReady())) {
       // A queued explicit/final save cannot become a fresh idle write long
       // after its request. Keep the exact pending body for the next live session.
-      if (first && typeof netHumanLive === 'function' && !netHumanLive() && !finalReady() && now() >= idleUntil) break;
+      if (first && typeof netHumanLive === 'function' && !netHumanLive() && !finalReady()
+        && (SAVE.pending !== initialBody || SAVE.ref !== initialRef || now() >= idleUntil)) break;
       const provisional = typeof nativePlayerIsProvisional === 'function' && nativePlayerIsProvisional();
       const wait = provisional && !finalReady() ? SAVE.guestWriteAt - Date.now() : 0;
       if (wait > 0) {
