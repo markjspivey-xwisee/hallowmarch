@@ -54,7 +54,7 @@ async def explicit_audio():
     perf.ARGS.append('audio')
     try:
         async with perf.async_playwright() as p:
-            browser, page, logs = await perf.setup(p, touch=False, w=perf.W, h=perf.H, init=perf.HOLD)
+            browser, page, logs = await perf.setup(p, touch=False, w=perf.W, h=perf.H, init=perf.benchmark_init())
             try:
                 await perf.ev(page, "window.__rafHold = true; 0")
                 await page.mouse.click(8, 8)
