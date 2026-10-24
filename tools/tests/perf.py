@@ -195,6 +195,10 @@ NO_AUDIO = """for (const name of ['AudioContext', 'webkitAudioContext']) {
   Object.defineProperty(window, name, { value: undefined, configurable: true });
 }"""
 
+def benchmark_init():
+    return (HOLD if SEED else '') + ('\n' + NO_AUDIO if 'audio' not in ARGS else '')
+
+
 def fmt_m(n):
     return f'{n/1e6:.2f}M' if n >= 1e6 else f'{n/1e3:.0f}k'
 
@@ -202,8 +206,7 @@ async def main():
     res = {'tag': TAG, 'views': {}, 'sim': {}, 'systems': [], 'boot': {}}
     async with async_playwright() as p:
         t0 = time.time()
-        init = (HOLD if SEED else '') + ('\n' + NO_AUDIO if 'audio' not in ARGS else '')
-        b, page, logs = await setup(p, touch=False, w=W, h=H, init=init)
+        b, page, logs = await setup(p, touch=False, w=W, h=H, init=benchmark_init())
         if SEED: await ev(page, "window.__rafHold = true; 0")  # [war3] only the steps and frames asked for from here
         res['boot']['wall'] = round(time.time() - t0, 1)
         res['boot'].update(await ev(page, '__hm.perf.boot()'))
@@ -277,7 +280,7 @@ async def main():
             for o in over: print('OVER BUDGET', o, flush=True)
             print('budget: ' + ('every view within its budget' if not over else f'{len(over)} over'), flush=True)
         if 'audio' not in ARGS:
-            assert await ev(page, "__hm.fn.AUDIO.ctx === null"), 'Default rendering benchmark started audio during simulation'
+            assert await ev(page, "__hm.fn.AUDIO.ctx === null && __hm.fn.AUDIO.noise === null"), 'Default rendering benchmark started audio during simulation'
         res['errors'] = await ev(page, "__hm.errors")
         res['heap'] = await ev(page, "performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) : null")
         print('boot', json.dumps(res['boot']), 'heap now', res['heap'], 'MB')
