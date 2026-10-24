@@ -26,4 +26,11 @@ jobs:
               identity:state.playerIdentity, nativeStore:summary, capacityBytes:store.capacityBytes, lastCommitSize:store.lastCommitSize, lastCommitSizeFailure:store.lastCommitSizeFailure, nativeStoreFields:Object.keys(store),
               world:Object.fromEntries(['mode','state','fenced','error','version','confirmedVersion','liveVersion','confirmedLiveVersion','pending','durable'].filter(k=>world[k]!==undefined).map(k=>[k,world[k]]))}));
           }
+          const relayResponse = await fetch('https://relay.interego.xwisee.com/health', {signal: AbortSignal.timeout(15000)});
+          const relay = await relayResponse.json();
+          const revisions = [];
+          const scan = value => { if (typeof value === 'string' && /^[a-f0-9]{7,40}$/.test(value)) revisions.push(value);
+            else if (value && typeof value === 'object') Object.values(value).forEach(scan); };
+          scan(relay);
+          console.log('HM_RELAY_REVISIONS ' + JSON.stringify({ http: relayResponse.status, revisions }));
           JS
