@@ -1,9 +1,13 @@
 /* Owner identity and private character saves, composed through native ports. */
 const NATIVE_PLAYER = { status: null, profile: null, cache: null, module: null, state: 'idle', message: '', busy: false, channel: null, authRefusal: null, switching: false, provisional: null, provisionalOpening: null, provisionalContext: null, playFlight: null, recoveryOpen: false, conflict: null, claimLastConfirmed: false, promoted: false, claimConfirmationPending: false };
 const nativePlayerError = (code, message) => Object.assign(new Error(message), { code });
-async function nativePlayerRequest(url, { method = 'GET', body, timeoutMs = 18000, token = NETWS.token } = {}) {
+async function nativePlayerRequest(url, { method = 'GET', body, timeoutMs, token = NETWS.token } = {}) {
+  // Durable admission and record registration include queued native CAS/readback.
+  // Their bounded lifecycle budget does not change short control or explicit deadlines.
+  const lifecycle = method === 'POST' && ['/gaming/identity/play/complete', '/gaming/identity/record-link'].includes(url);
+  const requestTimeoutMs = timeoutMs === undefined ? (lifecycle ? 60000 : 18000) : timeoutMs;
   if (!token) throw nativePlayerError('account_required', 'Connect to the March before signing in.');
-  const response = await fetch(url, { method, credentials: 'same-origin', cache: 'no-store', signal: AbortSignal.timeout(timeoutMs),
+  const response = await fetch(url, { method, credentials: 'same-origin', cache: 'no-store', signal: AbortSignal.timeout(requestTimeoutMs),
     headers: { Authorization: 'Bearer ' + token, ...(body ? { 'Content-Type': 'application/json' } : {}) },
     ...(body ? { body: JSON.stringify(body) } : {}) });
   if (!response.ok) {
