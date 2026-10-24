@@ -43,6 +43,7 @@ function consoleCategory(text) {
   return 'other';
 }
 
+const REGISTRATION_PENDING_MESSAGE = 'The browser public-key registration has not read back.';
 const actors = [];
 let stage = 'configuration';
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -138,6 +139,17 @@ async function attachPage(actor) {
       const status = response.status(), method = requestMethod(response.request()), category = endpointCategory(response.url());
       if (Number.isInteger(status) && status >= 100 && status <= 599) countSafe(actor.networkResponses, category + ':' + method + ':' + status);
       const url = new URL(response.url());
+      if (url.origin === TARGET.origin && response.status() === 200
+        && ['/gaming/identity/play/complete', '/gaming/identity/status'].includes(url.pathname)) {
+        void response.json().then(body => {
+          const expiry = body?.binding?.expiresAt;
+          if (typeof expiry !== 'string' || !Number.isFinite(Date.parse(expiry))) return;
+          if (url.pathname === '/gaming/identity/play/complete') {
+            actor.issuedBindingExpiry = expiry;
+            actor.admittedAccount = typeof body?.appSession?.acct?.id === 'string' ? body.appSession.acct.id : null;
+          } else actor.lastBindingExpiry = expiry;
+        }).catch(() => {});
+      }
       if (url.origin === TARGET.origin && url.pathname === '/gaming/identity/play/complete'
         && response.request().method() === 'POST' && response.status() === 503) actor.exactPlay503++;
     } catch {}
@@ -164,16 +176,50 @@ async function identity(actor) {
   });
 }
 async function created(actor) {
-  const until = Date.now() + 240000;
-  let retried = false;
+  let until = Date.now() + 240000;
+  let retried = false, registryRetried = false;
   while (Date.now() < until) {
-    const current = await evaluate(actor, name => {
-      const h = window.__hm;
+    const current = await evaluate(actor, ({ name, registrationMessage }) => {
+      const h = window.__hm, status = h?.nativePlayerStatus?.();
+      const message = [...document.querySelectorAll('#create .native-player [role="status"]')]
+        .some(node => node.textContent.trim() === registrationMessage);
       return { stopped: !!window.__hmStartup?.stopped,
-        ok: !!(h?.GAME?.started && h.GAME.player?.name === name && h.nativePlayerStatus?.().readConfirmed) };
-    }, actor.name);
+        ok: !!(h?.GAME?.started && h.GAME.player?.name === name && status?.readConfirmed),
+        registrationPending: message, owner: h?.net?.NETWS?.acct?.id,
+        recoverable: !!(message && h?.net?.NETWS?.acct?.nativeBound === true
+          && !h.GAME?.started && !status?.readConfirmed && !status?.profilePresent
+          && h.SAVE?.ref?.blocked === true && !h.SAVE?.loaded?.char
+          && !h.SAVE?.pending && !h.SAVE?.nativeFlight) };
+    }, { name: actor.name, registrationMessage: REGISTRATION_PENDING_MESSAGE });
     if (current.stopped) throw new Error('graphics_startup_stopped');
     if (current.ok) return;
+    if (current.registrationPending && !registryRetried && current.recoverable
+      && typeof current.owner === 'string' && current.owner === actor.admittedAccount
+      && actor.issuedBindingExpiry
+      && actor.networkResponses['native_identity:POST:200'] === 1
+      && actor.networkResponses['game_play_complete:POST:200'] === 1) {
+      const retry = actor.page.locator('#create .native-player').getByRole('button', { name: 'Retry connection', exact: true });
+      if (await retry.isVisible() && await retry.isEnabled()) {
+        registryRetried = true; actor.registryRetryCount = (actor.registryRetryCount || 0) + 1;
+        check(true, actor.label + '_native_registry_readback_pending_identified');
+        const owner = current.owner;
+        await retry.click();
+        await poll(actor.label + '_same_native_profile_ready_after_retry', () => evaluate(actor, id => {
+          const h = window.__hm, s = h?.nativePlayerStatus?.();
+          return !!(h?.net?.NETWS?.acct?.id === id && h.net.NETWS.acct.nativeBound === true
+            && !h.GAME?.started && !h.SAVE?.loaded?.char && !h.SAVE?.ref?.blocked
+            && s?.readConfirmed && s.profilePresent && s.profileStatus?.keyPresent
+            && s.profileStatus?.hasRecord && !s.profileStatus?.pending);
+        }, owner), 120000);
+        check(actor.networkResponses['native_identity:POST:200'] === 1
+          && actor.networkResponses['game_play_complete:POST:200'] === 1
+          && actor.issuedBindingExpiry === actor.lastBindingExpiry,
+          actor.label + '_retry_preserves_identity_and_exact_binding_expiry');
+        await actor.page.getByRole('textbox', { name: 'Character name', exact: true }).fill(actor.name);
+        await actor.page.getByRole('button', { name: 'Enter the realm', exact: true }).click();
+        until = Date.now() + 180000; stage = actor.label + '_create_native_guest';
+      }
+    }
     if (actor.exactPlay503 > 0 && !retried) {
       const button = actor.page.getByRole('button', { name: 'Play now', exact: true });
       if (await button.isVisible() && await button.isEnabled()
@@ -309,7 +355,9 @@ async function safeDiagnostic(actor) {
     const button = document.getElementById('btn-begin'), text = button?.textContent?.trim();
     const begin = !button ? 'missing' : text === 'Play now' ? 'play_now' : text === 'Enter the realm' ? 'enter_realm'
       : text === 'Opening your character…' ? 'opening_character' : 'other';
-    return { nativeState: code(s?.state), nativeErrorCode: error ? code(error) : safe.errors.includes(s?.state) ? code(s.state) : null,
+    const registrationPendingMessage = [...document.querySelectorAll('#create .native-player [role="status"]')]
+      .some(node => node.textContent.trim() === 'The browser public-key registration has not read back.');
+    return { registrationPendingMessage, nativeState: code(s?.state), nativeErrorCode: error ? code(error) : safe.errors.includes(s?.state) ? code(s.state) : null,
       nativeLoadPhase: code(s?.loadPhase), nativeProfileState: code(s?.profileStatus?.state),
       nativeLoading: !!s?.loading, nativeProfilePresent: !!s?.profilePresent, nativeRefPresent: !!s?.refPresent, nativeRefBlocked: !!s?.refBlocked,
       netState: code(h?.net?.NET?.state), wsState: code(w?.state), transportFailurePresent: !!w?.lastFailure,
@@ -448,7 +496,7 @@ try {
     liveVersion: result.finalHealth.worldLiveVersion ?? null, confirmedLiveVersion: result.finalHealth.worldConfirmedLiveVersion ?? null,
     pendingSnapshots: result.finalHealth.worldPendingSnapshots ?? null });
   if (!quiet) { result.ok = false; process.exitCode = 1; }
-  result.admissionRecovery = actors.map(actor => ({ role: actor.label, exactPlay503: actor.exactPlay503, sameButtonRetries: actor.retryCount }));
+  result.admissionRecovery = actors.map(actor => ({ role: actor.label, exactPlay503: actor.exactPlay503, sameButtonRetries: actor.retryCount, registryReadbackRetries: actor.registryRetryCount || 0 }));
   result.transport = actors.map(actor => ({ role: actor.label, responses: actor.networkResponses,
     failures: actor.networkFailures, consoleCategories: actor.consoleCategories }));
   result.finishedAt = new Date().toISOString();
