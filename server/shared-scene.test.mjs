@@ -360,6 +360,7 @@ test('actual keep reporting follows the shared host even when another player sta
   vm.createContext(context);vm.runInContext(
     cut('function roomHost(R) {','const send =')+
     cut('function regionHosts(R) {','function regionsTell(')+
+    cut('function worldNow(R) {','function worldReport(')+
     cut('function worldReport(c, raw, admission) {','// [perf3] the host'),context);
   room.regions=context.regionHosts(room);
   assert.equal(room.regions.f1,'a');assert.equal(room.regions.h1,'a');
@@ -661,4 +662,73 @@ test('live scene discovery reads are pure until a validated scene is actually pu
   assert.equal(scene.handle(client, { t: 'activity', kind: 'boats', op: 'snapshot', seq: 1,
     authority: current.authority, worldAdmission: current.worldAdmission, boats: [boat()] }), true);
   assert.equal(writes, 1); assert.equal(worlds.march.activity.boats[0].id, 1);
+});
+
+test('public stats keep bounded war metadata without exposing a staged checkpoint or character body', async () => {
+  const fs = await import('node:fs'), vm = await import('node:vm');
+  const source = fs.readFileSync(new URL('./server.js', import.meta.url), 'utf8');
+  const route = source.split('\n').find(line => line.includes("if (u.pathname === '/stats')"));
+  assert.ok(route);
+  const from = route.indexOf('rooms: '), to = route.indexOf(', accounts:', from);
+  assert.ok(from >= 0 && to > from);
+  const expression = route.slice(from + 'rooms: '.length, to);
+  const begin = source.indexOf('function worldCheck('), end = source.indexOf('/* ------------------------------------------------------------------ */', begin);
+  assert.ok(begin >= 0 && end > begin);
+  const marker = 'unconfirmed-checkpoint-must-stay-private';
+  const world = { k: [0, 0, 1, 1, 2, 2], g: [1, 1, 1, 1, 1, 1], td: 0, tm: 0, cn: 7,
+    cl: [[1, 2], [3, 4], [5, 6]], activity: { worldparts: { receipts: [{ digest: marker }] } },
+    char: { name: marker }, credentials: { token: marker } };
+  const room = { name: 'march', regions: { h0: 'keeper' }, clients: new Map([['keeper', {}]]) };
+  const context = { ROOMS: new Map([['march', room]]), WORLDS: { march: world }, WORLD: { keepCount: 6 },
+    roomHost: () => ({ peer: 'keeper' }), Date: { now: () => 1234 } };
+  vm.createContext(context);
+  vm.runInContext(source.slice(begin, end) + '\nglobalThis.projected=' + expression + ';', context);
+  const projected = JSON.parse(JSON.stringify(context.projected));
+  assert.equal(projected[0].players, 1);
+  assert.equal(projected[0].host, 'keeper');
+  assert.deepEqual(projected[0].world.k, world.k);
+  assert.deepEqual(Object.keys(projected[0].world).sort(), ['at', 'cl', 'cn', 'g', 'k', 'td', 'tm']);
+  assert.equal(JSON.stringify(projected).includes(marker), false);
+  assert.equal(world.activity.worldparts.receipts[0].digest, marker);
+  context.WORLDS.march = { activity: world.activity };
+  vm.runInContext('globalThis.projected=' + expression + ';', context);
+  assert.equal(context.projected[0].world, null);
+});
+
+test('ordinary world broadcasts hide pending economic state until native confirmation', async () => {
+  const fs = await import('node:fs'), vm = await import('node:vm');
+  const source = fs.readFileSync(new URL('./server.js', import.meta.url), 'utf8');
+  const section = (a, b) => {
+    const start = source.indexOf(a), end = source.indexOf(b, start + a.length);
+    assert.ok(start >= 0 && end > start); return source.slice(start, end);
+  };
+  let release;
+  const f = fixture(undefined, { confirm: () => new Promise(resolve => { release = resolve; }) });
+  Object.assign(f.state, { k: [0], g: [1], td: 0, tm: 0, cn: 1, cl: [[0, 0], [0, 0], [0, 0]] });
+  f.publish(f.a, 'worldparts', { v: 1, full: true, parts: { resource: { available: true } }, remove: [], receipts: [] });
+  f.publish(f.a, 'worldparts', { v: 1, full: false, parts: { resource: { available: false } },
+    remove: [], receipts: [economicReceipt()] }, 2);
+  await turn();
+  const wire = [], worlds = { march: f.state };
+  const context = { WORLD_STATE: null, WORLD: { keepCount: 1, keeps: [{ home: 0 }], SITES: [] },
+    WORLDS: worlds, SHARED_SCENE: f.scene, SEASON: { keepsOf: () => [0], capture() {} }, KEEP_REGION: ['f0'],
+    isHumanPlaying: c => c.live, roomHost: () => f.a,
+    worldAdmission: () => f.a.worldAdmission, sameWorldAdmission: (a, b) => a?.origin === b?.origin && a?.epoch === b?.epoch,
+    coCaptured() {}, worldsSave() {}, STATS: { worldTold: 0 }, Date,
+    send: (c, m) => wire.push(structuredClone(m)) };
+  vm.createContext(context);
+  vm.runInContext(section('function worldCheck(w)', '\n/* ------------------------------------------------------------------ */\n/* regions:') +
+    section('function worldNow(R)', 'function worldReport(') +
+    section('function worldReport(c, raw, admission)', "// [perf3] the host's word on the sky") +
+    '\nglobalThis.report=worldReport;', context);
+  const raw = { k: [1], g: [1], td: 0, tm: 0, cn: 1, cl: [[0, 0], [0, 0], [0, 0]] };
+  assert.equal(context.report(f.a, raw, f.a.worldAdmission), true);
+  assert.equal(wire.at(-1).w.activity.worldparts.parts.resource.available, true);
+  assert.equal(wire.at(-1).w.activity.worldparts.receipts.length, 0);
+  assert.equal(worlds.march.activity.worldparts.parts.resource.available, false, 'native capture still retains staged consumption');
+  release();
+  await turn();
+  context.report(f.a, { ...raw, k: [0] }, f.a.worldAdmission);
+  assert.equal(wire.at(-1).w.activity.worldparts.parts.resource.available, false);
+  assert.equal(wire.at(-1).w.activity.worldparts.receipts.length, 1);
 });

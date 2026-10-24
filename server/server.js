@@ -505,7 +505,7 @@ function worldReport(c, raw, admission) {
   merged.at = Date.now();
   if (R.diagnostic) R.diagnosticWorld = merged;
   else { WORLDS[R.name] = merged; worldsSave(); }
-  if (changed) { STATS.worldTold++; for (const o of R.clients.values()) if (o !== c) send(o, { t: 'world', w: merged, worldAdmission: worldAdmission() }); }
+  if (changed) { STATS.worldTold++; for (const o of R.clients.values()) if (o !== c) send(o, { t: 'world', w: worldNow(R), worldAdmission: worldAdmission() }); }
   return true;
 }
 // [perf3] the host's word on the sky: kept with the shard's war (a later session's first host takes it up), on disk once a minute
@@ -970,7 +970,7 @@ const server = http.createServer(async (req, res) => {
     give(400, { ok: false }); return;
   }
   if (u.pathname === '/season') { const fenced = WORLD_STATE && !WORLD_STATE.canMutate(); res.writeHead(fenced ? 503 : 200, { 'content-type': 'application/json', 'access-control-allow-origin': '*' }); res.end(JSON.stringify(fenced ? { ok: false, persistence: worldPersistenceStatus() } : SEASON.summary(-1, (SEASON.RS ? SEASON.RS.t : 0) - 86400))); return; }
-  if (u.pathname === '/stats') { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ ...STATS, proc: { mem: process.memoryUsage(), cpu: process.cpuUsage(), up: process.uptime() }, season: SEASON.RS ? { file: SEASON.M.file, t: SEASON.RS.t, phase: SEASON.RS.phase, stepMs: SEASON.stepMs.length ? { last: SEASON.stepMs[SEASON.stepMs.length - 1], max: Math.max(...SEASON.stepMs), mean: SEASON.stepMs.reduce((a, b) => a + b, 0) / SEASON.stepMs.length } : null, roster: Object.keys(SEASON.roster).length } : null, companies: { n: Object.keys(COMP.D.list).length, ...COMP.stats }, rooms: [...ROOMS.values()].map((R) => ({ regions: R.regions || {}, name: R.name, players: R.clients.size, host: roomHost(R)?.peer || null, world: WORLDS[R.name] || null })), accounts: Object.keys(ACCOUNTS).length })); return; }
+  if (u.pathname === '/stats') { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ ...STATS, proc: { mem: process.memoryUsage(), cpu: process.cpuUsage(), up: process.uptime() }, season: SEASON.RS ? { file: SEASON.M.file, t: SEASON.RS.t, phase: SEASON.RS.phase, stepMs: SEASON.stepMs.length ? { last: SEASON.stepMs[SEASON.stepMs.length - 1], max: Math.max(...SEASON.stepMs), mean: SEASON.stepMs.reduce((a, b) => a + b, 0) / SEASON.stepMs.length } : null, roster: Object.keys(SEASON.roster).length } : null, companies: { n: Object.keys(COMP.D.list).length, ...COMP.stats }, rooms: [...ROOMS.values()].map((R) => ({ regions: R.regions || {}, name: R.name, players: R.clients.size, host: roomHost(R)?.peer || null, world: worldCheck(WORLDS[R.name]) })), accounts: Object.keys(ACCOUNTS).length })); return; }
   if (u.pathname === '/' || u.pathname === '/index.html') {
     let html;
     try { html = fs.readFileSync(CFG.page, 'utf8'); } catch (e) { res.writeHead(404); res.end('The game is not built here (python3 build.py)'); return; }

@@ -188,3 +188,46 @@ test('a self-hosted offspring claim still waits for the private journal and cano
   s.ctx.api.netWorldPartsMessage(receipt); assert.equal(imported.length, 1);
 });
 
+
+test('mineral depletion survives canonical handoff on a different clock without duplicate owner reward', () => {
+  const a = scene(); a.ctx.api.NETPARTS.replay = true;
+  assert.equal(a.ctx.mineYield(0, true), true);
+  a.ctx.api.NETPARTS.replay = false;
+  const checkpoint = copy(vm.runInContext('netWorldPartsCapture()', a.ctx));
+  assert.deepEqual(checkpoint.parts.resources.rocks, [[0, 0, 900]]);
+  const b = scene(); b.ctx.GAME.t = 5000; b.ctx.checkpoint = checkpoint;
+  vm.runInContext('netWorldPartsApply(checkpoint)', b.ctx);
+  assert.deepEqual(b.hostGoods, { tool_pick: 1, sentinel: 77 }, 'public depletion never copies the prior owner reward');
+  assert.equal(b.ctx.CRAFT.rocks.get(0).until, 5900);
+  b.ctx.api.NETPARTS.replay = true;
+  assert.equal(b.ctx.mineYield(0, true), false);
+  assert.deepEqual(b.hostGoods, { tool_pick: 1, sentinel: 77 });
+  b.ctx.GAME.t = 5020; vm.runInContext('netWorldPartsApply(checkpoint)', b.ctx);
+  assert.equal(b.ctx.CRAFT.rocks.get(0).until, 5900, 'unchanged canonical replay cannot restart regrowth');
+  b.ctx.GAME.t = 5899; assert.equal(b.ctx.mineYield(0, true), false);
+  assert.deepEqual(b.hostGoods, { tool_pick: 1, sentinel: 77 });
+  b.ctx.GAME.t = 5900; assert.equal(b.ctx.mineYield(0, true), true);
+  assert.equal(b.ctx.CRAFT.rocks.get(0).n, 2); assert.equal(b.hostGoods.stone, 3);
+});
+
+test('shared mineral state covers the whole bounded world and rejects malformed rows atomically', () => {
+  const s = scene();
+  s.ctx.CRAFT.rocks = new Map(Array.from({ length: 900 }, (_, i) => [i, { n: 0, until: 1000 }]));
+  const saved = copy(s.ctx.craftRocksSharedSave());
+  assert.equal(saved.rocks.length, 900);
+  s.ctx.craftRocksSharedApply(saved);
+  assert.equal(s.ctx.CRAFT.rocks.size, 900);
+  const before = copy(s.ctx.craftRocksSharedSave());
+  for (const value of [
+    { v: 1, rocks: [...saved.rocks, [900, 0, 900]] },
+    { v: 1, rocks: [[0, 0, 900], [0, 0, 900]] },
+    { v: 1, rocks: [[900, 0, 900]] }, { v: 1, rocks: [[0, 3, 0]] },
+    { v: 1, rocks: [[0, 0, 901]] }, { v: 1, rocks: [[0, 1, 1]] },
+  ]) {
+    assert.throws(() => s.ctx.craftRocksSharedApply(value), /Invalid shared mineral/);
+    assert.deepEqual(copy(s.ctx.craftRocksSharedSave()), before);
+  }
+  assert.deepEqual(s.hostGoods, { tool_pick: 1, sentinel: 77 });
+  s.ctx.craftRocksSharedApply(null);
+  assert.equal(s.ctx.CRAFT.rocks.size, 0, 'a legacy empty image has no depletion to restore');
+});

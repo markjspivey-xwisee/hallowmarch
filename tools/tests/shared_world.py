@@ -144,6 +144,9 @@ async def boot(browser, origin, url, name, realm, cls, level, phone=False):
     page = await fixture.boot(context, {"room": "shared-world", "shard": "shared-world",
                               "user": name, "noRoom": True, "server": url,
                               "origin": url.replace("wss://", "https://").removesuffix("/ws")}, name)
+    security = await page.evaluate("({origin:location.origin,secure:isSecureContext,randomUUID:typeof crypto.randomUUID==='function'})")
+    require(security["secure"] and security["randomUUID"],
+            "each independent browser uses a secure origin with native UUID support", security=security)
     await fixture.start(page, realm, cls, level, name)
     await page.evaluate("NT.P.maxHp=100000; NT.P.hp=100000; 0")
     page._context = context
