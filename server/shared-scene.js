@@ -184,6 +184,7 @@ export function createSharedScene({ hostFor, live, admission, stateFor, send, ch
   }
   function sync(room, target = null) {
     if (!room || !canMutate()) return null;
+    if (!sessions.has(room) && !hostFor(room)) return null;
     const s = session(room), host = hostFor(room)?.peer || ''; let released = false;
     // An accepted economic mutation is not available for another keeper to replay
     // until native storage confirms it. Late viewers hold the prior image.
@@ -391,7 +392,7 @@ export function createSharedScene({ hostFor, live, admission, stateFor, send, ch
     return false;
   }
   function leave(c) {
-    if (!c.room || !canMutate()) return;
+    if (!c.room || !canMutate() || !sessions.has(c.room)) return;
     const s = session(c.room); let released = false;
     const owned = s.streams.entities?.rows.filter(row => row.owner === c.peer).map(row => row.id) || [];
     if (owned.length) s.streams.entities = { ...s.streams.entities, rows: s.streams.entities.rows.filter(row => row.owner !== c.peer) };

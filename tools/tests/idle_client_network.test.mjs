@@ -265,7 +265,8 @@ function coldTownFixture(walkable = () => true) {
   const helperAt = ai.indexOf('function townVillagerSpawn(');
   const spawn = (helperAt < 0 ? '' : between(ai, 'function townVillagerSpawn(', 'function initTowns()')) +
     between(ai, 'function initTowns()', '/* ------------------------------------------------------------------ */\n/* keeps, temples, relics');
-  const source = between(read('07_entities.js'), 'function makeEnt(o)', 'function removeEnt(') +
+  const source = between(read('00_util.js'), 'function mulberry(seed)', 'function hash2(') +
+    between(read('07_entities.js'), 'function makeEnt(o)', 'function removeEnt(') +
     between(world, 'const _cn = [];', '// is the straight segment clear') +
     between(houses, 'function collCovers(c, x, z, r)', '// a place to stand inside') + spawn;
   const prop = { type: 'box', x: 6, z: 0, hx: 1.55, hz: 1.05, cos: 1, sin: 0,
@@ -287,6 +288,12 @@ function coldTownFixture(walkable = () => true) {
     spawnRealmUnit: () => ({ ai: {} })
   });
   vm.runInContext(source + '\nglobalThis.H={initTowns,collCovers};', context);
+  vm.runInContext(`{
+    const rng = mulberry(0x4e5043 ^ 65537);
+    const a = rng() * TAU, r = 6 + rng() * 12;
+    REALMS[0].town.x = 6 - Math.cos(a) * r;
+    REALMS[0].town.z = -Math.sin(a) * r;
+  }`, context);
   context.H.initTowns();
   return { context, prop, randomCalls, walkCalls };
 }
@@ -304,7 +311,7 @@ test('cold initial villagers avoid prop colliders and unwalkable ground without 
     assert.equal(e.y, 3); assert.equal(e.prevX, e.x); assert.equal(e.prevZ, e.z);
   }
   assert.ok(walkCalls > 6);
-  assert.equal(randomCalls, 26); // unchanged positions/looks/entity initialization draws
+  assert.equal(randomCalls, 14); // entity initialization only; positions use the actual deterministic generator
   assert.equal(context.GAME.player, null); assert.equal(context.GAME.started, false); assert.equal(context.GAME.t, 0);
 });
 

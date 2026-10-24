@@ -10,6 +10,7 @@ import { createHumanPlayGate } from '../../server/human-play.js';
 const repo = fileURLToPath(new URL('../../', import.meta.url)).replace(/\/$/, '');
 const clientSource = ['14n_net.js', '14o_netui.js'].map(name => readFileSync(repo + '/src/' + name, 'utf8')).join('\n');
 const serverSource = readFileSync(repo + '/server/server.js', 'utf8');
+const roomHostSource = serverSource.slice(serverSource.indexOf('function roomHost('), serverSource.indexOf('const send =', serverSource.indexOf('function roomHost(')));
 const evForSource = serverSource.slice(serverSource.indexOf('function evFor('), serverSource.indexOf('/* ------------------------------------------------------------------ */', serverSource.indexOf('function evFor(')));
 const onFastSource = serverSource.slice(serverSource.indexOf('function onFast('), serverSource.indexOf('/* ------------------------------------------------------------------ */', serverSource.indexOf('function onFast(')));
 const plain = value => JSON.parse(JSON.stringify(value));
@@ -65,9 +66,9 @@ function server() {
     SEASON: { chatIn: (...args) => kept.push(args) }, cleanName: x => x,
     send: (who, message) => packets.push({ who: who.peer, message: plain(message) }),
   });
-  vm.runInContext(evForSource + '\n' + onFastSource + '\nglobalThis.onFast = onFast;', context);
+  vm.runInContext(roomHostSource + '\n' + evForSource + '\n' + onFastSource + '\nglobalThis.onFast = onFast;', context);
   const room = { clients: new Map() };
-  const add = (peer, realm, party = '') => { const c = { peer, realm, party, region: 'a', room, acct: { name: peer }, pos: { x: 0, z: 0 }, posT: now, evSeq: 0 }; room.clients.set(peer, c); humanPlay.update(c, { on: 1, humanLive: 1, humanActivity: 1 }); return c; };
+  const add = (peer, realm, party = '') => { const c = { peer, realm, party, since: now, slow: { on: 1, r: realm, pt: party, sharedScene: 1 }, region: 'a', room, acct: { id: 'account-' + peer, name: peer }, pos: { x: 0, z: 0 }, posT: now, evSeq: 0 }; room.clients.set(peer, c); humanPlay.update(c, { on: 1, humanLive: 1, humanActivity: 1 }); return c; };
   return { add, packets, kept, pause: c => humanPlay.forget(c), onFast: context.onFast, advance(ms) { now += ms; } };
 }
 

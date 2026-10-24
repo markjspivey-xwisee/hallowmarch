@@ -565,3 +565,16 @@ test('ordinary public work does not force an economic native checkpoint', () => 
   const value = reconstruct(f.out.get('b').filter(m => m.kind === 'worldparts'));
   assert.equal(value.parts.hammer, 1);
 });
+
+test('cold discovery and withdrawal do not allocate or persist a world before a live keeper exists', () => {
+  let reads = 0, writes = 0, active = false;
+  const worlds = {}, room = { name: 'cold', clients: new Map() }, client = { peer: 'cold', room };
+  room.clients.set(client.peer, client);
+  const scene = createSharedScene({ hostFor: () => active ? client : null, live: () => active,
+    admission: () => ({ origin: 'https://game.test', epoch: 1 }),
+    stateFor: () => { reads++; return worlds.cold ||= {}; }, send() {}, changed() { writes++; } });
+  scene.sync(room, client); scene.leave(client);
+  assert.deepEqual(worlds, {}); assert.equal(reads, 0); assert.equal(writes, 0);
+  active = true; scene.sync(room, client);
+  assert.ok(reads > 0); assert.equal(writes, 0);
+});

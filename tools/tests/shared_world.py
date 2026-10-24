@@ -200,9 +200,20 @@ async def town_case(pages):
 
 async def boat_case(pages):
     desktop, phone = pages
-    candidates = await phone.evaluate("__hm.water.boats.list().filter(b=>b.realm===0 && b.st!=='burnt' && b.st!=='burning')")
-    require(bool(candidates), "a real realm boat is available")
-    candidate = candidates[0]
+    candidate = await phone.evaluate("""(() => {
+      const boats = __hm.water.boats;
+      for (const row of boats.list().filter(b => b.realm === 0 && b.st === 'moored' && b.home)) {
+        const B = boats.BOATS.list[row.i], J = B.home && boats.BOATS.jetties[B.home.j];
+        if (!J || B.rider != null) continue;
+        const sign = Math.sin(B.yaw) * J.dx + Math.cos(B.yaw) * J.dz >= 0 ? 1 : -1;
+        const clear = [0, .5, 1, 2, 3, 4, 5, 6, 7, 8].every(d =>
+          boats.hit(row.i, B.x + Math.sin(B.yaw) * sign * d,
+            B.z + Math.cos(B.yaw) * sign * d, B.yaw) === null);
+        if (clear) return { ...row, strokeKey: sign > 0 ? 'KeyW' : 'KeyS' };
+      }
+      return null;
+    })()""")
+    require(candidate is not None, "a real realm boat has a clear departure toward open water")
     index = candidate["i"]
     for page in pages:
         await travel(pages, page, candidate["x"], candidate["z"])
@@ -216,15 +227,16 @@ async def boat_case(pages):
     rider = pages[occupied.index(True)]
     observer = pages[occupied.index(False)]
     before = await rider.evaluate("i=>__hm.water.boats.state(i)", index)
-    await rider.evaluate("__hm.INPUT.keys.add('KeyW'); 0")
+    await rider.evaluate("key=>{__hm.INPUT.keys.add(key); return 0;}", candidate["strokeKey"])
     try:
         await pulse(pages, 5)
     finally:
-        await rider.evaluate("__hm.INPUT.keys.delete('KeyW'); 0")
+        await rider.evaluate("key=>{__hm.INPUT.keys.delete(key); return 0;}", candidate["strokeKey"])
     await pulse(pages, 0.8)
     a, b = await asyncio.gather(*(p.evaluate("i=>__hm.water.boats.state(i)", index) for p in pages))
     moved = math.hypot(a["x"]-before["x"], a["z"]-before["z"])
-    require(moved > 0.75, "a boarded boat really rows away from its berth", distance=moved)
+    require(moved > 0.75, "a boarded boat really rows away from its berth", distance=moved,
+            stroke=candidate["strokeKey"], before=before, desktop=a, phone=b)
     require(math.hypot(a["x"]-b["x"], a["z"]-b["z"]) < 1.25,
             "both devices show the moved boat at the same position", desktop=a, phone=b)
     rider_peer = await rider.evaluate("NT.st().self")

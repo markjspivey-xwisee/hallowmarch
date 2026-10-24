@@ -9,7 +9,7 @@ const between = (s,a,b) => s.slice(s.indexOf(a),s.indexOf(b,s.indexOf(a)+a.lengt
 const onMsg = between(server, 'function onMsg(', '/* ------------------------------------------------------------------ */');
 const endSession = between(server, 'function endHumanSession(', 'function resumeHumanSession(');
 function routing() {
-  let now=1000; const sent=[], writes=[];
+  let now=1000; const sent=[], writes=[], sceneLeaves=[];
   const room={clients:new Map()}, owner={acct:{id:'owner'},room,peer:'owner',ws:{close(){}},winT:now,winN:0};
   room.clients.set(owner.peer,owner);
   let context;
@@ -18,13 +18,13 @@ function routing() {
     Date:{now:()=>now}, JSON, Map, console, STATS:{msgs:0,bytesIn:0,badMsgs:0,saves:0},
     CFG:{maxMsg:65536,maxSave:1048576}, HUMAN_PLAY:gate,isHumanPlaying:gate.isPlaying,
     nativePlayersRequired:false,PLAYER_ACCOUNTS:{principalFor:()=>null,isBound:()=>false,status:()=>({enabled:true})},
-    WORLD_STATE:null,FIELD:{left(){}},worldAgentTransport:{close(){}},regionsTell(){},
+    WORLD_STATE:null,SHARED_SCENE:{leave:c=>sceneLeaves.push(c)},FIELD:{left(){}},worldAgentTransport:{close(){}},regionsTell(){},
     clearTimeout(){},resumeHumanSession(){},accountsSave(){},onSlow(c,d){c.slow=d;},
     send:(c,m)=>sent.push(m),store:{write:(p,d)=>writes.push({p,d})},path:{join:(...p)=>p.join('/')},
     gamingEnvironment:{},process:{env:{}}
   });
   vm.runInContext(endSession+'\n'+onMsg+'\nglobalThis.H={onMsg,endHumanSession};',context);
-  return {owner,room,sent,writes,gate,send:m=>context.H.onMsg(owner,JSON.stringify(m)),advance:ms=>{now+=ms;}};
+  return {owner,room,sent,writes,sceneLeaves,gate,send:m=>context.H.onMsg(owner,JSON.stringify(m)),advance:ms=>{now+=ms;}};
 }
 const live=n=>({t:'slow',d:{on:1,humanLive:1,humanActivity:n,r:0}});
 test('actual routing accepts one departing save after withdrawal without reopening its human lease',()=>{
@@ -32,11 +32,14 @@ test('actual routing accepts one departing save after withdrawal without reopeni
   f.send({t:'save',final:1,d:{v:1,char:{xp:1}}});
   assert.equal(f.writes.length,0,'cold sockets have no final-save allowance');
   f.send(live(1));assert.equal(f.gate.count(),1);
+  f.owner.sceneAuthority='owner-lease';
   f.send({t:'slow',d:{on:0,humanLive:0,humanActivity:1}});assert.equal(f.gate.count(),0);
+  assert.equal(f.sceneLeaves.length,1);assert.equal(f.sceneLeaves[0],f.owner);assert.equal(f.owner.sceneAuthority,'');
   f.send({t:'save',final:1,d:{v:1,char:{xp:7}}});
   assert.equal(f.writes.length,1);assert.equal(f.writes[0].d.char.xp,7);assert.equal(f.gate.count(),0);
   f.send({t:'save',final:1,d:{v:1,char:{xp:8}}});
   assert.equal(f.writes.length,1);assert.equal(f.sent.at(-1).error,'human_play_required');
+  assert.equal(f.sceneLeaves.length,1,'final saves must not repeat scene departure');assert.equal(f.gate.count(),0);
 });
 test('departing save allowance expires and invalid attempts consume it',()=>{
   for(const invalid of [false,true]){
