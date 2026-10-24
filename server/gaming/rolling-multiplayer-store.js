@@ -1,7 +1,9 @@
 import { createHash } from 'node:crypto';
-import { gunzipSync, brotliCompressSync, brotliDecompressSync, constants as zlibConstants } from 'node:zlib';
+import { brotliCompressSync, constants as zlibConstants } from 'node:zlib';
 import { InteregoGamingStore, createNativeTransport, DurableStoreError, DurableStoreConflictError } from './interego-store.js';
-import { encodeRollingHistory, decodeRollingHistory } from './rolling-history-codec.js';
+import { encodeRollingHistoryColumns } from './rolling-history-columns.js';
+import { validateRollingDocument } from './rolling-document-codec.js';
+import { rollingStorageWorker } from './rolling-storage-worker-client.js';
 
 export const MULTIPLAYER_HISTORY_MS = 60 * 60 * 1000;
 export const MULTIPLAYER_WRITE_BYTES = 64 * 1024 * 1024;
@@ -24,17 +26,6 @@ function canonical(x, depth = 0, maximumDepth = 64) {
 }
 const copy = x => JSON.parse(canonical(x));
 const conflict = e => e?.status === 412 || e?.name === 'NativeCommitConflictError';
-function boundedBrotli(bytes) {
-  if (!bytes.length) error('Empty compressed multiplayer checkpoint.');
-  // RFC 7932 section 9.1: inspect WBITS before a decoder allocates its window.
-  // The reserved 0010001 code also rejects the large-window extension.
-  const first = bytes[0], short = (first >> 1) & 7, extended = (first >> 4) & 7;
-  const bits = !(first & 1) ? 16 : short ? 17 + short : extended === 0 ? 17 : extended === 1 ? 0 : 8 + extended;
-  if (bits < 10 || bits > BROTLI_WINDOW_BITS) error('Compressed multiplayer window exceeds capacity.');
-  return brotliDecompressSync(bytes, { maxOutputLength: MAX_JSON,
-    params: { [zlibConstants.BROTLI_DECODER_PARAM_LARGE_WINDOW]: 0 } });
-}
-
 /** Current shared state plus one checkpoint per minute for a rolling hour.
  * One encrypted native CAS resource replaces permanent per-operation archives.
  * Personal owner-pod saves and learning archives are not stored here.
@@ -57,49 +48,43 @@ export class RollingMultiplayerStore extends InteregoGamingStore {
     }
     this.resourceUrl = options.resourceUrl; this.clock = options.clock ?? Date.now; this.lastEnvelope = null;
     this.lastCommitSize = null; this.lastCommitSizeFailure = null;
+    this.storageWorker = options.storageWorker ?? rollingStorageWorker;
   }
   now() { const n = this.clock(); if (!Number.isSafeInteger(n) || n < 0) error('Invalid multiplayer clock.'); return n; }
   empty(now) { return { schema: SCHEMA, owner: this.owner, namespace: this.namespace, resourceUrl: this.resourceUrl,
     retentionMs: MULTIPLAYER_HISTORY_MS, writtenAt: now, streams: [], checkpoints: [], receipts: [], writeBudget: [] }; }
-  checked(doc) {
-    const now = this.now();
-    if (!plain(doc) || doc.schema !== SCHEMA || doc.owner !== this.owner || doc.namespace !== this.namespace
-      || doc.resourceUrl !== this.resourceUrl || doc.retentionMs !== MULTIPLAYER_HISTORY_MS
-      || !Number.isSafeInteger(doc.writtenAt) || doc.writtenAt < 0 || doc.writtenAt > now
-      || !Array.isArray(doc.streams) || doc.streams.length > MAX_STREAMS || !Array.isArray(doc.checkpoints) || doc.checkpoints.length > 61
-      || !Array.isArray(doc.receipts) || doc.receipts.length > MAX_RECEIPTS
-      || !Array.isArray(doc.writeBudget) || doc.writeBudget.length > 61) error('Invalid multiplayer checkpoint ownership, window or clock.');
-    let budgetMinute = -1, budgetBytes = 0;
-    for (const bucket of doc.writeBudget) {
-      if (!plain(bucket) || !Number.isSafeInteger(bucket.minute) || bucket.minute <= budgetMinute
-        || bucket.minute > Math.floor(doc.writtenAt / 60000) || !Number.isSafeInteger(bucket.bytes) || bucket.bytes < 1) error('Invalid multiplayer write budget.');
-      budgetMinute = bucket.minute; budgetBytes += bucket.bytes;
-    }
-    if (budgetBytes > MULTIPLAYER_WRITE_BYTES) error('Multiplayer write budget exceeded.');
-    const records = entries => {
-      if (!Array.isArray(entries) || entries.length > MAX_STREAMS) error('Invalid multiplayer checkpoint records.');
-      const seen = new Set();
-      for (const r of entries) {
-        if (!plain(r) || seen.has(r.streamId)) error('Duplicate multiplayer stream.');
-        this.keys(r.streamId); this.streamRecord(r, r.streamId); seen.add(r.streamId);
-      }
-    };
-    records(doc.streams);
-    let prior = -1;
-    for (const p of doc.checkpoints) {
-      if (!plain(p) || !Number.isSafeInteger(p.at) || p.at <= prior || p.at > doc.writtenAt) error('Invalid checkpoint chronology.');
-      records(p.streams); prior = p.at;
-    }
-    const ids = new Set(); prior = -1;
-    for (const r of doc.receipts) {
-      if (!plain(r) || !/^gaming-v1-[a-f0-9]{64}$/.test(r.operationId) || ids.has(r.operationId) || !/^[a-f0-9]{64}$/.test(r.inputDigest)
-        || !Number.isSafeInteger(r.at) || r.at < prior || r.at > doc.writtenAt || !Number.isSafeInteger(r.version) || r.version < 1
-        || typeof r.streamId !== 'string' || (Object.hasOwn(r, 'rollbackTargetAt')
-          && (!Number.isSafeInteger(r.rollbackTargetAt) || r.rollbackTargetAt < 0 || r.rollbackTargetAt > r.at))) error('Invalid retained operation receipt.');
-      this.keys(r.streamId);
-      ids.add(r.operationId); prior = r.at;
-    }
-    this.lastEnvelope = doc; return doc;
+  workerContext() { return {owner:this.owner,namespace:this.namespace,resourceUrl:this.resourceUrl,now:this.now(),
+    maxStateBytes:this.maxStateBytes,maxEventBytes:this.maxEventBytes}; }
+  checked(doc) { validateRollingDocument(doc,this.workerContext());this.lastEnvelope=doc;return doc; }
+  async checkedAsync(doc) {
+    const checked=await this.storageWorker.run('validate',{doc,context:this.workerContext()});
+    this.lastEnvelope=checked;return checked;
+  }
+  async prepareWriteAsync(doc,measured={phase:'preparing'}) {
+    this.lastCommitSize=measured;
+    try {
+      const context=this.workerContext(),first=await this.storageWorker.run('encode',{doc,context});
+      Object.assign(measured,first.measured);
+      if(!(first.compressed instanceof Uint8Array)||first.compressed.length>MAX_COMPRESSED)error('Invalid rolling worker result.');
+      const artifact=this.artifactCodec.createNativeByteArtifact({owner:this.owner,contentType:TYPE,bytes:first.compressed});
+      measured.phase='native-sizing';
+      const estimate=this.nativeClient.atomicCheckpointSize?.(artifact)??1024*1024;
+      measured.encryptedEstimateBytes=estimate;
+      if(!Number.isSafeInteger(estimate)||estimate<1||estimate>1024*1024)error('Invalid native checkpoint byte estimate.');
+      const charge=Math.min(1024*1024,Math.ceil((estimate+4096)/4096)*4096);
+      const used=doc.writeBudget.reduce((sum,bucket)=>sum+bucket.bytes,0);
+      Object.assign(measured,{phase:'write-budget',reservedBytes:charge,usedBudgetBytes:used});
+      if(used+charge>MULTIPLAYER_WRITE_BYTES)error('Multiplayer save budget is full; pending saves will retry after capacity returns.','NATIVE_WRITE_BUDGET',503);
+      const minute=Math.floor(doc.writtenAt/60000),last=doc.writeBudget.at(-1);
+      const writeBudget=[...doc.writeBudget.filter(bucket=>bucket.minute!==minute),
+        {minute,bytes:(last?.minute===minute?last.bytes:0)+charge}];
+      const final=await this.storageWorker.run('finish',{wire:first.wire,writeBudget,context,measured:first.measured});
+      Object.assign(measured,final.measured);
+      if(!(final.compressed instanceof Uint8Array)||final.compressed.length>MAX_COMPRESSED)error('Invalid rolling worker result.');
+      doc.writeBudget=writeBudget;this.lastEnvelope=doc;
+      const finalArtifact=this.artifactCodec.createNativeByteArtifact({owner:this.owner,contentType:TYPE,bytes:final.compressed});
+      measured.phase='prepared';return {artifact:finalArtifact,maxEncryptedBytes:charge};
+    }catch(e){if(e?.measured)Object.assign(measured,e.measured);throw e}
   }
   artifact(doc, measured, preparedHistory) {
     if (measured) Object.assign(measured, { phase: 'document-json', streams: doc.streams.length,
@@ -110,7 +95,7 @@ export class RollingMultiplayerStore extends InteregoGamingStore {
     if (bytes.length > MAX_JSON) error('Rollback window exceeds its uncompressed budget.', 'PAYLOAD_TOO_LARGE', 413);
     // The logical document keeps its original schema and byte/depth bounds.
     // Storage-only delta tags require more nesting than the reconstructed JSON.
-    const encoded = preparedHistory?.wire ?? encodeRollingHistory(doc);
+    const encoded = preparedHistory?.wire ?? encodeRollingHistoryColumns(doc);
     if (preparedHistory) preparedHistory.wire = encoded;
     const wire = Buffer.from(canonical(encoded, 0, WIRE_DEPTH));
     if (measured) { measured.wireBytes = wire.length; measured.phase = 'document-wire-limit'; }
@@ -166,8 +151,7 @@ export class RollingMultiplayerStore extends InteregoGamingStore {
         }
         const world = doc.streams.find(r => r.streamId === WORLD);
         doc.checkpoints = world ? [{ at: doc.writtenAt, streams: [copy(world)] }] : [];
-        this.checked(doc);
-        const prepared = this.prepareWrite(doc);
+        const prepared = await this.prepareWriteAsync(doc);
         const result = await this.nativeClient.commitAtomicCheckpoint(stored.revision, prepared.artifact, { maxEncryptedBytes: prepared.maxEncryptedBytes });
         return { revision: result.revision, doc };
       } catch (error) {
@@ -179,17 +163,11 @@ export class RollingMultiplayerStore extends InteregoGamingStore {
     }
     if (decoded.owner !== this.owner || ![TYPE, LEGACY_TYPE].includes(decoded.contentType)) error('Multiplayer artifact ownership or type changed.');
     if (decoded.bytes.length > MAX_COMPRESSED) error('Multiplayer artifact exceeds its compressed storage budget.', 'PAYLOAD_TOO_LARGE', 413);
-    let doc;
-    try {
-      if (decoded.contentType === LEGACY_TYPE) doc = JSON.parse(gunzipSync(decoded.bytes, { maxOutputLength: MAX_JSON }).toString('utf8'));
-      else {
-        const wire = JSON.parse(boundedBrotli(decoded.bytes).toString('utf8'));
-        doc = decodeRollingHistory(wire);
-      }
-    }
-    catch { error('Multiplayer rollback window cannot be decoded.'); }
-    return { revision: stored.revision, doc: this.checked(doc) };
+    const doc=await this.storageWorker.run('decode',{bytes:Uint8Array.from(decoded.bytes),contentType:decoded.contentType,context:this.workerContext()});
+    this.lastEnvelope=doc;
+    return {revision:stored.revision,doc};
   }
+
   async ready() { await this.nativeClient.ready(); await this.admitCommit(() => this.read()); }
   async load(streamId) {
     this.keys(streamId);
@@ -244,9 +222,8 @@ export class RollingMultiplayerStore extends InteregoGamingStore {
         const world = doc.streams.find(r => r.streamId === WORLD);
         doc.checkpoints = doc.checkpoints.filter(p => Math.floor(p.at / 60000) !== Math.floor(now / 60000));
         if (world) doc.checkpoints.push({ at: now, streams: [copy(world)] });
-        this.checked(doc);
         try {
-          const prepared = this.prepareWrite(doc, measured);
+          const prepared = await this.prepareWriteAsync(doc, measured);
           measured.phase = 'native-commit';
           await this.nativeClient.commitAtomicCheckpoint(current.revision, prepared.artifact, { maxEncryptedBytes: prepared.maxEncryptedBytes });
           measured.phase = 'native-readback';
@@ -314,7 +291,7 @@ export class RollingMultiplayerStore extends InteregoGamingStore {
   }
   performanceStatus() { return { ...super.performanceStatus(), snapshotMode: 'bounded-rolling-hour', retentionMs: MULTIPLAYER_HISTORY_MS,
     checkpointResolutionMs: 60000, maxEncryptedBytes: 1024 * 1024, writeBudgetBytes: MULTIPLAYER_WRITE_BYTES,
-    storageCodec: 'lossless-history-delta-v1+brotli', maxLogicalBytes: MAX_JSON, maxCompressedBytes: MAX_COMPRESSED,
+    storageCodec: 'lossless-history-columns-v1+brotli', maxLogicalBytes: MAX_JSON, maxCompressedBytes: MAX_COMPRESSED,
     brotliWindowBits: BROTLI_WINDOW_BITS,
     lastCommitSize: this.lastCommitSize ? { ...this.lastCommitSize } : null,
     lastCommitSizeFailure: this.lastCommitSizeFailure ? { ...this.lastCommitSizeFailure } : null,
