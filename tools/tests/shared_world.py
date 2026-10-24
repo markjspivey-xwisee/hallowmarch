@@ -85,9 +85,18 @@ async def diagnose(pages, label):
                   seq:n.seq,recv:n.recv,stats:n.stats}:null,
                 worldparts:p?{authority:p.authority,peer:p.peer,ready:p.ready,seq:p.seq,readSeq:p.readSeq,
                   sent:p.sent,received:p.received,refused:p.refused,pending:p.pending.size,
+                  privateError:p.privateError,privateFlight:!!p.privateFlight,
+                  pendingRows:[...p.pending].map(([id,row])=>({id,op:row.op,phase:row.phase,durable:row.durable,
+                    privateConfirmed:row.privateConfirmed,refMatches:row.profileRef===H.SAVE.ref,playerMatches:row.playerRef===H.GAME.player})),
+                  receipts:p.receipts.slice(-6).map(row=>({id:row.id,ok:row.ok,reason:row.reason,result:row.result,settled:row.settled})),
                   outbox:p.outbox?{seq:p.outbox.seq,part:p.outbox.part,total:p.outbox.total}:null,
                   adapters:take(()=>H.worldparts.adapters())}:null,
                 fields:take(()=>H.combatfields.state()),
+                build:take(()=>({pieces:H.build.BUILD.pieces.slice(-12).map(row=>({id:row.id,t:row.t,x:row.x,z:row.z,yaw:row.yaw,st:row.st,p:row.p})),
+                  work:H.build.BUILD.work&&{id:H.build.BUILD.work.pc?.id,x:H.build.BUILD.work.x,z:H.build.BUILD.work.z}})),
+                save:{native:H.SAVE.native,backend:H.SAVE.backend,server:H.SAVE.server,hasRef:!!H.SAVE.ref,
+                  readConfirmed:H.SAVE.readConfirmed,bodyBytes:H.SAVE.lastBody?.length,flight:!!H.SAVE.nativeFlight},
+                error:document.getElementById('error')?.textContent,cameraYaw:H.CAM.yaw,
                 errors:(H.errors||[]).slice(-8),log:[...document.querySelectorAll('#log>div')].slice(-8).map(e=>e.textContent),
                 sceneBytes:take(()=>JSON.stringify(H.worldparts.capture()).length)};
             })()""")
@@ -298,10 +307,16 @@ async def combat_fields_case(pages):
     rune = await eventually(pages, rune_shared, 25)
     require(bool(rune), "a follower's frost rune has one shared identity, position and caster")
     for page in pages:
-        visual = await page.evaluate("""id=>{__hm.frame(1/30);const r=__hm.cls.CLS.runes.find(r=>r.netFieldId===id);
-          return {count:__hm.cls.CLS.runes.filter(r=>r.netFieldId===id).length,cut:!!r?.cut?.on,disc:!!r?.disc?.on};}""", rune["id"])
-        require(visual["count"] == 1 and visual["cut"] and visual["disc"],
-                "the shared rune has real visible geometry on each device", view=getattr(page, "_name", ""), visual=visual)
+        async def visual_ready():
+            # simulate() advances gameplay with RAF held. Render the moved camera
+            # and the real pooled-disc recovery before inspecting visible geometry.
+            await page.evaluate("__hm.frame(1/30); __hm.frame(1/30); 0")
+            visual = await page.evaluate("""id=>{const r=__hm.cls.CLS.runes.find(r=>r.netFieldId===id);
+              return {count:__hm.cls.CLS.runes.filter(r=>r.netFieldId===id).length,cut:!!r?.cut?.on,disc:!!r?.disc?.on};}""", rune["id"])
+            return visual if visual["count"] == 1 and visual["cut"] and visual["disc"] else False
+        visual = await eventually(pages, visual_ready, 5)
+        require(bool(visual), "the shared rune has real visible geometry on each device",
+                view=getattr(page, "_name", ""), visual=visual)
     water = await caster.evaluate("""(() => {const H=__hm,P=NT.P;
       for(let r=3;r<=60;r+=3) for(let a=0;a<Math.PI*2;a+=Math.PI/12) {
         const x=P.x+Math.sin(a)*r,z=P.z+Math.cos(a)*r,w=H.water.waterAt(x,z);
@@ -355,7 +370,7 @@ async def construction_case(pages):
     await travel(pages, follower, spot["x"], spot["z"])
     before = await host.evaluate("__hm.build.BUILD.pieces.length")
     result = await follower.evaluate("""([x,z])=>{const P=NT.P;P.yaw=0;
-      const r=__hm.build.buildPlace('found',x+2,z,0);return {ok:r.ok,pending:r.pending,why:r.why};}""",
+      const r=__hm.build.buildPlace('found',x+2,z,0);return {ok:r.ok,pending:r.pending,why:r.why,error:document.getElementById('error')?.textContent,pendingNow:__hm.worldparts.NETPARTS.pending.size};}""",
                                      [spot["x"], spot["z"]])
     require(result.get("ok") or result.get("pending"), "a follower's normal construction action is accepted", result=result)
     async def built_both():

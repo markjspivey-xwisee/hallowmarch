@@ -581,3 +581,93 @@ test('canonical receipts carry the durability classification of the host command
     assert.equal(c.api.state.receipts.find(r => r.id === id).durable, expected);
   }
 });
+
+function buildClient(options = {}, yaw = 0) {
+  const c = client(options);
+  const source = fs.readFileSync(new URL('../../src/06k_build.js', import.meta.url), 'utf8');
+  const recipes = source.slice(source.indexOf('const BP = {'), source.indexOf('const BP_ORDER ='));
+  const costHelpers = source.slice(source.indexOf('const bpCost ='), source.indexOf('/*', source.indexOf('const bpCost =')));
+  const grid = source.slice(source.indexOf('const bW ='), source.indexOf('function bMakePiece('));
+  const place = source.slice(source.indexOf('function buildPlace('), source.indexOf('// raise a piece:'));
+  const commands = source.slice(source.lastIndexOf('queueMicrotask(() => {'));
+  Object.assign(c.context, {
+    CAM: { yaw }, BUILD: { pieces: [], next: 1, work: null },
+    B_C: 3, B_WH: 2.8, B_REACH: 12, B_MAX: 220,
+    DUN_X0: 1000, WATER_Y: -1, SITES: [], CAMPS: [],
+    BARROW: { x: 100, z: 100, r: 1 }, W: { road: {} }, FX: { burst() {} },
+    heightAt: () => 0, floorAt: () => 0, waterAt: () => null,
+    plotAt: () => null, houseAt: () => null,
+    zoneAt: () => ({ kind: 'home', realm: 0 }),
+    sampleGrid: (_grid, x) => x > 3.8 ? 1 : 0,
+    dist2: (x, z, a, b) => (x-a)**2 + (z-b)**2,
+    dist: (x, z, a, b) => Math.hypot(x-a, z-b),
+    collidersNear(_x, _z, _r, out) { out.length = 0; },
+    collCovers: () => false, houseSfx() {}, bApplyState() {},
+    queueMicrotask: callback => callback(),
+  });
+  Object.assign(c.context.GAME.player, { faction: 0, yaw: 0 });
+  c.context.GOODS.plank = { stack: 999 }; c.context.INV.goods.plank = 20;
+  c.context.bMakePiece = data => {
+    const pc = { ...data, id: c.context.BUILD.next++ };
+    c.context.BUILD.pieces.push(pc);
+    return pc;
+  };
+  vm.runInContext(recipes + costHelpers + grid + place + commands + '\n'
+    + "globalThis.buildApi={snap:bSnap,validate:bValidate,place:buildPlace};", c.context);
+  return c;
+}
+
+test('follower construction uses builder view and preserves keeper camera and private inventory', async () => {
+  const follower = buildClient({}, 4*Math.PI);
+  frame(follower, { v: 1, full: true, parts: {}, remove: [], receipts: [] });
+  const keeper = buildClient({ self: 'desktop', host: 'desktop', account: 'desktop-account' }, Math.PI/4);
+  const actor = { x: 0, y: 0, z: 0, faction: 0, yaw: 0, level: 17 };
+  keeper.context.NET.peers.set('phone', { ghost: actor });
+  const preview = follower.context.buildApi.validate(
+    follower.context.buildApi.snap('found', 2, 0, 0, follower.context.GAME.player),
+    follower.context.GAME.player);
+  assert.equal(preview.ok, true);
+  const wrong = keeper.context.buildApi.validate(
+    keeper.context.buildApi.snap('found', 2, 0, 0, actor), actor);
+  assert.equal(wrong.ok, false);
+  assert.equal(wrong.why, 'Not on the road');
+  assert.equal(follower.context.buildApi.place('found', 2, 0, 0).pending, true);
+  await follower.api.flushPrivate();
+  const request = follower.sent.find(m => m.op === 'command');
+  assert.ok(Number.isFinite(request.command.args.viewYaw));
+  assert.ok(Math.abs(request.command.args.viewYaw) <= Math.PI);
+  keeper.api.message({ ...request, from: 'phone', ownerAccount: 'phone-account',
+    position: { x: 0, z: 0 }, realm: 0 });
+  assert.equal(keeper.api.state.receipts.at(-1).ok, true);
+  const pc = keeper.context.BUILD.pieces[0];
+  assert.ok(pc, 'the actual authoritative build.place command created a foundation');
+  assert.ok(Math.abs(Math.atan2(Math.sin(pc.yaw-preview.yaw),
+    Math.cos(pc.yaw-preview.yaw))) < 1e-12, 'canonical grid matches the builder preview');
+  assert.equal(keeper.context.CAM.yaw, Math.PI/4);
+  assert.equal(keeper.context.INV.goods.stone, 20);
+  assert.equal(keeper.context.INV.goods.plank, 20);
+});
+
+test('standalone placement retains default camera yaw and build commands reject malformed orientation', () => {
+  const standalone = buildClient({}, Math.PI/6);
+  standalone.context.NETWS.url = '';
+  standalone.context.sampleGrid = () => 0;
+  const placed = standalone.context.buildApi.place('found', 2, 0, 1);
+  assert.equal(placed.ok, true);
+  assert.ok(Math.abs(placed.pc.yaw - Math.PI/4) < 1e-12);
+  assert.equal(standalone.context.CAM.yaw, Math.PI/6);
+  const keeper = buildClient({ self: 'desktop', host: 'desktop' }, Math.PI/4);
+  keeper.context.NET.peers.set('phone', {
+    ghost: { x: 0, y: 0, z: 0, faction: 0, yaw: 0, level: 17 } });
+  for (const [i, viewYaw] of [undefined, null, '0', NaN, Infinity, -Math.PI-0.01, Math.PI+0.01].entries()) {
+    keeper.api.message({ t: 'activity', kind: 'worldparts', op: 'command', authority: 'token',
+      worldAdmission: keeper.admission, from: 'phone', ownerAccount: 'phone-account',
+      position: { x: 0, z: 0 }, command: { id: 'bad-yaw-'+i, op: 'build.place',
+        args: { t: 'found', x: 2, z: 0, rot: 0, viewYaw },
+        goods: { stone: 6, plank: 4, tool_hammer: 1 }, capacity: 0 } });
+    assert.equal(keeper.api.state.receipts.at(-1).ok, false);
+    assert.equal(keeper.api.state.receipts.at(-1).reason, 'Invalid building orientation.');
+  }
+  assert.equal(keeper.context.BUILD.pieces.length, 0);
+  assert.equal(keeper.context.CAM.yaw, Math.PI/4);
+});

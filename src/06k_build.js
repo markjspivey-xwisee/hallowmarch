@@ -291,7 +291,7 @@ function bFoot(t) {
   return [D.hx, D.hz];
 }
 // where a piece of type t would go for a cursor at (x, z): its frame, grid place, height, yaw, and why not
-function bSnap(t, x, z, rot, P) {
+function bSnap(t, x, z, rot, P, viewYaw = CAM.yaw) {
   const D = BP[t], out = { t, ok: true, why: '' };
   // the frame of the nearest building (its first piece's grid), or a new one here, turned by R
   let near = null, nd = 7 * 7;
@@ -304,7 +304,7 @@ function bSnap(t, x, z, rot, P) {
     if (out.y <= heightAt(x, z) + 0.01) { const g = bGround(x, z, 0.6, 0.6, out.yaw); if (g.hi - g.lo > 0.6) { out.ok = false; out.why = 'The ground is too steep here'; } }
     return out;
   }
-  const f = near ? { frame: near.frame, fx: near.fx, fz: near.fz, fyaw: near.fyaw } : { frame: BUILD.next, fx: x, fz: z, fyaw: Math.round(((P ? CAM.yaw : 0) + rot * Math.PI / 12) / (Math.PI / 12)) * (Math.PI / 12) };
+  const f = near ? { frame: near.frame, fx: near.fx, fz: near.fz, fyaw: near.fyaw } : { frame: BUILD.next, fx: x, fz: z, fyaw: Math.round(((P ? viewYaw : 0) + rot * Math.PI / 12) / (Math.PI / 12)) * (Math.PI / 12) };
   Object.assign(out, f);
   const l = bL(f, x, z);
   if (D.kind === 'cell') {
@@ -590,11 +590,13 @@ function bCampfire(pc, on) {
 /* placing                                                             */
 /* ------------------------------------------------------------------ */
 function buildPlace(t, x, z, rot = 0, opts = {}) {
+  const viewYaw = opts.viewYaw ?? CAM.yaw;
   if (!opts.free && typeof netWorldPartsRequest === 'function'
-    && netWorldPartsRequest('build.place', { t, x, z, rot }, bpCost(t))) return { ok: true, pending: true };
+    && netWorldPartsRequest('build.place', { t, x, z, rot,
+      viewYaw: Math.atan2(Math.sin(viewYaw), Math.cos(viewYaw)) }, bpCost(t))) return { ok: true, pending: true };
   const P = GAME.player;
   if (!P || !BP[t]) return { ok: false, why: 'Nothing to build' };
-  const sn = bValidate(bSnap(t, x, z, rot, P), P);
+  const sn = bValidate(bSnap(t, x, z, rot, P, viewYaw), P);
   if (!sn.ok) return sn;
   if (!opts.free) {
     if (!bHasHammer()) return { ok: false, why: 'You need a hammer to build (the stores of your keeps sell them)' };
@@ -1325,7 +1327,9 @@ queueMicrotask(() => {
   const piece = args => BUILD.pieces.find(pc => pc.id === args.id);
   const point = args => { const pc = piece(args); return pc ? { x: pc.x, z: pc.z } : { x: Infinity, z: Infinity }; };
   netWorldPartsRegisterCommand('build.place', { point: a => ({ x: a.x, z: a.z }), tools: ['tool_hammer'], run: a => {
-    const r = buildPlace(a.t, a.x, a.z, a.rot, {});
+    if (!Number.isFinite(a.viewYaw) || Math.abs(a.viewYaw) > Math.PI)
+      return { ok: false, why: 'Invalid building orientation.' };
+    const r = buildPlace(a.t, a.x, a.z, a.rot, { viewYaw: a.viewYaw });
     return { ok: r.ok, why: r.why, pieceId: r.pc && r.pc.id };
   } });
   netWorldPartsRegisterCommand('build.work', { durable: false, point, range: 5, tools: ['tool_hammer'], run: a => {
