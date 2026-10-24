@@ -23,7 +23,7 @@ jobs:
               typeof value === 'number' || typeof value === 'boolean'
               || ['mode','state','status','error','lastErrorCode'].includes(key) && typeof value === 'string' && /^[A-Za-z0-9_-]{1,80}$/.test(value)));
             console.log('HM_NATIVE_READINESS ' + JSON.stringify({label, http:response.status,
-              identity:state.playerIdentity, nativeStore:summary, nativeStoreFields:Object.keys(store),
+              identity:state.playerIdentity, nativeStore:summary, capacityBytes:store.capacityBytes, nativeStoreFields:Object.keys(store),
               world:Object.fromEntries(['mode','state','fenced','error','version','confirmedVersion','liveVersion','confirmedLiveVersion','pending','durable'].filter(k=>world[k]!==undefined).map(k=>[k,world[k]]))}));
           }
           JS
