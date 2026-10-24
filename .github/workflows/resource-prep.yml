@@ -1,0 +1,30 @@
+name: Temporary resource projection preparation
+on:
+  push:
+    branches: [test/resource-prep-20261024-native-scene]
+permissions:
+  contents: read
+jobs:
+  resources:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ef1aa9c8419e8afca4d62292659b3802bdeaf142
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci --prefix tools
+      - run: node tools/performance-resources.mjs
+      - run: node --test tools/performance-resources/performance-resources.test.mjs
+      - name: Return reviewed public projection
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import crypto from 'node:crypto';
+          const path = 'server/gaming/performance-resources.json';
+          const content = fs.readFileSync(path, 'utf8');
+          console.log('HM_RESOURCE_META '+JSON.stringify({path, chars:content.length, sha256:crypto.createHash('sha256').update(content).digest('hex')}));
+          for(let offset=0;offset<content.length;offset+=1200) console.log('HM_RESOURCE_CHUNK '+JSON.stringify({offset,text:content.slice(offset,offset+1200)}));
+          NODE
