@@ -29,7 +29,14 @@ async function health() {
   const response = await fetch(TARGET.origin + '/health', { signal: AbortSignal.timeout(10000), redirect: 'error' });
   const body = await response.json();
   return { ok: response.ok && body.ok === true, players: body.players, connections: body.connections,
-    standby: body.livePlay?.mode === 'standby' && body.livePlay.active === false };
+    standby: body.livePlay?.mode === 'standby' && body.livePlay.active === false,
+    worldConfirmed: body.worldAuthority?.mode === 'native' && body.worldAuthority.fenced === false
+      && body.worldAuthority.state === 'confirmed' && body.worldAuthority.pendingSnapshots === 0
+      && Number.isSafeInteger(body.worldAuthority.liveVersion) && body.worldAuthority.liveVersion > 0
+      && body.worldAuthority.liveVersion === body.worldAuthority.confirmedLiveVersion,
+    worldLiveVersion: Number.isSafeInteger(body.worldAuthority?.liveVersion) ? body.worldAuthority.liveVersion : null,
+    worldConfirmedLiveVersion: Number.isSafeInteger(body.worldAuthority?.confirmedLiveVersion) ? body.worldAuthority.confirmedLiveVersion : null,
+    worldPendingSnapshots: Number.isSafeInteger(body.worldAuthority?.pendingSnapshots) ? body.worldAuthority.pendingSnapshots : null };
 }
 async function idleGate() {
   const deadline = Date.now() + 600000;
@@ -131,7 +138,7 @@ async function created(actor) {
       const button = actor.page.getByRole('button', { name: 'Play now', exact: true });
       if (await button.isVisible() && await button.isEnabled()
         && await actor.page.getByRole('textbox', { name: 'Character name', exact: true }).inputValue() === actor.name) {
-        retried = true; await button.click();
+        retried = true; actor.retryCount++; await button.click();
       }
     }
     await delay(500);
@@ -144,7 +151,7 @@ async function skipPrologue(actor) {
 }
 async function boot(label, phone) {
   stage = label + '_launch';
-  const actor = { label, phone, name: phone ? 'CloudPhoneQA' : 'CloudDesktopQA', exactPlay503: 0, inputTimer: null };
+  const actor = { label, phone, name: phone ? 'CloudPhoneQA' : 'CloudDesktopQA', exactPlay503: 0, retryCount: 0, inputTimer: null };
   actors.push(actor);
   actor.browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage',
     '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
@@ -233,8 +240,14 @@ async function confirmedSave(actor) {
   }, actor.name);
 }
 async function pause(actor, name) {
+  stage = name + '_focus';
   stopInput(actor); await focus(actor);
-  if (!await evaluate(actor, () => window.__hm?.UI?.modal === 'menu')) await actor.page.locator('#btn-menu').click();
+  stage = name + '_open_visible_menu';
+  if (!await evaluate(actor, () => window.__hm?.UI?.modal === 'menu')) {
+    // Mobile moves the desktop menu button into its closed tray. The visible
+    // character/status button opens the same real menu without forced clicks.
+    await actor.page.locator(actor.phone ? '#mobile-character' : '#btn-menu').click();
+  }
   await poll(name + '_paused', () => evaluate(actor, () => {
     const h = window.__hm, w = h?.net?.NETWS;
     return !!(h?.UI?.modal === 'menu' && w?.humanSuspended === true && !w.pingTimer);
@@ -322,14 +335,16 @@ try {
   const quietUntil = Date.now() + 45000;
   do {
     try { result.finalHealth = await health(); } catch { result.finalHealth = { available: false }; }
-    if (result.finalHealth.ok && result.finalHealth.players === 0 && result.finalHealth.connections === 0 && result.finalHealth.standby) break;
+    if (result.finalHealth.ok && result.finalHealth.players === 0 && result.finalHealth.connections === 0 && result.finalHealth.standby && result.finalHealth.worldConfirmed) break;
     await delay(1000);
   } while (Date.now() < quietUntil);
   const quiet = result.finalHealth.ok && result.finalHealth.players === 0 && result.finalHealth.connections === 0 && result.finalHealth.standby;
   result.cases.push({ name: 'closed_browsers_and_public_standby_confirmed', ok: !!quiet });
   if (!quiet) { result.ok = false; process.exitCode = 1; }
+  result.admissionRecovery = actors.map(actor => ({ role: actor.label, exactPlay503: actor.exactPlay503, sameButtonRetries: actor.retryCount }));
   result.finishedAt = new Date().toISOString();
   await mkdir('tools/out/native-release-acceptance', { recursive: true });
   await writeFile(OUT, JSON.stringify(result, null, 2) + '\n');
+  console.log('SAFE_RESULT ' + JSON.stringify(result));
   console.log(result.ok ? 'PASS native_release_acceptance_complete' : 'FAIL native_release_acceptance_incomplete');
 }
