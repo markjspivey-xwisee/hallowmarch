@@ -4,6 +4,8 @@ import { createHash, randomBytes } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import { createRollingMultiplayerStore } from './rolling-multiplayer-store.js';
 import { createInteregoStore } from './interego-store.js';
+import { gzipSync } from 'node:zlib';
+import { realisticRollingWindow } from './rolling-history-scale-fixture.mjs';
 
 // Real PGSL serialization, closure validation, encryption and native SDK CAS.
 // HTTP storage is an explicit contract model, not a production CSS proof.
@@ -141,4 +143,56 @@ test('actual atomic scope wrapping preserves every submitted node and its origin
   assert.equal(loaded.artifact.topUri, expected.topUri);
   assert.deepEqual(loaded.artifact.nodes, submittedNodes, 'encrypted readback preserves original provenance, including shared wrapper literals');
   assert.deepEqual(artifact.pgsl.nodes, submittedNodes, 'scope composition leaves the submitted lattice unchanged');
+});
+
+test('actual encrypted SDK cold-loads legacy gzip and upgrades exact history, bindings and receipts without another resource', { skip: !root }, async () => {
+  const f = await fixture(), first = f.create(); await first.ready();
+  const input = { expectedVersion: 0, state: { marker: 'private-world-state', values: [1.23, Number.MIN_VALUE] },
+    event: { kind: 'world' }, idempotencyKey: 'legacy-world-input' };
+  await first.commit('hallowmarch-world-season-v1', input); f.advance(60000);
+  await first.commit('hallowmarch-world-season-v1', { ...input, expectedVersion: 1,
+    state: { ...input.state, values: [1.24, Number.MIN_VALUE] }, idempotencyKey: 'second-world-input' });
+  await first.commit('player-bindings-v1', { expectedVersion: 0, state: { bindings: [{ owner: 'private-player-owner', account: 'canonical-account' }] },
+    idempotencyKey: 'legacy-binding' });
+  const before = await first.read();
+  const legacy = f.native.createNativeByteArtifact({ owner: f.options.scope.owner,
+    contentType: 'application/vnd.interego.rolling-checkpoint+gzip', bytes: gzipSync(Buffer.from(JSON.stringify(before.doc))) });
+  await first.nativeClient.commitAtomicCheckpoint(before.revision, legacy);
+  const cold = f.create(); await cold.ready(); assert.deepEqual((await cold.read()).doc, before.doc);
+  f.control.loseAck = true;
+  await cold.commit('participation', { expectedVersion: 0, state: { retained: true }, idempotencyKey: 'codec-upgrade' });
+  const restarted = f.create(); await restarted.ready(); const after = await restarted.read();
+  assert.equal((await restarted.nativeClient.readAtomicCheckpoint()).artifact
+    ? f.native.readNativeByteArtifact((await restarted.nativeClient.readAtomicCheckpoint()).artifact).contentType : null,
+  'application/vnd.interego.rolling-checkpoint-delta-v1+br');
+  assert.deepEqual(after.doc.checkpoints, before.doc.checkpoints);
+  assert.deepEqual(after.doc.receipts.slice(0, before.doc.receipts.length), before.doc.receipts);
+  for (const row of before.doc.streams) assert.deepEqual(after.doc.streams.find(entry => entry.streamId === row.streamId), row);
+  const writes = f.calls.filter(call => call.method === 'PUT').length;
+  assert.equal((await restarted.commit('hallowmarch-world-season-v1', input)).replayed, true);
+  assert.equal(f.calls.filter(call => call.method === 'PUT').length, writes);
+  assert.equal(f.rows.size, 1);
+  assert(!f.rows.get(f.options.scope.headUrl).bytes.toString().includes('private-player-owner'));
+});
+
+test('actual SDK encrypts the complete moving hour under the existing native ceiling and preserves unrelated ownership on admission', { skip: !root }, async () => {
+  const f = await fixture(), store = f.create(); await store.ready();
+  const doc = realisticRollingWindow({ owner: f.options.scope.owner, namespace: store.namespace,
+    resourceUrl: store.resourceUrl, now: f.options.clock() });
+  store.checked(doc);
+  const prepared = store.prepareWrite(doc);
+  assert.ok(prepared.artifact);
+  assert.ok(store.nativeClient.atomicCheckpointSize(prepared.artifact) <= 1024 * 1024);
+  await store.nativeClient.commitAtomicCheckpoint(null, prepared.artifact, { maxEncryptedBytes: prepared.maxEncryptedBytes });
+  const cold = f.create(); await cold.ready();
+  const before = await cold.read();
+  assert.deepEqual(before.doc, doc);
+  assert.equal(before.doc.checkpoints.length, 61);
+  assert.equal(before.doc.streams.find(row => row.streamId === 'player-bindings-v1').state.bindings.length, 500);
+  await cold.commit('admission-proof', { expectedVersion: 0, state: { confirmed: true }, idempotencyKey: 'moving-hour-admission' });
+  const final = await f.create().read();
+  assert.deepEqual(final.doc.checkpoints, before.doc.checkpoints);
+  for (const row of before.doc.streams) assert.deepEqual(final.doc.streams.find(next => next.streamId === row.streamId), row);
+  assert.equal(final.doc.receipts.length, before.doc.receipts.length + 1);
+  assert.equal(f.rows.size, 1);
 });
