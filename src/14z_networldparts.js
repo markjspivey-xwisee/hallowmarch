@@ -1,0 +1,433 @@
+/* Shared mutable world save parts. Personal save parts never enter this channel. */
+const NETPARTS = { authority: '', peer: '', admission: null, ready: false, seq: 0, readSeq: -1,
+  key: '', sentAt: -Infinity, assembly: null, keys: {}, pending: new Map(), commands: new Map(),
+  receipts: [], notes: [], skills: [], lootSeq: 0, outbox: null, outAt: -Infinity, sentKeys: {}, receiptsKey: '', replay: false, applying: false, next: 0, received: 0, sent: 0, refused: 0 };
+const NETPART_ADAPTERS = new Map(), NETPART_COMMANDS = new Map();
+const netWorldPartsActive = () => typeof NETWS !== 'undefined' && !!NETWS.url;
+const netWorldPartsConnected = () => netWorldPartsActive() && NETWS.state === 'on' && netOn()
+  && netHumanLive() && netSharedWorldReady() && !!NETPARTS.authority;
+function netWorldPartsCanSimulate() {
+  return !netWorldPartsActive() || netWorldPartsConnected() && NETPARTS.peer === NET.self && NETPARTS.ready;
+}
+function netWorldPartsRegister(key, adapter) { NETPART_ADAPTERS.set(key, adapter); }
+function netWorldPartsRegisterCommand(op, command) { NETPART_COMMANDS.set(op, command); }
+function netWorldPartsReset() {
+  NETPARTS.authority = ''; NETPARTS.peer = ''; NETPARTS.ready = false; NETPARTS.readSeq = -1;
+  NETPARTS.assembly = null; NETPARTS.outbox = null; NETPARTS.keys = {}; NETPARTS.sentKeys = {}; NETPARTS.key = ''; NETPARTS.sentAt = -Infinity;
+}
+const netPartsClone = value => JSON.parse(JSON.stringify(value));
+const netPartsEqualAdmission = a => !!a && !!NETPARTS.admission && a.origin === NETPARTS.admission.origin
+  && a.epoch === NETPARTS.admission.epoch;
+function netWorldPartsCapture() {
+  const parts = {};
+  for (const [key, adapter] of NETPART_ADAPTERS) {
+    const data = adapter.save();
+    if (data != null) parts[key] = data;
+  }
+  return { v: 1, full: true, parts, remove: [], receipts: NETPARTS.receipts.slice(-32) };
+}
+function netWorldPartsApply(frame) {
+  if (!frame || frame.v !== 1 || !frame.parts || typeof frame.parts !== 'object' || Array.isArray(frame.parts)) return false;
+  NETPARTS.applying = true;
+  try {
+    for (const [key, adapter] of NETPART_ADAPTERS) {
+      const present = Object.hasOwn(frame.parts, key), removed = frame.full || (frame.remove || []).includes(key);
+      if (!present && !removed) continue;
+      const value = present ? frame.parts[key] : null, serial = JSON.stringify(value);
+      if (NETPARTS.keys[key] === serial) continue;
+      adapter.apply(value);
+      NETPARTS.keys[key] = serial;
+    }
+    if (Array.isArray(frame.receipts)) {
+      NETPARTS.receipts = frame.receipts.slice(-32);
+      for (const receipt of NETPARTS.receipts) {
+        const pending = NETPARTS.pending.get(receipt.id);
+        if (pending && pending.ownerAccount === receipt.ownerAccount) netWorldPartsResult(receipt);
+      }
+    }
+    NETPARTS.ready = true; NETPARTS.received++;
+    return true;
+  } finally { NETPARTS.applying = false; }
+}
+function netWorldPartsPublish(now, force = false) {
+  if (!netWorldPartsConnected() || NETPARTS.peer !== NET.self || !NETPARTS.ready || NETPARTS.outbox
+    || !force && now - NETPARTS.sentAt < 1500) return false;
+  const frame = netWorldPartsCapture(), full = !NETPARTS.key;
+  const nextKeys = {}, changed = {};
+  for (const [key, value] of Object.entries(frame.parts)) {
+    nextKeys[key] = JSON.stringify(value);
+    if (full || nextKeys[key] !== NETPARTS.sentKeys[key]) changed[key] = value;
+  }
+  const remove = Object.keys(NETPARTS.sentKeys).filter(key => !Object.hasOwn(nextKeys, key));
+  const receiptsKey = JSON.stringify(frame.receipts);
+  if (!Object.keys(changed).length && !remove.length && receiptsKey === NETPARTS.receiptsKey && !full) return false;
+  const serial = JSON.stringify({ ...frame, full, parts: changed, remove });
+  if (serial.length > 350000) { NETPARTS.refused++; return false; }
+  const seq = ++NETPARTS.seq, total = Math.max(1, Math.ceil(serial.length / 3000));
+  NETPARTS.outbox = { seq, total, part: 0, serial, nextKeys, receiptsKey, authority: NETPARTS.authority };
+  NETPARTS.sentAt = now;
+  return true;
+}
+function netWorldPartsResult(m) {
+  const p = NETPARTS.pending.get(m.id);
+  if (!p) return;
+  NETPARTS.pending.delete(m.id);
+  // Reserved costs were removed on request. Return unused costs and apply only
+  // this command's receipt; never replace the character's inventory or progress.
+  const delta = new Map(p.cost.map(([id, n]) => [id, n]));
+  if (m.ok && Array.isArray(m.goods)) for (const [id, n] of m.goods)
+    if (GOODS[id] && Number.isFinite(n) && Math.abs(n) <= 9999) delta.set(id, (delta.get(id) || 0) + n);
+  for (const [id, n] of delta) if (n > 0) goodsAdd(id, n, true);
+  else if (n < 0) goodsTake(id, -n);
+  if (!m.ok && typeof uiError === 'function') uiError(m.reason || 'The shared world refused that action. Try again.');
+  if (m.ok && Number.isFinite(m.gold) && m.gold > 0) addGold(m.gold);
+  if (m.ok && Array.isArray(m.items)) for (const item of m.items) if (item && typeof item.id === 'string') bagAdd(item);
+  if (m.ok && Array.isArray(m.notes)) for (const id of m.notes) if (typeof id === 'string') loreNote(id);
+  if (m.ok && Array.isArray(m.skills)) for (const [key, amount] of m.skills) if (Number.isFinite(amount) && amount > 0) skillGain(key, amount);
+  if (m.ok && m.result?.pieceId && typeof BUILD !== 'undefined') {
+    const pc = BUILD.pieces.find(b => b.id === m.result.pieceId);
+    if (pc && pc.st === 'build') BUILD.work = { pc, x: GAME.player.x, z: GAME.player.z, t: 0, auto: true };
+  }
+  GOODS_UI.dirty = true; saveSoon();
+}
+function netWorldPartsExecute(m) {
+  const c = m.command, spec = c && NETPART_COMMANDS.get(c.op);
+  if (!spec || typeof c.id !== 'string' || c.id.length > 100) return;
+  const prior = NETPARTS.receipts.find(r => r.id === c.id && r.ownerAccount === m.ownerAccount);
+  if (prior) { netWsSend({ t: 'activity', kind: 'worldparts', op: 'result',
+    authority: NETPARTS.authority, worldAdmission: NETPARTS.admission, ...prior, to: m.from }); return; }
+  const peer = NET.peers.get(m.from), actor = peer?.ghost;
+  const position = m.position;
+  const location = spec.point?.(c.args);
+  if (!actor || !position || !Number.isFinite(position.x) || !Number.isFinite(position.z)
+    || location && Math.hypot(location.x - position.x, location.z - position.z) > (spec.range || 14)) return;
+  const declared = {};
+  for (const [id, n] of Object.entries(c.goods || {})) if (GOODS[id] && Number.isSafeInteger(n) && n >= 0 && n <= GOODS[id].stack) declared[id] = n;
+  const before = { ...declared }, saved = { player: GAME.player, prog: GAME.prog, goods: INV.goods, gold: INV.gold,
+    buildWork: typeof BUILD !== 'undefined' ? BUILD.work : null, bag: INV.bag };
+  const capacity = Number.isSafeInteger(c.capacity) ? clamp(c.capacity, 0, BAG_SIZE) : BAG_SIZE;
+  let result, ok = false, reason = '';
+  NETPARTS.replay = true;
+  GAME.player = actor; GAME.prog = { ...(saved.prog || {}), level: actor.level || 1 };
+  INV.goods = declared; INV.gold = 0; INV.bag = Array.from({ length: capacity }, () => ({ slot: '__occupied' }));
+  NETPARTS.notes = []; NETPARTS.skills = [];
+  try {
+    result = spec.run(c.args);
+    ok = result !== false && result?.ok !== false;
+    if (!ok) reason = result?.why || 'The action is no longer available.';
+  } catch (error) { reason = 'The shared action could not complete.'; reportError(error); }
+  const after = { ...INV.goods }, gold = INV.gold, items = INV.bag.slice(capacity);
+  GAME.player = saved.player; GAME.prog = saved.prog; INV.goods = saved.goods; INV.gold = saved.gold; INV.bag = saved.bag;
+  if (typeof BUILD !== 'undefined') BUILD.work = saved.buildWork;
+  NETPARTS.replay = false;
+  const goods = [...new Set([...Object.keys(before), ...Object.keys(after)])]
+    .map(id => [id, (after[id] || 0) - (before[id] || 0)]).filter(([, n]) => n !== 0);
+  const receipt = { to: m.from, ownerAccount: m.ownerAccount, id: c.id, ok, reason, goods, gold, items,
+    notes: NETPARTS.notes.slice(0, 20), skills: NETPARTS.skills.slice(0, 20), result: result?.pieceId ? { pieceId: result.pieceId } : null };
+  NETPARTS.receipts.push(receipt); if (NETPARTS.receipts.length > 32) NETPARTS.receipts.shift();
+  netWorldPartsPublish(performance.now(), true);
+  netWsSend({ t: 'activity', kind: 'worldparts', op: 'result', authority: NETPARTS.authority,
+    worldAdmission: NETPARTS.admission, ...receipt });
+}
+function netWorldPartsRequest(op, args, cost = []) {
+  if (!netWorldPartsActive() || NETPARTS.replay || NETPARTS.applying || netWorldPartsCanSimulate()) return false;
+  if (!netWorldPartsConnected() || !NETPARTS.ready || NETPARTS.pending.size >= 8) {
+    uiError('Waiting for the shared world.'); return true;
+  }
+  const spec = NETPART_COMMANDS.get(op), declared = {};
+  for (const [id, n] of cost) if (GOODS[id] && n > 0) declared[id] = n;
+  for (const id of spec?.tools || []) if (goodsHave(id)) declared[id] = Math.max(declared[id] || 0, 1);
+  if (!goodsTakeAll(cost)) { uiError('You do not have the materials for that action.'); return true; }
+  const id = NET.self + ':' + (++NETPARTS.next);
+  NETPARTS.pending.set(id, { op, args, cost, declared, owner: NET.self, ownerAccount: NETWS.acct?.id, capacity: INV.bag.length, at: performance.now(), lastSent: performance.now(), authority: NETPARTS.authority });
+  const sent = netWsSend({ t: 'activity', kind: 'worldparts', op: 'command', authority: NETPARTS.authority,
+    worldAdmission: NETPARTS.admission, command: { id, op, args, goods: declared, capacity: INV.bag.length } });
+  if (sent === false) netWorldPartsResult({ id, ok: false, reason: 'The shared connection is unavailable.' });
+  return true;
+}
+function netWorldPartsMessage(m) {
+  if (!m || m.t !== 'activity') return;
+  if (m.kind === 'authority') {
+    const admission = netWorldAdmissionRead(m.worldAdmission);
+    if (!admission || typeof m.authority !== 'string' || typeof m.peer !== 'string') return;
+    const changed = NETPARTS.authority !== m.authority;
+    NETPARTS.authority = m.authority; NETPARTS.peer = m.peer; NETPARTS.admission = admission;
+    if (changed) { NETPARTS.seq = 0; NETPARTS.readSeq = -1; NETPARTS.assembly = null; NETPARTS.outbox = null; NETPARTS.sentKeys = {}; NETPARTS.key = ''; }
+    // A new authority must take the canonical cache before publishing. A fresh
+    // world without a cache may be seeded only by the server-elected host.
+    if (m.worldpartsReady === false && m.peer === NET.self) NETPARTS.ready = true;
+    else if (changed) NETPARTS.ready = false;
+    return;
+  }
+  if (m.kind !== 'worldparts' || m.authority !== NETPARTS.authority || !netPartsEqualAdmission(m.worldAdmission)) return;
+  if (m.op === 'result') {
+    const pending = NETPARTS.pending.get(m.id);
+    if (pending && m.ownerAccount === pending.ownerAccount) netWorldPartsResult(m); return;
+  }
+  if (m.op === 'command') { if (NETPARTS.peer === NET.self && NETPARTS.ready) netWorldPartsExecute(m); return; }
+  if (m.op !== 'snapshot' || !Number.isSafeInteger(m.seq) || m.seq <= NETPARTS.readSeq
+    || !Number.isInteger(m.part) || !Number.isInteger(m.total) || m.total < 1 || m.total > 128
+    || m.part < 0 || m.part >= m.total || typeof m.data !== 'string' || m.data.length > 4000) return;
+  let a = NETPARTS.assembly;
+  if (!a || a.seq !== m.seq) NETPARTS.assembly = a = { seq: m.seq, total: m.total, chunks: new Map(), size: 0 };
+  if (a.total !== m.total || a.chunks.has(m.part)) return;
+  a.chunks.set(m.part, m.data); a.size += m.data.length;
+  if (a.size > 350000) { NETPARTS.assembly = null; return; }
+  if (a.chunks.size !== a.total) return;
+  const serial = Array.from({ length: a.total }, (_, i) => a.chunks.get(i)).join('');
+  NETPARTS.assembly = null;
+  let frame; try { frame = JSON.parse(serial); } catch { return; }
+  if (NETPARTS.peer === NET.self && NETPARTS.ready) { NETPARTS.readSeq = m.seq; return; }
+  if (netWorldPartsApply(frame)) { NETPARTS.readSeq = m.seq; NETPARTS.key = serial; }
+}
+function netWorldPartsPump(now) {
+  if (!netWorldPartsConnected()) return;
+  netWorldPartsPublish(now);
+  const out = NETPARTS.outbox;
+  if (out && now - NETPARTS.outAt >= 200) {
+    NETPARTS.outAt = now;
+    for (let count = 0; count < 2 && out.part < out.total; count++) {
+      const part = out.part;
+      if (netWsSend({ t: 'activity', kind: 'worldparts', op: 'snapshot', authority: out.authority,
+        worldAdmission: NETPARTS.admission, seq: out.seq, part, total: out.total,
+        data: out.serial.slice(part * 3000, (part + 1) * 3000) }) === false) break;
+      out.part++;
+    }
+    if (out.part === out.total) {
+      NETPARTS.key = out.serial; NETPARTS.sentKeys = out.nextKeys; NETPARTS.receiptsKey = out.receiptsKey;
+      NETPARTS.outbox = null; NETPARTS.sent++;
+    }
+  }
+  if (NETPARTS.ready) for (const [id, p] of NETPARTS.pending) {
+    if (p.ownerAccount !== NETWS.acct?.id || now - p.lastSent < 3000) continue;
+    p.lastSent = now;
+    netWsSend({ t: 'activity', kind: 'worldparts', op: 'command', authority: NETPARTS.authority,
+      worldAdmission: NETPARTS.admission, command: { id, op: p.op, args: p.args, goods: p.declared, capacity: p.capacity } });
+  }
+}
+queueMicrotask(() => {
+  for (const [key, part] of Object.entries(SAVE_PARTS.world)) {
+    if (['boats', 'realm'].includes(key)) continue;
+    netWorldPartsRegister(key, { save: () => part.save(), apply: value => part.load(value) });
+  }
+  if (typeof buildSharedSave === 'function') netWorldPartsRegister('build', { save: buildSharedSave, apply: buildSharedApply });
+  if (typeof farmSharedSave === 'function') netWorldPartsRegister('farm', { save: farmSharedSave, apply: farmSharedApply });
+  if (typeof landSharedApply === 'function') netWorldPartsRegister('land', { save: landSave, apply: landSharedApply });
+  if (typeof campaignSaveData === 'function') netWorldPartsRegister('campaign', { save: campaignSaveData, apply: applyCampaignSave });
+  if (window.__hm) window.__hm.worldparts = { NETPARTS, capture: netWorldPartsCapture, apply: netWorldPartsApply,
+    request: netWorldPartsRequest, publish: () => netWorldPartsPublish(performance.now(), true),
+    adapters: () => [...NETPART_ADAPTERS.keys()] };
+});
+
+
+function netWorldPartsLocalStep(dt) {
+  if (!netWorldPartsActive() || netWorldPartsCanSimulate()) return;
+  if (typeof stepJob === 'function') stepJob(dt);
+  netWorldPartsLootStep();
+}
+function netWorldPartsLootSave() {
+  return LOOT.map(L => {
+    if (!L.sharedId) L.sharedId = NETPARTS.authority + ':loot:' + (++NETPARTS.lootSeq);
+    return { id: L.sharedId, item: L.item, x: L.x, y: L.y, z: L.z,
+      vx: L.vx || 0, vy: L.vy || 0, vz: L.vz || 0, age: GAME.t - L.t0,
+      left: Math.max(0, L.until - GAME.t), seed: L.seed, landed: !!L.landed, bounce: L.bounce || 0 };
+  });
+}
+function netWorldPartsLootApply(rows) {
+  if (!Array.isArray(rows)) rows = [];
+  const current = new Map(LOOT.map(L => [L.sharedId, L])), result = [];
+  for (const row of rows.slice(0, LOOT_MAX)) {
+    if (!row || typeof row.id !== 'string' || !row.item || !Number.isFinite(row.x + row.y + row.z)) continue;
+    const L = current.get(row.id) || {};
+    Object.assign(L, { sharedId: row.id, item: netPartsClone(row.item), x: row.x, y: row.y, z: row.z,
+      vx: row.vx, vy: row.vy, vz: row.vz, t0: GAME.t - row.age, until: GAME.t + row.left,
+      seed: row.seed, landed: row.landed, bounce: row.bounce });
+    result.push(L);
+  }
+  LOOT.splice(0, LOOT.length, ...result);
+}
+function netWorldPartsLootStep() {
+  const P = GAME.player;
+  if (!P || !P.alive || !NETPARTS.ready) return;
+  for (const L of LOOT) {
+    if (!L.sharedId || GAME.t - L.t0 < 0.45 || Math.hypot(P.x - L.x, P.z - L.z) >= 1.7 || Math.abs(P.y - L.y) >= 2.5) continue;
+    if ([...NETPARTS.pending.values()].some(p => p.op === 'loot.take' && p.args.id === L.sharedId)) continue;
+    netWorldPartsRequest('loot.take', { id: L.sharedId });
+  }
+}
+function netWorldPartsLoopsSave() {
+  const d = SAVE_PARTS.world.loops.save();
+  if (d) delete d.c; // The legacy loader unloads carts; live cargo is already in shared entity metadata.
+  return d;
+}
+function netWorldPartsLoopsApply(d) {
+  if (!d || !Array.isArray(d.r)) return;
+  for (let r = 0; r < 3; r++) LOOPS_R.forEach((g, i) => {
+    const value = d.r[r]?.[i]; if (Number.isFinite(value)) LOOPS.r[r][g] = clamp(value, 0, LT.target[g] * LT.cap);
+  });
+  for (let k = 0; k < (d.k || []).length && k < WAR.keeps.length; k++) LOOPS_K.forEach((g, i) => {
+    const value = d.k[k]?.[i]; if (Number.isFinite(value)) loopsKeep(WAR.keeps[k])[g] = clamp(value, 0, LT.keepTarget[g] * LT.keepCap);
+  });
+}
+queueMicrotask(() => {
+  netWorldPartsRegister('loot', { save: netWorldPartsLootSave, apply: netWorldPartsLootApply });
+  if (SAVE_PARTS.world.loops) netWorldPartsRegister('loops', { save: netWorldPartsLoopsSave, apply: netWorldPartsLoopsApply });
+  const rawLore = loreNote;
+  loreNote = function(id, ...args) {
+    if (NETPARTS.replay) { if (!NETPARTS.notes.includes(id)) NETPARTS.notes.push(id); return; }
+    return rawLore(id, ...args);
+  };
+  const rawSkill = skillGain;
+  skillGain = function(key, amount, ...args) {
+    if (NETPARTS.replay) { NETPARTS.skills.push([key, amount]); return; }
+    return rawSkill(key, amount, ...args);
+  };
+  const rawForage = forageTake;
+  forageTake = function(p) {
+    if (netWorldPartsRequest('forage.take', { id: p.i })) return 0;
+    return rawForage(p);
+  };
+  netWorldPartsRegisterCommand('forage.take', {
+    tools: ['tool_knife'], range: 4,
+    point: a => FORAGE.list[a.id] || { x: Infinity, z: Infinity },
+    run: a => { const p = FORAGE.list[a.id]; return p && p.ripe >= 0.99 ? { ok: rawForage(p) > 0 } : false; },
+  });
+  const rawDive = diveTake;
+  diveTake = function(F) {
+    if (netWorldPartsRequest('dive.take', { id: F.id })) return;
+    return rawDive(F);
+  };
+  netWorldPartsRegisterCommand('dive.take', {
+    range: 5, point: a => DIVE.finds.find(F => F.id === a.id) || { x: Infinity, z: Infinity },
+    run: a => { const F = DIVE.finds.find(f => f.id === a.id); if (!F || F.taken) return false; rawDive(F); return { ok: F.taken }; },
+  });
+  netWorldPartsRegisterCommand('loot.take', {
+    range: 3, point: a => LOOT.find(L => L.sharedId === a.id) || { x: Infinity, z: Infinity },
+    run: a => {
+      const L = LOOT.find(l => l.sharedId === a.id);
+      if (!L) return false;
+      if (L.item.goods) {
+        const n = goodsAdd(L.item.goods, L.item.n || 1, true);
+        if (!n) return false;
+        L.item.n = (L.item.n || 1) - n;
+        if (L.item.n <= 0) LOOT.splice(LOOT.indexOf(L), 1);
+      } else {
+        if (!bagAdd(L.item)) return false;
+        LOOT.splice(LOOT.indexOf(L), 1);
+      }
+      return { ok: true };
+    },
+  });
+  const rawLight = natureLightPile;
+  natureLightPile = function(p) {
+    if (netWorldPartsRequest('nature.light', { x: p.x, z: p.z })) return;
+    return rawLight(p);
+  };
+  netWorldPartsRegisterCommand('nature.light', {
+    point: a => ({ x: a.x, z: a.z }), range: 4,
+    run: a => { const p = NATURE.piles.find(q => Math.hypot(q.x - a.x, q.z - a.z) < 0.2); if (!p || p.lit) return false; rawLight(p); return { ok: p.lit }; },
+  });
+  netWorldPartsRegisterCommand('nature.job', {
+    tools: ['tool_axe', 'tool_knife'], range: 8, point: a => W.trees[a.id] || { x: Infinity, z: Infinity },
+    run: a => {
+      const t = W.trees[a.id], P = GAME.player;
+      if (!t || !['chop', 'split'].includes(a.kind)) return false;
+      if (a.kind === 'chop') {
+        if (t.felled) return false;
+        fellTree(t, t.x - P.x, t.z - P.z, 30, true);
+      } else {
+        if (!t.log || !t.fall) return false;
+        const len = TREE_DIM[t.kind].trunk * natS(t);
+        const px = t.x + t.fall.ux * Math.min(len * 0.5 + 0.6, 2.4), pz = t.z + t.fall.uz * Math.min(len * 0.5 + 0.6, 2.4);
+        natRemoveLog(t); t.leaf = 0;
+        const p = natClearSpot(px, pz, t.x, t.z, 0.7);
+        natAddPile(p.x, p.z, Math.atan2(t.fall.uz, -t.fall.ux), t.kind);
+        natSplitGoods(t);
+      }
+      return { ok: true };
+    },
+  });
+});
+
+function netWorldPartsCoreSave() {
+  return {
+    campaign: { n: CAMPAIGN.n, el: Math.round(campaignElapsed() * 10) / 10, state: CAMPAIGN.state,
+      peace: Math.max(0, CAMPAIGN.peaceUntil - GAME.t), truce: Math.max(0, CAMPAIGN.truceUntil - GAME.t),
+      winner: CAMPAIGN.winner, how: CAMPAIGN.how, longSaid: CAMPAIGN.longSaid,
+      claims: CAMPAIGN.claims.map(c => ({ k: c.k, h: c.h, kOn: c.kOn, hOn: c.hOn })),
+      renown: CAMPAIGN.renown.slice(), history: CAMPAIGN.history.map(h => ({ ...h, you: null, reward: undefined })) },
+    relics: WAR.relics.map(rel => {
+      const e = rel.carrier != null && getEnt(rel.carrier);
+      if (e) { rel.x = e.x; rel.y = e.y; rel.z = e.z; }
+      else if (rel.state === 'carried') { rel.state = 'ground'; rel.since = GAME.t; rel.carrier = null; }
+      return { id: rel.id, state: rel.state, at: rel.at, from: rel.from, slot: rel.slot,
+        peer: e ? e === GAME.player ? NET.self : e.netPeer || null : null,
+        actor: e && typeof netEntityId === 'function' ? netEntityId(e) : null,
+        x: rel.x || 0, y: rel.y || 0, z: rel.z || 0, age: GAME.t - (rel.since || GAME.t) };
+    }),
+    doors: HOUSES.map(H => ({ id: H.num, leaves: houseLeavesOf(H).map(L => [L.open, L.target]),
+      windows: H.wins.map(w => w.target) })),
+  };
+}
+function netWorldPartsCoreApply(d) {
+  if (!d || typeof d !== 'object') return;
+  const c = d.campaign;
+  if (c && Array.isArray(c.claims) && c.claims.length === 3) {
+    CAMPAIGN.n = c.n; CAMPAIGN.t0 = GAME.t - c.el; CAMPAIGN.state = c.state;
+    CAMPAIGN.peaceUntil = GAME.t + c.peace; CAMPAIGN.truceUntil = GAME.t + (c.truce || 0);
+    CAMPAIGN.winner = c.winner; CAMPAIGN.how = c.how; CAMPAIGN.longSaid = !!c.longSaid;
+    c.claims.forEach((row, i) => Object.assign(CAMPAIGN.claims[i], row)); CAMPAIGN.renown = c.renown.slice();
+    const own = new Map(CAMPAIGN.history.map(h => [h.n, { you: h.you, reward: h.reward }]));
+    CAMPAIGN.history = c.history.map(h => ({ ...h, ...own.get(h.n) }));
+  }
+  for (const row of d.relics || []) {
+    const rel = WAR.relics[row.id]; if (!rel) continue;
+    if (rel.carrier != null) { const old = getEnt(rel.carrier); if (old && old.carrying === rel.id) old.carrying = null; }
+    const e = row.peer === NET.self ? GAME.player : row.peer ? netGhost(row.peer)
+      : row.actor && typeof netEntityFind === 'function' ? netEntityFind(row.actor) : null;
+    Object.assign(rel, { state: row.state, at: row.at, from: row.from, slot: row.slot,
+      x: row.x, y: row.y, z: row.z, since: GAME.t - row.age, carrier: e ? e.id : null });
+    if (e && row.state === 'carried') { e.carrying = rel.id; rel.carrierRealm = e.faction; }
+  }
+  updateRelicBonuses();
+  for (const row of d.doors || []) {
+    const H = HOUSES[row.id]; if (!H) continue;
+    houseLeavesOf(H).forEach((L, i) => { if (row.leaves[i]) { L.open = row.leaves[i][0]; L.target = row.leaves[i][1]; } });
+    H.wins.forEach((w, i) => { if (Number.isFinite(row.windows[i])) w.target = row.windows[i]; });
+  }
+}
+queueMicrotask(() => {
+  NETPART_ADAPTERS.delete('campaign');
+  netWorldPartsRegister('core', { save: netWorldPartsCoreSave, apply: netWorldPartsCoreApply });
+  const rawTake = pickUpRelic, rawDrop = dropRelic;
+  pickUpRelic = function(rel, e) {
+    if (e === GAME.player && netWorldPartsRequest('relic.take', { id: rel.id })) return;
+    return rawTake(rel, e);
+  };
+  dropRelic = function(e) {
+    if (e === GAME.player && netWorldPartsRequest('relic.drop', {})) return;
+    return rawDrop(e);
+  };
+  netWorldPartsRegisterCommand('relic.take', {
+    range: 6, point: a => WAR.relics[a.id] ? relicPosition(WAR.relics[a.id]) : { x: Infinity, z: Infinity },
+    run: a => { const rel = WAR.relics[a.id]; if (!rel || !relicTakeable(rel, GAME.player)) return false; rawTake(rel, GAME.player); return { ok: true }; },
+  });
+  netWorldPartsRegisterCommand('relic.drop', {
+    run: () => { if (GAME.player.carrying == null) return false; rawDrop(GAME.player); return { ok: true }; },
+  });
+});
+
+queueMicrotask(() => registerSavePart('char', 'sharedWorldReservations', {
+  save: () => NETPARTS.pending.size ? [...NETPARTS.pending].slice(0, 8).map(([id, p]) => ({
+    id, op: p.op, args: p.args, cost: p.cost, declared: p.declared, owner: p.owner,
+    ownerAccount: p.ownerAccount, capacity: p.capacity,
+  })) : null,
+  load: rows => {
+    if (!Array.isArray(rows)) return;
+    for (const row of rows.slice(0, 8)) {
+      if (!row || typeof row.id !== 'string' || typeof row.ownerAccount !== 'string'
+        || typeof row.op !== 'string' || !Array.isArray(row.cost) || !NETPART_COMMANDS.has(row.op)) continue;
+      NETPARTS.pending.set(row.id, { ...row, lastSent: -Infinity, at: performance.now() });
+    }
+  },
+}));

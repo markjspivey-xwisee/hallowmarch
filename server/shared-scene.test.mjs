@@ -1,0 +1,339 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { createSharedScene, activityBoat, activityNpc, checkedSharedScene } from './shared-scene.js';
+
+const boat = (id = 1) => ({ id, x: 0, z: 0, yaw: 0, vx: 0, vz: 0, wr: 0, st: 'free', ph: 0, eff: 0, grounded: 0.3, char: 0, rider: null, still: false, home: { j: 0, b: 0 }, launch: null });
+const npc = () => ({ id: 'town:0:villager:0', role: 'villager', n: 'Field worker', r: 0, c: null, l: 1, p: [0, 2, 0], y: 0, a: 21, ph: 2, am: 0, h: 10, m: 10, d: 0, g: 0, lk: [1,1,1,1,1,1,0,0,65536,0,1,0,0,0,0.2], st: null, fm: [0,1,0], hm: 0, bt: 1 });
+function fixture(saved, options = {}) {
+  let time = 100000, mutable = true, epoch = 1, host = 'a', changes = 0;
+  const room = { clients: new Map(), name: 'march' }, state = saved || {}, out = new Map();
+  const admission = () => ({ origin: 'https://game.test', epoch });
+  const add = peer => {
+    const c = { peer, room, live: true, slow: { r: 0 }, acct: { id: 'account-' + peer }, pos: { x: 0, z: 0 }, posT: time, worldAdmission: admission() };
+    room.clients.set(peer, c); out.set(peer, []); return c;
+  };
+  const a = add('a'), b = add('b');
+  const scene = createSharedScene({ hostFor: () => room.clients.get(host), live: c => c.live,
+    admission, stateFor: () => state, canMutate: () => mutable, validatePersist: options.validatePersist, changed: () => changes++, now: () => time,
+    send: (c, m) => out.get(c.peer).push(structuredClone(m)) });
+  scene.sync(room);
+  const authority = c => [...out.get(c.peer)].reverse().find(m => m.kind === 'authority');
+  const send = (c, m) => scene.handle(c, { t: 'activity', authority: authority(c).authority, worldAdmission: admission(), ...m });
+  const publish = (c, kind, payload, seq = 1, backwards = false) => {
+    const text = JSON.stringify(payload), total = Math.ceil(text.length / 3500), indices = [...Array(total)].map((_, i) => i);
+    if (backwards) indices.reverse(); let result;
+    for (const part of indices) result = send(c, { kind, op: 'snapshot', seq, part, total, data: text.slice(part * 3500, (part + 1) * 3500) });
+    return result;
+  };
+  return { room, state, out, a, b, add, scene, send, publish, authority, get changes() { return changes; },
+    tick: ms => { time += ms; for (const c of room.clients.values()) c.posT = time; },
+    mutable: v => { mutable = v; }, epoch: v => { epoch = v; }, host: v => { host = v; } };
+}
+const reconstruct = packets => JSON.parse(packets.sort((a,b) => a.part-b.part).map(p => p.data).join(''));
+
+test('boat and town rows preserve shared numeric pose, tools and boat attachment', () => {
+  assert.equal(activityBoat(boat()).grounded, 0.3);
+  assert.equal(activityNpc(npc()).lk[8], 65536);
+  assert.equal(activityNpc(npc()).bt, 1);
+  assert.equal(activityBoat({ ...boat(), id: 0 }), null);
+  assert.equal(activityNpc({ ...npc(), id: 'town:1:villager:0' }), null);
+  assert.equal(activityNpc({ ...npc(), p: [Infinity, 0, 0] }), null);
+});
+
+test('one admitted live host publishes the same complete town to every viewer', () => {
+  const f = fixture();
+  assert.equal(f.send(f.b, { kind: 'npcs', op: 'snapshot', seq: 1, npcs: [npc()] }), false);
+  assert.equal(f.send(f.a, { kind: 'npcs', op: 'snapshot', seq: 1, npcs: [npc()] }), true);
+  const m = f.out.get('b').at(-1);
+  assert.equal(m.peer, 'a'); assert.deepEqual(m.npcs, [activityNpc(npc())]);
+  assert.equal(f.send(f.a, { kind: 'npcs', op: 'snapshot', seq: 1, npcs: [] }), false);
+  const before = f.out.get('a').length;
+  f.scene.sync(f.room, f.a); f.scene.sync(f.room, f.a);
+  assert.equal(f.out.get('a').length, before, 'slow frames do not resend the whole authority cache');
+});
+
+test('exclusive boat occupancy, rider-only motion and atomic mooring', () => {
+  const f = fixture();
+  f.send(f.a, { kind: 'boats', op: 'snapshot', seq: 1, boats: [boat()] });
+  assert.equal(f.send(f.b, { kind: 'boats', op: 'board', id: 1 }), true);
+  assert.equal(f.send(f.a, { kind: 'boats', op: 'board', id: 1 }), false);
+  assert.equal(f.send(f.a, { kind: 'boats', op: 'state', seq: 2, boats: [{ ...boat(), x: 1 }] }), false);
+  f.send(f.a, { kind: 'boats', op: 'snapshot', seq: 2, boats: [{ ...boat(), x: 400 }] });
+  assert.equal(f.out.get('b').at(-1).boats[0].x, 0, 'host cannot overwrite a granted rider');
+  f.tick(200);
+  assert.equal(f.send(f.b, { kind: 'boats', op: 'state', seq: 3, boats: [{ ...boat(), x: 3, vx: 3 }] }), true);
+  assert.equal(f.send(f.b, { kind: 'boats', op: 'state', seq: 3, boats: [{ ...boat(), x: 4 }] }), false);
+  assert.equal(f.send(f.b, { kind: 'boats', op: 'state', seq: 4, boats: [{ ...boat(), x: 500 }] }), false);
+  assert.equal(f.send(f.b, { kind: 'boats', op: 'moor', seq: 4, boats: [{ ...boat(), x: 4, st: 'moored' }] }), true);
+  assert.equal(f.out.get('a').at(-1).boats[0].rider, null);
+  assert.equal(f.state.activity.boats[0].rider, null, 'connection occupancy never enters the owned checkpoint');
+});
+
+test('boarding out of reach and stale or cross-world write authority are rejected', () => {
+  const f = fixture();
+  f.send(f.a, { kind: 'boats', op: 'snapshot', seq: 1, boats: [boat()] });
+  f.b.pos.x = 200;
+  assert.equal(f.send(f.b, { kind: 'boats', op: 'board', id: 1 }), false);
+  assert.equal(f.send(f.a, { kind: 'boats', op: 'snapshot', seq: 2, authority: 'old', boats: [] }), false);
+  assert.equal(f.send(f.a, { kind: 'boats', op: 'snapshot', seq: 2, worldAdmission: { origin: 'https://other.test', epoch: 1 }, boats: [] }), false);
+  f.mutable(false);
+  const before = structuredClone(f.state);
+  assert.equal(f.send(f.a, { kind: 'boats', op: 'board', id: 1 }), false);
+  assert.deepEqual(f.state, before);
+  f.mutable(true); f.a.live = false;
+  assert.equal(f.send(f.a, { kind: 'npcs', op: 'snapshot', seq: 3, npcs: [] }), false);
+});
+
+test('partial chunks never publish; deltas are cached as a full late-join snapshot', () => {
+  const f = fixture();
+  const full = { v: 1, full: true, rows: [{ id: 'wolf:1', x: 1, meta: 'x'.repeat(4000) }, { id: 'wolf:2', x: 2 }], remove: [] };
+  const text = JSON.stringify(full), total = Math.ceil(text.length / 3500), before = f.out.get('b').length;
+  assert.equal(f.send(f.a, { kind: 'entities', op: 'snapshot', seq: 1, part: 1, total, data: text.slice(3500) }), true);
+  assert.equal(f.out.get('b').length, before);
+  assert.equal(f.send(f.a, { kind: 'entities', op: 'snapshot', seq: 1, part: 0, total, data: text.slice(0,3500) }), true);
+  assert.equal(f.publish(f.a, 'entities', { v: 1, full: false, rows: [{ id: 'wolf:1', x: 9 }], remove: ['wolf:2'] }, 2), true);
+  const c = f.add('c'); f.scene.sync(f.room, c);
+  const value = reconstruct(f.out.get('c').filter(m => m.kind === 'entities'));
+  assert.equal(value.full, true); assert.equal(value.rows.length,1); assert.equal(value.rows[0].x,9); assert.equal(value.rows[0].meta,'x'.repeat(4000));
+  assert.equal(f.authority(c).hasEntities, true);
+  assert.equal(f.send(f.a, { kind: 'entities', op: 'snapshot', seq: 1, part: 0, total: 1, data: '{}' }), false);
+});
+
+test('world parts retain receipts across deltas and replay once after authority handoff', () => {
+  const f = fixture();
+  const receipt = { id: 'b:1', to: 'b', ok: true, goods: [['timber', -2]], result: { pieceId: 1 } };
+  f.publish(f.a, 'worldparts', { v: 1, full: true, parts: { build: { pieces: [1] }, farm: { stage: 1 } }, remove: [], receipts: [receipt] });
+  f.publish(f.a, 'worldparts', { v: 1, full: false, parts: { farm: { stage: 2 } }, remove: [] }, 2);
+  assert.deepEqual(f.state.activity.worldparts.receipts, [receipt]);
+  const token = f.authority(f.a).authority;
+  f.host('b'); f.a.live = false; f.scene.leave(f.a);
+  assert.notEqual(f.authority(f.b).authority, token);
+  const packets = f.out.get('b').filter(m => m.kind === 'worldparts' && m.authority === f.authority(f.b).authority);
+  const value = reconstruct(packets);
+  assert.deepEqual(value.parts.build, { pieces: [1] }); assert.equal(value.parts.farm.stage, 2);
+  assert.deepEqual(value.receipts, [receipt]);
+  assert.equal(f.send(f.a, { kind: 'npcs', op: 'snapshot', seq: 9, authority: token, npcs: [] }), false);
+});
+
+test('disconnect releases occupied boat at its last public position and resume replays it', () => {
+  const f = fixture();
+  f.send(f.a, { kind: 'boats', op: 'snapshot', seq: 1, boats: [boat()] });
+  f.send(f.b, { kind: 'boats', op: 'board', id: 1 }); f.tick(200);
+  f.send(f.b, { kind: 'boats', op: 'state', seq: 3, boats: [{ ...boat(), x: 3 }] });
+  f.b.live = false; f.scene.leave(f.b);
+  assert.equal(f.state.activity.boats[0].x, 3);
+  assert.equal(f.state.activity.boats[0].rider, null);
+  const restored = fixture(structuredClone(f.state));
+  assert.equal(restored.authority(restored.a).boats[0].x, 3);
+  assert.equal(restored.authority(restored.a).boats[0].rider, null);
+});
+
+test('commands are stamped, bounded and deduplicated; only host targets results', () => {
+  const f = fixture(), command = { id: 'b:5', op: 'build', args: [1] };
+  assert.equal(f.send(f.b, { kind: 'worldparts', op: 'command', command, from: 'spoof', position: { x: 9000 } }), true);
+  const seen = f.out.get('a').at(-1);
+  assert.equal(seen.from, 'b'); assert.deepEqual(seen.position, { x: 0, z: 0 });
+  assert.equal(seen.realm, 0);
+  assert.equal(f.send(f.b, { kind: 'worldparts', op: 'command', command }), false);
+  assert.equal(f.send(f.b, { kind: 'worldparts', op: 'result', to: 'a', id: 'b:5', ok: true }), false);
+  assert.equal(f.send(f.a, { kind: 'worldparts', op: 'result', to: 'b', id: 'b:5', ok: true, goods: [['timber', -2]], result: { pieceId: 1 } }), true);
+  assert.equal(f.out.get('b').at(-1).id, 'b:5');
+  assert.deepEqual(f.out.get('b').at(-1).result, { pieceId: 1 });
+  assert.equal(f.send(f.a, { kind: 'entities', op: 'result', to: 'b', result: { id: 1, kind: 'reward', gold: 3 } }), true);
+  assert.equal(f.out.get('b').at(-1).result.gold, 3);
+});
+
+test('chunk count, malformed JSON, prototype keys, duplicate ids and merged size are bounded', () => {
+  const f = fixture();
+  assert.equal(f.send(f.a, { kind: 'entities', op: 'snapshot', seq: 1, part: 0, total: 129, data: '{}' }), false);
+  assert.equal(f.send(f.a, { kind: 'entities', op: 'snapshot', seq: 1, part: 0, total: 1, data: 'not-json' }), false);
+  assert.equal(f.publish(f.a, 'entities', { v: 1, full: true, rows: [{id:'same'}, {id:'same'}], remove: [] }), false);
+  assert.equal(f.publish(f.a, 'worldparts', JSON.parse('{"v":1,"full":true,"parts":{"__proto__":{"bad":1}},"remove":[]}'), 2), false);
+  assert.equal(f.state.activity, undefined);
+});
+
+test('latest-state persistence coalesces live frames and flushes final state with no idle timer', () => {
+  const f = fixture();
+  f.send(f.a, { kind: 'npcs', op: 'snapshot', seq: 1, npcs: [npc()] });
+  for (let i=2;i<=10;i++) { f.tick(250); f.send(f.a, { kind: 'npcs', op: 'snapshot', seq: i, npcs: [{ ...npc(), p: [i,2,0] }] }); }
+  assert.equal(f.changes, 1);
+  assert.equal(f.state.activity.npcs[0].p[0], 10);
+  f.a.live = false; f.b.live = false; f.scene.leave(f.a);
+  assert.equal(f.changes, 2);
+  assert.equal(f.send(f.b, {kind:'npcs',op:'snapshot',seq:11,npcs:[]}), false);
+});
+
+test('ignition ejects a granted occupant; only nearby burnt boats can be restored', () => {
+  const f = fixture();
+  f.send(f.a, { kind: 'boats', op: 'snapshot', seq: 1, boats: [boat()] });
+  f.send(f.b, { kind: 'boats', op: 'board', id: 1 });
+  assert.equal(f.send(f.a, { kind: 'boats', op: 'ignite', id: 1 }), true);
+  assert.equal(f.out.get('b').at(-1).boats[0].rider, null);
+  assert.equal(f.out.get('b').at(-1).boats[0].st, 'burning');
+  assert.equal(f.send(f.a, { kind: 'boats', op: 'restore', id: 1, boats: [boat()] }), false);
+  f.send(f.a, { kind: 'boats', op: 'snapshot', seq: 2, boats: [{ ...boat(), st: 'burnt' }] });
+  assert.equal(f.send(f.b, { kind: 'boats', op: 'restore', id: 1, boats: [boat()] }), true);
+  assert.equal(f.out.get('a').at(-1).boats[0].st, 'free');
+});
+
+test('canonical metadata and bounded receipts are retained in owned snapshots', () => {
+  const f = fixture();
+  const meta = { warbands: [{ id: 1, actors: ['guard:1'] }], caravans: [] };
+  f.publish(f.a, 'entities', { v: 1, full: true, rows: [{ id: 'guard:1', x: 0 }], remove: [], meta });
+  f.publish(f.a, 'entities', { v: 1, full: false, rows: [{ id: 'guard:1', x: 1 }], remove: [] }, 2);
+  assert.deepEqual(f.state.activity.entities.meta, meta);
+  assert.ok(checkedSharedScene(f.state.activity));
+  assert.equal(checkedSharedScene({ ...f.state.activity, alien: true }), null);
+  assert.equal(checkedSharedScene({ ...f.state.activity, boats: [{ ...boat(), rider: 'b' }] }), null);
+});
+
+test('global owned-snapshot budget refuses a candidate before any public change', () => {
+  let fits = true;
+  const f = fixture(null, { validatePersist: () => fits });
+  f.send(f.a, { kind: 'npcs', op: 'snapshot', seq: 1, npcs: [npc()] });
+  const kept = structuredClone(f.state.activity), bMessages = f.out.get('b').length;
+  fits = false;
+  assert.equal(f.send(f.a, { kind: 'npcs', op: 'snapshot', seq: 2, npcs: [{ ...npc(), p: [88,2,0] }] }), false);
+  assert.deepEqual(f.state.activity, kept); assert.equal(f.out.get('b').length, bMessages);
+  fits = true;
+  assert.equal(f.send(f.a, { kind: 'npcs', op: 'snapshot', seq: 2, npcs: [{ ...npc(), p: [88,2,0] }] }), true);
+  assert.equal(f.state.activity.npcs[0].p[0], 88);
+});
+
+test('combined scene budget rejects oversized streams and leaves last confirmed world intact', () => {
+  const f = fixture();
+  const rows = [...Array(8)].map((_, i) => ({ id: 'wolf:'+i, text: 'w'.repeat(24000) }));
+  assert.equal(f.publish(f.a, 'entities', {v:1,full:true,rows,remove:[]}), true);
+  const old = structuredClone(f.state.activity);
+  const parts = Object.fromEntries([...Array(10)].map((_,i) => ['field'+i, 'c'.repeat(24000)]));
+  assert.equal(f.publish(f.a, 'worldparts', {v:1,full:true,parts,remove:[]}), false);
+  assert.deepEqual(f.state.activity, old);
+});
+
+test('actual ingress accepts a complete 27-worker roster above the ordinary 8KiB limit', async () => {
+  const f = fixture(), { onMsg, stats } = await ingress(f);
+  const workers = [...Array(27)].map((_, i) => ({ ...npc(), id: 'town:'+Math.floor(i/9)+':villager:'+(i%9),
+    r:Math.floor(i/9), n:'A field worker with a persistent shared identity '+i,
+    lk:[1.123456789,1.123456789,1.123456789,1.123456789,1.123456789,1.123456789,0.123456789,0.123456789,65536,0,1.0123456789,0,0,0,0.23456789] }));
+  const msg = { t:'activity', kind:'npcs',op:'snapshot',seq:1,authority:f.authority(f.a).authority,worldAdmission:f.a.worldAdmission,npcs:workers };
+  const raw = JSON.stringify(msg); assert.ok(raw.length > 8192);
+  onMsg(f.a, raw);
+  assert.equal(stats.badMsgs, 0); assert.equal(f.state.activity.npcs.length, 27);
+  assert.equal(f.out.get('b').at(-1).npcs.length, 27);
+  const before = f.out.get('a').length;
+  onMsg(f.b, raw);
+  assert.equal(stats.badMsgs, 1, 'a nonhost cannot use the larger ingress envelope');
+  assert.equal(f.out.get('a').length, before);
+});
+
+test('actual ingress accepts more than 60 bounded snapshot fragments interleaved with player motion', async () => {
+  const f = fixture(), { onMsg, stats, fast } = await ingress(f);
+  const payload = {v:1,full:true,rows:[...Array(100)].map((_,i)=>({id:'world:'+i,info:'x'.repeat(2500)})),remove:[]};
+  const text = JSON.stringify(payload), total=Math.ceil(text.length/3500);
+  assert.ok(total>60);
+  for(let part=0;part<total;part++) {
+    onMsg(f.a, JSON.stringify({t:'activity',kind:'entities',op:'snapshot',seq:1,part,total,data:text.slice(part*3500,(part+1)*3500),authority:f.authority(f.a).authority,worldAdmission:f.a.worldAdmission}));
+    if(part%10===0) onMsg(f.a, JSON.stringify({t:'fast',d:{p:[0,0,0]}}));
+  }
+  assert.equal(stats.rateDropped, 0); assert.equal(f.state.activity.entities.rows.length,100);
+  assert.ok(fast()>=7);
+});
+async function ingress(f) {
+  const fs = await import('node:fs'), vm = await import('node:vm');
+  const source = fs.readFileSync(new URL('./server.js',import.meta.url),'utf8');
+  const start=source.indexOf('function onMsg(c, raw) {'), end=source.indexOf('\n/* ------------------------------------------------------------------ */\n/* HTTP:',start);
+  assert.ok(start>=0 && end>start);
+  const stats={msgs:0,bytesIn:0,badMsgs:0,rateDropped:0,kicked:0};let fastCount=0;
+  const context={STATS:stats,CFG:{maxMsg:8192,maxSave:768*1024},SHARED_SCENE:f.scene,Date,Buffer,console,
+    nativePlayersRequired:false,WORLD_STATE:null,isHumanPlaying:c=>c.live,onFast:()=>fastCount++};
+  f.a.winT=Date.now();f.a.winN=0;f.a.ws={close:()=>{throw Error('unexpected transport close')}};
+  f.b.winT=Date.now();f.b.winN=0;f.b.ws=f.a.ws;
+  vm.createContext(context);vm.runInContext(source.slice(start,end)+'\nglobalThis.onMsg=onMsg;',context);
+  return {onMsg:context.onMsg,stats,fast:()=>fastCount};
+}
+
+test('compact entity deltas retain appearance while updating public pose and health', () => {
+  const f=fixture();
+  f.publish(f.a,'entities',{v:1,full:true,rows:[{id:'guard:1',look:{hat:'red'},kind:'humanoid',hp:50,x:0}],remove:[]});
+  f.publish(f.a,'entities',{v:1,full:false,rows:[{id:'guard:1',hp:25,x:4}],remove:[]},2);
+  assert.deepEqual(f.state.activity.entities.rows,[{id:'guard:1',look:{hat:'red'},kind:'humanoid',hp:25,x:4}]);
+});
+
+test('restoring the same world epoch invalidates unconfirmed scene authority and replays the restored cache', () => {
+  const f=fixture();
+  f.send(f.a,{kind:'boats',op:'snapshot',seq:1,boats:[boat()]});
+  f.publish(f.a,'worldparts',{v:1,full:true,parts:{farm:{stage:1}},remove:[]});
+  const confirmed=structuredClone(f.state.activity), oldToken=f.authority(f.a).authority;
+  f.send(f.a,{kind:'boats',op:'snapshot',seq:2,boats:[{...boat(),x:100}]});
+  f.publish(f.a,'worldparts',{v:1,full:false,parts:{farm:{stage:9}},remove:[]},2);
+  f.state.activity=structuredClone(confirmed); // same operation as owned-world recover() replacement
+  assert.equal(f.scene.acceptsChunk(f.a,{authority:oldToken,worldAdmission:f.a.worldAdmission}),false);
+  assert.equal(f.send(f.a,{kind:'boats',op:'snapshot',seq:3,authority:oldToken,boats:[{...boat(),x:200}]}),false);
+  assert.notEqual(f.authority(f.a).authority,oldToken);
+  assert.equal(f.authority(f.b).boats[0].x,0);
+  assert.equal(f.state.activity.worldparts.parts.farm.stage,1);
+  const restoredToken=f.authority(f.a).authority;
+  const restored=reconstruct(f.out.get('b').filter(m=>m.kind==='worldparts'&&m.authority===restoredToken));
+  assert.equal(restored.parts.farm.stage,1);
+});
+
+test('ordinary shallow world merges keep authority; a rollback removing scene data cannot resurrect it', () => {
+  const f=fixture();f.send(f.a,{kind:'boats',op:'snapshot',seq:1,boats:[boat()]});
+  const token=f.authority(f.a).authority;
+  f.scene.sync(f.room,f.a);
+  assert.equal(f.authority(f.a).authority,token);
+  delete f.state.activity; f.scene.sync(f.room);
+  assert.notEqual(f.authority(f.a).authority,token);
+  assert.deepEqual(f.authority(f.b).boats,[]);
+  assert.equal(f.state.activity,undefined);
+});
+
+test('actual owned bridge recovery cannot republish unconfirmed shared scene within the same season', async t => {
+  const { openHallowmarchWorldState } = await import('./gaming/hallowmarch-world-state.js');
+  const { loadRealmModule } = await import('./season.js');
+  const { mkdtempSync, rmSync } = await import('node:fs'), { tmpdir } = await import('node:os'), path = await import('node:path');
+  const dir=mkdtempSync(path.join(tmpdir(),'shared-scene-recovery-'));
+  t.after(()=>rmSync(dir,{recursive:true,force:true}));
+  let saved={version:0,state:null};
+  const store={owner:'urn:hallowmarch:recovery-proof',async load(){return structuredClone(saved)},
+    async commit(id,input){assert.equal(input.expectedVersion,saved.version);saved={version:saved.version+1,state:structuredClone(input.state)};return structuredClone(saved)}};
+  const { fileURLToPath } = await import('node:url');
+  const realmModule=loadRealmModule(fileURLToPath(new URL('../src',import.meta.url)),fileURLToPath(new URL('.',import.meta.url)));
+  assert.ok(realmModule);
+  const bridge=await openHallowmarchWorldState({nativeStore:store,dataDir:dir,files:{read:(n,d)=>d,write(){}},
+    keepCount:6,realmModule,active:false});
+  const worlds={}, room={name:'march',clients:new Map()}, strategic={RS:realmModule.realmSimInit(19,{season:1}),M:realmModule,lastStep:Date.now(),step(){},capture(){},contribute(){},order(){}};
+  const field={held:new Map(),step(){},report(){},left(){}};
+  bridge.attach({worlds,season:strategic,field,rooms:new Map([['march',room]])});
+  const admission={origin:'https://game.test',epoch:1}, messages=[];
+  const a={peer:'a',room,live:true,pos:{x:0,z:0},posT:Date.now(),worldAdmission:admission};
+  room.clients.set('a',a);
+  const scene=createSharedScene({hostFor:()=>a,live:c=>c.live,admission:()=>admission,
+    stateFor:()=>worlds.march||=( {} ),canMutate:()=>bridge.canMutate(),changed:()=>bridge.capture(),
+    send:(c,m)=>messages.push(structuredClone(m))});
+  scene.sync(room);bridge.setActive(true);let token=messages.find(m=>m.kind==='authority').authority;
+  const send=(seq,x)=>scene.handle(a,{t:'activity',kind:'boats',op:'snapshot',authority:token,worldAdmission:admission,seq,boats:[{...boat(),x}]});
+  assert.equal(send(1,0),true);await bridge.checkpoint();
+  const version=saved.version;
+  assert.equal(send(2,100),true);
+  assert.equal(worlds.march.activity.boats[0].x,100);assert.equal(saved.version,version,'later motion remains unconfirmed');
+  await bridge.recover();
+  assert.equal(worlds.march.activity.boats[0].x,0);
+  assert.equal(send(3,200),false,'old page authority cannot overwrite recovered state');
+  assert.notEqual(messages.filter(m=>m.kind==='authority').at(-1).authority,token);
+  assert.equal(worlds.march.activity.boats[0].x,0);
+  await bridge.shutdown({checkpoint:false});
+});
+
+test('owned animal bodies are live replicas, released on owner departure and never restored as orphan pets', () => {
+  const f=fixture();
+  f.publish(f.a,'entities',{v:1,full:true,rows:[{id:'wolf:1',hp:10},{id:'scene:petb:0',owner:'b',hp:20}],remove:[]});
+  assert.deepEqual(f.state.activity.entities.rows,[{id:'wolf:1',hp:10}],'character-owned bodies do not enter game-owned durable state');
+  const c=f.add('c');f.scene.sync(f.room,c);
+  assert.equal(reconstruct(f.out.get('c').filter(m=>m.kind==='entities')).rows.length,2,'live late-join still sees the owner pet');
+  f.b.live=false;f.scene.leave(f.b);
+  const departed=f.out.get('a').find(m=>m.op==='owner-left');
+  assert.equal(departed.owner,'b');assert.deepEqual(departed.ids,['scene:petb:0']);
+  const d=f.add('d');f.scene.sync(f.room,d);
+  assert.deepEqual(reconstruct(f.out.get('d').filter(m=>m.kind==='entities')).rows,[{id:'wolf:1',hp:10}]);
+});

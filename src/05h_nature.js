@@ -1100,6 +1100,8 @@ function stepJob(dt) {
   if (J.hitAt && J.t >= J.hitAt) {
     J.hitAt = 0;
     J.swings++;
+    if (J.swings >= J.need && typeof netWorldPartsRequest === 'function'
+      && netWorldPartsRequest('nature.job', { kind: J.kind, id: t.i })) { natureStopJob(null); return; }
     const D = TREE_DIM[t.kind];
     const ux = Math.sin(J.yaw), uz = Math.cos(J.yaw);
     if (J.kind === 'chop') {
@@ -1389,3 +1391,4 @@ const NATURE_DEBUG = {
   fires: () => NATURE.fire.size,
   tree: (i) => { const t = W.trees[i]; return t && { i: t.i, kind: t.kind, x: t.x, z: t.z, y: t.y, state: t.state, felled: !!t.felled, log: !!t.log, fire: t.fire, char: t.char, leaf: t.leaf, grow: t.grow, s: t.s, fall: t.fall && { ang: t.fall.ang, stop: t.fall.stop, done: t.fall.done, ux: t.fall.ux, uz: t.fall.uz }, coll: t.coll && { tag: t.coll.tag, r: t.coll.r, h: t.coll.h, active: t.coll.active }, logColl: t.logColl && { hx: t.logColl.hx, hz: t.logColl.hz, active: t.logColl.active, x: t.logColl.x, z: t.logColl.z } }; },
 };
+

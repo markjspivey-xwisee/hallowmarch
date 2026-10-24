@@ -84,7 +84,7 @@ function boatOarGeo(col) {
 }
 const BOAT_LOOK = [
   { hull: [0.2, 0.15, 0.11], bottom: [0.1, 0.085, 0.07], sheer: [0.52, 0.16, 0.12], trim: [0.36, 0.26, 0.17], inner: [0.42, 0.32, 0.2], seat: [0.46, 0.35, 0.22], oar: [0.55, 0.42, 0.26] }, // Logres: tarred, a red sheer strake
-  { hull: [0.4, 0.31, 0.2], bottom: [0.24, 0.2, 0.14], sheer: [0.22, 0.38, 0.27], trim: [0.44, 0.34, 0.22], inner: [0.46, 0.36, 0.24], seat: [0.5, 0.4, 0.26], oar: [0.58, 0.46, 0.3] }, // Ériu: oak, a green sheer strake
+  { hull: [0.4, 0.31, 0.2], bottom: [0.24, 0.2, 0.14], sheer: [0.22, 0.38, 0.27], trim: [0.44, 0.34, 0.22], inner: [0.46, 0.36, 0.24], seat: [0.5, 0.4, 0.26], oar: [0.58, 0.46, 0.3] }, // �riu: oak, a green sheer strake
   { hull: [0.47, 0.39, 0.27], bottom: [0.08, 0.075, 0.07], sheer: [0.72, 0.7, 0.62], trim: [0.38, 0.3, 0.21], inner: [0.5, 0.42, 0.29], seat: [0.52, 0.43, 0.3], oar: [0.6, 0.5, 0.34] }, // Thule: pine, a tarred bottom, a white stripe
 ];
 
@@ -410,6 +410,7 @@ function boatSeat(e, B, where) {
 }
 function boatSteer(P, dt, f, s, mag) {
   const B = P.boat;
+  if (B && typeof netBoatCanSimulate === 'function' && !netBoatCanSimulate(B)) { netBoatStep(B, dt); boatSeat(P, B, 'row'); return; }
   if (!B || B.st === 'burnt' || B.st === 'burning') { boatLeave(P, null, B && B.st === 'burning' ? 'The boat is alight! You throw yourself into the water.' : null); return; }
   if (P.casting) P.casting = null; // no casting at the oars (and no horse in a boat)
   if (P.mount) dismount(P);
@@ -436,7 +437,8 @@ function boatSteer(P, dt, f, s, mag) {
   if (z.name !== lastZone) { lastZone = z.name; uiZone(z); }
   if (Math.abs(thrust) > 0.1 && typeof loreNote === 'function') loreNote('boat');
 }
-function boatBoard(B, e) {
+function boatBoard(B, e, sharedApproved = false) {
+  if (!sharedApproved && typeof netBoatBoard === 'function' && netBoatBoard(B, e)) return false;
   if (!B || B.rider || B.st === 'burnt' || B.st === 'burning') return false;
   if (e.mount) dismount(e);
   if (e === GAME.player) {
@@ -459,7 +461,7 @@ function boatBoard(B, e) {
   return true;
 }
 // out of the boat: onto a spot of land, a jetty, or into the water
-function boatLeave(e, spot, msg = null) {
+function boatLeave(e, spot, msg = null, quietNetwork = false) {
   const B = e.boat;
   if (!B) return;
   e.boat = null; e.seat = null; e.rowK = undefined; e.fixedY = null;
@@ -485,6 +487,7 @@ function boatLeave(e, spot, msg = null) {
     pet.y = floorAt(pet.x, pet.z, e.y + 0.5);
   }
   if (B.st !== 'burnt' && B.st !== 'burning') B.st = 'free';
+  if (!quietNetwork && typeof netBoatChanged === 'function') netBoatChanged(B, 'leave');
   saveSoon();
 }
 // a dry place to step out to, beside the boat
@@ -509,9 +512,10 @@ function boatMoor(B, J) {
   B.x = free.x; B.z = free.z; B.yaw = free.yaw; B.vx = B.vz = B.wr = 0; B.grounded = 0;
   boatPose(B, 0);
   const step = J.steps[J.berths.indexOf(free)] || J.end;
-  if (P && P.boat === B) boatLeave(P, { x: step.x, z: step.z, y: J.deck });
+  if (P && P.boat === B) boatLeave(P, { x: step.x, z: step.z, y: J.deck }, null, true);
   B.st = 'moored';
   B.home = { j: BOATS.jetties.indexOf(J), b: J.berths.indexOf(free) };
+  if (typeof netBoatChanged === 'function') netBoatChanged(B, 'moor');
   boatSfx('knock');
   uiLog('You make the boat fast to the jetty.', 'sys');
   saveSoon();
@@ -585,6 +589,7 @@ function boatShoveOff(B, P) {
   const g0 = boatShoveDir(B), gx = g0.x, gz = g0.z;
   B.launch = { t: 0, dx: gx, dz: gz };
   B.st = 'free'; B.still = false;
+  if (typeof netBoatChanged === 'function') netBoatChanged(B, 'launch');
   if (P) {
     setAct(P, 19, 1.3);
     P.yaw = Math.atan2(gx, gz);
@@ -622,6 +627,7 @@ function boatLaunchStep(B, dt) {
 function boatIgnite(B, by = null) {
   if (!B || B.st === 'burning' || B.st === 'burnt') return false;
   if (B.realm === (GAME.player && GAME.player.faction) && by && by !== GAME.player && by.faction === B.realm) return false; // a realm's own fire spares its own boats
+  if (typeof netBoatAction === 'function' && netBoatAction(B, 'ignite', by)) return true;
   B.st = 'burning'; B.burnT = 0;
   const P = GAME.player;
   if (P && P.boat === B) boatLeave(P, null, 'The boat is alight! You throw yourself into the water.');
@@ -668,12 +674,12 @@ function boatRebuild(B) {
   survStartJob({ label: 'Rebuilding the boat', dur: 6, yaw: Math.atan2(B.x - P.x, B.z - P.z), tick: (J) => { J.k = (J.k || 0) - GAME.dt; if (J.k < 0) { J.k = 0.6; setAct(P, 1, 0.5); boatSfx('knock'); } }, done: () => {
     if (!goodsHave('plank', 6) || B.st !== 'burnt') return false;
     goodsTake('plank', 6);
-    boatRestore(B);
-    uiLog('The boat is sound again: new strakes where the old ones burnt.', 'sys');
+    if (boatRestore(B) !== false) uiLog('The boat is sound again: new strakes where the old ones burnt.', 'sys');
     return false;
   } });
 }
 function boatRestore(B) {
+  if (typeof netBoatAction === 'function' && netBoatAction(B, 'restore')) return false;
   B.st = B.home ? 'moored' : 'free'; B.char = 0; B.burnT = 0; B.rebuildAt = 0;
   if (B.home) { const J = BOATS.jetties[B.home.j], b = J && J.berths[B.home.b]; if (b) { B.x = b.x; B.z = b.z; B.yaw = b.yaw; B.vx = B.vz = B.wr = 0; } }
   saveSoon();
@@ -713,6 +719,7 @@ function boatFisherApproachExpired(e) {
 }
 // 08f_townlife.js asks for every villager before its own day: true while the boat has it
 function boatLife(e, dt) {
+  if (typeof netBoatAmbient === 'function' && !netBoatAmbient()) return false;
   const ai = e.ai;
   if (boatFisherApproachExpired(e)) return false;
   let F = ai.fisher;
@@ -830,6 +837,7 @@ function boatBodyMass(e) {
   return { horse: 5, horseWild: 5, horseTack: 5, cattle: 5, bull: 6, bear: 3.5, deer: 0.8, stag: 1, boar: 1, pig: 1, wolf: 0.45, hound: 0.4, sheep: 0.6, sheepShorn: 0.5 }[e.crowd || e.kind] ?? 0.5;
 }
 function boatPushed(B, e, px, pz, cx, cz, react) {
+  if (typeof netBoatCanSimulate === 'function' && !netBoatCanSimulate(B)) return;
   const pen = Math.hypot(px, pz), dt = GAME.dt || 1 / 60;
   if (pen < 1e-4 || B.rider != null || B.launch || ['moored', 'beached', 'burning', 'burnt'].includes(B.st)) return;
   const inWater = e.swim || (e.wd || 0) > 0.25 || !!waterAt(e.x, e.z, _bW);
@@ -902,6 +910,10 @@ function boatsUpdate(dt) {
   if (!BOATS.built) return;
   const P = GAME.player;
   for (const B of BOATS.list) {
+    if (typeof netBoatCanSimulate === 'function' && !netBoatCanSimulate(B)) {
+      netBoatStep(B, dt);
+      continue;
+    }
     boatShoveBodies(B);
     if (B.st === 'burning') boatBurnStep(B, dt);
     else if (B.st === 'burnt' && B.rebuildAt && GAME.t > B.rebuildAt && (!P || dist2(P.x, P.z, B.x, B.z) > 30 * 30)) boatRestore(B);
@@ -1045,6 +1057,7 @@ registerSavePart('world', 'boats', {
     for (const r of rows) {
       if (!Array.isArray(r)) continue;
       const B = BOATS.list.find((q) => q.id === r[0]);
+      if (B && typeof netBoatLoad === 'function' && netBoatLoad(B)) continue;
       if (!B || !isFiniteNum(r[1]) || !isFiniteNum(r[2]) || !isFiniteNum(r[3])) continue;
       if (Math.hypot(r[1], r[2]) > HALF || !waterAt(r[1], r[2], _bW) && !['beached', 'burnt'].includes(r[4])) continue;
       B.x = r[1]; B.z = r[2]; B.yaw = r[3];
@@ -1083,3 +1096,4 @@ const BOATS_DEBUG = {
   shoveOff: (i) => boatShoveOff(BOATS.list[i], GAME.player), pushed: boatPushed, shoveEnd: (i) => boatShoveEnd(BOATS.list[i]), // [polish]
 };
 WATER_DEBUG.boats = BOATS_DEBUG; // window.__hm.water.boats
+

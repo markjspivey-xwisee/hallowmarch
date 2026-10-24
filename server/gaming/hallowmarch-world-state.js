@@ -1,12 +1,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { checkedSharedScene } from '../shared-scene.js';
 import { createProgressiveOwnedState, OwnedStateError } from './progressive-owned-state.js';
 
 const own = value => value !== null && typeof value === 'object' && !Array.isArray(value)
   && [Object.prototype, null].includes(Object.getPrototypeOf(value));
 // roomFor accepts a 32-character base and may append '-99'.
 const roomName = /^[a-z0-9][a-z0-9_-]{0,34}$/;
-const WORLD_FIELDS = new Set(['k', 'g', 'td', 'tm', 'cn', 'cl', 'at', 'wx']);
+const WORLD_FIELDS = new Set(['k', 'g', 'td', 'tm', 'cn', 'cl', 'at', 'wx', 'activity']);
 function invalid() { throw new OwnedStateError('INVALID_WORLD_STATE', 'The owned world snapshot is invalid; recovery is required.'); }
 
 /** Preserve the legacy JSON omission of undefined object properties, without
@@ -41,6 +42,11 @@ export function checkedWorldSnapshot(value, { keepCount, realmModule } = {}) {
     || !Number.isSafeInteger(keepCount) || keepCount < 1 || keepCount > 32 || !realmModule) invalid();
   for (const [name, world] of Object.entries(clean.worlds)) {
     if (!roomName.test(name) || !own(world) || Object.keys(world).some(key => !WORLD_FIELDS.has(key))) invalid();
+    if (world.activity !== undefined) {
+      const activity = checkedSharedScene(world.activity);
+      if (!activity) invalid();
+      world.activity = activity;
+    }
     if (world.k !== undefined && (!Array.isArray(world.k) || world.k.length !== keepCount || !world.k.every(n => [0, 1, 2].includes(n)))) invalid();
     if (world.g !== undefined && (!Array.isArray(world.g) || world.g.length !== keepCount || !world.g.every(n => [0, 1].includes(n)))) invalid();
     if (world.td !== undefined && (!(world.td >= 0 && world.td <= 3) || typeof world.td !== 'number')) invalid();
@@ -201,3 +207,4 @@ export function hallowmarchWorldDescription(publicOrigin) {
     '<urn:hallowmarch:world:status> a schema:Action ; schema:name "Observe world and season checkpoint status" .',
   ].join('\n') };
 }
+

@@ -220,6 +220,7 @@ function initMerchants() {
     m.maxHp = m.hp = 500;
     m.ai.post = { x, z, yaw };
     R.merchant = m;
+    if (typeof netNpcRegister === 'function') netNpcRegister(m, `town:${R.id}:merchant:0`);
     R.stock = null;
   }
 }
@@ -263,7 +264,7 @@ function sellItem(it) {
   const v = sellValue(it);
   INV.gold += v;
   sfx('coins');
-  uiLog(`You sell ${it.slot === 'junk' && it.n > 1 ? it.n + ' × ' : ''}${it.name} for ${fmtInt(v)} gold.`, 'sys');
+  uiLog(`You sell ${it.slot === 'junk' && it.n > 1 ? it.n + ' x ' : ''}${it.name} for ${fmtInt(v)} gold.`, 'sys');
   saveSoon();
   return true;
 }
@@ -407,3 +408,4 @@ function drawLoot() {
   sg.instanceCount = ns; bg.instanceCount = nb;
   for (const a of [sg.attributes.iPos, sg.attributes.iCol, bg.attributes.iPos, bg.attributes.iCol]) a.needsUpdate = true;
 }
+

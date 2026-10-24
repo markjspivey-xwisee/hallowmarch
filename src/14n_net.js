@@ -230,7 +230,7 @@ function netCompanionSync(R) {
   }
   if (R.companion?.id !== s.id) netCompanionDrop(R);
   const C = R.companion || (R.companion = { id: s.id, peer: R.peer, ghost: null, buf: [], off: Infinity, offT: 0, lastFS: -1 });
-  C.slow = { n: s.n, dn: s.n + ' · AI companion', c: s.c, l: s.l, r: R.slow.r, lk: s.lk };
+  C.slow = { n: s.n, dn: s.n + ' � AI companion', c: s.c, l: s.l, r: R.slow.r, lk: s.lk };
   C.fast = { ...f, s: R.fast.s, t: R.fast.t };
   if (C.lastFS !== R.fast.s) { C.lastFS = R.fast.s; netBufPush(C, C.fast); }
   if (!C.ghost || C.ghost.removed) { netGhostMake(C); C.ghost.netCompanion = s.id; }
@@ -334,6 +334,7 @@ function netRemoteStep(e, dt) {
   updateAnim(e, dt);
   if ((Math.floor(a) === 14 || Math.floor(a) === 18) && ph) e.anim.phase = ph; // on a ladder the rungs' own cycle (04l_towers.js)
   e.combatUntil = f.tg ? GAME.t + 2 : e.combatUntil;
+  if (typeof netBoatRemoteRider === 'function') netBoatRemoteRider(e);
 }
 const stepOkForGhost = (x, z) => inDungeon({ x }) || isWalkable(x, z) || !!waterAt(x, z);
 
@@ -493,6 +494,10 @@ function netPump(dt) {
   if (netSendSlow(now, netSocialPending()) !== false) netSendFast(now);
   netDeathWatch();
   netWorldKeep(now);
+  if (typeof netBoatPump === 'function') netBoatPump(now);
+  if (typeof netNpcPump === 'function') netNpcPump(now);
+  if (typeof netEntityPump === 'function') netEntityPump(now);
+  if (typeof netWorldPartsPump === 'function') netWorldPartsPump(now);
 }
 // the host writes the shared war to the artifact's db when it has changed (once in 30 s at most, one write at a time),
 // so the next session's first host takes it up; a viewer who may not write the db leaves it to whoever may
@@ -838,3 +843,4 @@ function netState() {
   const peers = [...NET.peers.values()].map((R) => ({ peer: R.peer, by: R.by, srv: !!R.srv, on: R.slow ? R.slow.on : 0, name: R.slow ? R.slow.dn : '', realm: R.slow ? R.slow.r : -1, cls: R.slow ? R.slow.c : '', level: R.slow ? R.slow.l : 0, party: R.slow ? R.slow.pt : '', ghost: R.ghost ? R.ghost.id : null, gx: R.ghost ? netR2(R.ghost.x) : null, gz: R.ghost ? netR2(R.ghost.z) : null, gy: R.ghost ? netR2(R.ghost.y) : null, alive: R.ghost ? R.ghost.alive : null, hp: R.ghost ? Math.round(R.ghost.hp) : null, act: R.ghost ? R.ghost.netAct : null, amt: R.ghost ? netR3(R.ghost.anim.amt) : null, mount: R.ghost ? !!R.ghost.mount : null, fx: R.fast ? R.fast.x : null, fz: R.fast ? R.fast.z : null, buf: R.buf.length, off: Math.round(R.off) }));
   return { state: NET.state, kind: NET.link ? NET.link.kind : '', self: NET.self, host: NET.host, isHost: NET.isHost, party: NET.party, lead: NET.partyLead, invites: NET.invites.map((i) => i.peer), peers, stats: { ...NET.stats }, out: NET.out.length, seq: NET.seq, lastFastBytes: NET.lastFast ? JSON.stringify(NET.lastFast).length : 0, slowBytes: NET.slowKey.length, log: NET.log.slice(-12) };
 }
+

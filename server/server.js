@@ -37,6 +37,7 @@ import { createMainWorldAgentTransport } from './gaming/main-world-agent-transpo
 import { makeCompanies, reservedNames, coPledgeApply, coText } from './companies.js'; // [companies]
 import { makeField } from './fieldarmies.js'; // [season2] the season's armies on the pages' fields
 import { createHumanPlayGate } from './human-play.js';
+import { createSharedScene } from './shared-scene.js';
 
 const HERE = path.dirname(new URL(import.meta.url).pathname);
 const ROOT = path.resolve(HERE, '..');
@@ -310,10 +311,19 @@ const worldAgentHost = await configuredNativeAgentHost({ gaming: GAMING, account
   environment: gamingEnvironment, active: false, worldControl: { store: gamingStore, active: false, ...worldAgentTransport } });
 const worldAdmission = () => ({ origin: new URL(gamingEnvironment.HM_PUBLIC_ORIGIN || ('https://' + (gamingEnvironment.RAILWAY_PUBLIC_DOMAIN || 'march-production-f6d9.up.railway.app'))).origin, epoch: Number.isSafeInteger(SEASON.RS?.n) && SEASON.RS.n > 0 ? SEASON.RS.n : 1 });
 const sameWorldAdmission = (a, b) => a && b && a.origin === b.origin && Number.isSafeInteger(a.epoch) && a.epoch === b.epoch;
+const SHARED_SCENE = createSharedScene({ hostFor: roomHost, live: isHumanPlaying, admission: worldAdmission, send,
+  canMutate: () => !WORLD_STATE || WORLD_STATE.canMutate(),
+  stateFor: R => R.diagnostic ? (R.diagnosticWorld ||= {}) : (WORLDS[R.name] ||= {}),
+  changed: R => { if (!R.diagnostic) worldsSave(); },
+  validatePersist: (R, candidate) => {
+    const worlds = R.diagnostic ? WORLDS : { ...WORLDS, [R.name]: { ...(WORLDS[R.name] || {}), activity: candidate } };
+    return Buffer.byteLength(JSON.stringify({ worlds, season: SEASON.RS || null })) <= 440 * 1024;
+  } });
 function sendWorldInit(c) {
   const w = worldNow(c.room); if (!w) return;
   c.worldAdmission = worldAdmission();
   send(c, { t: 'world', w, init: 1, worldAdmission: c.worldAdmission });
+  SHARED_SCENE.sync(c.room, c);
 }
 const gamingManifest = () => ({ ...GAMING.manifest(), nativeDiscovery: gamingCapabilityStatus(), worldAdmission: worldAdmission(),
   mainWorldAgents: { ...worldAgentHost.manifest(), scope: 'main-world', nativePublication: playerCapabilityStatus() },
@@ -429,13 +439,11 @@ async function sampleGamingService() {
 }
 // Monitoring is scheduled only while a human is live.
 function regionHosts(R) {
-  const h = {};
-  for (const c of R.clients.values()) {
-    if (!isHumanPlaying(c) || !c.region || !c.slow || c.slow.on !== 1) continue;
-    const o = h[c.region] && R.clients.get(h[c.region]);
-    if (!o || c.since < o.since || (c.since === o.since && c.peer < o.peer)) h[c.region] = c.peer;
-  }
-  return h;
+  // The shared scene has one simulation owner. A follower standing in another
+  // region must never publish its mirrored keep or gate back over that owner's state.
+  const host = roomHost(R);
+  if (!host) return {};
+  return Object.fromEntries(['f0', 'f1', 'f2', 'h0', 'h1', 'h2', 'b'].map(region => [region, host.peer]));
 }
 function regionsTell(R, force) {
   const h = regionHosts(R), key = JSON.stringify(h);
@@ -572,6 +580,8 @@ function onSlow(c, d) {
   { const tag = c.realm >= 0 && COMP.canParticipate(companyAccount(c)) ? COMP.tag(c.acct.id, c.realm) : null; if (tag) d.co = tag; else delete d.co; } // [companies] a member's company, stamped here: a page cannot claim one
   c.party = typeof d.pt === 'string' ? d.pt.slice(0, 24) : '';
   const R = c.room;
+  regionsTell(R);
+  SHARED_SCENE.sync(R, c);
   if (d.w && !worldReport(c, d.w, d.worldAdmission)) delete d.w;
   if (d.wx) {
     if (sameWorldAdmission(d.worldAdmission, worldAdmission()) && sameWorldAdmission(c.worldAdmission, d.worldAdmission) && roomHost(R) === c) keepWx(R, d.wx);
@@ -758,12 +768,29 @@ function onCo(c, m) {
 }
 function onMsg(c, raw) {
   STATS.msgs++; STATS.bytesIn += raw.length;
-  if (raw.length > CFG.maxMsg && !(raw.length <= CFG.maxSave + 64 && raw.slice(0, 20).includes('"save"'))) { STATS.badMsgs++; return; }
+  let admittedNpcFrame = null;
+  if (raw.length > CFG.maxMsg && raw.length <= 32768) {
+    try {
+      const q = JSON.parse(raw);
+      if (q.t === 'activity' && q.kind === 'npcs' && q.op === 'snapshot'
+        && Array.isArray(q.npcs) && q.npcs.length <= 64 && SHARED_SCENE.acceptsChunk(c, q)) admittedNpcFrame = q;
+    } catch { /* Keep the ordinary bounded refusal. */ }
+  }
+  if (raw.length > CFG.maxMsg && !admittedNpcFrame
+    && !(raw.length <= CFG.maxSave + 64 && raw.slice(0, 20).includes('"save"'))) { STATS.badMsgs++; return; }
   const now = Date.now();
   if (now - c.winT > 1000) { c.winT = now; c.winN = 0; }
-  if (++c.winN > 60) { STATS.rateDropped++; if (c.winN > 240) { STATS.kicked++; c.ws.close(4008, 'too many messages'); } return; }
+  if (now - (c.sceneByteAt || 0) > 1000) { c.sceneByteAt = now; c.sceneBytes = 0; c.sceneChunks = 0; }
+  let chunk = false;
+  if (raw.includes('"activity"') && raw.includes('"snapshot"')) {
+    try { const q = JSON.parse(raw); chunk = q.t === 'activity' && q.op === 'snapshot'
+      && ['entities', 'worldparts'].includes(q.kind) && typeof q.data === 'string' && q.data.length <= 3500 && SHARED_SCENE.acceptsChunk(c, q); } catch { /* normal malformed-message check follows */ }
+  }
+  if (chunk) { c.sceneBytes += Buffer.byteLength(raw); c.sceneChunks++; if (c.sceneBytes > 640 * 1024 || c.sceneChunks > 160) { STATS.rateDropped++; return; } }
+  c.winN += chunk ? 0.125 : 1;
+  if (c.winN > 60) { STATS.rateDropped++; if (c.winN > 240) { STATS.kicked++; c.ws.close(4008, 'too many messages'); } return; }
   let m;
-  try { m = JSON.parse(raw); } catch (e) { STATS.badMsgs++; return; }
+  try { m = admittedNpcFrame || JSON.parse(raw); } catch (e) { STATS.badMsgs++; return; }
   if (!m || typeof m.t !== 'string') return;
   if (m.t === 'gaming') {
     if (['agent.command', 'agent.observe'].includes(m.op)) {
@@ -793,14 +820,14 @@ function onMsg(c, raw) {
     if (resuming) resumeHumanSession(c);
   }
   const departingSave = m.t === 'save' && m.final === 1 && c.hasPlayedLive && c.finalSaveUntil > now;
-  if (['fast', 'contrib', 'order', 'sarmyrep', 'world-agent', 'co', 'save', 'wipe', 'season'].includes(m.t) && !isHumanPlaying(c) && !departingSave) {
+  if (['activity', 'fast', 'contrib', 'order', 'sarmyrep', 'world-agent', 'co', 'save', 'wipe', 'season'].includes(m.t) && !isHumanPlaying(c) && !departingSave) {
     // Explicit writes receive one bounded refusal; an idle save never becomes
     // an ambiguous timeout or a durable side effect.
     if (m.t === 'save' || m.t === 'wipe') send(c, { t: 'saved', ok: false,
       error: nativePlayersRequired && !PLAYER_ACCOUNTS.humanPrincipalFor(c) ? 'native_identity_required' : 'human_play_required' });
     return;
   }
-  if (WORLD_STATE && !WORLD_STATE.canMutate() && ['slow', 'contrib', 'order', 'sarmyrep'].includes(m.t)) {
+  if (WORLD_STATE && !WORLD_STATE.canMutate() && ['activity', 'slow', 'contrib', 'order', 'sarmyrep'].includes(m.t)) {
     send(c, { t: ['contrib', 'order'].includes(m.t) ? m.t : 'world-status', q: m.q, ok: false,
       why: 'The world is paused while its owned state is recovered.', persistence: worldPersistenceStatus() }); return;
   }
@@ -816,7 +843,8 @@ function onMsg(c, raw) {
     }
     return;
   }
-  if (m.t === 'slow') onSlow(c, m.d);
+  if (m.t === 'activity') SHARED_SCENE.handle(c, m);
+  else if (m.t === 'slow') onSlow(c, m.d);
   else if (m.t === 'acct') onAcct(c, m);
   else if (m.t === 'fast') onFast(c, m.d);
   else if (m.t === 'ping') send(c, { t: 'pong', c: m.c, s: now });
@@ -949,6 +977,7 @@ wss.on('connection', (ws) => {
     const R = c.room;
     if (!R) return;
     R.clients.delete(c.peer);
+    SHARED_SCENE.sync(R);
     // Human session departure already returned its field armies before suspension.
     for (const o of R.clients.values()) { send(o, { t: 'left', peer: c.peer }); if (o.nearAt) o.nearAt.delete(c.peer); if (o.farAt) o.farAt.delete(c.peer); }
     regionsTell(R);
@@ -1002,6 +1031,7 @@ function endHumanSession(c) {
   worldAgentTransport.close(c);
   if (c.slow) c.slow = { ...c.slow, on: 0, humanLive: 0 };
   c.humanDormant = true; c.fast = null; c.pos = null; c.region = null; c.regionTold = false;
+  SHARED_SCENE.leave(c); c.sceneAuthority = '';
   if (c.room) {
     c.pausedPeerIds = [...c.room.clients.keys()].filter(peer => peer !== c.peer);
     c.nearAt?.clear(); c.farAt?.clear();
@@ -1095,4 +1125,5 @@ const shutdown = async () => {
 process.on('SIGTERM', shutdown); process.on('SIGINT', shutdown);
 server.listen(CFG.port, () => console.log(`The Hallowmarch server on :${CFG.port} (data ${CFG.data})`));
 export { server, STATS, CFG, SEASON, COMP, WORLD_STATE, HUMAN_PLAY };
+
 

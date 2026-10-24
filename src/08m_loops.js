@@ -1214,6 +1214,7 @@ function loopsSpawnQuartermasters() {
     m.maxHp = m.hp = 500;
     m.ai.post = { x, z, yaw };
     R.quartermaster = m;
+    if (typeof netNpcRegister === 'function') netNpcRegister(m, `town:${R.id}:merchant:1`);
   }
 }
 // E beside the quartermaster: the realm's stores; and a cart of yours: walk with it
@@ -1243,7 +1244,7 @@ function loopsHudLine() {
     if (!s.length) { const low = LOOPS_R.filter((g) => loopsFill(r, g) < 0.5 && g !== 'wool' && g !== 'hides'); if (low.length) parts.push(`<span style="--rc:${REALMS[r].color}">${REALMS[r].name} low on ${low.slice(0, 2).join(', ')}</span>`); continue; }
     parts.push(`<span class="short" style="--rc:${REALMS[r].color}">${REALMS[r].name} short of ${s.slice(0, 2).join(', ')}</span>`);
   }
-  return sl + (parts.length ? `<div class="loops-hud">${parts.slice(0, 2).join(' · ')}</div>` : '');
+  return sl + (parts.length ? `<div class="loops-hud">${parts.slice(0, 2).join(' � ')}</div>` : '');
 }
 // a sentence for the war table (04k_hall.js) and the herald: what the realm's stores lack
 function loopsWarText(r) {
@@ -1258,7 +1259,7 @@ function loopsInit() {
   if (LOOPS.inited || !WAR.keeps.length || !REALMS[0].town) return;
   LOOPS.inited = true;
   for (const K of WAR.keeps) loopsKeep(K);
-  // the realms' fields against each other: Brackenford's broad fields, the gardens of Ériu and Thule
+  // the realms' fields against each other: Brackenford's broad fields, the gardens of �riu and Thule
   const area = [0, 0, 0];
   for (const F of W.fieldRects || []) { const r = F.realm != null ? F.realm : 0; if (r >= 0 && r < 3) area[r] += 4 * F.hw * F.hd; }
   const used = area.filter((a) => a > 0), mean = used.length ? used.reduce((a, b) => a + b, 0) / used.length : 1;
@@ -1431,3 +1432,4 @@ queueMicrotask(() => { // (CHRON, FIELD_NOTES, GUIDE_WATCH, GUIDE_HELP, LOADING_
   }
   PATH_STEPS.forEach((S, i) => { S.idx = i; });
 });
+

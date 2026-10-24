@@ -44,7 +44,7 @@ function seasonWeatherOdds(odds) {
   return o.map((v) => v / s);
 }
 function seasonLabel() { return `${SEASON.name}${SEASON.idx === 3 && SEASON.f > 0.5 ? ', late' : SEASON.f < 0.25 ? ', early' : ''}`; }
-// air temperature at a place now (°C): the season, the realm (Thule is cold), height, night, rain and cloud
+// air temperature at a place now (�C): the season, the realm (Thule is cold), height, night, rain and cloud
 function farmTempAt(x, z) {
   const rw = realmWeightsAt(x, z), night = U.uNight.value || 0;
   let t = SEASON.temp + rw[0] * 1.2 - rw[2] * 6.5;
@@ -86,7 +86,7 @@ if (GOODS.tool_hoe) GOODS.tool_hoe.icon = 'hoe';
 const FARM_TR = ['y', 'h', 'd', 'sp', 'c', 'ht'];
 const FARM_TR_NAME = { y: 'Yield', h: 'Hardiness', d: 'Drought', sp: 'Speed', c: 'Colour', ht: 'Height' };
 const FARM_CROPS = {};
-// grow: seconds to ripe in the best conditions; tMin / tOpt / tMax: temperatures (°C); frost: the cold it stands at
+// grow: seconds to ripe in the best conditions; tMin / tOpt / tMax: temperatures (�C); frost: the cold it stands at
 // hardiness 0; season: how well it grows in spring, summer, autumn, winter; yieldN / seedBack: goods and seed per plant;
 // fert: what a harvest takes from the soil (beans give back); base: the common strain's traits
 function defCrop(id, o) { FARM_CROPS[id] = { id, plural: o.name, lodge: false, herb: false, ...o }; }
@@ -108,12 +108,12 @@ const FARM_CROP_IDS = Object.keys(FARM_CROPS);
 // the wild herbs: where they grow (place scores a candidate spot), what they do, and how they look through the year
 const FARM_HERBS = {
   herb_heal: { habitat: 'Open, sunny meadows and the banks of roads, most of all in the downs of Logres.', uses: 'Staunches bleeding and knits a wound. A healer\'s first herb.', show: [0.8, 0.86, 0.95, 0.3], col: '#c86a9a', n: 70 },
-  herb_mana: { habitat: 'The shade at the foot of trees in the green glens of Ériu.', uses: 'Clears and quickens the mind; casters chew it before a long working.', show: [0.82, 0.86, 0.95, 0.35], col: '#c8dcff', n: 60 },
+  herb_mana: { habitat: 'The shade at the foot of trees in the green glens of �riu.', uses: 'Clears and quickens the mind; casters chew it before a long working.', show: [0.82, 0.86, 0.95, 0.35], col: '#c8dcff', n: 60 },
   herb_fire: { habitat: 'Beside warm stones in Logres and the frontier, and on ground that has burned.', uses: 'Smoulders when crushed. Fire-workers and smiths prize it.', show: [0.6, 0.86, 0.95, 0.3], col: '#ff5a2a', n: 55 },
   herb_frost: { habitat: 'Cold high ground in Thule. It is at its best in deep winter.', uses: 'Its leaves frost over even in summer; it cools a fever and a burn.', show: [0.8, 0.7, 0.9, 0.92], col: '#bfe4f4', n: 55 },
   herb_storm: { habitat: 'Bare ridges and high open ground, wherever storms break first.', uses: 'Prickles with static before a storm. Storm-callers carry it.', show: [0.7, 0.86, 0.95, 0.35], col: '#8a6ae0', n: 55 },
   herb_marsh: { habitat: 'The wet margins of lakes and pools, where the ground is soft.', uses: 'Draws out poison and fever.', show: [0.8, 0.86, 0.95, 0.3], col: '#f0c63a', n: 55 },
-  herb_moon: { habitat: 'Deep shade among close-grown trees, in Ériu and Thule.', uses: 'Glows faintly at night. Steadies the nerves and sharpens the eyes in the dark.', show: [0.82, 0.86, 0.92, 0.5], col: '#a8e0d8', n: 55 },
+  herb_moon: { habitat: 'Deep shade among close-grown trees, in �riu and Thule.', uses: 'Glows faintly at night. Steadies the nerves and sharpens the eyes in the dark.', show: [0.82, 0.86, 0.92, 0.5], col: '#a8e0d8', n: 55 },
   herb_stone: { habitat: 'High rocky ground and the stony shoulders of the passes.', uses: 'Toughens the skin against blows and cold.', show: [0.78, 0.86, 0.92, 0.6], col: '#f0b4c4', n: 55 },
 };
 const FARM_HERB_IDS = Object.keys(FARM_HERBS);
@@ -532,7 +532,7 @@ function farmStrainsTidy() {
 // sowing windows (k through the year) for the townsfolk's own planning; the player can sow whenever they dare
 const FARM_SOW = { grain: [[0.0, 0.2], [0.52, 0.66]], flax: [[0.02, 0.2]], beans: [[0.03, 0.24]], turnip: [[0.0, 0.45]], cabbage: [[0.0, 0.3], [0.5, 0.58]], herb_heal: [[0.02, 0.3]], herb_mana: [[0.0, 0.28]], herb_marsh: [[0.04, 0.32]] }; // [seasons] the gardens' herbs
 const FARM_ROT = ['grain', 'beans', 'grain', 'turnip', 'flax', 'grain', 'cabbage'];
-// [seasons] the gardens of the other towns (01_world.js W.fieldRects with a realm): Ériu grows herbs, beans and greens,
+// [seasons] the gardens of the other towns (01_world.js W.fieldRects with a realm): �riu grows herbs, beans and greens,
 // Thule hardy turnips and cabbages
 const FARM_GARDEN_ROT = { 1: ['beans', 'herb_heal', 'cabbage', 'herb_mana', 'turnip', 'herb_marsh'], 2: ['turnip', 'cabbage', 'turnip', 'cabbage'] };
 const farmRotOf = (P) => P.rotList || FARM_ROT;
@@ -637,7 +637,7 @@ function farmAssignFarmers() {
   FARM.farmers = [];
   for (const R of REALMS) {
     const vs = ENT.filter((e) => e.role === 'villager' && e.home && dist2(e.home.x, e.home.z, R.town.x, R.town.z) < 10);
-    const tends = R.id === 0 || FARM.plots.some((P) => P.own === 't' && P.stand.town === R.id); // [seasons] the gardens of Ériu and Thule are tended too
+    const tends = R.id === 0 || FARM.plots.some((P) => P.own === 't' && P.stand.town === R.id); // [seasons] the gardens of �riu and Thule are tended too
     vs.slice(0, tends ? 2 : 1).forEach((e, i) => { e.ai.farmer = true; e.ai.fieldHand = tends; e.farmTown = R.id; if (i === 0) e.ai.seedSeller = true; FARM.farmers.push(e.id); });
   }
 }
@@ -675,7 +675,7 @@ function farmLifeStep(e, st, plan, dt, next) {
   const d = dist(e.x, e.z, fr.x, fr.z);
   if (d > 1.4) {
     // [seasons] out of town by way of the plaza when the way straight out is blocked (the houses face the plaza; the
-    // gardens of Ériu and Thule lie close behind them)
+    // gardens of �riu and Thule lie close behind them)
     if (!st.viaDone) {
       const TT = REALMS[T.town || 0] && REALMS[T.town || 0].town;
       if (!st.via && TT && dist(e.x, e.z, TT.x, TT.z) < 36 && !segmentClear(e.x, e.z, fr.x, fr.z, 0.5)) { const a = Math.atan2(fr.x - TT.x, fr.z - TT.z); st.via = { x: TT.x + Math.sin(a) * 9, z: TT.z + Math.cos(a) * 9, until: plan.t + 40 }; }
@@ -934,6 +934,9 @@ function farmEatAt(x, z, r = 0.8, bites = 1) {
 /* ------------------------------------------------------------------ */
 function updateFarming(dt) {
   if (!FARM.built) return;
+  if (typeof netWorldPartsCanSimulate === 'function' && !netWorldPartsCanSimulate()) {
+    stepFarmJob(dt); farmNotices(dt); return;
+  }
   const before = SEASON.idx;
   SEASON.t += dt * FARM.speed;
   seasonCalc();
@@ -1030,6 +1033,11 @@ function stepFarmJob(dt) {
   }
 }
 function farmFinishJob(kind, J) {
+  if (kind !== 'study' && typeof netWorldPartsRequest === 'function') {
+    const cost = kind === 'sow' && J.gid ? [[J.gid, goodsCount(J.gid)]] : kind === 'manure' ? [['manure', 1]] : [];
+    if (netWorldPartsRequest('farm.job', { kind, plot: J.plot ? { x: J.plot.x, z: J.plot.z } : null,
+      slot: J.slot, gid: J.gid, herb: J.herb && J.herb.i }, cost)) return;
+  }
   const P = J.plot;
   if (kind === 'till' || kind === 'tillHand') {
     const spot = farmTillSpot(GAME.player);
@@ -1195,12 +1203,12 @@ function openFarmer(e) {
   box.innerHTML = '';
   const add = (label, fn, primary) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'btn' + (primary ? ' primary' : ''); b.textContent = label; b.onclick = fn; box.appendChild(b); };
   for (const [id, n, price] of FARM_SHOP) {
-    add(`${n > 1 ? n + ' ' : ''}${goodName(id, n)} · ${price} gold`, () => {
+    add(`${n > 1 ? n + ' ' : ''}${goodName(id, n)} � ${price} gold`, () => {
       if (INV.gold < price) { uiError('You cannot afford that'); return; }
       INV.gold -= price; goodsAdd(id, n); sfx('coins'); saveSoon(); openFarmer(e);
     });
   }
-  if (worth > 0) add(`Sell your produce · ${worth} gold`, () => { for (const id of sellable) goodsTake(id, goodsCount(id)); addGold(worth); uiLog(`${e.name} buys your produce for ${worth} gold.`, 'loot'); openFarmer(e); });
+  if (worth > 0) add(`Sell your produce � ${worth} gold`, () => { for (const id of sellable) goodsTake(id, goodsCount(id)); addGold(worth); uiLog(`${e.name} buys your produce for ${worth} gold.`, 'loot'); openFarmer(e); });
   add('Farewell', closeDialog, true);
   if (PL) turnToward(e, PL.x, PL.z, 3);
 }
@@ -1208,14 +1216,14 @@ function openFarmer(e) {
 /* ------------------------------------------------------------------ */
 /* the plant card                                                      */
 /* ------------------------------------------------------------------ */
-function farmPips(v, n = 5) { const k = Math.round(clamp(v, 0, 1) * n); return '<span class="pips">' + '●'.repeat(k) + '<i>' + '●'.repeat(n - k) + '</i></span>'; }
+function farmPips(v, n = 5) { const k = Math.round(clamp(v, 0, 1) * n); return '<span class="pips">' + '?'.repeat(k) + '<i>' + '?'.repeat(n - k) + '</i></span>'; }
 // what an eye can judge of a plant's traits: near the truth, never exact
 function farmSeen(pl, k) { return clamp(pl.tr[k] + (hash2(pl.nz, FARM_TR.indexOf(k) * 7 + 3) - 0.5) * 0.16, 0, 1); }
 function farmSoilWords(P) {
   const f = P.fert < 0.3 ? 'worn out: rest it, sow beans or spread manure' : P.fert < 0.55 ? 'tiring' : P.fert < 0.8 ? 'good' : 'rich';
   const m = P.moist < 0.06 ? 'parched' : P.moist < 0.2 ? 'dry' : P.moist < 0.75 ? 'damp' : 'soaked';
   const w = P.weeds > 0.6 ? 'choked with weeds' : P.weeds > 0.22 ? 'weedy' : 'clean';
-  return `Soil ${f} · ${m} · ${w}`;
+  return `Soil ${f} � ${m} � ${w}`;
 }
 function farmCardHTML(ctx) {
   if (!ctx) return '';
@@ -1233,7 +1241,7 @@ function farmCardHTML(ctx) {
     const P = ctx.P, T = P.stand, C = FARM_CROPS[T.crop];
     const R = REALMS[0];
     const state = T.phase === 'sown' ? (T.dead ? 'lost' : farmStage(T.g).toLowerCase()) : T.phase === 'tilled' ? 'tilled, waiting for seed' : T.phase === 'stubble' ? 'stubble after the harvest' : 'resting';
-    const task = T.task ? ` · being ${T.task === 'till' ? 'tilled' : T.task === 'sow' ? 'sown' : T.task === 'weed' ? 'weeded' : 'harvested'} (${Math.round(T.p * 100)}%)` : '';
+    const task = T.task ? ` � being ${T.task === 'till' ? 'tilled' : T.task === 'sow' ? 'sown' : T.task === 'weed' ? 'weeded' : 'harvested'} (${Math.round(T.p * 100)}%)` : '';
     h = `<b class="fc-t">${esc(R.townName)}'s ${T.phase === 'sown' ? esc(C.name.toLowerCase()) : 'field'}</b><p>${esc(state.charAt(0).toUpperCase() + state.slice(1))}${task}.</p><p class="fc-dim">${esc(farmSoilWords(P))}. The townsfolk tend it; walk on the balks between the strips.</p>`;
   } else if (ctx.type === 'plot') {
     const P = ctx.P, pl = P.plants[ctx.s];
@@ -1243,7 +1251,7 @@ function farmCardHTML(ctx) {
       const state = pl.dead ? (pl.char ? 'Burnt' : pl.hp <= 0 && P.moist < 0.08 ? 'Dead of drought' : pl.ripeT > 1700 ? 'Rotted where it stood' : 'Dead') : pl.g >= 1 ? (pl.ripeT > 700 ? 'Over-ripe: shedding' : 'Ripe') : farmStage(pl.g);
       const pol = pl.pol ? (pl.pol.self ? 'set its own seed' : `pollen from ${esc((FARM.strains[pl.pol.st] || { name: 'a neighbour' }).name.toLowerCase())}`) : pl.g < 0.72 ? 'not yet in flower' : '';
       const hue = C.hue[farmSeen(pl, 'c') > 0.5 ? 1 : 0];
-      h = `<b class="fc-t">${esc(S.name)}</b><p>${esc(state)}${pl.dead ? '' : ` · ${Math.round(Math.min(1, pl.g) * 100)}% grown · health ${Math.round(pl.hp * 100)}%`}${pl.trod > 0.4 ? ' · trampled' : ''}${pl.bite > 0.5 ? ' · frost-bitten' : ''}${pl.wilt > 0.4 ? ' · wilting' : ''}</p>
+      h = `<b class="fc-t">${esc(S.name)}</b><p>${esc(state)}${pl.dead ? '' : ` � ${Math.round(Math.min(1, pl.g) * 100)}% grown � health ${Math.round(pl.hp * 100)}%`}${pl.trod > 0.4 ? ' � trampled' : ''}${pl.bite > 0.5 ? ' � frost-bitten' : ''}${pl.wilt > 0.4 ? ' � wilting' : ''}</p>
         <div class="fc-tr">${['y', 'h', 'd', 'sp', 'ht'].map((k) => `<span>${FARM_TR_NAME[k]}</span>${farmPips(farmSeen(pl, k))}`).join('')}<span>Colour</span><span class="fc-hue">${esc(hue)}</span></div>
         <p class="fc-dim">Seed of ${esc(S.common ? S.name.toLowerCase() : S.name)}${S.gen ? `, generation ${S.gen}` : ''}${pol ? '; ' + pol : ''}. ${esc(farmSoilWords(P))}.</p>`;
     }
@@ -1315,7 +1323,7 @@ function chronFields() {
   const gran = Object.keys(FARM.granary).filter((k) => FARM.granary[k] > 0).map((k) => `${fmtInt(FARM.granary[k])} ${goodName(k, 2).toLowerCase()}`).join(', ');
   const strainRows = kept.slice(0, 14).map((S) => `<tr><td>${esc(S.name)}</td><td>${S.gen}</td>${['y', 'h', 'd', 'sp', 'ht'].map((k) => `<td>${Math.round(S.tr[k] * 100)}</td>`).join('')}<td>${goodsCount(farmStrainGood(S))}</td></tr>`).join('');
   return `<p class="lead">The March turns through its seasons: spring, summer, autumn and winter, two days each. ${SEASON_ADVICE[SEASON.idx]}</p>
-    <p class="now">Now: <b>${esc(seasonLabel().toLowerCase())}</b>, about ${Math.round(t)}°C where you stand. ${SEASON_NAMES[(SEASON.idx + 1) % 4]} comes in about ${left} minutes.</p>
+    <p class="now">Now: <b>${esc(seasonLabel().toLowerCase())}</b>, about ${Math.round(t)}�C where you stand. ${SEASON_NAMES[(SEASON.idx + 1) % 4]} comes in about ${left} minutes.</p>
     <figure class="figure fc-fig">${farmStagesSketch()}</figure>
     ${seasonsChronicleHTML() /* [seasons] the year on the land (05k_seasons.js) */}
     <h3>Your own beds</h3>
@@ -1471,3 +1479,38 @@ function buildFarming() {
     };
   }
 }
+
+
+function farmSharedSave() { return farmSaveData(); }
+function farmSharedApply(d) {
+  if (!d) return;
+  const job = FARM.job, plot = job && job.plot, herbal = FARM.herbal;
+  farmLoadData(d);
+  FARM.herbal = herbal;
+  if (job && plot) {
+    const replacement = FARM.plots.find(p => Math.hypot(p.x - plot.x, p.z - plot.z) < 0.2);
+    FARM.job = replacement ? { ...job, plot: replacement } : null;
+  } else FARM.job = job;
+}
+queueMicrotask(() => {
+  if (typeof netWorldPartsRegisterCommand !== 'function') return;
+  netWorldPartsRegisterCommand('farm.job', {
+    point: a => {
+      const herb = Number.isInteger(a.herb) && FARM.herbs[a.herb];
+      return a.plot || (herb ? { x: herb.x, z: herb.z } : null);
+    },
+    range: 7,
+    run: a => {
+      const allowed = ['till', 'tillHand', 'sow', 'weed', 'harvest', 'saveseed', 'clear', 'manure', 'gather', 'dig'];
+      if (!allowed.includes(a.kind)) return false;
+      const plot = a.plot && FARM.plots.find(p => Math.hypot(p.x - a.plot.x, p.z - a.plot.z) < 0.2);
+      const herb = Number.isInteger(a.herb) ? FARM.herbs[a.herb] : null;
+      if (!['till', 'tillHand', 'gather', 'dig'].includes(a.kind) && (!plot || plot.own !== 'p')) return false;
+      if (['gather', 'dig'].includes(a.kind) && !herb) return false;
+      if (a.kind === 'sow' && (!GOODS[a.gid] || !goodsCount(a.gid))) return false;
+      if (a.kind === 'manure' && !goodsHave('manure')) return false;
+      farmFinishJob(a.kind, { plot, herb, slot: a.slot, gid: a.gid });
+      return { ok: true };
+    },
+  });
+});

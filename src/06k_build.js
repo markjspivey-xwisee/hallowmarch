@@ -590,6 +590,8 @@ function bCampfire(pc, on) {
 /* placing                                                             */
 /* ------------------------------------------------------------------ */
 function buildPlace(t, x, z, rot = 0, opts = {}) {
+  if (!opts.free && typeof netWorldPartsRequest === 'function'
+    && netWorldPartsRequest('build.place', { t, x, z, rot }, bpCost(t))) return { ok: true, pending: true };
   const P = GAME.player;
   if (!P || !BP[t]) return { ok: false, why: 'Nothing to build' };
   const sn = bValidate(bSnap(t, x, z, rot, P), P);
@@ -609,6 +611,15 @@ function buildPlace(t, x, z, rot = 0, opts = {}) {
 // how far above or below you a piece can be worked on: a roof is raised from the floor under it, on its walls
 const bReachY = (pc) => (BP[pc.t] && BP[pc.t].roof ? 4.8 : 3.5);
 function bWork(pc, dt) {
+  if (typeof netWorldPartsCanSimulate === 'function' && !netWorldPartsCanSimulate() && !NETPARTS.replay) {
+    pc.netWorkDt = (pc.netWorkDt || 0) + dt;
+    if (pc.netWorkDt >= 0.25) {
+      const work = Math.min(0.5, pc.netWorkDt); pc.netWorkDt = 0;
+      netWorldPartsRequest('build.work', { id: pc.id, dt: work });
+    }
+    if (GAME.player) setAct(GAME.player, 1, 0.42);
+    return false;
+  }
   const P = GAME.player;
   const time = BP[pc.t].time * (pc.repair ? 0.6 : 1);
   const was = pc.p;
@@ -637,6 +648,8 @@ function bNearestUnfinished(x, z, r) {
 }
 // pull a piece down: half its goods come back (all of them if it was never finished)
 function buildDemolish(pc, refund = true, quiet = false) {
+  if (refund && typeof netWorldPartsRequest === 'function'
+    && netWorldPartsRequest('build.demolish', { id: pc && pc.id })) return true;
   if (!pc || pc.st === 'gone') return false;
   if (refund) {
     const k = pc.st === 'build' && pc.p < 0.05 ? 1 : pc.st === 'ruin' ? 0.25 : 0.5;
@@ -842,6 +855,8 @@ function buildStartWork(pc) {
   BUILD.work = { pc, x: P.x, z: P.z, t: 0 };
 }
 function buildRepair(pc) {
+  if (typeof netWorldPartsRequest === 'function'
+    && netWorldPartsRequest('build.repair', { id: pc.id }, bpCost(pc.t).map(([id, n]) => [id, Math.ceil(n / 2)]))) return;
   const P = GAME.player;
   if (!bHasHammer()) { uiError('You need a hammer'); return; }
   const cost = bpCost(pc.t).map(([id, n]) => [id, Math.ceil(n / 2)]);
@@ -855,6 +870,8 @@ function buildRepair(pc) {
 }
 // doors, gates and shutters: a door will not shut on someone standing in it
 function buildSetOpen(pc, open) {
+  if (typeof netWorldPartsRequest === 'function'
+    && netWorldPartsRequest('build.open', { id: pc.id, open: !!open })) return true;
   if (!open && pc.t !== 'window') {
     let hit = null;
     forNear(pc.x, pc.z, 3, (e) => { if (!hit && e.alive && e.kind !== 'door' && !e.flying) { const dx = e.x - pc.x, dz = e.z - pc.z, c = Math.cos(pc.yaw), s = Math.sin(pc.yaw), lx = dx * c - dz * s, lz = dx * s + dz * c; if (Math.abs(lx) < (pc.t === 'gate' ? 1.5 : 0.6) && Math.abs(lz) < 0.5 + e.radius) hit = e; } });
@@ -896,8 +913,8 @@ function buildChest(pc) {
   const box = $('dlg-actions');
   box.innerHTML = '';
   const btn = (label, fn, primary) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'btn' + (primary ? ' primary' : ''); b.textContent = label; b.onclick = fn; box.appendChild(b); };
-  for (const id of inside) btn(`Take ${goodName(id, 2).toLowerCase()}`, () => { const n = goodsAdd(id, pc.store[id], true); pc.store[id] -= n; if (pc.store[id] <= 0) delete pc.store[id]; sfx('loot'); saveSoon(); buildChest(pc); });
-  for (const id of carried) btn(`Store ${goodName(id, 2).toLowerCase()}`, () => { const n = goodsCount(id); if (goodsTake(id, n)) { pc.store[id] = (pc.store[id] || 0) + n; sfx('click'); saveSoon(); buildChest(pc); } });
+  for (const id of inside) btn(`Take ${goodName(id, 2).toLowerCase()}`, () => { buildChestTransfer(pc, id, false); buildChest(pc); });
+  for (const id of carried) btn(`Store ${goodName(id, 2).toLowerCase()}`, () => { buildChestTransfer(pc, id, true); buildChest(pc); });
   btn('Close', closeDialog, true);
 }
 // the workbench: saw logs into planks, beat an iron bar into nails
@@ -1130,7 +1147,7 @@ function updateBuild(dt) {
   if (P) BUILD.lastP = { x: P.x, z: P.z };
   // fire, ruins cooling, leaves swinging
   for (const pc of BUILD.pieces) {
-    if (pc.st === 'burning') bBurnStep(pc, dt);
+    if (pc.st === 'burning' && (typeof netWorldPartsCanSimulate !== 'function' || netWorldPartsCanSimulate())) bBurnStep(pc, dt);
     else if (pc.st === 'ruin' && (pc.cool || 0) < 40) { pc.cool = (pc.cool || 0) + dt; bUniforms(pc); }
     if (pc.leaves.length) {
       for (const L of pc.leaves) {
@@ -1216,7 +1233,7 @@ registerSavePart('world', 'build', { save: buildSaveData, load: buildLoadData, k
 function chronHalls() {
   const P = GAME.player;
   const rows = WAR.keeps.map((K) => `<li><b>${esc(K.site.name)}</b>: ${esc(REALMS[K.realm].name)} holds it${K.realm === P.faction ? ', so its war table answers to you' : ''}.</li>`).join('');
-  return `<p class="lead">Every keep has its great hall at the back of the courtyard, behind the lord who holds it. Logres builds a tall hall of stone under slate, Ériu a great roundhouse under thatch, Thule a longhall of logs under shingles with a long hearth down the middle.</p>
+  return `<p class="lead">Every keep has its great hall at the back of the courtyard, behind the lord who holds it. Logres builds a tall hall of stone under slate, �riu a great roundhouse under thatch, Thule a longhall of logs under shingles with a long hearth down the middle.</p>
     <h3>What is inside</h3>
     <ul class="plain"><li><b>The war table.</b> A map of the March on a hide, with the keeps and the warbands marked. Anyone of the realm that holds the keep can command its warbands from here, whatever their rank: choose a band on the map, then a keep to attack or defend, a temple to raid, or call it to rally to you.</li>
     <li><b>The armourer's bench.</b> Mends worn and broken gear for gold, and cleans off mud and blood and beats out the dents for nothing.</li>
@@ -1248,6 +1265,88 @@ function buildHelpHTML() {
   return IS_TOUCH
     ? `<div class="keys"><kbd>Hammer button</kbd><span>Build: pick a piece, Turn, Place, Done. Work an unfinished piece by standing by it with a hammer.</span></div>
       <h3>Keep halls and building</h3><p>Every keep has a great hall: its war table lets anyone of the realm holding the keep command the warbands, the armourer mends and cleans gear, the hearth dries you, and the stores sell building goods. With a hammer and goods you can build on your own realm's lands: foundations, walls, doors, windows, roofs, stairs, fences, a bed that becomes your return point, chests and campfires. See the Chronicle.</p>`
-    : `<div class="keys"><kbd>G</kbd><span>Build: a ghost follows the mouse. R turns it, Z · X change piece, click or Enter sets it down, Esc or G stops.</span></div>
+    : `<div class="keys"><kbd>G</kbd><span>Build: a ghost follows the mouse. R turns it, Z � X change piece, click or Enter sets it down, Esc or G stops.</span></div>
       <h3>Keep halls and building</h3><p>Every keep has a great hall: its war table lets anyone of the realm holding the keep command the warbands, the armourer mends and cleans gear, the hearth dries you, and the stores sell building goods. With a hammer and goods you can build on your own realm's lands: foundations, walls, doors, windows, roofs, stairs, fences, a bed that becomes your return point, chests and campfires. See the Chronicle.</p>`;
 }
+
+
+// Live replication preserves work handles and each character's respawn bed.
+function buildSharedSave() {
+  const d = buildSaveData() || { v: 1, p: [] };
+  delete d.bed;
+  d.live = BUILD.pieces.map(pc => ({ id: pc.id, st: pc.st, burnT: pc.burnT || 0,
+    char: pc.char || 0, repair: pc.repair ? { char: pc.repair.char } : null }));
+  return d;
+}
+function buildSharedApply(d) {
+  const value = d && Array.isArray(d.p) ? d : { v: 1, p: [] };
+  const bed = BUILD.bed, work = BUILD.work, workId = work && work.pc && work.pc.id;
+  const shape = rows => rows.map(a => a.slice(0, 14));
+  const current = buildSaveData() || { p: [] };
+  if (JSON.stringify(shape(current.p)) !== JSON.stringify(shape(value.p))) {
+    buildLoadData({ ...value, bed });
+  } else for (const a of value.p) {
+    const pc = BUILD.pieces.find(b => b.id === a[0]);
+    if (!pc) continue;
+    const state = B_ST[a[14]] || 'built', changed = pc.st !== state;
+    pc.st = state; pc.p = clamp(a[15] / 100, 0, 1); pc.char = clamp(a[16] / 100, 0, 1);
+    pc.open = a[17] ? 1 : 0; pc.lit = !!a[18]; pc.store = a[19] && typeof a[19] === 'object' ? { ...a[19] } : null;
+    if (changed) bApplyState(pc); else bUniforms(pc);
+  }
+  for (const row of value.live || []) {
+    const pc = BUILD.pieces.find(b => b.id === row.id);
+    if (!pc) continue;
+    if (row.st === 'burning' && pc.st !== 'burning') buildIgnite(pc);
+    pc.burnT = Math.max(0, +row.burnT || 0); pc.char = clamp(+row.char || 0, 0, 1);
+    pc.repair = row.repair && Number.isFinite(row.repair.char) ? { char: row.repair.char } : null;
+    bUniforms(pc);
+  }
+  BUILD.bed = BUILD.pieces.some(pc => pc.id === bed && pc.t === 'bed') ? bed : 0;
+  const pc = workId && BUILD.pieces.find(b => b.id === workId);
+  BUILD.work = pc && pc.st === 'build' ? { ...work, pc } : null;
+}
+function buildChestTransfer(pc, id, deposit) {
+  const cost = deposit ? [[id, goodsCount(id)]] : [];
+  if (typeof netWorldPartsRequest === 'function'
+    && netWorldPartsRequest('build.chest', { id: pc.id, good: id, deposit: !!deposit }, cost)) return;
+  pc.store = pc.store || {};
+  if (deposit) {
+    const n = goodsCount(id);
+    if (n && goodsTake(id, n)) pc.store[id] = (pc.store[id] || 0) + n;
+  } else {
+    const n = goodsAdd(id, pc.store[id] || 0, true);
+    pc.store[id] = (pc.store[id] || 0) - n;
+    if (pc.store[id] <= 0) delete pc.store[id];
+  }
+  saveSoon();
+}
+queueMicrotask(() => {
+  if (typeof netWorldPartsRegisterCommand !== 'function') return;
+  const piece = args => BUILD.pieces.find(pc => pc.id === args.id);
+  const point = args => { const pc = piece(args); return pc ? { x: pc.x, z: pc.z } : { x: Infinity, z: Infinity }; };
+  netWorldPartsRegisterCommand('build.place', { point: a => ({ x: a.x, z: a.z }), tools: ['tool_hammer'], run: a => {
+    const r = buildPlace(a.t, a.x, a.z, a.rot, {});
+    return { ok: r.ok, why: r.why, pieceId: r.pc && r.pc.id };
+  } });
+  netWorldPartsRegisterCommand('build.work', { point, range: 5, tools: ['tool_hammer'], run: a => {
+    const pc = piece(a);
+    if (!pc || pc.st !== 'build' || !bHasHammer() || !Number.isFinite(a.dt) || a.dt <= 0 || a.dt > 0.5) return false;
+    bWork(pc, a.dt); return { ok: true };
+  } });
+  netWorldPartsRegisterCommand('build.demolish', { point, run: a => {
+    const pc = piece(a); return pc ? buildDemolish(pc) : false;
+  } });
+  netWorldPartsRegisterCommand('build.repair', { point, tools: ['tool_hammer'], run: a => {
+    const pc = piece(a); if (!pc || !bHasHammer()) return false;
+    const cost = bpCost(pc.t).map(([id, n]) => [id, Math.ceil(n / 2)]);
+    if (!cost.every(([id, n]) => goodsHave(id, n))) return false;
+    buildRepair(pc); return { ok: true };
+  } });
+  netWorldPartsRegisterCommand('build.open', { point, run: a => {
+    const pc = piece(a); return pc ? buildSetOpen(pc, !!a.open) : false;
+  } });
+  netWorldPartsRegisterCommand('build.chest', { point, range: 4, run: a => {
+    const pc = piece(a); if (!pc || pc.t !== 'chest' || !GOODS[a.good]) return false;
+    buildChestTransfer(pc, a.good, !!a.deposit); return { ok: true };
+  } });
+});
