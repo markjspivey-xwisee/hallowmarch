@@ -158,6 +158,9 @@ async function netWsTokenForget(host, rejectedToken, allowed = () => false) {
 }
 function netWsSend(o, ws = NETWS.ws) {
   if (!ws || ws !== NETWS.ws || NETWS.state === 'off' || ws.readyState !== 1) return false;
+  if (o?.t === 'activity' && (o.kind === 'boats' && o.op !== 'snapshot'
+    || ['worldparts', 'entities'].includes(o.kind) && o.op === 'command')
+    && typeof netActivityPosition === 'function' && !netActivityPosition()) return false;
   try {
     const s = JSON.stringify(o);
     ws.send(s);

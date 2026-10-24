@@ -30,11 +30,45 @@ function harness() {
     setInterval(fn,ms){const id=++next;timers.set(id,{fn,ms});return id},clearInterval(id){timers.delete(id)},
     queueMicrotask(){},withTimeout:p=>p});
   vm.runInContext(source,context);
-  vm.runInContext('globalThis.api={NET,NETWS,netSlowObj,netHostElect,netGhosts,netSharedSceneMessage,netSharedSceneReset,netSceneReloadRequired,netWsOpen,netWsReconnect,netWsRetryLater};',context);
+  vm.runInContext('globalThis.api={NET,NETWS,netSlowObj,netHostElect,netGhosts,netSharedSceneMessage,netSharedSceneReset,netSceneReloadRequired,netWsOpen,netWsReconnect,netWsRetryLater,netWsSend,netSendFast,netActivityPosition};',context);
   const api=context.api;
   Object.assign(api.NETWS,{url:'wss://game.test/ws',host:'game.test',token:'same-issued-session',acct:{id:'same-account'},state:'off'});
   return {api,context,timers,sockets,notices,suspended:()=>suspended};
 }
+
+test('stationary shared actions send one fresh validated pose before the command without an idle heartbeat',()=>{
+  const h=harness(); let now=10000;
+  h.context.performance.now=()=>now;
+  h.context.GAME.started=true;h.context.GAME.player={id:'local',x:1,y:2,z:3};
+  const socket={readyState:1,sent:[],send(text){this.sent.push(JSON.parse(text))}};
+  h.api.NETWS.ws=socket;h.api.NETWS.state='on';
+  Object.assign(h.api.NET,{state:'on',fastAt:now,lastFast:{t:now-6000},link:{kind:'ws',
+    setFast:d=>h.api.netWsSend({t:'fast',d}),connected:()=>true}});
+  vm.runInContext('netFastObj=now=>({t:now,p:[GAME.player.x,GAME.player.y,GAME.player.z],y:0,v:[0,0],a:0,h:1,m:100,d:0,mo:0,ph:0,sw:0,st:0,cs:0,fl:0,tg:""})',h.context);
+  const command={t:'activity',kind:'worldparts',op:'command',command:{id:'rune',op:'combat.rune'}};
+  assert.equal(h.api.netWsSend(command),true);
+  assert.deepEqual(socket.sent.map(m=>m.t),['fast','activity']);
+  assert.deepEqual(socket.sent[0].d.p,[1,2,3]);
+  for(const kind of ['worldparts','entities','boats'])
+    assert.equal(h.api.netWsSend({...command,kind,op:kind==='boats'?'board':'command'}),true);
+  assert.equal(socket.sent.filter(m=>m.t==='fast').length,1,'a burst of actions reuses the fresh pose');
+  now+=200;h.context.GAME.player.x=4;
+  assert.equal(h.api.netWsSend(command),true);
+  assert.deepEqual(socket.sent.at(-2).d.p,[4,2,3],'an action after movement carries the changed position first');
+  assert.equal(socket.sent.filter(m=>m.t==='fast').length,2);
+  h.api.netWsSend(command);
+  assert.equal(socket.sent.filter(m=>m.t==='fast').length,2,'repeated actions cannot exceed the configured pose rate');
+  now+=6000;
+  h.api.netSendFast(now);
+  assert.equal(socket.sent.filter(m=>m.t==='fast').length,2,'standing still produces no periodic pose uploads');
+  assert.equal(h.api.netWsSend({...command,kind:'boats',op:'launch'}),true);
+  assert.deepEqual(socket.sent.slice(-2).map(m=>m.t),['fast','activity']);
+  assert.equal(socket.sent.filter(m=>m.t==='fast').length,3);
+  h.context.netHumanLive=()=>false;
+  now+=6000;
+  assert.equal(h.api.netWsSend({...command,kind:'boats',op:'ignite'}),false);
+  assert.equal(socket.sent.filter(m=>m.t==='fast').length,3,'inactive pages cannot refresh or send shared actions');
+});
 
 test('updated WebSocket profiles advertise shared-scene capability while standalone profiles remain compatible',()=>{
   const h=harness();

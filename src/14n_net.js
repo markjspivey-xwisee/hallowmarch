@@ -480,6 +480,20 @@ function netSendFast(now) {
     NET.link.setFast(o);
   }
 }
+function netActivityPosition(now = performance.now()) {
+  if (!netHumanLive() || !netOn() || !GAME.started || !GAME.player) return false;
+  // Standing still suppresses unchanged pose traffic. A shared action still
+  // needs a fresh, ordinarily validated position before the server admits it.
+  const sent = NET.lastFast, P = GAME.player;
+  const age = sent && Number.isFinite(sent.t) ? now - sent.t : Infinity;
+  const samePosition = sent?.p?.[0] === netR2(P.x) && sent?.p?.[1] === netR2(P.y) && sent?.p?.[2] === netR2(P.z);
+  if (age >= 0 && (age < 1000 / NET.cfg.fastHz || age < 1000 && samePosition)) return true;
+  const previous = NET.lastFast;
+  NET.fastKey = '';
+  NET.fastAt = Math.min(NET.fastAt, now - 1000 / NET.cfg.fastHz);
+  netSendFast(now);
+  return NET.lastFast !== previous;
+}
 function netPump(dt) {
   netHumanSync();
   if (!netHumanLive()) return;

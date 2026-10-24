@@ -280,6 +280,9 @@ async def combat_fields_case(pages):
             "an independent follower casts persistent fields as a mage")
     peer = await caster.evaluate("NT.st().self")
     before = await caster.evaluate("__hm.combatfields.save().runes.map(r=>r.id)")
+    # Unchanged poses are intentionally silent; this action must refresh its
+    # real position rather than requiring a player to move every five seconds.
+    await pulse(pages, 6)
     await caster.evaluate("__hm.combatfields.rune('frost'); 0")
     async def rune_shared():
         frames = [await page.evaluate("__hm.combatfields.save()") for page in pages]
