@@ -45,6 +45,37 @@ jobs:
         run: |
           npm ci --prefix tools
           node tools/node_modules/playwright/cli.js install --with-deps chromium
+      - uses: actions/checkout@v4
+        with:
+          ref: 970f5efda4b046bd66ecce9739d825378c03f341
+          path: candidate
+      - name: Build exact candidate page
+        run: python3 candidate/build.py
+      - name: Verify deployed page and public native status
+        env:
+          GAME_ORIGIN: https://march-native-preview-production.up.railway.app
+        run: |
+          node --input-type=module <<'JS'
+          import fs from 'node:fs/promises';
+          import { createHash } from 'node:crypto';
+          const origin = process.env.GAME_ORIGIN;
+          const expected = await fs.readFile('candidate/hallowmarch.html', 'utf8');
+          const response = await fetch(origin + '/', { signal: AbortSignal.timeout(30000) });
+          if (!response.ok || !(await response.text()).endsWith(expected + '</body></html>'))
+            throw Error('deployed_page_differs_from_exact_candidate');
+          const healthResponse = await fetch(origin + '/health', { signal: AbortSignal.timeout(30000) });
+          const health = await healthResponse.json(), world = health.worldAuthority;
+          if (!healthResponse.ok || !health.ok || world?.mode !== 'native' || world.fenced || world.error
+            || !(world.confirmedVersion > 0)) throw Error('native_world_not_confirmed');
+          const statsResponse = await fetch(origin + '/stats', { signal: AbortSignal.timeout(30000) });
+          const stats = await statsResponse.json();
+          const allowed = new Set(['k', 'g', 'td', 'tm', 'cn', 'cl', 'at']);
+          if (!statsResponse.ok || !Array.isArray(stats.rooms)
+            || stats.rooms.some(room => room.world && Object.keys(room.world).some(key => !allowed.has(key))))
+            throw Error('public_stats_exposes_checkpoint');
+          console.log(JSON.stringify({ passed: true, pageSha256: createHash('sha256').update(expected).digest('hex'),
+            native: true, confirmed: true, publicStatsBounded: true }));
+          JS
       - name: Check script syntax
         run: node --check tools/manual/release-browser-smoke.mjs
       - name: Exercise actual deployed guest UI
