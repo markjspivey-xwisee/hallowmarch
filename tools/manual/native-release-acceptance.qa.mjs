@@ -325,6 +325,30 @@ async function safeDiagnostic(actor) {
       partsReady: !!h?.worldparts?.NETPARTS.ready, partsPaused: !!h?.worldparts?.NETPARTS.paused, partsPending: h?.worldparts?.NETPARTS.pending.size ?? 0 };
   }, SAFE_NATIVE); } catch { return { label: actor.label, diagnosticUnavailable: true }; }
 }
+
+async function nativeReceiptProbe(pair, initial) {
+  const owner = initial[0].mine ? pair[1] : pair[0];
+  const command = await evaluate(owner, () => {
+    const h = window.__hm, p = h.worldparts.NETPARTS;
+    const before = new Set(p.pending.keys());
+    const queued = h.worldparts.request('dungeon.chest', { id: 'qa-unavailable-shared-chest' }, [], true);
+    return { queued, id: [...p.pending.keys()].find(id => !before.has(id)) || null };
+  });
+  check(command.queued === true && typeof command.id === 'string', 'native_shared_action_reserved_by_its_owner');
+  await poll('native_shared_action_receipt_and_private_save_confirmed', () => evaluate(owner, id => {
+    const h = window.__hm, p = h.worldparts.NETPARTS, row = p.settled.get(id);
+    return !p.pending.has(id) && row?.confirmed === true && row.acknowledged === true
+      && row.ownerAccount === h.net.NETWS.acct.id && !p.paused;
+  }, command.id), 180000);
+  await poll('native_shared_receipt_confirmed_on_both_devices', async () => {
+    const rows = await Promise.all(pair.map(actor => evaluate(actor, id => {
+      const p = window.__hm.worldparts.NETPARTS, r = p.receipts.find(r => r.id === id);
+      return !!(r && r.ok === false && r.settled === true && typeof r.digest === 'string' && !p.paused);
+    }, command.id)));
+    return rows.every(Boolean);
+  }, 180000);
+}
+
 async function main() {
   stage = 'idle_gate'; await idleGate();
   const desktop = await boot('desktop', false);
@@ -333,6 +357,7 @@ async function main() {
   await poll('phone_native_live', () => live(phone));
   check(desktop.original.id !== phone.original.id, 'independent_native_characters');
   const initial = await converge('independent_public_scenes_converge', [desktop,phone]);
+  await nativeReceiptProbe([desktop,phone], initial);
   const resuming = initial[0].mine ? desktop : phone, activePeer = resuming === desktop ? phone : desktop;
   const beforePauseAuthority = initial[0].entityAuthority;
   await pause(resuming, 'same_page_keeper_pause');
