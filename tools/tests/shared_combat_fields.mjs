@@ -6,7 +6,7 @@ import vm from 'node:vm';
 const source = readFileSync(new URL('../../src/14z_netcombatfields.js', import.meta.url), 'utf8');
 function scene(mine = true, peer = 'a') {
   const c = vm.createContext({ console, Math, Number, Map, Set, Object, Array, String, JSON,
-    mine, peer, requests: [], sends: [], floorCount: 0, meshCount: 0, damage: 0, heals: 0,
+    mine, peer, requests: [], sends: [], floorCount: 0, meshCount: 0, damage: 0, heals: 0, floors: [], arrowSources: [], stepVisits: [],
     queueMicrotask: fn => fn(), window: { __hm: {} } });
   vm.runInContext(`
     const GAME={t:100,player:{id:1,role:'player',cls:'mage',level:30,faction:0,x:0,y:0,z:0,alive:true,maxHp:100,hp:100,cs:{dev:100}}};
@@ -28,7 +28,8 @@ function scene(mine = true, peer = 'a') {
     const csOf=e=>e.cs,devOf=e=>e.cs.dev;
     const clsHas=(e,k)=>k==='snare'?e.cls==='archer'&&e.level>=8:e.cls==='priest'&&e.level>=(k==='raise'?16:5);
     const isWaterAt=()=>true,heightAt=()=>0;
-    function addFloorDisc(x,z,r,y){floorCount++;return{x,z,r,y,active:true}}
+    function addFloorDisc(x,z,r,y){floorCount++;const f={x,z,r,y,ya:y,active:true};floors.push(f);return f}
+    function bFloorRemove(f){f.active=false;const i=floors.indexOf(f);if(i>=0)floors.splice(i,1)}
     function iceSheetMesh(f){meshCount++;f.mesh={}}
     function iceSheetRefresh(){}
     function iceSheetEnd(f){f.dead=true;if(f.floor)f.floor.active=false;CLS.ice=CLS.ice.filter(q=>q!==f)}
@@ -52,8 +53,8 @@ function scene(mine = true, peer = 'a') {
     function healEnt(src,dst,n){heals+=n}
     function addBuff(e,kind,value,dur,src){e.lastBuff={kind,value,dur,src}}
     function addChill(e,n){e.chill=(e.chill||0)+n}
-    function arrowHits(){}
-    function stepArrows(){}
+    function arrowHits(A,target,src){arrowSources.push(src)}
+    function stepArrows(){stepVisits.push(CLS.arrows.map(a=>({id:a.netFieldId,vis:a.vis}))) }
     function goodsAdd(){}
   `, c);
   vm.runInContext(source, c);
@@ -132,4 +133,81 @@ test('public hazard effects go to the remote character owner and cosmetic mirror
   const effect = a.json('sends[0].result'); assert.equal(effect.kind, 'class-effect'); assert.equal(effect.effect, 'damage');
   const b = scene(false, 'b'); b.c.effect = effect; b.run('netCombatFieldResult(effect)');
   assert.equal(b.run('damage'), 12);
+});
+
+test('canonical ice growth replaces its spatial floor once and removes it on expiry', () => {
+  const a = scene(), b = scene(false, 'b');
+  a.run('freezeWater(4,6,3,GAME.player)');
+  b.apply(a.json('netCombatFieldsSave()'));
+  b.run('const firstFloor=CLS.ice[0].floor');
+  a.run('CLS.ice[0].r=8;CLS.ice[0].wy=4');
+  const grown = a.json('netCombatFieldsSave()'); b.apply(grown);
+  assert.equal(b.run('firstFloor.active'), false);
+  assert.equal(b.run('floors.length'), 1);
+  assert.equal(b.run('CLS.ice[0].floor.r'), 8);
+  assert.equal(b.run('CLS.ice[0].floor.ya'), 4.07);
+  b.apply(grown);
+  assert.equal(b.run('floorCount'), 2, 'unchanged canonical replay reuses its physical floor');
+  b.run('GAME.t+=27;netCombatFieldsVisual(0.1)');
+  assert.equal(b.run('floors.length'), 0);
+  assert.equal(b.run('CLS.ice.length'), 0);
+});
+
+test('missing lifetimes and malformed effect geometry cannot alter any projected field', () => {
+  const a = scene(), b = scene(false, 'b');
+  a.run('freezeWater(0,0,5,GAME.player);layRune(GAME.player,0,0,"frost")');
+  const valid = a.json('netCombatFieldsSave()'); b.apply(valid);
+  for (const change of [
+    f => { delete f.ice[0].life; },
+    f => { f.ice[0].r=0; },
+    f => { f.ice[0].r=26; },
+    f => { delete f.ice[0].wy; },
+    f => { f.runes[0].el='unsupported'; },
+    f => { f.runes[0].el={bad:true}; },
+    f => { f.ice[0].r={bad:true}; },
+  ]) {
+    const bad = JSON.parse(JSON.stringify(valid)); change(bad);
+    const before = b.run('JSON.stringify(netCombatFieldsSave())'), floors = b.run('floorCount');
+    b.apply(bad);
+    assert.equal(b.run('JSON.stringify(netCombatFieldsSave())'), before);
+    assert.equal(b.run('floorCount'), floors);
+  }
+});
+
+test('arrow scaling and full draw survive a departed caster without using the keeper character', () => {
+  const a = scene(), b = scene(false, 'b');
+  a.run('GAME.player.cls="archer";GAME.player.level=12;GAME.player.dmgMult=1.4;const A={x:0,y:1,z:0,vx:1,vy:0,vz:40,age:0,k:1,type:"plain",src:GAME.player.id,faction:0,mult:1,crit:0,wind:1};CLS.arrows.push(A)');
+  const frame = a.json('netCombatFieldsSave()');
+  assert.equal(frame.arrows[0].level, 12); assert.equal(frame.arrows[0].dmgMult, 1.4); assert.equal(frame.arrows[0].k, 1);
+  b.apply(frame);
+  b.run('arrowHits(CLS.arrows[0],{},null)');
+  assert.equal(b.run('arrowSources[0].level'), 12);
+  assert.equal(b.run('arrowSources[0].dmgMult'), 1.4);
+  assert.equal(b.run('GAME.player.level'), 30);
+  assert.equal(b.run('GAME.player.cs.dev'), 100);
+});
+
+test('an admitted arrow takes scaling from the actual remote actor rather than its packet', () => {
+  const b = scene(false, 'b');
+  b.run('GAME.player.cls="archer";const A={x:0,y:1,z:0,vx:0,vy:0,vz:40,age:0,k:1,type:"plain",src:GAME.player.id,faction:0,mult:1,crit:0,wind:1};CLS.arrows.push(A);netOnArrow(A)');
+  const request = b.json('requests[0]'); request.args.row.level=9999; request.args.row.dmgMult=9999;
+  const a = scene(); a.c.args = request.args;
+  a.run('GAME.player.role="remote";GAME.player.netPeer="b";GAME.player.cls="archer";GAME.player.level=17;GAME.player.dmgMult=1.25');
+  assert.equal(a.run('commands.get("combat.arrow").run(args).ok'), true);
+  assert.equal(a.run('CLS.arrows[0].level'), 17);
+  assert.equal(a.run('CLS.arrows[0].dmgMult'), 1.25);
+});
+
+test('arrow physics follows shared keeper authority and local pending arrows remain cosmetic', () => {
+  const a = scene(), b = scene(false, 'b');
+  a.run('const A={x:0,y:1,z:0,vx:0,vy:0,vz:40,age:0,type:"plain",src:GAME.player.id,faction:0,mult:1,crit:0,wind:1};CLS.arrows.push(A)');
+  const frame = a.json('netCombatFieldsSave()');
+  b.apply(frame); b.run('stepArrows(0.1)');
+  assert.equal(b.run('stepVisits.at(-1)[0].vis'), true);
+  b.run('NETPARTS.peer=peer'); b.apply(frame);
+  assert.equal(b.run('CLS.arrows[0].vis'), false, 'the new keeper replay is not mistaken for another viewer');
+  b.run('mine=true;stepArrows(0.1)');
+  assert.equal(b.run('stepVisits.at(-1)[0].vis'), false);
+  b.run('CLS.arrows[0].netFieldPending=true;stepArrows(0.1)');
+  assert.equal(b.run('stepVisits.at(-1)[0].vis'), true);
 });

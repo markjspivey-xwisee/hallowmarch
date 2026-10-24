@@ -5,7 +5,7 @@ const NET_COMBAT_FIELDS = { next: 0, ticking: false, applying: false, cooldowns:
 const NET_FIELD_KEYS = { arrows: 128, stuck: 60, snares: 64, grounds: 6, runes: 96, ice: 7, steam: 8 };
 const NET_FIELD_SCALARS = ['x', 'y', 'z', 'px', 'py', 'pz', 'ox', 'oy', 'oz', 'vx', 'vy', 'vz',
   'dx', 'dy', 'dz', 'yaw', 'wy', 'r', 'faction', 'realm', 'level', 'type', 'el', 'tick', 'rk', 'sanct',
-  'close', 'thule', 'age', 'mult', 'crit', 'wind', 'wall', 'dmgMult'];
+  'close', 'thule', 'age', 'mult', 'crit', 'wind', 'wall', 'dmgMult', 'k'];
 const netCombatFieldsActive = () => typeof netWorldPartsActive === 'function' && netWorldPartsActive();
 const netCombatFieldFinite = v => typeof v === 'number' && Number.isFinite(v) && Math.abs(v) <= 1e6;
 const netCombatFieldRef = e => !e ? null : e === GAME.player ? 'peer:' + NET.self
@@ -41,7 +41,8 @@ function netCombatFieldRead(row) {
     || !netCombatFieldFinite(row.z) || Math.abs(row.x) > 4000 || Math.abs(row.z) > 4000) return null;
   const f = { netFieldId: row.id, dead: false };
   for (const key of NET_FIELD_SCALARS) if (row[key] != null) {
-    if (typeof row[key] === 'number' && !netCombatFieldFinite(row[key]) || typeof row[key] === 'string' && row[key].length > 32) return null;
+    if (!['number', 'string', 'boolean'].includes(typeof row[key])
+      || typeof row[key] === 'number' && !netCombatFieldFinite(row[key]) || typeof row[key] === 'string' && row[key].length > 32) return null;
     f[key] = row[key];
   }
   for (const key of ['src', 'owner', 'tgt', 'caught']) f[key] = netCombatFieldEnt(row[key])?.id ?? null;
@@ -65,10 +66,23 @@ function netCombatFieldVisualMake(kind, f) {
   }
 }
 function netCombatFieldVisualEnd(kind, f) {
-  if (kind === 'ice') iceSheetEnd(f);
+  if (kind === 'ice') {
+    if (f.floor && typeof bFloorRemove === 'function') bFloorRemove(f.floor);
+    iceSheetEnd(f);
+  }
   else if (kind === 'snares') snareEnd(f);
   else if (kind === 'runes') runeEnd(f);
   else if (f.disc && f.disc.on) f.disc.age = Math.max(f.disc.age, f.disc.dur - 0.3);
+}
+function netCombatFieldIceRefresh(f) {
+  const old = f.floor;
+  if (!old || old.x !== f.x || old.z !== f.z || old.r !== f.r || old.ya !== f.wy + 0.07) {
+    if (old) { old.active = false; if (typeof bFloorRemove === 'function') bFloorRemove(old); }
+    f.floor = addFloorDisc(f.x, f.z, f.r, f.wy + 0.07, f.wy - 4, 'ice');
+  }
+  f.mesh?.position?.set?.(f.x, f.wy + 0.05, f.z);
+  if (f.mesh?.material?.uniforms?.uWY) f.mesh.material.uniforms.uWY.value = f.wy;
+  iceSheetRefresh(f);
 }
 function netCombatFieldsApply(frame) {
   if (!frame || frame.v !== 1) return;
@@ -93,7 +107,7 @@ function netCombatFieldsApply(frame) {
         f.netFieldPending = false;
         if (kind === 'arrows') f.vis = NETPARTS.peer !== NET.self;
         if (fresh) netCombatFieldVisualMake(kind, f);
-        else if (kind === 'ice') iceSheetRefresh(f);
+        else if (kind === 'ice') netCombatFieldIceRefresh(f);
         keep.add(f.netFieldId); result.push(f);
       }
       for (const f of CLS[kind].slice()) if (!keep.has(f.netFieldId)) {
@@ -229,6 +243,8 @@ queueMicrotask(() => {
     const arrow = netCombatFieldRead(row); if (!arrow || !ARROW_TYPES.includes(arrow.type)) return false;
     if (CLS.arrows.some(a => a.netFieldId === arrow.netFieldId)) return { ok: true };
     arrow.src = e.id; arrow.faction = e.faction; arrow.vis = false; arrow.netFieldPending = false;
+    // Caster scaling comes from the admitted actor, not the requesting arrow row.
+    arrow.level = clamp(+e.level || 1, 1, 50); arrow.dmgMult = clamp(+e.dmgMult || 1, 0, 10);
     arrow.age = 0; arrow.mult = clamp(+arrow.mult || 1, 0.1, 3); arrow.crit = clamp(+arrow.crit || 0, 0, 0.5);
     CLS.arrows.push(arrow); return { ok: true };
   } });

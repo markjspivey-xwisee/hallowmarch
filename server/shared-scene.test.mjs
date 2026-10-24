@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createSharedScene, activityBoat, activityNpc, checkedSharedScene } from './shared-scene.js';
+import { createSharedScene, confirmOwnedSceneCheckpoint, activityBoat, activityNpc, checkedSharedScene } from './shared-scene.js';
 
 const boat = (id = 1) => ({ id, x: 0, z: 0, yaw: 0, vx: 0, vz: 0, wr: 0, st: 'free', ph: 0, eff: 0, grounded: 0.3, char: 0, rider: null, still: false, home: { j: 0, b: 0 }, launch: null });
 const npc = () => ({ id: 'town:0:villager:0', role: 'villager', n: 'Field worker', r: 0, c: null, l: 1, p: [0, 2, 0], y: 0, a: 21, ph: 2, am: 0, h: 10, m: 10, d: 0, g: 0, lk: [1,1,1,1,1,1,0,0,65536,0,1,0,0,0,0.2], st: null, fm: [0,1,0], hm: 0, bt: 1 });
@@ -14,7 +14,7 @@ function fixture(saved, options = {}) {
   };
   const a = add('a'), b = add('b');
   const scene = createSharedScene({ hostFor: () => room.clients.get(host), live: c => c.live,
-    admission, stateFor: () => state, canMutate: () => mutable, validatePersist: options.validatePersist, changed: () => changes++, now: () => time,
+    admission, stateFor: () => state, canMutate: () => mutable, validatePersist: options.validatePersist, confirm: options.confirm, changed: () => changes++, now: () => time,
     send: (c, m) => out.get(c.peer).push(structuredClone(m)) });
   scene.sync(room);
   const authority = c => [...out.get(c.peer)].reverse().find(m => m.kind === 'authority');
@@ -135,9 +135,13 @@ test('commands are stamped, bounded and deduplicated; only host targets results'
   const seen = f.out.get('a').at(-1);
   assert.equal(seen.from, 'b'); assert.deepEqual(seen.position, { x: 0, z: 0 });
   assert.equal(seen.realm, 0);
-  assert.equal(f.send(f.b, { kind: 'worldparts', op: 'command', command }), true, 'canonical host may replay a world outcome after a lost reply');
+  assert.equal(f.send(f.b, { kind: 'worldparts', op: 'command', command }), false);
   assert.equal(f.send(f.b, { kind: 'worldparts', op: 'result', to: 'a', id: 'b:5', ok: true }), false);
-  assert.equal(f.send(f.a, { kind: 'worldparts', op: 'result', to: 'b', id: 'b:5', ok: true, goods: [['timber', -2]], result: { pieceId: 1 } }), true);
+  const receipt = { id: 'b:5', ownerAccount: 'account-b', ok: true, goods: [['timber', -2]], result: { pieceId: 1 } };
+  assert.equal(f.send(f.a, { kind: 'worldparts', op: 'result', to: 'b', ...receipt }), false, 'unpublished receipts are unavailable');
+  f.publish(f.a, 'worldparts', { v: 1, full: true, parts: {}, remove: [], receipts: [receipt] });
+  assert.equal(f.send(f.a, { kind: 'worldparts', op: 'result', to: 'b', ...receipt, goods: [['gold', 999]] }), true);
+  assert.deepEqual(f.out.get('b').at(-1).goods, [['timber', -2]], 'only the canonical outcome is sent');
   assert.equal(f.out.get('b').at(-1).id, 'b:5');
   assert.deepEqual(f.out.get('b').at(-1).result, { pieceId: 1 });
   assert.equal(f.send(f.a, { kind: 'entities', op: 'result', to: 'b', result: { id: 1, kind: 'reward', gold: 3 } }), true);
@@ -427,4 +431,137 @@ test('capable room hosts are preferred over older legacy pages without breaking 
   fresh.slow.sharedScene=1;
   assert.equal(context.roomHost(room).peer,'new','updated actor authority is never held by an earlier old page');
   fresh.live=false;assert.equal(context.roomHost(room).peer,'old');
+});
+
+test('only identical worldpart retries reach the keeper after the bounded retry delay', () => {
+  const f = fixture(), command = { id: 'b:retry', op: 'resource.take', args: { node: 3 } };
+  assert.equal(f.send(f.b, { kind: 'worldparts', op: 'command', command }), true);
+  assert.equal(f.send(f.b, { kind: 'worldparts', op: 'command', command }), false);
+  f.tick(3000);
+  assert.equal(f.send(f.b, { kind: 'worldparts', op: 'command', command }), true);
+  assert.equal(f.out.get('a').filter(m => m.op === 'command').length, 2);
+  f.tick(3000);
+  assert.equal(f.send(f.b, { kind: 'worldparts', op: 'command', command: { ...command, args: { node: 4 } } }), false);
+  const hit = { id: 'b:hit', op: 'hit', id2: 'wolf' };
+  assert.equal(f.send(f.b, { kind: 'entities', op: 'command', command: hit }), true);
+  f.tick(3000);
+  assert.equal(f.send(f.b, { kind: 'entities', op: 'command', command: hit }), false);
+});
+
+test('private settlement reaches only the keeper after an exact canonical owner and receipt match', () => {
+  const f = fixture();
+  const receipt = { id: 'b:1', ownerAccount: 'account-b', digest: 'receipt-proof', ok: true, goods: [['stone', 2]] };
+  assert.equal(f.publish(f.a, 'worldparts', { v: 1, full: true, parts: {}, remove: [], receipts: [receipt] }), true);
+  const packet = { kind: 'worldparts', op: 'settled', id: receipt.id, digest: receipt.digest };
+  assert.equal(f.send(f.a, { ...packet, ownerAccount: 'account-b', from: 'b' }), false);
+  assert.equal(f.send(f.b, { ...packet, digest: 'wrong' }), false);
+  assert.equal(f.send(f.b, { ...packet, id: 'unknown' }), false);
+  assert.equal(f.send(f.b, { ...packet, kind: 'entities' }), false);
+  const before = f.out.get('b').length;
+  assert.equal(f.send(f.b, { ...packet, from: 'spoof', ownerAccount: 'account-a' }), true);
+  const seen = f.out.get('a').at(-1);
+  assert.equal(seen.op, 'settled'); assert.equal(seen.from, 'b'); assert.equal(seen.ownerAccount, 'account-b');
+  assert.equal(seen.id, receipt.id); assert.equal(seen.digest, receipt.digest);
+  assert.equal(f.out.get('b').length, before + 1);
+  assert.equal(f.out.get('b').at(-1).op, 'settled');
+  assert.equal(f.state.activity.worldparts.receipts[0].settled, true, 'authenticated private readback survives keeper departure');
+});
+
+const turn = () => new Promise(resolve => setImmediate(resolve));
+const economicReceipt = () => ({ id: 'b:economic', ownerAccount: 'account-b', digest: 'native-proof', ok: true, goods: [['stone', 2]] });
+test('native confirmation gates economic echoes, late joins, results and authority handoff', async () => {
+  let release;
+  const f = fixture(undefined, { confirm: () => new Promise(resolve => { release = resolve; }) });
+  f.publish(f.a, 'worldparts', { v: 1, full: true, parts: { resource: { available: true } }, remove: [], receipts: [] });
+  const before = f.out.get('b').length, receipt = economicReceipt();
+  assert.equal(f.publish(f.a, 'worldparts', { v: 1, full: false, parts: { resource: { available: false } }, remove: [], receipts: [receipt] }, 2), true);
+  assert.equal(f.state.activity.worldparts.parts.resource.available, false, 'the staged native snapshot contains the consumption');
+  assert.equal(f.out.get('b').length, before, 'no unconfirmed public echo');
+  assert.equal(f.scene.publicActivity(f.room).worldparts.parts.resource.available, true);
+  assert.equal(f.send(f.a, { kind: 'worldparts', op: 'result', to: 'b', ...receipt }), false);
+  f.send(f.a, { kind: 'npcs', op: 'snapshot', seq: 1, npcs: [npc()] });
+  assert.equal(f.state.activity.worldparts.parts.resource.available, false, 'other persisted motion retains the staged economic mutation');
+  const c = f.add('late'); f.scene.sync(f.room, c);
+  assert.equal(f.authority(c).worldpartsReady, true);
+  assert.equal(reconstruct(f.out.get('late').filter(m => m.kind === 'worldparts')).receipts.length, 0);
+  const oldAuthority = f.authority(f.b).authority;
+  f.a.live = false; f.host('b'); f.scene.leave(f.a);
+  assert.equal(f.authority(f.b).authority, oldAuthority, 'new keeper cannot replay the old resource while the commit is pending');
+  await Promise.resolve(); release(); await turn();
+  assert.notEqual(f.authority(f.b).authority, oldAuthority);
+  const canonical = reconstruct(f.out.get('b').filter(m => m.kind === 'worldparts' && m.authority === f.authority(f.b).authority));
+  assert.equal(canonical.parts.resource.available, false);
+  assert.equal(canonical.receipts[0].digest, receipt.digest);
+  assert.equal(f.send(f.b, { kind: 'worldparts', op: 'result', to: 'b', ...receipt, goods: [['stone', 999]] }), true);
+  assert.deepEqual(f.out.get('b').at(-1).goods, [['stone', 2]]);
+});
+
+test('failed native confirmation fences economic changes without revealing a receipt', async () => {
+  const f = fixture(undefined, { confirm: async () => { throw Error('native storage unavailable'); } });
+  f.publish(f.a, 'worldparts', { v: 1, full: true, parts: {}, remove: [], receipts: [economicReceipt()] });
+  await turn();
+  const packets = f.out.get('b').filter(m => m.kind === 'worldparts');
+  assert.equal(packets.length, 1); assert.equal(packets[0].ok, false);
+  assert.equal(packets[0].reason, 'world_checkpoint_unconfirmed');
+  assert.equal(f.scene.publicActivity(f.room).worldparts, null);
+  assert.equal(f.send(f.a, { kind: 'worldparts', op: 'result', to: 'b', ...economicReceipt() }), false);
+  const c = f.add('late'); f.scene.sync(f.room, c);
+  assert.equal(f.authority(c).worldpartsReady, true);
+  assert.equal(f.out.get('late').some(m => m.kind === 'worldparts'), false);
+});
+
+test('late native completion cannot revive a recovered scene in the same world epoch', async () => {
+  let release;
+  const f = fixture(undefined, { confirm: () => new Promise(resolve => { release = resolve; }) });
+  f.publish(f.a, 'worldparts', { v: 1, full: true, parts: { resource: { available: false } }, remove: [], receipts: [economicReceipt()] });
+  await Promise.resolve();
+  f.state.activity = undefined;
+  f.scene.sync(f.room);
+  const authority = f.authority(f.b).authority, before = f.out.get('b').length;
+  release(); await turn();
+  assert.equal(f.authority(f.b).authority, authority);
+  assert.equal(f.out.get('b').length, before);
+  assert.equal(f.state.activity, undefined);
+});
+
+test('owned confirmation drains an older in-flight checkpoint and proves the captured version', async () => {
+  let confirmed = 1, calls = 0;
+  const world = { capture: () => ({ liveVersion: 3 }), status: () => ({ confirmedLiveVersion: confirmed }),
+    checkpoint: async options => { assert.equal(options.allowInactive, true); confirmed = ++calls === 1 ? 2 : 3; } };
+  await confirmOwnedSceneCheckpoint(world);
+  assert.equal(calls, 2);
+  confirmed = 0; calls = 0; world.checkpoint = async () => { calls++; };
+  await assert.rejects(confirmOwnedSceneCheckpoint(world), /not confirmed/);
+  assert.equal(calls, 3);
+  world.status = () => ({ confirmedLiveVersion: 3, error: 'CHECKPOINT_UNCONFIRMED' });
+  await assert.rejects(confirmOwnedSceneCheckpoint(world), /fenced/);
+});
+
+test('an authenticated settlement stays settled across another native commit and keeper departure', async () => {
+  let hold = false, release;
+  const f = fixture(undefined, { confirm: () => hold ? new Promise(resolve => { release = resolve; }) : Promise.resolve() });
+  const first = economicReceipt(), second = { ...economicReceipt(), id: 'b:second', digest: 'second-proof' };
+  f.publish(f.a, 'worldparts', { v: 1, full: true, parts: {}, remove: [], receipts: [first] });
+  await turn(); hold = true;
+  f.publish(f.a, 'worldparts', { v: 1, full: false, parts: { resource: false }, remove: [], receipts: [first, second] }, 2);
+  await Promise.resolve();
+  assert.equal(f.send(f.b, { kind: 'worldparts', op: 'settled', id: first.id, digest: first.digest }), true);
+  assert.equal(f.state.activity.worldparts.receipts.find(r => r.id === first.id).settled, true);
+  const late = f.add('late'); f.scene.sync(f.room, late);
+  f.a.live = false; f.b.live = false; f.host('late'); f.scene.leave(f.a); f.scene.leave(f.b);
+  release(); await turn();
+  const authority = f.authority(late).authority;
+  const value = reconstruct(f.out.get('late').filter(m => m.kind === 'worldparts' && m.authority === authority));
+  assert.equal(value.receipts.find(r => r.id === first.id).settled, true);
+  assert.equal(value.receipts.find(r => r.id === second.id).digest, second.digest);
+});
+
+test('ordinary public work does not force an economic native checkpoint', () => {
+  let confirmations = 0;
+  const f = fixture(undefined, { confirm: () => { confirmations++; } });
+  f.publish(f.a, 'worldparts', { v: 1, full: true, parts: { hammer: 1 }, remove: [],
+    receipts: [{ id: 'b:work', ownerAccount: 'account-b', digest: 'public-work', durable: false, ok: true }] });
+  assert.equal(confirmations, 0);
+  const value = reconstruct(f.out.get('b').filter(m => m.kind === 'worldparts'));
+  assert.equal(value.parts.hammer, 1);
 });

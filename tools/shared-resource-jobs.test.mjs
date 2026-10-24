@@ -47,8 +47,34 @@ function scene() {
   });
   vm.runInContext(world + '\nglobalThis.api = { NETPARTS, NETPART_COMMANDS, netWorldPartsExecute, netWorldPartsMessage, netWorldPartsPump, netWorldPartsJournalSave, netWorldPartsFlushJournal };', ctx);
   const committed = new Map();
-  ctx.SAVE = { native: true, readConfirmed: true, wiping: false, lastBody: '',
-    ref: { get: async () => ({ exists: true, data: () => copy(committed.get(ctx.NETWS.acct.id)) }) } };
+  const owners = new Map();
+  function ownerFor(name, goods) {
+    let owner = owners.get(name);
+    if (!owner) {
+      const account = 'account-' + name;
+      owner = { account, player: name === 'host' ? host : { id: name, x: 0, z: 0, alive: true },
+        goods: goods || {}, gold: name === 'host' ? 100 : 0, bag: name === 'host' ? hostBag : [],
+        ref: { get: async () => {
+          const value = committed.get(account);
+          return { exists: value !== undefined, data: () => copy(value) };
+        } } };
+      owners.set(name, owner);
+    } else if (goods) owner.goods = goods;
+    return owner;
+  }
+  const hostOwner = ownerFor('host', hostGoods);
+  ctx.SAVE = { native: true, readConfirmed: true, wiping: false, lastBody: '', ref: hostOwner.ref };
+  function activate(name, goods) {
+    const previous = owners.get(ctx.NET.self);
+    if (previous && ctx.GAME.player === previous.player) {
+      previous.goods = inventory.goods; previous.gold = inventory.gold; previous.bag = inventory.bag;
+    }
+    const owner = ownerFor(name, goods);
+    ctx.NET.self = name; ctx.NETWS.acct.id = owner.account; ctx.GAME.player = owner.player;
+    inventory.goods = owner.goods; inventory.gold = owner.gold; inventory.bag = owner.bag;
+    ctx.SAVE.ref = owner.ref; ctx.SAVE.lastBody = committed.has(owner.account) ? JSON.stringify(committed.get(owner.account)) : '';
+    return owner;
+  }
   ctx.saveNow = async () => {
     const value = { char: { goods: copy(inventory.goods), x: { sharedWorldReservations: copy(ctx.api.netWorldPartsJournalSave()) } } };
     committed.set(ctx.NETWS.acct.id, value); ctx.SAVE.lastBody = JSON.stringify(value);
@@ -64,8 +90,8 @@ function scene() {
   Object.assign(ctx.api.NETPARTS, { authority: 'lease', peer: 'host', ready: true, admission: { origin: 'https://march.example', epoch: 1 } });
   return { ctx, sent, host, hostGoods, hostBag, inventory,
     async flushPrivate() { await ctx.api.netWorldPartsFlushJournal(); await Promise.resolve(); },
-    requester(name, goods = {}) { ctx.NET.self = name; ctx.NETWS.acct.id = 'account-' + name; ctx.GAME.player = { id: name, x: 0, z: 0, alive: true }; inventory.goods = goods; inventory.gold = 0; inventory.bag = []; return goods; },
-    execute(packet, name) { ctx.NET.self = 'host'; ctx.NETWS.acct.id = 'account-host'; ctx.GAME.player = host; inventory.goods = hostGoods; inventory.gold = 100; inventory.bag = hostBag; ctx.api.netWorldPartsExecute({ command: packet.command, from: name, ownerAccount: 'account-' + name, position: { x: 0, z: 0 } });
+    requester(name, goods) { return activate(name, goods).goods; },
+    execute(packet, name) { activate('host'); ctx.api.netWorldPartsExecute({ command: packet.command, from: name, ownerAccount: 'account-' + name, position: { x: 0, z: 0 } });
       const offset = sent.length; ctx.api.netWorldPartsPump(tick += 200);
       for (const frame of sent.slice(offset).filter(m => m.op === 'snapshot')) ctx.api.netWorldPartsMessage({ ...frame, peer: 'host' });
     },
@@ -77,7 +103,9 @@ function scene() {
 test('concurrent follower mining consumes the final shared yield once and only receipts award its owner', async () => {
   const s = scene();
   const alice = s.requester('alice', { tool_pick: 1 }); s.ctx.mineYield(0, true); await s.flushPrivate();
+  const aliceCharacter = s.ctx.GAME.player, aliceProfile = s.ctx.SAVE.ref;
   const bob = s.requester('bob', { tool_pick: 1 }); s.ctx.mineYield(0, true); await s.flushPrivate();
+  assert.notEqual(s.ctx.GAME.player, aliceCharacter); assert.notEqual(s.ctx.SAVE.ref, aliceProfile);
   assert.equal(s.ctx.CRAFT.rocks.get(0).n, 1, 'followers cannot deplete their own copy');
   assert.equal(alice.stone, undefined); assert.equal(bob.stone, undefined);
   const requests = s.requests();
@@ -86,7 +114,9 @@ test('concurrent follower mining consumes the final shared yield once and only r
   const results = s.results(); assert.equal(results[0].ok, true); assert.equal(results[1].ok, false);
   assert.equal(s.ctx.CRAFT.rocks.get(0).n, 0); assert.equal(s.ctx.CRAFT.rocks.get(0).until, 1000);
   assert.deepEqual(s.hostGoods, { tool_pick: 1, sentinel: 77 });
-  s.requester('alice', alice); s.ctx.api.netWorldPartsMessage(results[0]); await s.flushPrivate();
+  s.requester('alice', alice);
+  assert.equal(s.ctx.GAME.player, aliceCharacter); assert.equal(s.ctx.SAVE.ref, aliceProfile);
+  s.ctx.api.netWorldPartsMessage(results[0]); await s.flushPrivate();
   assert.equal(alice.stone, 3); assert.equal(alice.iron_ore, 2); assert.equal(bob.stone, undefined);
   assert.deepEqual(results[0].skills, [['craft', .3]]);
 });
@@ -157,3 +187,4 @@ test('a self-hosted offspring claim still waits for the private journal and cano
   assert.deepEqual(imported, ['hatch:self-host']); assert.equal(s.ctx.api.NETPARTS.pending.size, 0);
   s.ctx.api.netWorldPartsMessage(receipt); assert.equal(imported.length, 1);
 });
+

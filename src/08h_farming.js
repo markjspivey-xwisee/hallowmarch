@@ -636,7 +636,8 @@ function farmStepTown(dt) {
 function farmAssignFarmers() {
   FARM.farmers = [];
   for (const R of REALMS) {
-    const vs = ENT.filter((e) => e.role === 'villager' && e.home && dist2(e.home.x, e.home.z, R.town.x, R.town.z) < 10);
+    const vs = ENT.filter((e) => e.role === 'villager' && e.alive && !e.removed && !e.netNpcMissing
+      && e.home && dist2(e.home.x, e.home.z, R.town.x, R.town.z) < 10);
     const tends = R.id === 0 || FARM.plots.some((P) => P.own === 't' && P.stand.town === R.id); // [seasons] the gardens of Ériu and Thule are tended too
     vs.slice(0, tends ? 2 : 1).forEach((e, i) => { e.ai.farmer = true; e.ai.fieldHand = tends; e.farmTown = R.id; if (i === 0) e.ai.seedSeller = true; FARM.farmers.push(e.id); });
   }

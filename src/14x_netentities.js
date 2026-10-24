@@ -144,8 +144,9 @@ function netEntityReadRow(value) {
 function netEntityEnsure(row) {
   let e = NET_ENTITIES.bodies.get(row.id);
   if (e && !e.removed && netEntityOwned(e)) return e;
-  // Reuse bootstrap bodies where possible: their keep, dungeon and rendering references stay valid.
-  e = ENT.find(x => netEntityOwned(x) && !x.removed && !NET_ENTITIES.rows.has(x.netEntityId)
+  // Reuse public bootstrap bodies only: private companions belong to their exact owner/id.
+  // A different player's same-kind pet must never consume the local saved companion.
+  e = ENT.find(x => !row.owner && netEntityOwned(x) && !netEntityPersonal(x) && !x.removed && !NET_ENTITIES.rows.has(x.netEntityId)
     && !x.netEntityConfirmed && (x.netEntityKey === row.key || x.kind === row.kind && x.role === row.role
       && ((row.kind === 'door' && Math.hypot(x.x - row.p[0], x.z - row.p[2]) < 1) || row.kind === 'dragon')));
   if (!e) {
@@ -189,8 +190,14 @@ function netEntityApply(e, row, immediate = false) {
   e.game = row.game; e.deep = row.deep; e.deepLord = row.deepLord; e.l2risen = row.l2risen; e.elite = row.elite; e.dunPack = row.dunPack;
   e.camp = row.camp;
   e.hp = row.hp; e.maxHp = row.maxHp;
-  if (e.alive && !row.alive) e.deadAt = GAME.t;
-  e.alive = !!row.alive; e.removeAt = Infinity; e.seat = netEntityPlain(row.seat);
+  const wasAlive = e.alive;
+  if (wasAlive && !row.alive) e.deadAt = GAME.t;
+  e.alive = !!row.alive;
+  // Replicas hold the corpse pose, but a later keeper must retire it normally.
+  // Repeated death frames preserve the first bounded deadline instead of extending it.
+  e.removeAt = e.alive || e.kind === 'door' ? Infinity
+    : !wasAlive && Number.isFinite(e.removeAt) && e.removeAt > 0 ? e.removeAt : GAME.t + 10;
+  e.seat = netEntityPlain(row.seat);
   e.anim.act = Math.floor(row.a); e.anim.actT = row.a % 1; e.anim.actDur = row.a ? 1 : 0;
   e.anim.death = e.alive ? 0 : Math.min(1, (GAME.t - e.deadAt) / 0.7);
   e.buffs = Array.isArray(row.buffs) ? row.buffs.slice(0, 24).filter(b => typeof b.kind === 'string' && Number.isFinite(b.value) && Number.isFinite(b.left))

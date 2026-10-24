@@ -289,6 +289,108 @@ test('pure public work avoids private checkpoints while forced owner actions use
   assert.equal(actor, owner);
 });
 
+test('a former account or replaced character cannot receive an old private outcome', async () => {
+  for (const replace of [c => { c.context.NETWS.acct = { id: 'another-account' }; },
+    c => { c.context.SAVE.ref = { get: async () => ({ exists: false }) }; },
+    c => { c.context.GAME.player = { x: 0, y: 0, z: 0 }; }]) {
+    const c = client(); frame(c, { v: 1, full: true, parts: {}, remove: [] });
+    c.api.request('resource.take', {}, []); await c.api.flushPrivate();
+    const id = c.sent.find(m => m.op === 'command').command.id;
+    replace(c); c.sent.length = 0;
+    c.api.message({ t: 'activity', kind: 'worldparts', op: 'result', authority: 'token',
+      worldAdmission: c.admission, id, ownerAccount: 'phone-account', digest: 'old-scope',
+      ok: true, goods: [['stone', 5]] });
+    assert.equal(c.context.INV.goods.stone, 20);
+    assert.equal(c.api.journalSave(), null, 'old reservations cannot enter the replacement profile');
+    c.tick(4000);
+    assert.equal(c.sent.filter(m => m.op === 'command' || m.op === 'settled').length, 0);
+  }
+});
+
+test('loading another character clears old reservations and rejects foreign journal rows', async () => {
+  const c = client(); frame(c, { v: 1, full: true, parts: {}, remove: [] });
+  c.api.command('resource.take', {});
+  c.api.request('resource.take', {}, []); await c.api.flushPrivate();
+  const old = c.api.journalSave();
+  c.api.journalLoad(null);
+  assert.equal(c.api.state.pending.size, 0); assert.equal(c.api.state.settled.size, 0);
+  c.context.NETWS.acct = { id: 'other-account' };
+  c.api.journalLoad(old);
+  assert.equal(c.api.state.pending.size, 0); assert.equal(c.api.journalSave(), null);
+});
+
+test('a replacement character can confirm its own reservation after an older private flight drains', async () => {
+  const c = client(); frame(c, { v: 1, full: true, parts: {}, remove: [] });
+  const save = c.context.saveNow; let release;
+  c.context.saveNow = () => new Promise(resolve => { release = resolve; });
+  c.api.request('build.place', { x: 1 }, [['stone', 6]]);
+  await Promise.resolve();
+  c.context.GAME.player = { x: 0, y: 0, z: 0 };
+  c.context.INV.goods = { stone: 100, tool_hammer: 1 };
+  c.api.journalLoad(null);
+  c.api.request('build.place', { x: 2 }, [['stone', 6]]);
+  c.context.saveNow = save; release(); await c.api.flushPrivate();
+  const commands = c.sent.filter(m => m.op === 'command');
+  assert.equal(commands.length, 1); assert.equal(commands[0].command.args.x, 2);
+  assert.equal(c.getPersisted().char.goods.stone, 94);
+});
+
+test('settlement retries until a canonical settled receipt arrives and then stops', async () => {
+  const c = client(); frame(c, { v: 1, full: true, parts: {}, remove: [] });
+  c.api.request('resource.take', {}, []); await c.api.flushPrivate();
+  const id = c.sent.find(m => m.op === 'command').command.id;
+  const receipt = { id, ownerAccount: 'phone-account', digest: 'retry-proof', ok: true, goods: [['stone', 2]] };
+  c.api.message({ ...receipt, t: 'activity', kind: 'worldparts', op: 'result', authority: 'token', worldAdmission: c.admission });
+  await c.api.flushPrivate();
+  assert.equal(c.sent.filter(m => m.op === 'settled').length, 1);
+  c.tick(3100);
+  assert.equal(c.sent.filter(m => m.op === 'settled').length, 2, 'a locally sent acknowledgement is not canonical confirmation');
+  frame(c, { v: 1, full: false, parts: {}, remove: [], receipts: [{ ...receipt, settled: true }] }, 2);
+  c.tick(3100);
+  assert.equal(c.sent.filter(m => m.op === 'settled').length, 2);
+  assert.equal(c.context.INV.goods.stone, 22);
+});
+
+test('forty private outcomes settle without exhausting the public receipt budget', async () => {
+  const host = client({ self: 'desktop', host: 'desktop', account: 'desktop-account' }), follower = client();
+  host.context.NET.peers.set('phone', { ghost: { x: 0, z: 0, level: 4 } });
+  let stock = 100;
+  host.api.register('stock', { save: () => stock, apply: value => { stock = value; } });
+  host.api.command('resource.take', { run: () => {
+    if (!stock) return false;
+    stock--; host.context.goodsAdd('stone', 1); return { ok: true };
+  } });
+  frame(follower, { v: 1, full: true, parts: {}, remove: [] });
+  for (let index = 0; index < 40; index++) {
+    follower.sent.length = 0; host.sent.length = 0;
+    follower.api.request('resource.take', {}, []); await follower.api.flushPrivate();
+    const command = follower.sent.find(m => m.op === 'command');
+    assert.ok(command, 'the next private reservation is admitted');
+    host.api.message({ ...command, from: 'phone', ownerAccount: 'phone-account', position: { x: 0, z: 0 } });
+    host.tick(2000);
+    for (const packet of host.sent.filter(m => m.op === 'snapshot')) {
+      host.api.message(packet); follower.api.message(packet);
+    }
+    for (const packet of host.sent.filter(m => m.op === 'result')) follower.api.message(packet);
+    await follower.api.flushPrivate();
+    for (let pass = 0; pass < 4 && host.api.state.receipts.some(r => r.id === command.command.id && !r.settled); pass++) {
+      follower.tick(3100);
+      for (const settled of follower.sent.filter(m => m.op === 'settled'))
+        host.api.message({ ...settled, ownerAccount: 'phone-account', from: 'phone' });
+      follower.sent.length = 0;
+      host.sent.length = 0; host.tick(2000);
+      for (const packet of host.sent.filter(m => m.op === 'snapshot')) {
+        host.api.message(packet); follower.api.message(packet);
+      }
+    }
+    assert.equal(follower.api.state.pending.size, 0);
+    assert.ok(host.api.state.receipts.length <= 8, 'settled outcomes leave room for the next action');
+  }
+  assert.equal(stock, 60); assert.equal(follower.context.INV.goods.stone, 60);
+  assert.equal(follower.context.INV.goods.privateGem, 4); assert.equal(host.context.INV.goods.stone, 20);
+  assert.equal(host.context.INV.gold, 900);
+});
+
 test('private-confirmed settlement retries through a temporary fence and stops on the durable server acknowledgement', async () => {
   const c = client(); frame(c, { v: 1, full: true, parts: {}, remove: [] });
   c.api.request('resource.take', {}, []); await c.api.flushPrivate();
@@ -383,5 +485,20 @@ test('production success and refusal hooks settle owner cycles before the privat
       result: { cycle: 4 }, goods: [] });
     await c.api.flushPrivate();
     assert.equal(callbackId, id); assert.equal(c.api.state.pending.size, 0);
+  }
+});
+
+test('canonical receipts carry the durability classification of the host command specification', () => {
+  const c = client({ self: 'desktop', host: 'desktop', account: 'desktop-account' });
+  for (const [id, spec, args, expected] of [
+    ['default', {}, {}, true], ['public', { durable: false }, {}, false],
+    ['dynamic-public', { durable: a => a.ownerChange }, { ownerChange: false }, false],
+    ['dynamic-owner', { durable: a => a.ownerChange }, { ownerChange: true }, true],
+  ]) {
+    c.api.command(id, { ...spec, run: () => ({ ok: true }) });
+    c.api.message({ t: 'activity', kind: 'worldparts', op: 'command', authority: 'token',
+      worldAdmission: c.admission, from: 'desktop', ownerAccount: 'desktop-account', position: { x: 0, z: 0 },
+      command: { id, op: id, args, goods: {}, capacity: 0, durable: !expected } });
+    assert.equal(c.api.state.receipts.find(r => r.id === id).durable, expected);
   }
 });

@@ -203,6 +203,58 @@ test('partial entity frames preserve the existing descriptor and health remains 
   assert.equal(b.run('ENT.length'), 2);
 });
 
+test('independent owned companions with the same bootstrap key retain both private owners', () => {
+  const a = page('a'), b = page('b'); a.authority(); b.authority();
+  a.run('const mine=makeEnt({role:"animal",kind:"horse",tame:{owner:"player",id:1,k:"horse"},x:5,name:"My horse"}); const remote=makeEnt({role:"remote",faction:0,netPeer:"b"}); NET.peers.set("b",{ghost:remote,slow:{on:1}})');
+  b.run('makeEnt({role:"animal",kind:"horse",tame:{owner:"player",id:2,k:"horse"},x:5,name:"Other horse"}); netEntityPump(clock)');
+  const request = b.json('packets.at(-1)');
+  a.message({ ...request, from: 'b', position: { x: 0, z: 0 } });
+  assert.equal(a.run('ENT.filter(e=>e.role==="animal").length'), 2);
+  assert.equal(a.run('mine.name'), 'My horse');
+  assert.equal(a.run('mine.tame.owner'), 'player');
+  assert.equal(a.run('mine.netEntityOwner'), 'a');
+  assert.equal(a.run('ENT.at(-1).name'), 'Other horse');
+  assert.equal(a.run('ENT.at(-1).netEntityOwner'), 'b');
+  snapshot(b, { v: 1, full: true, rows: hostRows(a), remove: [] });
+  assert.equal(b.run('ENT.filter(e=>e.role==="animal").length'), 2);
+  assert.equal(b.run('ENT[1].tame.owner'), 'player');
+  assert.equal(b.run('ENT[1].name'), 'Other horse');
+  assert.equal(b.run('ENT[1].netEntityOwner'), 'b');
+});
+
+test('a canonical public animal cannot reuse or overwrite a same-kind private companion', () => {
+  const a = page('a'), b = page('b'); a.authority(); b.authority();
+  a.run('makeEnt({role:"animal",kind:"horse",name:"Public horse",x:5})');
+  b.run('const mine=makeEnt({role:"animal",kind:"horse",name:"Private horse",x:5,tame:{owner:"player",id:8,k:"horse"}})');
+  snapshot(b, { v: 1, full: true, rows: hostRows(a), remove: [] });
+  assert.equal(b.run('ENT.filter(e=>e.role==="animal").length'), 2);
+  assert.equal(b.run('mine.name'), 'Private horse');
+  assert.equal(b.run('mine.tame.owner'), 'player');
+  assert.equal(b.run('netEntityOwnPet(mine)'), true);
+  assert.equal(b.run('ENT.at(-1).name'), 'Public horse');
+  assert.equal(b.run('ENT.at(-1).netEntityOwner'), null);
+});
+test('dead inherited actors retire within the normal ten seconds after keeper handoff', () => {
+  const a = page('a'), b = page('b'); a.authority(); b.authority();
+  a.run('makeEnt({x:5,alive:false,hp:0});makeEnt({kind:"door",role:"door",x:10,alive:false,hp:0})');
+  const rows = hostRows(a);
+  snapshot(b, { v: 1, full: true, rows, remove: [] });
+  assert.equal(b.run('ENT[1].removeAt'), 11);
+  assert.equal(b.run('ENT[2].removeAt'), Infinity, 'persistent doors never use corpse cleanup');
+  b.run('GAME.t=5');
+  snapshot(b, { v: 1, full: true, rows, remove: [] }, 2);
+  assert.equal(b.run('ENT[1].removeAt'), 11, 'repeated replica frames cannot renew the corpse lifetime');
+  assert.equal(b.run('ENT[1].deadAt'), 1, 'the first death pose keeps its animation clock');
+  b.authority('b', 'token-two', true);
+  snapshot(b, { v: 1, full: true, rows, remove: [], replay: true }, 0, 'token-two');
+  const ai = readFileSync(new URL('../../src/08_ai.js', import.meta.url), 'utf8');
+  const start = ai.indexOf('function updateNPCs('); assert.ok(start >= 0);
+  b.c.actorUpdate = ai.slice(start);
+  b.run('GAME.t=12;function updateAnim(){};eval(actorUpdate);updateNPCs(.1)');
+  assert.equal(b.run('ENT.some(e=>e.kind!=="door"&&e.role!=="player")'), false);
+  assert.equal(b.run('ENT.some(e=>e.kind==="door")'), true);
+});
+
 test('a representative 523-actor scene leaves room for the rest of the bounded world checkpoint', () => {
   const a = page('a'), b = page('b'); a.authority(); b.authority();
   a.run(`for(let i=0;i<523;i++){

@@ -6,6 +6,9 @@ const NET_NPCS = { entities: new Map(), rows: new Map(), confirmed: new Map(), b
   authority: '', peer: '', admission: null, recv: -1, seq: 0, sentAt: -Infinity,
   complete: false, ensurePending: false, stats: { sent: 0, received: 0, refused: 0, made: 0 } };
 const NET_NPC_MAX = 64;
+// The four class appearances plus the actual villager and herald rig outfits.
+// Town merchants use the villager outfit; combat-only outfits are not NPC rows.
+const NET_NPC_OUTFITS = new Set([0, 1, 2, 3, 4, 9]);
 const netNpcServer = () => typeof netServerUrl === 'function' && !!netServerUrl();
 const netNpcMine = () => !!NET_NPCS.authority && NET_NPCS.peer === NET.self;
 const netNpcId = (id) => typeof id === 'string' && /^town:[0-2]:(villager|herald|merchant):[0-9]{1,2}$/.test(id);
@@ -30,7 +33,7 @@ function netNpcRowRead(o) {
   const lk = o.lk;
   if (!lk.slice(0, 6).every((v) => v <= 2) || lk[6] > 1 || lk[7] > 1
     || !Number.isInteger(lk[8]) || !Number.isInteger(lk[9]) || lk[9] > 1023
-    || lk[10] < 0.85 || lk[10] > 1.12 || !Number.isInteger(lk[11]) || lk[11] > 10
+    || lk[10] < 0.85 || lk[10] > 1.12 || !Number.isInteger(lk[11]) || !NET_NPC_OUTFITS.has(lk[11])
     || !Number.isInteger(lk[12]) || lk[12] > 3 || !netNpcBit(lk[13]) || lk[14] > 0.5) return null;
   if (!(o.st === null || Array.isArray(o.st) && o.st.length === 4
     && netNpcFinite(o.st[0], -500, 500) && netNpcFinite(o.st[1], -50, 50)
@@ -73,6 +76,7 @@ function netNpcMask(e) {
     ? (e.look.mask & ~WEAPON_BITS) | (haul === 'wood' ? WB.timberLoad : WB.stoneLoad) : e.look.mask;
 }
 function netNpcResumeWorker(e) {
+  if (e.netNpcMissing || e.removed || !e.alive) { e.ai.lj = null; return; }
   const slot = Number(e.netNpcId?.split(':')[3]);
   if (e.role !== 'villager' || slot < 6 || slot > 8 || !Number.isInteger(slot)) { e.ai.lj = null; return; }
   const bits = typeof WB !== 'undefined' ? WB : {}, mask = e.look.mask;
@@ -201,6 +205,8 @@ function netNpcMessage(m) {
 }
 function netNpcStep(e, dt) {
   if (!e.netNpcId || !netNpcServer()) return false;
+  // A private bootstrap slot absent from the canonical roster stays withdrawn after handoff.
+  if (e.netNpcMissing) return true;
   if (netNpcMine() && netSameWorldAdmission(NET_NPCS.admission, netCurrentWorldAdmission())
     && NETWS.state === 'on' && (typeof netWorldPartsCanSimulate !== 'function' || netWorldPartsCanSimulate())) {
     e.netNpcPose = null; return false;

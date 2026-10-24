@@ -38,12 +38,12 @@ function client(peer, offset = 0) {
   });
   vm.runInContext(source + '\n globalThis.api = { netNpcRegister, netNpcMessage, netNpcPump, netNpcReset, netNpcStep, netNpcVisible, netNpcSnapshot, netNpcRowsRead, NET_NPCS };', context);
   return { context, api: context.api, sent, bodies, state,
-    entity(overrides = {}) {
+    entity(overrides = {}, id = 'town:0:villager:0') {
       const e = context.makeEnt({ kind: 'humanoid', role: 'villager', name: 'Fenn', faction: 4,
         cls: null, level: 5, x: 7, y: 2, z: 9, yaw: .6,
         look: { tabard: [.3, .4, .5], armor: [.4, .3, .2], skin: .2, hair: .7, mask: 32,
           flags: 0, scale: 1, outfit: 4, emblem: 3, fem: 0, bulk: 0 }, ...overrides });
-      context.api.netNpcRegister(e, 'town:0:villager:0'); return e;
+      context.api.netNpcRegister(e, id); return e;
     },
   };
 }
@@ -208,7 +208,7 @@ test('the real shop initializer registers one stable service NPC per realm', () 
     WB: { robe: 1, belt: 2, skirt: 4 }, NAMES: [['Ada', 'Ben'], ['Ada', 'Ben'], ['Ada', 'Ben']],
     FEMALE: new Set(['Ada']), pick: (_rng, names) => names[0],
     villagerLook: () => ({ tabard: [.3, .4, .5], armor: [.4, .3, .2], skin: .2, hair: .7,
-      mask: 32, flags: 0, scale: 1, outfit: 0, emblem: 3, fem: 0, bulk: 0 }),
+      mask: 32, flags: 0, scale: 1, outfit: 4, emblem: 3, fem: 0, bulk: 0 }),
   });
   vm.runInContext(loot.slice(start, end) + '\ninitMerchants();', b.context);
   assert.equal(b.api.NET_NPCS.entities.size, 3);
@@ -226,6 +226,32 @@ test('appearance transport quantizes continuous traits and preserves exact equip
   const row = a.api.netNpcSnapshot()[0];
   assert.equal(row.lk[0], .554); assert.equal(row.lk[10], .965);
   assert.equal(row.lk[8], 14554754); assert.equal(row.lk[9], 345); assert.equal(row.lk[11], 2);
+});
+
+test('actual villager, merchant and herald rig outfits survive client and server roundtrips', () => {
+  const rig = fs.readFileSync(new URL('../src/05a_rig.js', import.meta.url), 'utf8');
+  const declaration = rig.match(/^const OUTFIT = \{[^\n]+\};/m);
+  assert.ok(declaration, 'the production rig owns the outfit enumeration');
+  const outfits = vm.runInNewContext(declaration[0] + '\nOUTFIT;');
+  const a = client('phone'), b = client('desktop');
+  for (const [role, outfit] of [['villager', outfits.villager], ['merchant', outfits.villager], ['herald', outfits.herald]]) {
+    const e = a.entity({ role }, `town:0:${role}:0`);
+    e.look.outfit = outfit;
+  }
+  a.api.netNpcMessage(authority('phone'));
+  a.api.netNpcPump(0);
+  const rows = a.sent[0].npcs;
+  assert.equal(rows.length, 3, 'the complete authored town roster is published');
+  assert.deepEqual(rows.map(r => [r.role, r.lk[11]]), [['villager', outfits.villager], ['merchant', outfits.villager], ['herald', outfits.herald]]);
+  const normalized = rows.map(activityNpc);
+  assert.ok(normalized.every(Boolean));
+  b.api.netNpcMessage(authority('phone', normalized));
+  assert.equal(b.bodies.length, 3);
+  assert.deepEqual(copy(b.api.netNpcSnapshot()).map(r => [r.role, r.lk[11]]), rows.map(r => [r.role, r.lk[11]]));
+  for (const outfit of [-1, .5, outfits.bandit, outfits.skeleton, outfits.draugr, outfits.troll, outfits.lord, 11, 999]) {
+    const invalid = copy(rows[0]); invalid.lk[11] = outfit;
+    assert.equal(a.api.netNpcRowsRead([invalid]), null, `unsupported NPC outfit ${outfit} is refused`);
+  }
 });
 
 test('a stale fisher frame cannot replace a later exclusive human boat occupant', () => {
@@ -262,6 +288,41 @@ test('the elected town keeper waits for canonical fields before running AI witho
   assert.equal(a.sent.length, 1, 'initial roster publication remains independent of world readiness');
   a.context.netWorldPartsCanSimulate = () => true;
   assert.equal(a.api.netNpcStep(e, .1), false, 'town AI resumes after the admitted core is ready');
+});
+
+test('withdrawn private-bootstrap workers stay frozen after authoritative town handoff', () => {
+  const a = client('a'), b = client('b');
+  a.entity(); a.api.netNpcMessage(authority('a'));
+  const canonical = a.api.netNpcSnapshot();
+  const worker = b.entity({ home: { x: 0, z: 0 } });
+  const extra = b.entity({ home: { x: 0, z: 0 } }, 'town:0:villager:5');
+  extra.ai.farmer = true; extra.ai.fieldHand = true;
+  b.api.netNpcMessage(authority('a', canonical));
+  assert.equal(extra.netNpcMissing, true);
+  b.api.netNpcMessage(authority('b', canonical, 'handoff'));
+  assert.equal(b.api.netNpcStep(extra, .1), true, 'an absent canonical worker cannot run an invisible private AI');
+  assert.equal(b.api.netNpcStep(worker, .1), false, 'the admitted worker resumes under the new keeper');
+  assert.equal(b.api.netNpcVisible(extra), false);
+});
+
+test('actual farmer assignment excludes withdrawn, removed and dead local bootstrap workers', () => {
+  const a = client('a');
+  const withdrawn = a.entity({ home: { x: 0, z: 0 }, netNpcMissing: true });
+  const removed = a.entity({ home: { x: 0, z: 0 }, removed: true }, 'town:0:villager:1');
+  const dead = a.entity({ home: { x: 0, z: 0 }, alive: false }, 'town:0:villager:2');
+  const worker = a.entity({ home: { x: 0, z: 0 } }, 'town:0:villager:3');
+  const second = a.entity({ home: { x: 0, z: 0 } }, 'town:0:villager:4');
+  a.context.REALMS = [{ id: 0, town: { x: 0, z: 0 } }];
+  a.context.ENT = [withdrawn, removed, dead, worker, second];
+  a.context.dist2 = (x, z, a, b) => (x-a)**2 + (z-b)**2;
+  const farming = fs.readFileSync(new URL('../src/08h_farming.js', import.meta.url), 'utf8');
+  const start = farming.indexOf('function farmAssignFarmers()');
+  const end = farming.indexOf('// called by houseLife', start);
+  assert.ok(start >= 0 && end > start);
+  vm.runInContext(farming.slice(start, end) + '\nfarmAssignFarmers();', a.context);
+  assert.deepEqual(copy(a.context.FARM.farmers), [worker.id, second.id]);
+  assert.equal(worker.ai.fieldHand, true); assert.equal(second.ai.fieldHand, true);
+  assert.equal(withdrawn.ai.farmer, undefined); assert.equal(removed.ai.farmer, undefined); assert.equal(dead.ai.farmer, undefined);
 });
 
 test('the real renderer villager and herald outfits survive a complete town roster round-trip', () => {
