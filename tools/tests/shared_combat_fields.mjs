@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
+import { parse } from 'acorn';
 
 const source = readFileSync(new URL('../../src/14z_netcombatfields.js', import.meta.url), 'utf8');
 function scene(mine = true, peer = 'a') {
@@ -79,6 +80,37 @@ test('private caster resources and cooldowns do not enter shared field snapshots
   const a = scene(); a.run('GAME.player.power=42;GAME.player.cds={meteor:999};GAME.player.cs.dev=88;freezeWater(0,0,4,GAME.player)');
   const serial = a.run('JSON.stringify(netCombatFieldsSave())');
   assert.equal(serial.includes('power'), false); assert.equal(serial.includes('meteor'), false); assert.equal(serial.includes('dev'), false);
+});
+
+test('ephemeral follower fields dispatch through the actual world transport without a private save', () => {
+  const b = scene(false, 'b');
+  const world = readFileSync(new URL('../../src/14z_networldparts.js', import.meta.url), 'utf8');
+  const ast = parse(world, { ecmaVersion: 'latest', sourceType: 'module' });
+  const names = ['netWorldPartsOwnerScope', 'netWorldPartsBindOwner', 'netWorldPartsRequest', 'netWorldPartsDispatch'];
+  const actual = names.map(name => {
+    const node = ast.body.find(n => n.type === 'FunctionDeclaration' && n.id.name === name);
+    assert.ok(node, name); return world.slice(node.start, node.end);
+  }).join('\n');
+  vm.runInContext(`
+    const NETPART_COMMANDS=commands,NETWS={acct:{id:'owner-b'}},SAVE={ref:{},wiping:false};
+    const INV={bag:[]},GOODS={},dispatches=[];let privateWrites=0;
+    const netWorldPartsCanSimulate=()=>false,netWorldPartsConnected=()=>true;
+    const goodsHave=()=>false,goodsTakeAll=cost=>cost.length===0;
+    const crypto={randomUUID:()=>String(NETPARTS.next)},performance={now:()=>1000};
+    const netWsSend=packet=>{dispatches.push(packet);return true};
+    const netWorldPartsFlushJournal=()=>{privateWrites++;return Promise.resolve(true)};
+    const uiError=message=>{throw Error(message)};
+    Object.assign(NETPARTS,{ready:true,pending:new Map(),receipts:[],next:0,admission:{origin:'world',epoch:1}});
+  ` + actual, b.c);
+  b.run('GAME.player.power=42;GAME.player.cds={rune:123};layRune(GAME.player,1,2,"frost");GAME.player.cls="priest";consecrate(GAME.player,null,null,null,1)');
+  assert.deepEqual(b.json('dispatches.map(m=>m.command.op)'), ['combat.rune', 'combat.consecrate']);
+  assert.equal(b.run('privateWrites'), 0);
+  assert.equal(b.run('[...NETPARTS.pending.values()].every(p=>p.durable===false&&p.privateConfirmed)'), true);
+  assert.equal(b.run('GAME.player.cs.dev'), 65, 'the owner pays devotion once locally');
+  assert.equal(b.run('GAME.player.power'), 42); assert.equal(b.run('GAME.player.cds.rune'), 123);
+  assert.equal(b.run('CLS.runes.length+CLS.grounds.length'), 0, 'the follower waits for the canonical field');
+  assert.equal(b.run('commands.get("combat.arrow").durable'), false);
+  assert.equal(b.run('commands.get("combat.arrow-recover").durable!==false'), true, 'recovering an inventory arrow keeps its durable receipt');
 });
 
 test('follower field creation goes to the keeper and does not make a private ice sheet', () => {

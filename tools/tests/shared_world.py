@@ -27,6 +27,44 @@ REPORT = {"cases": [], "wire": {}, "errors": [], "diagnostics": []}
 WIRES = []
 BOOT_PAGES = []
 
+PRIVATE_COMMAND_DIAGNOSTIC_JS = """(() => {
+  const H=window.__hm,S=H?.SAVE,p=H?.worldparts?.NETPARTS;
+  if(!H || !S || !p) return {available:false};
+  const account=H.net?.NETWS?.acct?.id;
+  const scope=row=>{
+    const hasAccount=typeof row?.ownerAccount==='string' && !!row.ownerAccount;
+    const accountMatch=hasAccount && row.ownerAccount===account;
+    const refMatch=row?.profileRef===S.ref,playerMatch=row?.playerRef===H.GAME.player;
+    return {hasAccount,accountMatch,refMatch,playerMatch,notWiping:!S.wiping,
+      valid:hasAccount && accountMatch && refMatch && playerMatch && !S.wiping};
+  };
+  const pending=[...p.pending].slice(0,8);
+  const journal=save=>{
+    const value=save?.char?.x?.sharedWorldReservations;
+    const reservations=Array.isArray(value)?value:Array.isArray(value?.pending)?value.pending:[];
+    const settled=Array.isArray(value?.settled)?value.settled:[];
+    return {savePresent:!!save,journalPresent:!!value,pending:reservations.length,settled:settled.length,
+      matchingPending:pending.filter(([id])=>reservations.some(row=>row?.id===id)).length};
+  };
+  let lastBody=null,lastBodyParsed=false,local=null,localParsed=false;
+  try {lastBody=JSON.parse(S.lastBody || 'null');lastBodyParsed=true;}catch{}
+  if(!S.native && S.backend==='local') try {
+    local=JSON.parse(localStorage.getItem(S.lsKey) || 'null');localParsed=true;
+  }catch{}
+  return {available:true,
+    pending:pending.map(([id,row])=>({id:String(id).slice(0,100),op:String(row.op).slice(0,80),
+      phase:String(row.phase).slice(0,24),durable:!!row.durable,privateConfirmed:!!row.privateConfirmed,
+      lastSent:Number.isFinite(row.lastSent)?row.lastSent:null,ownerScope:scope(row)})),
+    privateError:String(p.privateError || '').slice(0,120),privateFlight:!!p.privateFlight,
+    privateAttempt:p.privateAttempt,privateScope:p.privateScope?scope(p.privateScope):null,
+    save:{backend:String(S.backend || '').slice(0,24),native:!!S.native,server:!!S.server,refPresent:!!S.ref,
+      nativeFlight:!!S.nativeFlight,readConfirmed:!!S.readConfirmed,nativePaused:!!S.nativePaused,wiping:!!S.wiping,
+      lastError:typeof S.lastError==='string'?S.lastError.slice(0,120)
+        :typeof S.lastError?.code==='string'?S.lastError.code.slice(0,120):null,
+      lastBody:{parsed:lastBodyParsed,...journal(lastBody)},loaded:journal(S.loaded),
+      local:{parsed:localParsed,...journal(local)}}};
+})()"""
+
 
 def require(ok, message, **detail):
     REPORT["cases"].append({"ok": bool(ok), "message": message, **detail})
@@ -91,6 +129,7 @@ async def diagnose(pages, label):
                 errors:(H.errors||[]).slice(-8),log:[...document.querySelectorAll('#log>div')].slice(-8).map(e=>e.textContent),
                 sceneBytes:take(()=>JSON.stringify(H.worldparts.capture()).length)};
             })()""")
+            state["privateCommands"] = await page.evaluate(PRIVATE_COMMAND_DIAGNOSTIC_JS)
             record["pages"].append({"name": getattr(page, "_name", "booting"), "state": state,
                                     "errors": getattr(page, "_shared_errors", [])[-8:]})
         except Exception as error:
