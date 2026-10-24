@@ -48,7 +48,7 @@ jobs:
           node tools/node_modules/playwright/cli.js install --with-deps chromium
       - uses: actions/checkout@v4
         with:
-          ref: 478d531a0712e98faa9011e8fa2cf13c48e16b79
+          ref: 95856e48efe9755172600e97c6d2d8a55bad9856
           path: candidate
       - name: Build exact candidate page
         run: python3 candidate/build.py

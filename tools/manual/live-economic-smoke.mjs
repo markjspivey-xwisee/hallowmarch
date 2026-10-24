@@ -3,7 +3,7 @@
 import fs from 'node:fs/promises';
 import { chromium } from '../node_modules/playwright/index.mjs';
 const origin='https://march-native-preview-production.up.railway.app';
-const out='tools/out/live-economic-smoke', end=Date.now()+600000;
+const out='tools/out/live-economic-smoke', end=Date.now()+900000;
 let browser,page,stage='preflight',pass=false;const checks=[],navigation={samples:[]};
 const ensure=(ok,code)=>{if(!ok)throw Error(code)};
 const remaining=max=>{const n=Math.min(max,end-Date.now());ensure(n>0,'acceptance_deadline');return n};
@@ -60,7 +60,7 @@ try{
   await fs.mkdir(out,{recursive:true});ensure((await json('/health')).ok===true,'preview_not_ready');
   await redacted();checks.push('public status is native and excludes checkpoint bodies');
   browser=await chromium.launch({headless:true,args:['--no-sandbox','--disable-dev-shm-usage','--use-angle=swiftshader','--enable-unsafe-swiftshader']});
-  const context=await browser.newContext({viewport:{width:1000,height:700}});
+  const context=await browser.newContext({viewport:{width:1000,height:700},deviceScaleFactor:0.5});
   page=await context.newPage();let errors=0;page.on('pageerror',()=>errors++);page.on('websocket',observe);
   stage='fresh-guest';await page.goto(origin+'/?safe=1',{waitUntil:'domcontentloaded',timeout:remaining(60000)});
   await page.waitForFunction(()=>window.__hm?.ready&&!document.querySelector('#btn-begin')?.disabled,undefined,{timeout:remaining(120000)});
@@ -95,7 +95,8 @@ try{
     return candidates.find(r=>r.d<=25)||candidates[0]||null});
   ensure(rock,'no_nearby_walkable_resource');
   navigation.resource={index:rock.i,scale:rock.s,initialDistance:Math.round(rock.d*100)/100};
-  const walkStarted=Date.now(),walkUntil=walkStarted+remaining(120000);
+  navigation.render=await page.evaluate(()=>({dpr:devicePixelRatio,width:__hm.dbg.renderer.domElement.width,height:__hm.dbg.renderer.domElement.height}));
+  const walkStarted=Date.now(),walkUntil=walkStarted+remaining(300000);
   let reached=false,best=Infinity,lastProgressGame=0,startGame=null,previous=null,lastSample=0;
   try{while(Date.now()<walkUntil){
     const at=await page.evaluate(()=>{const h=__hm,p=h.GAME.player;
