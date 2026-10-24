@@ -12,6 +12,37 @@ const OUT = 'tools/out/native-release-acceptance/result.json';
 const result = { schema: 'hallowmarch.native-release-acceptance/v1', target: TARGET,
   runtimeBinding: 'Operator verifies Railway receipt before and after; health does not expose a build SHA.',
   startedAt: new Date().toISOString(), cases: [], diagnostics: [], pageErrorCount: 0, consoleErrorCount: 0 };
+const SAFE_NATIVE = Object.freeze({"codes":["account_required","owner_mismatch","storage_unavailable","native_signin_required","revoked","pod_pending","missing_guest_checkpoint","character_unreadable","key_required","identity_unconfirmed","guest_key_required","invalid_claim","not_connected","claim_unconfirmed","claim_readback_failed","native_unavailable","native_identity_unavailable","native_identity_required","native_record_rejected","game_account_required","identity_binding_aborted","account_restore_failed","app_session_unavailable","guest_expired","bootstrap_unavailable","provisional_play_unavailable","owner_verification_required","owner_access_required","not_available","unavailable","timeout","network_error","not_granted","invalid_argument","capability_disabled","invalid_identity_origin","DURABILITY_UNAVAILABLE","NATIVE_WRITE_BUDGET","PAYLOAD_TOO_LARGE","COMMIT_UNCERTAIN","VERSION_CONFLICT","NATIVE_COMMIT_FENCED","NATIVE_COMMIT_CAPACITY","NATIVE_CONTENTION","idle","off","on","alone","loading","opening","ready","saved","saving","confirmed","pending","uncertain","verified","provisional","creating","complete","identity","read","blocked","connecting","closed","failed","authenticated","signed","active"],"errors":["account_required","owner_mismatch","storage_unavailable","native_signin_required","revoked","pod_pending","missing_guest_checkpoint","character_unreadable","key_required","identity_unconfirmed","guest_key_required","invalid_claim","not_connected","claim_unconfirmed","claim_readback_failed","native_unavailable","native_identity_unavailable","native_identity_required","native_record_rejected","game_account_required","identity_binding_aborted","account_restore_failed","app_session_unavailable","guest_expired","bootstrap_unavailable","provisional_play_unavailable","owner_verification_required","owner_access_required","not_available","unavailable","timeout","network_error","not_granted","invalid_argument","capability_disabled","invalid_identity_origin","DURABILITY_UNAVAILABLE","NATIVE_WRITE_BUDGET","PAYLOAD_TOO_LARGE","COMMIT_UNCERTAIN","VERSION_CONFLICT","NATIVE_COMMIT_FENCED","NATIVE_COMMIT_CAPACITY","NATIVE_CONTENTION"]});
+const countSafe = (counts, key) => { counts[key] = Math.min(1000000, (counts[key] || 0) + 1); };
+function endpointCategory(raw) {
+  try {
+    const u = new URL(raw);
+    if (u.origin === TARGET.origin) return ({
+      '/gaming/identity/play/challenge': 'game_play_challenge', '/gaming/identity/play/complete': 'game_play_complete',
+      '/gaming/identity/status': 'game_identity_status', '/gaming/identity/record': 'game_record', '/ws': 'game_socket',
+    })[u.pathname] || 'game_other';
+    return ({ 'relay.interego.xwisee.com': 'native_relay', 'gate.interego.xwisee.com': 'native_gateway',
+      'identity.interego.xwisee.com': 'native_identity' })[u.hostname] || 'external_other';
+  } catch { return 'unclassified'; }
+}
+function requestMethod(request) {
+  const method = request.method();
+  return ['GET','HEAD','POST','PUT','PATCH','DELETE','OPTIONS'].includes(method) ? method : 'OTHER';
+}
+function failureCategory(text) {
+  const known = ['ERR_ABORTED','ERR_FAILED','ERR_TIMED_OUT','ERR_CONNECTION_RESET','ERR_CONNECTION_REFUSED',
+    'ERR_CONNECTION_CLOSED','ERR_NAME_NOT_RESOLVED','ERR_NETWORK_CHANGED','ERR_INTERNET_DISCONNECTED','ERR_HTTP2_PROTOCOL_ERROR'];
+  return known.find(code => String(text).includes(code)) || 'other_network_failure';
+}
+function consoleCategory(text) {
+  if (/Failed to load resource/.test(text)) return /\b5[0-9]{2}\b/.test(text) ? 'resource_5xx'
+    : /\b4[0-9]{2}\b/.test(text) ? 'resource_4xx' : 'resource_network';
+  if (/ERR_[A-Z_]+/.test(text)) return 'network_failure';
+  if (/WebGL|shader|graphics|context lost/i.test(text)) return 'graphics';
+  if (/native|identity|grant|checkpoint/i.test(text)) return 'native_service';
+  return 'other';
+}
+
 const actors = [];
 let stage = 'configuration';
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -94,9 +125,18 @@ async function attachPage(actor) {
   actor.page.setDefaultTimeout(30000);
   actor.cdp = await actor.context.newCDPSession(actor.page);
   actor.page.on('pageerror', () => { result.pageErrorCount++; });
-  actor.page.on('console', message => { if (message.type() === 'error') result.consoleErrorCount++; });
+  actor.page.on('console', message => {
+    if (message.type() === 'error') { result.consoleErrorCount++; countSafe(actor.consoleCategories, consoleCategory(message.text())); }
+  });
+  actor.page.on('requestfailed', request => {
+    const category = endpointCategory(request.url()), method = requestMethod(request);
+    const failure = failureCategory(request.failure()?.errorText);
+    countSafe(actor.networkFailures, category + ':' + method + ':' + failure);
+  });
   actor.page.on('response', response => {
     try {
+      const status = response.status(), method = requestMethod(response.request()), category = endpointCategory(response.url());
+      if (Number.isInteger(status) && status >= 100 && status <= 599) countSafe(actor.networkResponses, category + ':' + method + ':' + status);
       const url = new URL(response.url());
       if (url.origin === TARGET.origin && url.pathname === '/gaming/identity/play/complete'
         && response.request().method() === 'POST' && response.status() === 503) actor.exactPlay503++;
@@ -151,7 +191,7 @@ async function skipPrologue(actor) {
 }
 async function boot(label, phone) {
   stage = label + '_launch';
-  const actor = { label, phone, name: phone ? 'CloudPhoneQA' : 'CloudDesktopQA', exactPlay503: 0, retryCount: 0, inputTimer: null };
+  const actor = { label, phone, name: phone ? 'CloudPhoneQA' : 'CloudDesktopQA', exactPlay503: 0, retryCount: 0, inputTimer: null, networkResponses: {}, networkFailures: {}, consoleCategories: {} };
   actors.push(actor);
   actor.browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage',
     '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
@@ -256,9 +296,19 @@ async function pause(actor, name) {
 }
 async function safeDiagnostic(actor) {
   if (!actor.page || actor.page.isClosed()) return { label: actor.label, closed: true };
-  try { return await evaluate(actor, () => {
+  try { return await evaluate(actor, safe => {
     const h = window.__hm, w = h?.net?.NETWS, s = h?.nativePlayerStatus?.(), e = h?.entities?.state();
-    return { boot: !!h?.ready, started: !!h?.GAME?.started, startupStopped: !!window.__hmStartup?.stopped,
+    const code = value => value == null ? null : safe.codes.includes(value) ? value : 'other';
+    const error = s?.error?.code || (typeof s?.error === 'string' ? s.error : null);
+    const button = document.getElementById('btn-begin'), text = button?.textContent?.trim();
+    const begin = !button ? 'missing' : text === 'Play now' ? 'play_now' : text === 'Enter the realm' ? 'enter_realm'
+      : text === 'Opening your character…' ? 'opening_character' : 'other';
+    return { nativeState: code(s?.state), nativeErrorCode: error ? code(error) : safe.errors.includes(s?.state) ? code(s.state) : null,
+      nativeLoadPhase: code(s?.loadPhase), nativeProfileState: code(s?.profileStatus?.state),
+      nativeLoading: !!s?.loading, nativeProfilePresent: !!s?.profilePresent, nativeRefPresent: !!s?.refPresent, nativeRefBlocked: !!s?.refBlocked,
+      netState: code(h?.net?.NET?.state), wsState: code(w?.state), transportFailurePresent: !!w?.lastFailure,
+      beginState: begin, beginEnabled: !!button && !button.disabled,
+      menuOpen: h?.UI?.modal === 'menu', prologueOpen: h?.UI?.modal === 'prologue', boot: !!h?.ready, started: !!h?.GAME?.started, startupStopped: !!window.__hmStartup?.stopped,
       nativeReadConfirmed: !!s?.readConfirmed, nativeHasRecord: !!s?.profileStatus?.hasRecord,
       nativePending: !!s?.profileStatus?.pending, savePending: !!h?.SAVE?.pending, saveFlight: !!h?.SAVE?.nativeFlight,
       connected: w?.state === 'on' && w.ws?.readyState === 1, suspended: w?.humanSuspended === true,
@@ -267,7 +317,7 @@ async function safeDiagnostic(actor) {
       sharedComplete: !!e?.complete, entityCount: e?.count ?? 0, keeper: !!e?.mine,
       npcCount: h?.npcs?.snapshot().length ?? 0, boatCount: h?.netboats?.NET_BOATS.frames.size ?? 0,
       partsReady: !!h?.worldparts?.NETPARTS.ready, partsPending: h?.worldparts?.NETPARTS.pending.size ?? 0 };
-  }); } catch { return { label: actor.label, diagnosticUnavailable: true }; }
+  }, SAFE_NATIVE); } catch { return { label: actor.label, diagnosticUnavailable: true }; }
 }
 async function main() {
   stage = 'idle_gate'; await idleGate();
@@ -346,6 +396,8 @@ try {
     pendingSnapshots: result.finalHealth.worldPendingSnapshots ?? null });
   if (!quiet) { result.ok = false; process.exitCode = 1; }
   result.admissionRecovery = actors.map(actor => ({ role: actor.label, exactPlay503: actor.exactPlay503, sameButtonRetries: actor.retryCount }));
+  result.transport = actors.map(actor => ({ role: actor.label, responses: actor.networkResponses,
+    failures: actor.networkFailures, consoleCategories: actor.consoleCategories }));
   result.finishedAt = new Date().toISOString();
   await mkdir('tools/out/native-release-acceptance', { recursive: true });
   await writeFile(OUT, JSON.stringify(result, null, 2) + '\n');
