@@ -62,7 +62,14 @@ try{
   await page.waitForFunction(()=>__hm.GAME.started&&__hm.GAME.player?.name==='EconomicQA'&&__hm.nativePlayerStatus?.().readConfirmed,undefined,{timeout:remaining(180000)});
   const skip=page.getByRole('button',{name:'Skip the prologue',exact:true});if(await skip.isVisible())await skip.click();
   stage='join-native-world';await page.locator('#scene').click({position:{x:500,y:350}});await page.keyboard.down('w');await pause(500);await page.keyboard.up('w');await active();
-  stage='initial-save-settlement';await page.waitForFunction(()=>!__hm.SAVE.pending&&!__hm.SAVE.nativeFlight&&!__hm.worldparts.NETPARTS.pending.size,undefined,{timeout:remaining(45000)});
+  // Active guest progress may legitimately remain dirty behind 30-second pacing.
+  // A real menu pause requests and confirms the exact departing snapshot.
+  stage='initial-save-confirmation';await pauseAndSave();
+  checks.push('ordinary menu pause confirmed the initial native character save');
+  await page.locator('#btn-resume').click();
+  stage='resume-native-world';await page.locator('#scene').click({position:{x:500,y:350}});
+  await page.keyboard.down('w');await pause(500);await page.keyboard.up('w');await active();
+  await page.waitForFunction(()=>!__hm.worldparts.NETPARTS.pending.size,undefined,{timeout:remaining(30000)});
   const identity=await page.evaluate(()=>({id:__hm.SAVE.loaded?.nativePlay?.characterId,expiry:__hm.SAVE.loaded?.nativePlay?.guestExpiresAt}));
   ensure(typeof identity.id==='string','fresh_character_missing');
   stage='walk-to-rock';
@@ -167,7 +174,9 @@ try{
     return {started:!!h?.GAME.started,alive:!!h?.GAME.player?.alive,nativeReadConfirmed:!!h?.nativePlayerStatus?.().readConfirmed,
       prologue:h?.UI.modal==='prologue',menu:h?.UI.modal==='menu',savePending:!!h?.SAVE.pending,saveInFlight:!!h?.SAVE.nativeFlight,
       nativeSocket:w?.state==='on',nativeBound:!!w?.acct?.nativeBound,worldInitialized:!!w?.worldInitialized,
-      worldPaused:!!w?.worldPauseReason,partsReady:!!p?.ready,partsPaused:!!p?.paused,pendingActions:p?.pending?.size??0};
+      worldPaused:!!w?.worldPauseReason,partsReady:!!p?.ready,partsPaused:!!p?.paused,pendingActions:p?.pending?.size??0,
+      humanSuspended:w?.humanSuspended===true,documentFocused:document.hasFocus(),documentVisible:!document.hidden,
+      guestTimer:!!h?.SAVE.guestTimer,guestWriteDelayMs:Math.max(0,Math.round((h?.SAVE.guestWriteAt||0)-Date.now())),finalAuthorized:!!h?.SAVE.nativeFinal};
   }),pause(2000).then(()=>null)])}catch{}
   console.error(JSON.stringify({passed:false,stage,code,navigation,state}));process.exitCode=1;
 }finally{
