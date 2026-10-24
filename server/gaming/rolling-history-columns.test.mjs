@@ -76,7 +76,7 @@ test('logical depth 64 survives deeper wire tags and depth 65 is refused', () =>
   roundtrip(document([{ value: nested(1, 61) }, { value: nested(2, 61) }]));
   assert.throws(() => encodeRollingHistoryColumns(document([{ value: nested(1, 62) }])), { code: 'PAYLOAD_TOO_LARGE' });
   const shared = nested(0, 61);
-  refused(wire(['o', ['value'], [null], [['s', shared]]]));
+  refused(wire(['o', ['value'], [null], [['o', ['nested'], [null], [['s', shared]]]]]));
 });
 
 test('malformed tags, memberships, widths and numeric operands reject before expansion', () => {
