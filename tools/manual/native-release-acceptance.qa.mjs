@@ -5,8 +5,8 @@ import { chromium } from '../node_modules/playwright/index.mjs';
 
 const TARGET = Object.freeze({
   origin: 'https://march-native-preview-production.up.railway.app',
-  expectedRuntimeCommit: '7335f3fc0e0743f8d6acb649dc0413b9776645de',
-  railwayDeploymentReceipt: '611a1ea5-bfaa-4eb4-8161-ffad9b8cf993',
+  expectedRuntimeCommit: '95856e48efe9755172600e97c6d2d8a55bad9856',
+  railwayDeploymentReceipt: 'bd793be3-a00a-4738-8826-14fae0710c49',
 });
 const OUT = 'tools/out/native-release-acceptance/result.json';
 const result = { schema: 'hallowmarch.native-release-acceptance/v1', target: TARGET,
