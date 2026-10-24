@@ -4,7 +4,7 @@ import { chromium } from '../node_modules/playwright/index.mjs';
 
 const preview = 'https://march-native-preview-production.up.railway.app/?safe=1';
 const relayHealth = 'https://relay.interego.xwisee.com/health';
-const expectedRelay = '0fe5e953769b316cb0dcf4f3650cdb162f446976';
+const expectedRelay = 'e5d4db9a8af9830663fbc5d984cf65b6465b837a';
 const out = 'tools/out/release-browser-smoke';
 const reports = [], network = [];
 const noteNetwork = value => { if (network.length < 48) network.push(value); };
