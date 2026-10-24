@@ -1,0 +1,64 @@
+name: Rendering audio isolation proof
+on:
+  push:
+    branches: [test/perf-audio-isolation-20261024]
+    paths:
+      - tools/tests/perf.py
+      - tools/tests/perf_audio_isolation.py
+      - .github/workflows/perf-audio-isolation.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: perf-audio-isolation-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  focused-proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Use bounded Ubuntu archive downloads
+        run: |
+          sudo python3 - <<'PY'
+          from pathlib import Path
+          import re
+          apt_root = Path('/etc/apt')
+          sources = [apt_root / 'sources.list']
+          sources += list((apt_root / 'sources.list.d').glob('*.list'))
+          sources += list((apt_root / 'sources.list.d').glob('*.sources'))
+          sources += list(apt_root.glob('apt-mirrors*.txt'))
+          azure = re.compile(r'https?://azure\.archive\.ubuntu\.com/ubuntu(?=/|\s|$)')
+          for source in sources:
+              if not source.is_file():
+                  continue
+              original = source.read_text()
+              updated = azure.sub('https://archive.ubuntu.com/ubuntu', original)
+              if updated != original:
+                  source.write_text(updated)
+          (apt_root / 'apt.conf.d' / '99-hallowmarch-ci').write_text(
+              'Acquire::Retries "1";\nAcquire::http::Timeout "20";\nAcquire::https::Timeout "20";\n')
+          PY
+      - name: Install browser dependencies
+        run: |
+          npm ci --prefix tools
+          python -m pip install playwright==1.55.0 Pillow==11.3.0
+          python -m playwright install --with-deps chromium
+      - name: Build and check fixture syntax
+        run: |
+          python build.py
+          python -m py_compile tools/tests/perf.py tools/tests/perf_audio_isolation.py
+      - name: Compare medium siege with distinct wall timing and verify audio opt-in
+        run: python tools/tests/perf_audio_isolation.py
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: perf-audio-isolation-evidence
+          path: tools/out/perf_*.json
+          retention-days: 14
