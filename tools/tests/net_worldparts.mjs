@@ -502,3 +502,125 @@ test('canonical receipts carry the durability classification of the host command
     assert.equal(c.api.state.receipts.find(r => r.id === id).durable, expected);
   }
 });
+
+function actualCapacity(c) {
+  const goods = fs.readFileSync(new URL('../../src/06d_goods.js', import.meta.url), 'utf8');
+  const loot = fs.readFileSync(new URL('../../src/09c_loot.js', import.meta.url), 'utf8');
+  vm.runInContext(goods.slice(goods.indexOf('function goodsAdd('), goods.indexOf('function goodsTake('))
+    + loot.slice(loot.indexOf('function bagAdd('), loot.indexOf('function canEquip(')), c.context);
+}
+
+test('a full goods stack holds the entire canonical reward until it fits and then credits once', async () => {
+  const c = client(); actualCapacity(c); frame(c, { v: 1, full: true, parts: {}, remove: [] });
+  c.context.INV.goods.stone = 998;
+  c.api.request('resource.take', {}, []); await c.api.flushPrivate();
+  const id = c.sent.find(m => m.op === 'command').command.id;
+  const receipt = { id, ownerAccount: 'phone-account', digest: 'full-stack', ok: true,
+    goods: [['stone', 2]], gold: 10, items: [{ id: 'reward-sword', slot: 'weapon' }] };
+  const message = { ...receipt, t: 'activity', kind: 'worldparts', op: 'result', authority: 'token', worldAdmission: c.admission };
+  let warnings = 0; c.context.uiError = () => { warnings++; };
+  c.api.message(message); c.api.message(message); c.tick(3100);
+  assert.equal(c.context.INV.goods.stone, 998); assert.equal(c.context.INV.gold, 900);
+  assert.equal(c.context.INV.bag.length, 0); assert.equal(c.api.state.pending.get(id).phase, 'reserved');
+  assert.equal(c.sent.filter(m => m.op === 'settled').length, 0); assert.equal(warnings, 1);
+  c.context.INV.goods.stone = 997; c.tick(200); await c.api.flushPrivate();
+  assert.equal(c.context.INV.goods.stone, 999); assert.equal(c.context.INV.gold, 910);
+  assert.equal(c.context.INV.bag.length, 1); assert.equal(c.api.state.pending.size, 0);
+  c.api.message(message); c.tick(200);
+  assert.equal(c.context.INV.goods.stone, 999); assert.equal(c.context.INV.gold, 910); assert.equal(c.context.INV.bag.length, 1);
+});
+
+test('bag slots filled after a request cannot partially consume an owner receipt', async () => {
+  const c = client(); actualCapacity(c); frame(c, { v: 1, full: true, parts: {}, remove: [] });
+  c.api.request('loot.take', { id: 'bag' }, []); await c.api.flushPrivate();
+  const id = c.sent.find(m => m.op === 'command').command.id;
+  c.context.INV.bag = Array.from({ length: c.context.BAG_SIZE }, (_, i) => ({ id: 'owned-' + i, slot: 'weapon' }));
+  let skill = 0; c.context.skillGain = () => { skill++; };
+  c.api.message({ t: 'activity', kind: 'worldparts', op: 'result', authority: 'token', worldAdmission: c.admission,
+    id, ownerAccount: 'phone-account', digest: 'bag-full', ok: true, goods: [['stone', 2]], gold: 10,
+    items: [{ id: 'first', slot: 'head' }, { id: 'second', slot: 'hands' }], skills: [['craft', 1]] });
+  assert.equal(c.context.INV.goods.stone, 20); assert.equal(c.context.INV.gold, 900); assert.equal(skill, 0);
+  c.context.INV.bag.pop(); c.tick(200);
+  assert.equal(c.context.INV.goods.stone, 20); assert.equal(c.api.state.pending.get(id).phase, 'reserved');
+  c.context.INV.bag.pop(); c.tick(200); await c.api.flushPrivate();
+  assert.equal(c.context.INV.goods.stone, 22); assert.equal(c.context.INV.gold, 910); assert.equal(skill, 1);
+  assert.equal(c.context.INV.bag.length, c.context.BAG_SIZE); assert.equal(c.api.state.pending.size, 0);
+});
+
+test('a refused action keeps an overflowing refund owed without running failure hooks early', async () => {
+  const c = client(); actualCapacity(c); frame(c, { v: 1, full: true, parts: {}, remove: [] });
+  c.api.request('build.place', {}, [['stone', 6]]); await c.api.flushPrivate();
+  const id = c.sent.find(m => m.op === 'command').command.id;
+  c.context.INV.goods.stone = 999;
+  let failures = 0; c.api.failure('build.place', () => { failures++; });
+  const m = { t: 'activity', kind: 'worldparts', op: 'result', authority: 'token', worldAdmission: c.admission,
+    id, ownerAccount: 'phone-account', digest: 'refund-full', ok: false, goods: [] };
+  c.api.message(m);
+  assert.equal(failures, 0); assert.equal(c.context.INV.goods.stone, 999);
+  assert.equal(c.api.state.pending.get(id).phase, 'reserved');
+  c.context.INV.goods.stone = 993; c.tick(200); await c.api.flushPrivate();
+  assert.equal(c.context.INV.goods.stone, 999); assert.equal(failures, 1); assert.equal(c.api.state.pending.size, 0);
+  c.api.message(m); assert.equal(failures, 1); assert.equal(c.context.INV.goods.stone, 999);
+});
+
+test('reopening a capacity-blocked reservation replays the canonical obligation without another claim', async () => {
+  const c = client(); actualCapacity(c); frame(c, { v: 1, full: true, parts: {}, remove: [] });
+  c.api.command('loot.take', {}); c.context.INV.goods.stone = 999;
+  c.api.request('loot.take', { id: 'owed' }, []); await c.api.flushPrivate();
+  const id = c.sent.find(m => m.op === 'command').command.id;
+  const receipt = { id, ownerAccount: 'phone-account', digest: 'reopen-full', ok: true, goods: [['stone', 2]] };
+  c.api.message({ ...receipt, t: 'activity', kind: 'worldparts', op: 'result', authority: 'token', worldAdmission: c.admission });
+  const checkpoint = c.getPersisted();
+  const restored = client(); actualCapacity(restored); restored.api.command('loot.take', {});
+  restored.context.INV.goods = structuredClone(checkpoint.char.goods);
+  restored.api.journalLoad(checkpoint.char.x.sharedWorldReservations);
+  frame(restored, { v: 1, full: true, parts: {}, remove: [], receipts: [receipt] });
+  assert.equal(restored.context.INV.goods.stone, 999); assert.equal(restored.api.state.pending.get(id).phase, 'reserved');
+  restored.context.INV.goods.stone = 997; restored.tick(200); await restored.api.flushPrivate();
+  assert.equal(restored.context.INV.goods.stone, 999); assert.equal(restored.api.state.pending.size, 0);
+  assert.equal(restored.sent.filter(m => m.op === 'command').length, 0);
+});
+
+test('a confirmed retry clears a follower pause and resolves its original owed outcome exactly once', async () => {
+  const c = client(); frame(c, { v: 1, full: true, parts: {}, remove: [] });
+  c.api.request('resource.take', {}, []); await c.api.flushPrivate();
+  const id = c.sent.find(m => m.op === 'command').command.id;
+  c.api.message({ t: 'activity', kind: 'worldparts', op: 'snapshot', authority: 'token',
+    worldAdmission: c.admission, ok: false, reason: 'checkpoint_unconfirmed' });
+  c.tick(5000);
+  assert.equal(c.api.state.paused, 'checkpoint_unconfirmed');
+  assert.equal(c.api.state.pending.get(id).phase, 'reserved'); assert.equal(c.context.INV.goods.stone, 20);
+  const packet = value => ({ t: 'activity', kind: 'worldparts', op: 'snapshot', authority: 'token',
+    worldAdmission: c.admission, seq: 2, part: 0, total: 1, data: value });
+  c.api.message(packet('{'));
+  c.api.message(packet(JSON.stringify({ v: 1, parts: [] })));
+  c.api.message({ ...packet(JSON.stringify({ v: 1, parts: {} })), authority: 'old-token' });
+  assert.equal(c.api.state.paused, 'checkpoint_unconfirmed');
+  const receipt = { id, ownerAccount: 'phone-account', digest: 'recovered-save', ok: true, goods: [['stone', 2]] };
+  frame(c, { v: 1, full: true, parts: {}, remove: [], receipts: [receipt] }, 3);
+  await c.api.flushPrivate();
+  assert.equal(c.api.state.paused, ''); assert.equal(c.api.state.pending.size, 0);
+  assert.equal(c.context.INV.goods.stone, 22);
+  frame(c, { v: 1, full: false, parts: {}, remove: [], receipts: [receipt] }, 4);
+  assert.equal(c.context.INV.goods.stone, 22);
+  c.api.request('resource.take', {}, []); await c.api.flushPrivate();
+  assert.equal(c.sent.filter(m => m.op === 'command').length, 2, 'normal requests resume with a new ID after the original outcome');
+});
+
+test('a confirmed original frame unpauses the keeper and permits a fresh transport acknowledgement', () => {
+  const c = client({ self: 'desktop', host: 'desktop', account: 'desktop-account' });
+  c.api.register('stock', { save: () => 4, apply() {} });
+  c.tick(2000);
+  const original = c.sent.filter(m => m.op === 'snapshot');
+  assert.equal(original.length, 1); assert.ok(c.api.state.awaiting);
+  c.api.message({ t: 'activity', kind: 'worldparts', op: 'snapshot', authority: 'token',
+    worldAdmission: c.admission, ok: false, reason: 'checkpoint_unconfirmed' });
+  assert.equal(c.api.canSim(), false);
+  for (const packet of original) c.api.message(packet);
+  assert.equal(c.api.state.paused, ''); assert.equal(c.api.canSim(), true);
+  c.sent.length = 0; c.tick(2000);
+  const fresh = c.sent.filter(m => m.op === 'snapshot');
+  assert.ok(fresh.length); assert.ok(fresh[0].seq > original[0].seq);
+  for (const packet of fresh) c.api.message(packet);
+  assert.equal(c.api.state.awaiting, null); assert.equal(c.api.state.sent, 1);
+});

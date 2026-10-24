@@ -58,7 +58,7 @@ window.NT = {
 };
 0"""
 
-async def boot(ctx, cfg, name):
+async def boot(ctx, cfg, name, *, page_url=None):
     page = await ctx.new_page()
     # Each multiplayer fixture page represents a different person's foreground
     # browser. Keep that focus model local to these pages; trusted input is still
@@ -76,8 +76,12 @@ async def boot(ctx, cfg, name):
     await page.route('https://fonts.googleapis.com/**', font_route)
     await page.route('https://fonts.gstatic.com/**', font_route)
     async def doc_route(route): await route.fulfill(status=200, content_type='text/html', body=hm.SKELETON.replace('%s', hm.HTML.read_text()))
-    await page.route('http://hm.test/**', doc_route)
-    await page.goto('http://hm.test/' + cfg.get('q', ''), wait_until='commit')
+    # Existing room fixtures keep their intercepted document; server fixtures can
+    # use a real HTTPS origin with the browser's secure-context APIs.
+    if page_url is None:
+        await page.route('http://hm.test/**', doc_route)
+    target = page_url if page_url is not None else 'http://hm.test/' + cfg.get('q', '')
+    await page.goto(target, wait_until='commit')
     await page.wait_for_function('window.__hm && window.__hm.ready', timeout=300000, polling=500)
     await page.evaluate("__hm.fn.setQuality('low')")
     await page.evaluate(HOLD)

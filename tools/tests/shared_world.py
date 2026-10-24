@@ -142,7 +142,12 @@ async def boot(browser, origin, url, name, realm, cls, level, phone=False):
         page.on("websocket", socket_open)
     context.on("page", page_open)
     page = await fixture.boot(context, {"room": "shared-world", "shard": "shared-world",
-                              "user": name, "noRoom": True, "server": url}, name)
+                              "user": name, "noRoom": True, "server": url}, name,
+                              page_url=origin + "/?safe=1")
+    secure = await page.evaluate("""({secure:window.isSecureContext,origin:location.origin,
+      randomUUID:typeof crypto.randomUUID})""")
+    require(secure["secure"] and secure["origin"] == origin and secure["randomUUID"] == "function",
+            "the browser uses the real HTTPS world origin with native cryptography", document=secure)
     await fixture.start(page, realm, cls, level, name)
     await page.evaluate("NT.P.maxHp=100000; NT.P.hp=100000; 0")
     page._context = context
@@ -204,7 +209,7 @@ async def boat_case(pages):
       const boats = __hm.water.boats;
       for (const row of boats.list().filter(b => b.realm === 0 && b.st === 'moored' && b.home)) {
         const B = boats.BOATS.list[row.i], J = B.home && boats.BOATS.jetties[B.home.j];
-        if (!J || B.rider != null) continue;
+        if (!J || B.rider != null || __hm.netboats.NET_BOATS.frames.get(row.id)?.rider != null) continue;
         const sign = Math.sin(B.yaw) * J.dx + Math.cos(B.yaw) * J.dz >= 0 ? 1 : -1;
         const clear = [0, .5, 1, 2, 3, 4, 5, 6, 7, 8].every(d =>
           boats.hit(row.i, B.x + Math.sin(B.yaw) * sign * d,
@@ -227,6 +232,12 @@ async def boat_case(pages):
     rider = pages[occupied.index(True)]
     observer = pages[occupied.index(False)]
     before = await rider.evaluate("i=>__hm.water.boats.state(i)", index)
+    navigation = await rider.evaluate("""([i,key])=>{const boats=__hm.water.boats,b=boats.state(i);
+      const sign=key==='KeyW'?1:-1;
+      return {jetty:b.home?boats.jetties()[b.home.j]:null,strokeKey:key,
+        departure:[0,.5,1,2,3,4,5,6,7,8].map(d=>({distance:d,
+          hit:boats.hit(i,b.x+Math.sin(b.yaw)*sign*d,
+            b.z+Math.cos(b.yaw)*sign*d,b.yaw)}))}; }""", [index, candidate["strokeKey"]])
     await rider.evaluate("key=>{__hm.INPUT.keys.add(key); return 0;}", candidate["strokeKey"])
     try:
         await pulse(pages, 5)
@@ -235,8 +246,10 @@ async def boat_case(pages):
     await pulse(pages, 0.8)
     a, b = await asyncio.gather(*(p.evaluate("i=>__hm.water.boats.state(i)", index) for p in pages))
     moved = math.hypot(a["x"]-before["x"], a["z"]-before["z"])
+    canonical = [await p.evaluate("id=>__hm.netboats.NET_BOATS.frames.get(id)", a["id"]) for p in pages]
     require(moved > 0.75, "a boarded boat really rows away from its berth", distance=moved,
-            stroke=candidate["strokeKey"], before=before, desktop=a, phone=b)
+            stroke=candidate["strokeKey"], before=before, desktop=a, phone=b,
+            canonical=canonical, navigation=navigation)
     require(math.hypot(a["x"]-b["x"], a["z"]-b["z"]) < 1.25,
             "both devices show the moved boat at the same position", desktop=a, phone=b)
     rider_peer = await rider.evaluate("NT.st().self")
@@ -364,7 +377,7 @@ async def combat_case(pages):
     follower_position = await follower.evaluate("({x:NT.P.x,z:NT.P.z})")
     candidate = await host.evaluate("""at=>{const H=__hm,out=[];for(const r of H.entities.rows()) {
       const e=H.entities.find(r.id);if(e&&e.alive&&e.role==='mob'
-        &&H.fn.isEnemy(H.GAME.player,e)&&e.hp>40&&e.hp<20000)
+        &&H.fn.isEnemy(H.GAME.player,e)&&e.hp>40&&e.hp<=600)
         out.push({id:r.id,x:e.x,z:e.z,hp:e.hp,d:Math.hypot(e.x-at.x,e.z-at.z)});}
       out.sort((a,b)=>a.d-b.d);return out[0]||null;}""", follower_position)
     require(candidate is not None, "the authoritative world exposes an ordinary hostile creature", rows=len(rows))
@@ -378,11 +391,18 @@ async def combat_case(pages):
         values = [await p.evaluate("id=>__hm.entities.find(id)?.hp", candidate["id"]) for p in pages]
         return all(v is not None and v < hp_before for v in values) and abs(values[0]-values[1]) < 0.01
     require(await eventually(pages, damaged), "a follower's actual attack changes the same creature's health on both devices")
-    await follower.evaluate("id=>__hm.entities.attack(id,9999)", candidate["id"])
+    last_attack = -math.inf
     async def died():
-        return all([await p.evaluate("id=>{const e=__hm.entities.find(id);return !e || !e.alive;}", candidate["id"])
-                    for p in pages])
-    require(await eventually(pages, died), "the same creature's death is visible on both devices")
+        nonlocal last_attack
+        dead = [await p.evaluate("id=>{const e=__hm.entities.find(id);return !e || !e.alive;}", candidate["id"])
+                for p in pages]
+        if all(dead):
+            return True
+        if time.monotonic() - last_attack >= 0.65:
+            await follower.evaluate("id=>__hm.entities.attack(id,40)", candidate["id"])
+            last_attack = time.monotonic()
+        return False
+    require(await eventually(pages, died, 90), "repeated legal attacks produce the same creature's death on both devices")
 
 
 async def terrain_case(pages):
@@ -449,8 +469,8 @@ async def run():
         async with async_playwright() as playwright:
             browser = await playwright.chromium.launch(args=["--use-angle=swiftshader",
                        "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist", "--ignore-certificate-errors"])
-            desktop = await boot(browser, origin, url, "DesktopKeeper", 0, "mage", 30)
-            phone = await boot(browser, origin, url, "PhoneFarmer", 0, "mage", 27, phone=True)
+            desktop = await boot(browser, public_origin, url, "DesktopKeeper", 0, "mage", 30)
+            phone = await boot(browser, public_origin, url, "PhoneFarmer", 0, "mage", 27, phone=True)
             pages = [desktop, phone]
             await readiness(pages)
             private_before = [await p.evaluate("({name:NT.P.name,level:__hm.GAME.prog.level})") for p in pages]
@@ -477,7 +497,7 @@ async def run():
             require(await eventually(pages, took_over), "the surviving character takes authority after the keeper leaves")
             require(await survivor.evaluate(piece_signature_js()) == pieces,
                     "host handoff preserves constructed structures")
-            late = await boot(browser, origin, url, "LatePhone" if late_phone else "LateDesktop",
+            late = await boot(browser, public_origin, url, "LatePhone" if late_phone else "LateDesktop",
                               0, "priest", 17, phone=late_phone)
             pages = [survivor, late]
             await readiness(pages)
@@ -489,8 +509,9 @@ async def run():
             a, b = await asyncio.gather(*(p.evaluate("i=>__hm.water.boats.state(i)", boat_index) for p in pages))
             require(math.hypot(a["x"]-b["x"], a["z"]-b["z"]) < 1.25,
                     "late join preserves the shared boat position after host handoff")
+            for page in BOOT_PAGES:
+                REPORT["errors"].extend(getattr(page, "_shared_errors", []))
             for i, page in enumerate(pages):
-                REPORT["errors"].extend(page._logs)
                 await page.evaluate("__hm.frame(1/30); 0")
                 await page.screenshot(path=str(OUT/f"shared_world_{i}.png"), timeout=60000)
             require(not REPORT["errors"], "both browsers completed the shared-world scenarios without page errors",
