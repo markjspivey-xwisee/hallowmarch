@@ -211,3 +211,38 @@ test('arrow physics follows shared keeper authority and local pending arrows rem
   b.run('CLS.arrows[0].netFieldPending=true;stepArrows(0.1)');
   assert.equal(b.run('stepVisits.at(-1)[0].vis'), true);
 });
+
+test('follower fields dispatch through the real request path while inventory recovery waits for its private checkpoint', () => {
+  const b = scene(false, 'b');
+  const parts = readFileSync(new URL('../../src/14z_networldparts.js', import.meta.url), 'utf8');
+  const section = (from, to) => {
+    const a = parts.indexOf(from), z = parts.indexOf(to, a + from.length);
+    assert.ok(a >= 0 && z > a); return parts.slice(a, z);
+  };
+  Object.assign(b.c, { crypto: { randomUUID: (() => { let n = 0; return () => 'field-request-' + (++n); })() },
+    performance: { now: () => 1000 } });
+  b.run(
+    "const NETPART_COMMANDS=commands,NETWS={acct:{id:'account-b'}};" +
+    "const SAVE={ref:null,wiping:false},INV={bag:[]},GOODS={};let privateFlushes=0;" +
+    "Object.assign(NETPARTS,{pending:new Map(),receipts:[],ready:true,next:0});" +
+    "const netWorldPartsCanSimulate=()=>false,netWorldPartsConnected=()=>true;" +
+    "const goodsHave=()=>false,goodsTakeAll=()=>true;" +
+    "const netWorldPartsFlushJournal=()=>{privateFlushes++;return Promise.resolve(false)};" +
+    "const netWsSend=message=>{sends.push(message);return true};const uiError=()=>{};"
+  );
+  b.run(section('function netWorldPartsOwnerScope(', 'function netWorldPartsReset(') +
+    section('function netWorldPartsRequest(', 'function netWorldPartsMessage(') +
+    section('function netWorldPartsDispatch(', 'function netWorldPartsSendSettled('));
+  b.run('freezeWater(4,6,5,GAME.player);layRune(GAME.player,0,0,"frost")');
+  assert.deepEqual(b.json('sends.map(m=>m.command.op)'), ['combat.ice', 'combat.rune']);
+  assert.equal(b.run('privateFlushes'), 0, 'transient fields must not write a private economic journal');
+  assert.equal(b.run('CLS.ice.length + CLS.runes.length'), 0, 'the follower still waits for canonical visible fields');
+  assert.ok(b.run('[...NETPARTS.pending.values()].every(p=>p.durable===false&&p.privateConfirmed)'));
+  b.run('netWorldPartsRequest("combat.arrow", {x:0,z:0,row:{}})');
+  assert.equal(b.run('sends.at(-1).command.op'), 'combat.arrow');
+  assert.equal(b.run('privateFlushes'), 0, 'projectile replication never saves a character for each arrow');
+  b.run('netWorldPartsRequest("combat.arrow-recover", {id:"stuck-arrow"})');
+  assert.equal(b.run('sends.length'), 3, 'inventory recovery cannot dispatch before private confirmation');
+  assert.equal(b.run('privateFlushes'), 1);
+  assert.equal(b.run('[...NETPARTS.pending.values()].at(-1).durable'), true);
+});

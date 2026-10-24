@@ -210,7 +210,7 @@ queueMicrotask(() => {
     return raw.raiseFallen(e, A, t, cast, rk);
   };
   for (const op of ['frost', 'ice', 'steam', 'melt', 'rune', 'snare', 'consecrate', 'raise'])
-    netWorldPartsRegisterCommand('combat.' + op, { range: 65, point: netCombatFieldPoint, run: args => {
+    netWorldPartsRegisterCommand('combat.' + op, { durable: false, range: 65, point: netCombatFieldPoint, run: args => {
       const e = GAME.player, primary = ['snare', 'consecrate', 'raise'].includes(op);
       if (!netCombatFieldReady(args, e, op, primary ? Math.max(1, ABILITIES[op]?.cd || 1) : 0.08)) return false;
       if (['frost', 'ice', 'rune'].includes(op) && e.cls !== 'mage') return false;
@@ -234,7 +234,7 @@ queueMicrotask(() => {
       if (netWorldPartsRequest('combat.arrow', { x: A.x, z: A.z, row })) { A.vis = true; A.netFieldPending = true; }
     }
   };
-  netWorldPartsRegisterCommand('combat.arrow', { range: 5, point: netCombatFieldPoint, run: args => {
+  netWorldPartsRegisterCommand('combat.arrow', { durable: false, range: 5, point: netCombatFieldPoint, run: args => {
     const e = GAME.player, row = args.row;
     if (!e?.alive || e.cls !== 'archer' || !netCombatFieldReady(args, e, 'arrow', 0.12)
       || !row || typeof row.id !== 'string' || !row.id.startsWith('arrow:' + e.netPeer + ':')
