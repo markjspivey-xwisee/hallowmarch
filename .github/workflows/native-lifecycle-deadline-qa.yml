@@ -19,7 +19,7 @@ jobs:
       - name: Execute actual adapter and native profile regressions
         run: |
           node --check src/14v_nativeidentity.js
-          node --test client/native-pod/profile.test.mjs client/native-pod/provisional-session.test.mjs client/native-pod/native-load.test.mjs tools/tests/departing_save.test.mjs tools/tests/idle_lifecycle.test.mjs
+          node --test client/native-pod/profile.test.mjs client/native-pod/provisional-session.test.mjs client/native-pod/native-load.test.mjs tools/tests/departing_save.test.mjs tools/tests/idle_client_network.test.mjs tools/tests/server_human_lifecycle.test.mjs
       - name: Install locked lint dependencies
         run: npm ci --prefix tools --ignore-scripts
       - name: Build and lint
