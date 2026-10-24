@@ -9,11 +9,19 @@ const ensure=(ok,code)=>{if(!ok)throw Error(code)};
 const remaining=max=>{const n=Math.min(max,end-Date.now());ensure(n>0,'acceptance_deadline');return n};
 const pause=ms=>new Promise(r=>setTimeout(r,ms));
 const until=async(fn,code,max=45000)=>{const deadline=Date.now()+remaining(max);while(Date.now()<deadline){if(await fn())return;await pause(150)}throw Error(code)};
-const frames=new Map(),receipts=new Map();
+const frames=new Map(),receipts=new Map(),wireStats={frames:0,worldparts:0,parseErrors:0,authorityChanges:0,refusals:[]};let latestAuthority='';
 function observe(socket){
   if(new URL(socket.url()).origin.replace('wss:','https:')!==origin)return;
   socket.on('framereceived',data=>{try{
-    const m=JSON.parse(String(data));if(m.t!=='activity'||m.kind!=='worldparts')return;
+    const m=JSON.parse(String(data.payload));wireStats.frames++;
+    if(m.t!=='activity')return;
+    if(m.kind==='authority'){if(typeof m.authority==='string'&&m.authority!==latestAuthority)wireStats.authorityChanges++;latestAuthority=m.authority;return}
+    if(m.kind!=='worldparts')return;wireStats.worldparts++;
+    if(m.op==='snapshot'&&m.ok===false){wireStats.refusals.push({
+      reason:['stale_authority','scene_capacity','world_checkpoint_unconfirmed'].includes(m.reason)?m.reason:'other',
+      matchesLatestAuthority:m.authority===latestAuthority});
+      if(wireStats.refusals.length>8)wireStats.refusals.shift();}
+
     if(m.op==='result'&&typeof m.id==='string'){receipts.set(m.id,m);return}
     if(m.op!=='snapshot'||typeof m.data!=='string'||!Number.isInteger(m.part)||!Number.isInteger(m.total)||m.total<1||m.total>128)return;
     const key=m.authority+':'+m.seq;let a=frames.get(key);
@@ -23,7 +31,7 @@ function observe(socket){
       for(const r of v.receipts||[])if(typeof r.id==='string')receipts.set(r.id,r);frames.delete(key)}
     while(frames.size>4)frames.delete(frames.keys().next().value);
     while(receipts.size>128)receipts.delete(receipts.keys().next().value);
-  }catch{/* Never log a raw frame, token or profile. */}});
+  }catch{wireStats.parseErrors++;/* Never log a raw frame, token or profile. */}});
 }
 async function json(path){const r=await fetch(origin+path,{signal:AbortSignal.timeout(remaining(10000)),redirect:'error',cache:'no-store'});ensure(r.ok,'public_status_unavailable');return r.json()}
 async function redacted(){
@@ -174,15 +182,15 @@ try{
     return {started:!!h?.GAME.started,alive:!!h?.GAME.player?.alive,nativeReadConfirmed:!!h?.nativePlayerStatus?.().readConfirmed,
       prologue:h?.UI.modal==='prologue',menu:h?.UI.modal==='menu',savePending:!!h?.SAVE.pending,saveInFlight:!!h?.SAVE.nativeFlight,
       nativeSocket:w?.state==='on',nativeBound:!!w?.acct?.nativeBound,worldInitialized:!!w?.worldInitialized,
-      worldPaused:!!w?.worldPauseReason,partsReady:!!p?.ready,partsPaused:!!p?.paused,pendingActions:p?.pending?.size??0,
+      worldPaused:!!w?.worldPauseReason,partsReady:!!p?.ready,partsPaused:!!p?.paused,partsPauseReason:['stale_authority','scene_capacity','world_checkpoint_unconfirmed'].includes(p?.paused)?p.paused:p?.paused?'other':'',partsRefused:p?.refused??0,pendingActions:p?.pending?.size??0,
       humanSuspended:w?.humanSuspended===true,documentFocused:document.hasFocus(),documentVisible:!document.hidden,
       guestTimer:!!h?.SAVE.guestTimer,guestWriteDelayMs:Math.max(0,Math.round((h?.SAVE.guestWriteAt||0)-Date.now())),finalAuthorized:!!h?.SAVE.nativeFinal};
   }),pause(2000).then(()=>null)])}catch{}
-  console.error(JSON.stringify({passed:false,stage,code,navigation,state}));process.exitCode=1;
+  console.error(JSON.stringify({passed:false,stage,code,navigation,state,wireStats}));process.exitCode=1;
 }finally{
   try{await page?.evaluate(()=>window.__economicQA?.restore?.())}catch{}
   await page?.keyboard.up('w').catch(()=>{});
   await browser?.close();await fs.mkdir(out,{recursive:true});
-  console.log(JSON.stringify({passed:pass,stage,checks,navigation}));
-  await fs.writeFile(out+'/result.json',JSON.stringify({passed:pass,stage,checks,navigation},null,2));
+  console.log(JSON.stringify({passed:pass,stage,checks,navigation,wireStats}));
+  await fs.writeFile(out+'/result.json',JSON.stringify({passed:pass,stage,checks,navigation,wireStats},null,2));
 }

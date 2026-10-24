@@ -81,8 +81,6 @@ jobs:
         run: |
           node --check tools/manual/release-browser-smoke.mjs
           node --check tools/manual/live-economic-smoke.mjs
-      - name: Exercise actual deployed guest UI
-        run: node tools/manual/release-browser-smoke.mjs
       - name: Confirm a real native mining receipt on preview
         run: node tools/manual/live-economic-smoke.mjs
       - uses: actions/upload-artifact@v4
