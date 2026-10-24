@@ -1,0 +1,29 @@
+name: Temporary native authority readiness
+on:
+  push:
+    branches: [test/native-readiness-20261024]
+    paths: ['.github/workflows/native-readiness.yml']
+permissions:
+  contents: read
+jobs:
+  readiness:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Read bounded public authority diagnostics
+        run: |
+          node --input-type=module <<'JS'
+          for (const [label, origin] of [['preview','https://march-native-preview-production.up.railway.app'],['production','https://march-production-f6d9.up.railway.app']]) {
+            const response = await fetch(origin + '/gaming/status', {signal: AbortSignal.timeout(20000)});
+            const state = await response.json(), world = state.manifest?.worldAuthority || {}, store = state.nativeStore || {};
+            const summary = Object.fromEntries(Object.entries(store).filter(([key, value]) =>
+              typeof value === 'number' || typeof value === 'boolean'
+              || ['mode','state','status','error','lastErrorCode'].includes(key) && typeof value === 'string' && /^[A-Za-z0-9_-]{1,80}$/.test(value)));
+            console.log('HM_NATIVE_READINESS ' + JSON.stringify({label, http:response.status,
+              identity:state.playerIdentity, nativeStore:summary, nativeStoreFields:Object.keys(store),
+              world:Object.fromEntries(['mode','state','fenced','error','version','confirmedVersion','liveVersion','confirmedLiveVersion','pending','durable'].filter(k=>world[k]!==undefined).map(k=>[k,world[k]]))}));
+          }
+          JS
