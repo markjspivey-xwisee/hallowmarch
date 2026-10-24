@@ -66,8 +66,9 @@ try{
   ensure(typeof identity.id==='string','fresh_character_missing');
   stage='walk-to-rock';
   const rock=await page.evaluate(()=>{const h=__hm,p=h.GAME.player;
+    const depleted=new Map((h.worldparts.capture().parts.resources?.rocks||[]).map(row=>[row[0],row]));
     return h.fn.W.rocks.map((r,i)=>({i,x:r.x,z:r.z,s:r.s,d:Math.hypot(r.x-p.x,r.z-p.z)}))
-      .filter(r=>r.s>=.55&&r.d<=75&&[.2,.4,.6,.8].every(t=>h.fn.isWalkable(p.x+(r.x-p.x)*t,p.z+(r.z-p.z)*t)))
+      .filter(r=>r.s>=.55&&r.s<2&&r.d<=75&&!(depleted.get(r.i)?.[1]===0)&&[.2,.4,.6,.8].every(t=>h.fn.isWalkable(p.x+(r.x-p.x)*t,p.z+(r.z-p.z)*t)))
       .sort((a,b)=>a.d-b.d)[0]||null});
   ensure(rock,'no_nearby_walkable_resource');
   const walkUntil=Date.now()+remaining(45000);let reached=false,stuck=0,last=Infinity;
@@ -115,6 +116,8 @@ try{
   ensure(journal?.settled?.some(r=>r.id===request.id&&r.digest===receipt.digest)
     &&!(journal.pending||[]).some(r=>r.id===request.id),'private_outcome_tombstone_missing');
   ensure(await page.evaluate(n=>__hm.fn.goodsCount('stone')===n,before+gained),'live_inventory_mismatch');
+  const depletion=await page.evaluate(i=>__hm.worldparts.capture().parts.resources?.rocks.find(row=>row[0]===i)?.slice(0,2),rock.i);
+  ensure(depletion&&depletion[1]>=0&&depletion[1]<=2,'shared_depletion_missing');
   const durable=await redacted();ensure(durable.confirmedLiveVersion>baseline.confirmedLiveVersion,'native_world_version_did_not_advance');
   await page.evaluate(()=>window.__economicQA.restore());
   checks.push('real resource action used a confirmed native reservation, canonical receipt and private outcome readback');
@@ -126,10 +129,12 @@ try{
   await page.getByRole('button',{name:'Return to the march',exact:true}).click();if(await skip.isVisible())await skip.click();
   await page.locator('#scene').click({position:{x:500,y:350}});await page.keyboard.press('Shift');await active();await pause(3500);
   ensure(await page.evaluate(n=>__hm.fn.goodsCount('stone')===n,before+gained),'reload_duplicated_or_lost_outcome');
+  const reloadedDepletion=await page.evaluate(i=>__hm.worldparts.capture().parts.resources?.rocks.find(row=>row[0]===i)?.slice(0,2),rock.i);
+  ensure(reloadedDepletion&&reloadedDepletion[1]===depletion[1],'native_reload_restored_mined_resource');
   const restored=await privateRecord();ensure((restored.char?.x?.goods?.stone||0)===before+gained
     &&restored.char?.x?.sharedWorldReservations?.settled?.some(r=>r.id===request.id&&r.digest===receipt.digest),'reloaded_private_readback_missing');
   await redacted();await pauseAndSave();ensure(errors===0,'browser_runtime_error');
-  checks.push('same guest reloaded the confirmed outcome without another award');pass=true;
+  checks.push('same guest reloaded the confirmed outcome and mineral depletion without another award');pass=true;
 }catch(error){
   const code=/^[a-z0-9_]+$/.test(error?.message||'')?error.message:'browser_step_failed';
   console.error(JSON.stringify({passed:false,stage,code}));process.exitCode=1;
