@@ -1,0 +1,19 @@
+name: Stale shared-scene refusal proof
+on:
+  push:
+    branches: [fix/stale-scene-refusal-20261024]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  refusal-scope:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci --prefix server
+      - name: Verify stale rejection and current native fences
+        run: node --test server/shared-scene.test.mjs tools/tests/net_worldparts.mjs

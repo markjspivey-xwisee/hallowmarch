@@ -698,3 +698,49 @@ test('an unserializable action cannot reserve materials or enter the private jou
   assert.equal(c.api.state.pending.size, 0);
   assert.equal(c.sent.some(m => m.op === 'command'), false);
 });
+
+
+test('retired snapshot refusals cannot pause a resumed worldparts publisher', () => {
+  const c = client({ self: 'desktop', host: 'desktop' });
+  c.api.register('build', { save: () => ({ v: 1, p: [] }), apply() {} });
+  c.tick(2000);
+  const oldAdmission = c.admission;
+  const admission = { ...oldAdmission, epoch: oldAdmission.epoch + 1 };
+  c.api.message({ t: 'activity', kind: 'authority', authority: 'resumed-token',
+    peer: 'desktop', worldAdmission: admission, worldpartsReady: false });
+  c.tick(2000);
+  const awaiting = c.api.state.awaiting;
+  assert.ok(awaiting, 'the resumed publisher has a current snapshot awaiting confirmation');
+  const refused = c.api.state.refused;
+  for (const scope of [
+    { authority: 'token', worldAdmission: admission },
+    { authority: 'resumed-token', worldAdmission: oldAdmission },
+  ]) {
+    c.api.message({ t: 'activity', kind: 'worldparts', op: 'snapshot',
+      ...scope, ok: false, reason: 'stale_authority' });
+    assert.equal(c.api.state.paused, '');
+    assert.equal(c.api.state.awaiting, awaiting);
+    assert.equal(c.api.state.refused, refused);
+    assert.equal(c.api.canSim(), true);
+  }
+});
+
+test('current capacity and native checkpoint refusals still fence worldparts publication', () => {
+  for (const reason of ['scene_capacity', 'world_checkpoint_unconfirmed']) {
+    const c = client({ self: 'desktop', host: 'desktop' });
+    c.api.register('build', { save: () => ({ v: 1, p: [] }), apply() {} });
+    c.tick(2000);
+    assert.ok(c.api.state.awaiting);
+    c.api.message({ t: 'activity', kind: 'worldparts', op: 'snapshot',
+      authority: 'token', worldAdmission: c.admission, ok: false, reason });
+    assert.equal(c.api.state.paused, reason);
+    assert.equal(c.api.state.awaiting, null);
+    assert.equal(c.api.state.outbox, null);
+    assert.equal(c.api.state.refused, 1);
+    assert.equal(c.api.canSim(), false);
+    const sent = c.sent.length;
+    c.tick(10000);
+    assert.equal(c.sent.length, sent, 'polling cannot clear or retry through the current fence');
+    assert.equal(c.api.state.paused, reason);
+  }
+});
