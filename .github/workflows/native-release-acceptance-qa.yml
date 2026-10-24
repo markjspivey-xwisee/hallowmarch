@@ -1,0 +1,33 @@
+name: Native release acceptance (isolated QA)
+on:
+  push:
+    branches: [qa/native-release-acceptance-20261024]
+permissions:
+  contents: read
+concurrency:
+  group: hallowmarch-native-release-acceptance
+  cancel-in-progress: false
+jobs:
+  native-release-acceptance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install the locked browser tools
+        run: |
+          npm ci --prefix tools --ignore-scripts --no-audit --no-fund
+          npm exec --prefix tools -- playwright install --with-deps chromium
+      - name: Check the QA driver syntax
+        run: node --check tools/manual/native-release-acceptance.qa.mjs
+      - name: Require an idle target, then exercise two independent native players
+        run: node tools/manual/native-release-acceptance.qa.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: native-release-acceptance-safe-result
+          path: tools/out/native-release-acceptance/result.json
+          if-no-files-found: warn
+          retention-days: 14
