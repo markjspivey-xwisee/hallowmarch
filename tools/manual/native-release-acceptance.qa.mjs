@@ -225,6 +225,7 @@ async function snapshot(actor) {
     return { self: h.net.NET.self, boatAuthority: b.authority, boatKeeper: b.host,
       npcAuthority: n.authority, npcKeeper: n.peer, entityAuthority: e.authority, entityKeeper: e.peer,
       mine: e.mine, count: e.count, complete: e.complete, partsReady: !!h.worldparts?.NETPARTS.ready,
+      partsAuthority: h.worldparts?.NETPARTS.authority, partsKeeper: h.worldparts?.NETPARTS.peer, partsPaused: !!h.worldparts?.NETPARTS.paused,
       npcs: h.npcs.snapshot().map(r => ({ id: r.id, look: r.lk, farm: r.fm, p: r.p })).sort((a,b) => a.id.localeCompare(b.id)),
       boats: [...b.frames.values()].map(r => ({ id: r.id, x: r.x, z: r.z, st: r.st, rider: r.rider })).sort((a,b) => a.id-b.id) };
   });
@@ -234,11 +235,12 @@ function compare(a, b) {
   const boats = !!a && !!b && a.boats.length === b.boats.length;
   const diag = {
     bothReady: !!(a?.complete && b?.complete && a.partsReady && b.partsReady),
+    partsUnpaused: !!a && !!b && !a.partsPaused && !b.partsPaused,
     independentPeers: !!a?.self && !!b?.self && a.self !== b.self,
     sameAuthority: !!a?.entityAuthority && a.entityAuthority === b?.entityAuthority
-      && [a.boatAuthority, a.npcAuthority, b.boatAuthority, b.npcAuthority].every(x => x === a.entityAuthority),
+      && [a.boatAuthority, a.npcAuthority, a.partsAuthority, b.boatAuthority, b.npcAuthority, b.partsAuthority].every(x => x === a.entityAuthority),
     sameKeeper: !!a?.entityKeeper && a.entityKeeper === b?.entityKeeper
-      && [a.boatKeeper, a.npcKeeper, b.boatKeeper, b.npcKeeper].every(x => x === a.entityKeeper),
+      && [a.boatKeeper, a.npcKeeper, a.partsKeeper, b.boatKeeper, b.npcKeeper, b.partsKeeper].every(x => x === a.entityKeeper),
     exactlyOneKeeper: Number(!!a?.mine) + Number(!!b?.mine) === 1,
     entityCountA: a?.count ?? 0, entityCountB: b?.count ?? 0,
     sameEntityCount: !!a?.count && a.count === b?.count,
@@ -316,7 +318,7 @@ async function safeDiagnostic(actor) {
       worldPaused: !!w?.worldPauseReason, worldReload: !!w?.worldReloadRequired,
       sharedComplete: !!e?.complete, entityCount: e?.count ?? 0, keeper: !!e?.mine,
       npcCount: h?.npcs?.snapshot().length ?? 0, boatCount: h?.netboats?.NET_BOATS.frames.size ?? 0,
-      partsReady: !!h?.worldparts?.NETPARTS.ready, partsPending: h?.worldparts?.NETPARTS.pending.size ?? 0 };
+      partsReady: !!h?.worldparts?.NETPARTS.ready, partsPaused: !!h?.worldparts?.NETPARTS.paused, partsPending: h?.worldparts?.NETPARTS.pending.size ?? 0 };
   }, SAFE_NATIVE); } catch { return { label: actor.label, diagnosticUnavailable: true }; }
 }
 async function main() {
@@ -327,15 +329,36 @@ async function main() {
   await poll('phone_native_live', () => live(phone));
   check(desktop.original.id !== phone.original.id, 'independent_native_characters');
   const initial = await converge('independent_public_scenes_converge', [desktop,phone]);
-  const departing = initial[0].mine ? desktop : phone, survivor = departing === desktop ? phone : desktop;
-  const oldAuthority = initial[0].entityAuthority;
+  const resuming = initial[0].mine ? desktop : phone, activePeer = resuming === desktop ? phone : desktop;
+  const beforePauseAuthority = initial[0].entityAuthority;
+  await pause(resuming, 'same_page_keeper_pause');
+  await activate(activePeer);
+  await poll('same_page_survivor_becomes_native_keeper', async () => {
+    const s = await snapshot(activePeer);
+    return !!(await live(activePeer) && s?.mine && s.complete && s.partsReady && !s.partsPaused
+      && s.entityAuthority !== beforePauseAuthority
+      && [s.boatKeeper, s.npcKeeper, s.partsKeeper, s.entityKeeper].every(peer => peer === s.self)
+      && [s.boatAuthority, s.npcAuthority, s.partsAuthority].every(authority => authority === s.entityAuthority));
+  });
+  stage = 'same_page_resume_focus'; await focus(resuming);
+  stage = 'same_page_resume_visible_control';
+  await resuming.page.getByRole('button', { name: 'Resume', exact: true }).click();
+  await poll('same_page_menu_closed', () => evaluate(resuming, () => window.__hm?.UI?.modal !== 'menu'));
+  await activate(resuming);
+  await poll('same_page_resumed_native_live', () => live(resuming));
+  const resumedIdentity = await identity(resuming);
+  check(resumedIdentity.id === resuming.original.id && resumedIdentity.expiry === resuming.original.expiry,
+    'same_page_resume_preserves_character_and_exact_expiry');
+  const resumed = await converge('public_scenes_converge_after_same_page_resume', [desktop,phone]);
+  const departing = resumed[0].mine ? desktop : phone, survivor = departing === desktop ? phone : desktop;
+  const oldAuthority = resumed[0].entityAuthority;
   await pause(departing, 'keeper_departure'); await departing.page.close();
   await activate(survivor);
   await poll('survivor_becomes_complete_keeper', async () => {
     const s = await snapshot(survivor);
-    return !!(await live(survivor) && s?.mine && s.complete && s.partsReady && s.entityAuthority !== oldAuthority
-      && s.boatKeeper === s.self && s.npcKeeper === s.self && s.entityKeeper === s.self
-      && s.boatAuthority === s.entityAuthority && s.npcAuthority === s.entityAuthority);
+    return !!(await live(survivor) && s?.mine && s.complete && s.partsReady && !s.partsPaused && s.entityAuthority !== oldAuthority
+      && s.boatKeeper === s.self && s.npcKeeper === s.self && s.partsKeeper === s.self && s.entityKeeper === s.self
+      && s.boatAuthority === s.entityAuthority && s.npcAuthority === s.entityAuthority && s.partsAuthority === s.entityAuthority);
   });
   stage = 'saved_character_rejoin';
   await attachPage(departing); await waitTitle(departing, true);
