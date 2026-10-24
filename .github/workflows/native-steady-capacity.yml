@@ -1,0 +1,41 @@
+name: Native steady capacity proof
+on:
+  push:
+    branches: ['test/native-steady-capacity-20261024']
+    paths: ['.github/workflows/native-steady-capacity.yml']
+permissions:
+  contents: read
+jobs:
+  native-size:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci --prefix tools && npm ci --prefix server
+      - name: Build exact pinned SDK
+        env:
+          INTEREGO_SDK_TEST_ROOT: ${{ runner.temp }}/native-capacity-sdk
+        run: |
+          node tools/setup-native-sdk.mjs
+          echo "INTEREGO_SDK_TEST_ROOT=$INTEREGO_SDK_TEST_ROOT" >> "$GITHUB_ENV"
+      - name: Measure exact authored hour through real encrypted SDK
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('server/gaming/rolling-multiplayer-native.test.mjs')
+          source = path.read_text()
+          old = '  const prepared = store.prepareWrite(doc);'
+          assert source.count(old) == 1
+          new = '''  const started = performance.now();
+            const prepared = store.prepareWrite(doc);
+            console.log(JSON.stringify({ proof: 'real-sdk-full-hour', prepareMs: performance.now() - started,
+              ...store.lastCommitSize, exactFinalBytes: store.nativeClient.atomicCheckpointSize(prepared.artifact),
+              regularWrites: 122, maximumSteadyReservedBytes: prepared.maxEncryptedBytes * 122,
+              existingHourlyBudget: 64 * 1024 * 1024, completeSnapshots: doc.checkpoints.length,
+              exactOwnerBindings: doc.streams.find(row => row.streamId === 'player-bindings-v1').state.bindings.length }));'''
+          path.write_text(source.replace(old, new))
+          PY
+          node --test --test-name-pattern='actual SDK encrypts the complete moving hour' server/gaming/rolling-multiplayer-native.test.mjs
