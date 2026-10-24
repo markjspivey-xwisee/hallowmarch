@@ -39,3 +39,6 @@ jobs:
           path.write_text(source.replace(old, new))
           PY
           node --test --test-name-pattern='actual SDK encrypts the complete moving hour' server/gaming/rolling-multiplayer-native.test.mjs
+
+      - name: Compare exact lossless history layouts
+        run: node tools/manual/column-experiment.mjs
