@@ -142,7 +142,11 @@ async def boot(browser, origin, url, name, realm, cls, level, phone=False):
         page.on("websocket", socket_open)
     context.on("page", page_open)
     page = await fixture.boot(context, {"room": "shared-world", "shard": "shared-world",
-                              "user": name, "noRoom": True, "server": url}, name)
+                              "user": name, "noRoom": True, "server": url,
+                              "pageOrigin": "https://hm.test"}, name)
+    security = await page.evaluate("({origin:location.origin,secure:isSecureContext,randomUUID:typeof crypto.randomUUID==='function'})")
+    require(security["secure"] and security["randomUUID"],
+            "each independent browser uses a secure origin with native UUID support", security=security)
     await fixture.start(page, realm, cls, level, name)
     await page.evaluate("NT.P.maxHp=100000; NT.P.hp=100000; 0")
     page._context = context

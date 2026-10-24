@@ -331,6 +331,40 @@ function mineYield(i, pick) {
   saveSoon();
   return true;
 }
+// Sparse shared depletion; remaining cooldowns survive a keeper with a different clock.
+const CRAFT_SHARED_ROCK_CAP = 900;
+function craftRocksSharedSave() {
+  if (CRAFT.rocks.size > CRAFT_SHARED_ROCK_CAP) throw Error('Shared mineral capacity exceeded');
+  const rocks = [];
+  for (const [i, r] of CRAFT.rocks) {
+    if (!Number.isInteger(i) || i < 0 || i >= CRAFT_SHARED_ROCK_CAP || !r
+      || !Number.isInteger(r.n) || r.n < 0 || r.n > 2 || !Number.isFinite(r.until))
+      throw Error('Invalid shared mineral state');
+    const left = r.n === 0 ? Math.ceil(Math.max(0, Math.min(900, r.until - GAME.t))) : 0;
+    if (r.n === 0 && left === 0) continue;
+    rocks.push([i, r.n, left]);
+  }
+  rocks.sort((a, b) => a[0] - b[0]);
+  return { v: 1, rocks };
+}
+function craftRocksSharedApply(value) {
+  const next = new Map();
+  if (value != null) {
+    if (!value || value.v !== 1 || !Array.isArray(value.rocks) || value.rocks.length > CRAFT_SHARED_ROCK_CAP)
+      throw Error('Invalid shared mineral state');
+    for (const row of value.rocks) {
+      if (!Array.isArray(row) || row.length !== 3) throw Error('Invalid shared mineral state');
+      const [i, n, left] = row;
+      if (!Number.isInteger(i) || i < 0 || i >= CRAFT_SHARED_ROCK_CAP || next.has(i)
+        || !Number.isInteger(n) || n < 0 || n > 2 || !Number.isInteger(left) || left < 0 || left > 900
+        || n > 0 && left !== 0) throw Error('Invalid shared mineral state');
+      next.set(i, { n, until: n === 0 ? GAME.t + left : 0 });
+    }
+  }
+  CRAFT.rocks.clear();
+  for (const [i, row] of next) CRAFT.rocks.set(i, row);
+  CRAFT.rockT = 0;
+}
 function stepRocks(dt) {
   CRAFT.rockT -= dt;
   if (CRAFT.rockT > 0) return;
@@ -599,6 +633,8 @@ function drawCraftUI() {
 
 // Job animation stays with its player; depletion and yields belong to the world.
 queueMicrotask(() => {
+  if (typeof netWorldPartsRegister === 'function')
+    netWorldPartsRegister('resources', { save: craftRocksSharedSave, apply: craftRocksSharedApply });
   if (typeof netWorldPartsRegisterCommand !== 'function') return;
   netWorldPartsRegisterCommand('resource.mine', {
     tools: ['tool_pick'], range: 5,
