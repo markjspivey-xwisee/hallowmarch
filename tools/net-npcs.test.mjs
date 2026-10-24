@@ -35,12 +35,12 @@ function client(peer, offset = 0) {
   });
   vm.runInContext(source + '\n globalThis.api = { netNpcRegister, netNpcMessage, netNpcPump, netNpcReset, netNpcStep, netNpcVisible, netNpcSnapshot, netNpcRowsRead, NET_NPCS };', context);
   return { context, api: context.api, sent, bodies, state,
-    entity(overrides = {}) {
+    entity(overrides = {}, id = 'town:0:villager:0') {
       const e = context.makeEnt({ kind: 'humanoid', role: 'villager', name: 'Fenn', faction: 4,
         cls: null, level: 5, x: 7, y: 2, z: 9, yaw: .6,
         look: { tabard: [.3, .4, .5], armor: [.4, .3, .2], skin: .2, hair: .7, mask: 32,
           flags: 0, scale: 1, outfit: 0, emblem: 3, fem: 0, bulk: 0 }, ...overrides });
-      context.api.netNpcRegister(e, 'town:0:villager:0'); return e;
+      context.api.netNpcRegister(e, id); return e;
     },
   };
 }
@@ -223,6 +223,32 @@ test('appearance transport quantizes continuous traits and preserves exact equip
   const row = a.api.netNpcSnapshot()[0];
   assert.equal(row.lk[0], .554); assert.equal(row.lk[10], .965);
   assert.equal(row.lk[8], 14554754); assert.equal(row.lk[9], 345); assert.equal(row.lk[11], 2);
+});
+
+test('actual villager, merchant and herald rig outfits survive client and server roundtrips', () => {
+  const rig = fs.readFileSync(new URL('../src/05a_rig.js', import.meta.url), 'utf8');
+  const declaration = rig.match(/^const OUTFIT = \{[^\n]+\};/m);
+  assert.ok(declaration, 'the production rig owns the outfit enumeration');
+  const outfits = vm.runInNewContext(declaration[0] + '\nOUTFIT;');
+  const a = client('phone'), b = client('desktop');
+  for (const [role, outfit] of [['villager', outfits.villager], ['merchant', outfits.villager], ['herald', outfits.herald]]) {
+    const e = a.entity({ role }, `town:0:${role}:0`);
+    e.look.outfit = outfit;
+  }
+  a.api.netNpcMessage(authority('phone'));
+  a.api.netNpcPump(0);
+  const rows = a.sent[0].npcs;
+  assert.equal(rows.length, 3, 'the complete authored town roster is published');
+  assert.deepEqual(rows.map(r => [r.role, r.lk[11]]), [['villager', outfits.villager], ['merchant', outfits.villager], ['herald', outfits.herald]]);
+  const normalized = rows.map(activityNpc);
+  assert.ok(normalized.every(Boolean));
+  b.api.netNpcMessage(authority('phone', normalized));
+  assert.equal(b.bodies.length, 3);
+  assert.deepEqual(copy(b.api.netNpcSnapshot()).map(r => [r.role, r.lk[11]]), rows.map(r => [r.role, r.lk[11]]));
+  for (const outfit of [-1, .5, outfits.bandit, outfits.skeleton, outfits.draugr, outfits.troll, outfits.lord, 11, 999]) {
+    const invalid = copy(rows[0]); invalid.lk[11] = outfit;
+    assert.equal(a.api.netNpcRowsRead([invalid]), null, `unsupported NPC outfit ${outfit} is refused`);
+  }
 });
 
 test('a stale fisher frame cannot replace a later exclusive human boat occupant', () => {

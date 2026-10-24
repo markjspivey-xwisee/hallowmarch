@@ -28,6 +28,7 @@ function fixture({ monitor = '1' } = {}) {
     accTimer: null, worldTimer: null, ACCOUNTS: {}, WORLDS: {}, STATS: { worldWrites: 0 },
     store: { write: record('file-save') }, COMP: { dirty: false, save() { record('company-save')(); this.dirty = false; } },
     WORLD_STATE: world, GAMING: gaming, SEASON: season, FIELD: { step: record('field-step'), left: record('field-left') },
+    SHARED_SCENE: { sync: record('scene-sync'), leave: record('scene-leave') },
     worldAgentTransport: { close: record('agent-stop') },
     worldAgentHost: { setActive: record('agent-active'), suspend: async (...a) => record('agent-final')(...a), close: async () => record('agent-close')() },
     nativeAgentHost: { setActive: record('native-agent-active'), close: record('native-agent-close') },
@@ -102,6 +103,9 @@ test('departure releases region ownership and tells active peers once without re
   f.context.api.endHumanSession(owner);
   assert.equal(owner.humanDormant, true); assert.equal(owner.slow.on, 0);
   assert.equal(owner.region, null); assert.equal(owner.pos, null);
+  assert.equal(owner.sceneAuthority, '');
+  assert.equal(f.counts('scene-leave'), 1);
+  assert.equal(f.calls.find(call => call.name === 'scene-leave').args[0], owner);
   assert.equal(other.nearAt.has('owner-peer'), false); assert.equal(other.farAt.has('owner-peer'), false);
   assert.equal(f.counts('send'), 1); assert.equal(f.counts('regions'), 1);
 });
@@ -130,6 +134,9 @@ test('live resume clears omitted departed peers then sends one current snapshot 
   assert.equal(messages.filter(m=>m.t==='world').length,1);
   assert.deepEqual(JSON.parse(JSON.stringify(messages.find(m=>m.t==='world').worldAdmission)), {origin:'https://game.example',epoch:2});
   assert.equal(owner.worldAdmission.epoch,2);
+  assert.equal(f.counts('scene-sync'),1);
+  assert.equal(f.calls.find(call=>call.name==='scene-sync').args[0],owner.room);
+  assert.equal(f.calls.find(call=>call.name==='scene-sync').args[1],owner);
   assert.equal(owner.pausedPeerIds,null);assert.equal(f.timers.size,0);
 });
 

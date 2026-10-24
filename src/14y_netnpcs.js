@@ -6,6 +6,9 @@ const NET_NPCS = { entities: new Map(), rows: new Map(), buffers: new Map(),
   authority: '', peer: '', admission: null, recv: -1, seq: 0, sentAt: -Infinity,
   complete: false, ensurePending: false, stats: { sent: 0, received: 0, refused: 0, made: 0 } };
 const NET_NPC_MAX = 64;
+// The four class appearances plus the actual villager and herald rig outfits.
+// Town merchants use the villager outfit; combat-only outfits are not NPC rows.
+const NET_NPC_OUTFITS = new Set([0, 1, 2, 3, 4, 9]);
 const netNpcServer = () => typeof netServerUrl === 'function' && !!netServerUrl();
 const netNpcMine = () => !!NET_NPCS.authority && NET_NPCS.peer === NET.self;
 const netNpcId = (id) => typeof id === 'string' && /^town:[0-2]:(villager|herald|merchant):[0-9]{1,2}$/.test(id);
@@ -30,7 +33,7 @@ function netNpcRowRead(o) {
   const lk = o.lk;
   if (!lk.slice(0, 6).every((v) => v <= 2) || lk[6] > 1 || lk[7] > 1
     || !Number.isInteger(lk[8]) || !Number.isInteger(lk[9]) || lk[9] > 1023
-    || lk[10] < 0.85 || lk[10] > 1.12 || !Number.isInteger(lk[11]) || lk[11] > 3
+    || lk[10] < 0.85 || lk[10] > 1.12 || !Number.isInteger(lk[11]) || !NET_NPC_OUTFITS.has(lk[11])
     || !Number.isInteger(lk[12]) || lk[12] > 3 || !netNpcBit(lk[13]) || lk[14] > 0.5) return null;
   if (!(o.st === null || Array.isArray(o.st) && o.st.length === 4
     && netNpcFinite(o.st[0], -500, 500) && netNpcFinite(o.st[1], -50, 50)
