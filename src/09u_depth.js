@@ -231,7 +231,7 @@ function depthOffers(P, offer) {
   // with a brand in hand: set a bush or an apple tree alight
   if (P.brand) {
     const b = dpPlantNear(P, 2.4, (p) => DP_BURN[p.k] && !p.gone && !(p.fire > 0) && (p.char || 0) < 0.6 && !(p.cut && !p.log));
-    if (b && (b.p.k === 'bush' || b.p.k === 'apple')) offer(Math.min(b.d, 0.05), 2.6, `Set the ${FORAGE_KINDS[b.p.k].name} alight`, () => { if (dpIgnite(b.p, 1)) { setAct(P, 5, 0.6); uiLog(`The ${FORAGE_KINDS[b.p.k].name} catches.`, 'warn'); } else uiError('It is too wet to catch'); }, 0.3);
+    if (b && (b.p.k === 'bush' || b.p.k === 'apple')) offer(Math.min(b.d, 0.05), 2.6, `Set the ${FORAGE_KINDS[b.p.k].name} alight`, () => { if (dpPlayerIgnite(b.p)) { setAct(P, 5, 0.6); uiLog(`The ${FORAGE_KINDS[b.p.k].name} catches.`, 'warn'); } else uiError('It is too wet to catch'); }, 0.3);
     return;
   }
   const blade = dpKnife() || dpAxe();
@@ -263,7 +263,7 @@ function dpStartJob(kind, p, t = null) {
   const need = kind === 'cutbush' ? (axe ? 2 : 3) : kind === 'chop' ? (axe ? 3 : 6) : kind === 'split' ? (axe ? 2 : 4) : (pick ? 3 : 4);
   DEPTH.job = { kind, p, t, px: P.x, pz: P.z, yaw, tt: 0, next: 0.15, hitAt: 0, swings: 0, need, ax, az };
   P.yaw = yaw; P.target = null;
-  natureCut(ax, az, 1.6, 0.8, false);
+  if (typeof netWorldPartsCanSimulate !== 'function' || netWorldPartsCanSimulate()) natureCut(ax, az, 1.6, 0.8, false);
   const what = kind === 'cutbush' ? 'Cutting the bush down' : kind === 'chop' ? 'Chopping the apple tree' : kind === 'split' ? 'Cutting the apple tree up' : 'Grubbing out the stump';
   uiToast(`${what}. Move to stop.`, 'hint');
 }
@@ -284,22 +284,61 @@ function dpJobStep(dt) {
   if (J.kind === 'cutbush') {
     for (let i = 0; i < 10; i++) fxAlpha.emit(p.x + (Math.random() - 0.5) * 0.7, p.y + 0.4 + Math.random() * 0.4, p.z + (Math.random() - 0.5) * 0.7, (Math.random() - 0.5) * 1.6, 0.6 + Math.random(), (Math.random() - 0.5) * 1.6, 1.0, 0.2, 0.3, 0.1, 0.05, 6, 0.6);
     natSfx('split', p.x, p.z);
-    if (J.swings >= J.need) dpCutBush(p);
+    if (J.swings >= J.need) dpWorkFinish(J);
   } else if (J.kind === 'chop') {
     natChips(p.x - ux * 0.2 * p.s, p.y + 0.4, p.z - uz * 0.2 * p.s, -ux, -uz, 10);
     natSfx('chop', p.x, p.z);
     p.shakeT = GAME.t;
     if (Math.random() < 0.7) for (let i = 0; i < 5; i++) fxAlpha.emit(p.x + (Math.random() - 0.5) * 2, p.y + 2 + Math.random(), p.z + (Math.random() - 0.5) * 2, (Math.random() - 0.5) * 0.8, -0.4, (Math.random() - 0.5) * 0.8, 2.2, 0.22, 0.34, 0.1, 0.07, 0.6, 1.4);
-    if (J.swings >= J.need) { dpFell(p, p.x - P.x, p.z - P.z); DEPTH.job = null; }
+    if (J.swings >= J.need) dpWorkFinish(J);
   } else if (J.kind === 'split') {
     natChips(J.ax, gy + 0.3, J.az, -ux, -uz, 9);
     natSfx('split', J.ax, J.az);
-    if (J.swings >= J.need) dpSplitApple(p);
+    if (J.swings >= J.need) dpWorkFinish(J);
   } else {
     FX.dust(J.ax, gy + 0.1, J.az, 8, [0.36, 0.28, 0.2]);
     natSfx('chop', J.ax, J.az);
-    if (J.swings >= J.need) { if (p) dpGrubPlant(p); else dpGrubTree(J.t); DEPTH.job = null; }
+    if (J.swings >= J.need) dpWorkFinish(J);
   }
+}
+function dpWorkPoint(a) {
+  const target = a?.type === 'tree' ? W.trees[a.id] : a?.type === 'plant' ? FORAGE.list[a.id] : null;
+  return Number.isInteger(a?.id) && target || { x: Infinity, z: Infinity };
+}
+function dpApplyWork(a) {
+  if (!a || !Number.isInteger(a.id) || !['cutbush', 'chop', 'split', 'grub'].includes(a.kind)) return false;
+  const p = a.type === 'plant' ? FORAGE.list[a.id] : null, t = a.type === 'tree' ? W.trees[a.id] : null;
+  if (t) {
+    if (a.kind !== 'grub' || !(dpAxe() || dpPick()) || !NATURE.felled.includes(t)
+      || t.grubbed || t.log || !t.fall?.done) return false;
+    dpGrubTree(t); return true;
+  }
+  if (!p || p.gone || p.fire > 0 || !['bush', 'apple'].includes(p.k)) return false;
+  if (a.kind === 'cutbush') {
+    if (p.k !== 'bush' || !dpStanding(p) || !(dpKnife() || dpAxe())) return false;
+    dpCutBush(p);
+  } else if (a.kind === 'chop') {
+    if (p.k !== 'apple' || !dpStanding(p)) return false;
+    dpFell(p, p.x - GAME.player.x, p.z - GAME.player.z);
+  } else if (a.kind === 'split') {
+    if (p.k !== 'apple' || !p.log || !p.fall?.done) return false;
+    dpSplitApple(p);
+  } else {
+    if (!(dpAxe() || dpPick()) || !p.cut || p.log) return false;
+    dpGrubPlant(p);
+  }
+  return true;
+}
+function dpWorkFinish(J) {
+  const a = { kind: J.kind, type: J.p ? 'plant' : 'tree', id: J.p ? J.p.i : J.t?.i };
+  DEPTH.job = null;
+  if (typeof netWorldPartsRequest === 'function' && netWorldPartsRequest('depth.work', a)) return false;
+  return dpApplyWork(a);
+}
+function dpPlayerIgnite(p) {
+  if (!p) return false;
+  if (typeof netWorldPartsRequest === 'function' && netWorldPartsRequest('depth.ignite', { id: p.i })) return false;
+  return dpIgnite(p, 1);
 }
 function dpCutBush(p) {
   DEPTH.job = null;
@@ -406,7 +445,7 @@ function dpDugEarth(x, z, r) {
   natTouchRect(i0, j0, i1, j1);
   natMark(i0, j0, i1, j1);
 }
-function dpGrubTree(t) {
+function dpGrubTree(t, quiet = false) {
   if (!t || t.grubbed) return;
   t.grubbed = true; t.felled = true; t.regrowAt = 0;
   const i = NATURE.felled.indexOf(t); if (i >= 0) NATURE.felled.splice(i, 1);
@@ -415,10 +454,12 @@ function dpGrubTree(t) {
   natShowRegular(t, 0);
   DEPTH.grub.add(t.i);
   dpDugEarth(t.x, t.z, 1.3);
-  const got = goodsAdd('firewood', 1, true) + goodsAdd('stick', 2, true);
-  uiLog(`You grub out the ${t.kind} stump, roots and all${got ? ': firewood and sticks' : ''}. The ground is clear.`, 'loot');
-  DEPTH.stats.grubbed++;
-  saveSoon();
+  if (!quiet) {
+    const got = goodsAdd('firewood', 1, true) + goodsAdd('stick', 2, true);
+    uiLog(`You grub out the ${t.kind} stump, roots and all${got ? ': firewood and sticks' : ''}. The ground is clear.`, 'loot');
+    DEPTH.stats.grubbed++;
+    saveSoon();
+  }
 }
 function dpGrubPlant(p) {
   p.gone = true; p.cut = true; p.regrowAt = 0; p.ripe = 0; p.at = GAME.t + 1e7; // never fruits again
@@ -699,11 +740,28 @@ function dpHatchStep() {
     if (y && L.hatch.owner === 'player') uiLog(`An egg left lying in the paddock hatches: a chick, ${y.name}.`, 'sys');
   }
 }
+// Nest identities survive canonical save/load and do not use local array slots.
+function dpNestId(N) {
+  if (typeof N.id === 'string' && N.id.length > 0 && N.id.length <= 128) return N.id;
+  N.id = ['nest', String(N.ma?.aid || 'unknown').replace(/[\u0000-\u001f]/g, '').slice(0, 64),
+    Math.round(N.x * 10), Math.round(N.z * 10), Math.round((N.seed || 0) * 1e9)].join(':');
+  return N.id;
+}
+function depthNestTake(N) {
+  if (!N || !DEPTH.nests.includes(N) || !(N.eggs > 0)) return false;
+  const args = { id: dpNestId(N), x: N.x, z: N.z };
+  if (typeof netWorldPartsRequest === 'function' && netWorldPartsRequest('animal.nest', args)) return false;
+  const k = goodsAdd('egg', N.eggs, true);
+  if (!(k > 0)) return false;
+  N.eggs -= k;
+  if (N.eggs <= 0) DEPTH.nests.splice(DEPTH.nests.indexOf(N), 1);
+  uiLog(`You take ${k} eggs from the nest.`, 'loot'); saveSoon(); return true;
+}
 function depthAnimalOffers(P, offer) {
   for (const N of DEPTH.nests) {
     if (N.owner !== 'player') continue;
     const d = dist(P.x, P.z, N.x, N.z);
-    if (d < 2.2) offer(d, 2.2, `Take the eggs from the nest (${N.eggs})`, () => { const k = goodsAdd('egg', N.eggs, true); if (k) { DEPTH.nests.splice(DEPTH.nests.indexOf(N), 1); uiLog(`You take ${k} eggs from the nest.`, 'loot'); saveSoon(); } }, 0.05);
+    if (d < 2.2) offer(d, 2.2, `Take the eggs from the nest (${N.eggs})`, () => depthNestTake(N), 0.05);
   }
 }
 
@@ -1104,7 +1162,7 @@ function depthOnStart() {
 }
 function updateDepth(dt) {
   if (!DEPTH.ready || !GAME.started) return;
-  if (DEPTH.pendGrub && NATURE.built) { for (const i of DEPTH.pendGrub) { const t = W.trees[i]; if (t) dpGrubTree(t); } DEPTH.pendGrub = null; }
+  if (DEPTH.pendGrub && NATURE.built) { for (const i of DEPTH.pendGrub) { const t = W.trees[i]; if (t) dpGrubTree(t, true); } DEPTH.pendGrub = null; }
   dpJobStep(dt);
   dpFallStep(dt);
   dpBurnStep(dt);
@@ -1125,7 +1183,7 @@ registerSavePart('world', 'depth', {
       f.push([p.i, p.gone ? 2 : p.cut ? 1 : 0, Math.round((p.char || 0) * 100), Math.round((p.grow ?? 1) * 100), p.regrowAt ? left(p.regrowAt) : 0, p.log && p.fall ? Math.round(p.fall.yaw * 100) / 100 : null, p.log && p.fall ? Math.round(p.fall.stop * 100) / 100 : null]);
       if (f.length >= 500) break;
     }
-    const nests = DEPTH.nests.filter((N) => N.owner === 'player').slice(0, 20).map((N) => ({ x: Math.round(N.x * 10) / 10, z: Math.round(N.z * 10) / 10, e: N.eggs, l: left(N.at), ma: N.ma, pa: N.pa, pen: N.pen }));
+    const nests = DEPTH.nests.filter((N) => N.owner === 'player').slice(0, 20).map((N) => ({ id: dpNestId(N), x: Math.round(N.x * 10) / 10, z: Math.round(N.z * 10) / 10, e: N.eggs, l: left(N.at), ma: N.ma, pa: N.pa, pen: N.pen }));
     return { g: [...DEPTH.grub].slice(0, 600), f, n: nests };
   },
   load(d) {
@@ -1154,7 +1212,7 @@ registerSavePart('world', 'depth', {
     DEPTH.nests = [];
     if (Array.isArray(o.n)) for (const N of o.n.slice(0, 20)) {
       if (!N || !Number.isFinite(+N.x) || !Number.isFinite(+N.z) || !N.ma || !N.ma.tr) continue;
-      DEPTH.nests.push({ x: +N.x, z: +N.z, y: floorAt(+N.x, +N.z, heightAt(+N.x, +N.z) + 0.5), eggs: clamp(Math.round(+N.e || 1), 1, 8), at: GAME.t + clamp(+N.l || 0, 0, 3600), ma: N.ma, pa: N.pa && N.pa.tr ? N.pa : null, pen: N.pen ?? null, owner: 'player', seed: Math.random() });
+      DEPTH.nests.push({ id: dpNestId(N), x: +N.x, z: +N.z, y: floorAt(+N.x, +N.z, heightAt(+N.x, +N.z) + 0.5), eggs: clamp(Math.round(+N.e || 1), 1, 8), at: GAME.t + clamp(+N.l || 0, 0, 3600), ma: N.ma, pa: N.pa && N.pa.tr ? N.pa : null, pen: N.pen ?? null, owner: 'player', seed: Math.random() });
     }
     FORAGE.dirty = true;
   },
@@ -1176,4 +1234,33 @@ queueMicrotask(() => {
     birds() { return DEPTH.birds.filter((e) => !e.removed).map((e) => ({ id: e.id, kind: e.kind, alive: e.alive, x: +e.x.toFixed(1), y: +e.y.toFixed(2), z: +e.z.toFixed(1), fly: !!e.bird.fly, water: e.bird.water })); },
     stats() { return { ...DEPTH.stats, burning: DEPTH.burn.length, nests: DEPTH.nests.length, birds: DEPTH.birds.filter((e) => e.alive && !e.removed).length, herd: DEPTH.herd ? DEPTH.herd.n : null }; },
   };
+});
+
+
+queueMicrotask(() => {
+  if (typeof netWorldPartsRegisterCommand !== 'function') return;
+  netWorldPartsRegisterCommand('depth.work', {
+    tools: ['tool_axe', 'tool_pick', 'tool_knife'], range: 12, point: dpWorkPoint,
+    run: a => {
+      const prior = DEPTH.job;
+      try { return dpApplyWork(a); } finally { DEPTH.job = prior; }
+    },
+  });
+  netWorldPartsRegisterCommand('animal.nest', {
+    range: 3,
+    point: a => DEPTH.nests.find(N => dpNestId(N) === a?.id)
+      || (Number.isFinite(a?.x) && Number.isFinite(a?.z) ? { x: a.x, z: a.z } : { x: Infinity, z: Infinity }),
+    run: a => {
+      const N = DEPTH.nests.find(n => dpNestId(n) === a?.id);
+      return N && N.owner === 'player' ? depthNestTake(N) : false;
+    },
+  });
+  netWorldPartsRegisterCommand('depth.ignite', {
+    range: 5, point: a => Number.isInteger(a?.id) && FORAGE.list[a.id] || { x: Infinity, z: Infinity },
+    run: a => {
+      const p = FORAGE.list[a.id], actor = GAME.player;
+      if (!p || !actor || !(actor.brand || (actor.look?.mask & WB.torch))) return false;
+      return dpIgnite(p, 1);
+    },
+  });
 });

@@ -337,3 +337,34 @@ test('owned animal bodies are live replicas, released on owner departure and nev
   const d=f.add('d');f.scene.sync(f.room,d);
   assert.deepEqual(reconstruct(f.out.get('d').filter(m=>m.kind==='entities')).rows,[{id:'wolf:1',hp:10}]);
 });
+
+test('actual keep reporting follows the shared host even when another player stands in its region', async () => {
+  const fs=await import('node:fs'),vm=await import('node:vm');
+  const source=fs.readFileSync(new URL('./server.js',import.meta.url),'utf8');
+  const cut=(a,b)=>{const i=source.indexOf(a),j=source.indexOf(b,i);assert.ok(i>=0&&j>i);return source.slice(i,j)};
+  const room={name:'march',clients:new Map(),rep:[]}, calls=[], worlds={march:{k:[0],g:[1],td:0,tm:0,cn:1,cl:[[0,0],[0,0],[0,0]]}};
+  const admission={origin:'https://game.test',epoch:1};
+  const a={peer:'a',room,live:true,since:1,region:'f0',slow:{on:1},acct:{name:'A'},worldAdmission:admission};
+  const b={peer:'b',room,live:true,since:2,region:'f1',slow:{on:1},acct:{name:'B'},worldAdmission:admission};
+  room.clients.set('a',a);room.clients.set('b',b);
+  let seasonal=[0];
+  const context={isHumanPlaying:c=>c.live,Date,WORLD_STATE:null,WORLD:{keepCount:1},KEEP_REGION:['f1'],WORLDS:worlds,
+    worldCheck:w=>w,worldAdmission:()=>admission,sameWorldAdmission:(x,y)=>x?.origin===y?.origin&&x?.epoch===y?.epoch,
+    SEASON:{keepsOf:()=>seasonal,capture:(id,r,who)=>{calls.push({id,r,who});seasonal=[r]}},
+    coCaptured(){},worldsSave(){},STATS:{worldTold:0},send(){}};
+  vm.createContext(context);vm.runInContext(
+    cut('function roomHost(R) {','const send =')+
+    cut('function regionHosts(R) {','function regionsTell(')+
+    cut('function worldReport(c, raw, admission) {','// [perf3] the host'),context);
+  room.regions=context.regionHosts(room);
+  assert.equal(room.regions.f1,'a');assert.equal(room.regions.h1,'a');
+  const report=r=>({k:[r],g:[1],td:0,tm:0,cn:1,cl:[[0,0],[0,0],[0,0]]});
+  assert.equal(context.worldReport(b,report(2),admission),true);
+  assert.equal(worlds.march.k[0],0);assert.equal(calls.length,0,'regional follower cannot overwrite mirrored ownership');
+  assert.equal(context.worldReport(a,report(1),admission),true);
+  assert.equal(worlds.march.k[0],1);assert.equal(calls[0].r,1);
+  a.live=false;room.regions=context.regionHosts(room);
+  assert.equal(room.regions.f1,'b');
+  assert.equal(context.worldReport(b,report(2),admission),true);
+  assert.equal(worlds.march.k[0],2);assert.equal(calls[1].who,'B');
+});

@@ -7,7 +7,7 @@ const code = readFileSync(new URL('../../src/14x_netentities.js', import.meta.ur
 const admission = { origin: 'https://march.test', epoch: 2 };
 function page(self = 'a', online = true) {
   const c = vm.createContext({ console, Math, Number, JSON, Map, Set, Object, Array, String,
-    clock: 1000, packets: [], privateRewards: 0, window: { __hm: {} }, queueMicrotask: fn => fn() });
+    clock: 1000, packets: [], privateRewards: 0, failAfter: Infinity, window: { __hm: {} }, queueMicrotask: fn => fn() });
   vm.runInContext(`
     let nextId=1;
     const GAME={t:1,built:true,player:null}, ENT=[], ENT_BY_ID=new Map(), FACTION_NEUTRAL=4;
@@ -16,7 +16,7 @@ function page(self = 'a', online = true) {
     const performance={now:()=>clock};
     const netOn=()=>true, netHumanLive=()=>true, netSharedWorldReady=()=>true;
     const netCurrentWorldAdmission=()=>(${JSON.stringify(admission)});
-    const netWsSend=m=>{packets.push(JSON.parse(JSON.stringify(m)));return true};
+    const netWsSend=m=>{if(packets.length>=failAfter)return false;packets.push(JSON.parse(JSON.stringify(m)));return true};
     const dist2=(x,z,a,b)=>(x-a)**2+(z-b)**2;
     const baseDmg=()=>10,war4Allied=()=>false;
     const getEnt=id=>ENT_BY_ID.get(id)||null;
@@ -179,11 +179,14 @@ test('owned animal bodies are authored by their owner and appear in the shared s
 });
 
 test('failed publication retries every unchanged initial actor and successful motion deltas omit appearance', () => {
-  const a = page('a'); a.authority(); a.run('makeEnt({x:2});makeEnt({x:3})');
-  a.run('NETWS.state="off";netEntityPump(clock);NETWS.state="on";clock+=600;netEntityPump(clock)');
+  const a = page('a'); a.authority(); a.run('for(let i=0;i<7;i++)makeEnt({x:2+i})');
+  a.run('failAfter=1;netEntityPump(clock)');
+  assert.equal(a.run('NET_ENTITIES.sent.size'), 0, 'partially sent frames must not consume unchanged actors');
+  assert.equal(a.run('NET_ENTITIES.published'), false);
+  a.run('packets.length=0;failAfter=Infinity;clock+=600;netEntityPump(clock)');
   const first = a.json('packets').filter(p => p.op === 'snapshot');
   const payload = JSON.parse(first.map(p => p.data).join(''));
-  assert.equal(payload.full, true); assert.equal(payload.rows.length, 2);
+  assert.equal(payload.full, true); assert.equal(payload.rows.length, 7);
   a.run('packets.length=0;ENT[1].x=4;clock+=600;netEntityPump(clock)');
   const second = JSON.parse(a.json('packets').filter(p => p.op === 'snapshot').map(p => p.data).join(''));
   assert.equal(second.full, false); assert.equal(second.rows.length, 1);

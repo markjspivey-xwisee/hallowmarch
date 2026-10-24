@@ -77,7 +77,11 @@ function netBoatLoad(B) {
 function netBoatAction(B, op, by = null) {
   if (!netBoatEnabled() || NET_BOATS.applying) return false;
   if (netBoatAmbient()) {
-    if (op === 'ignite' && by && by !== GAME.player) return false;
+    if (op === 'ignite' && by && by !== GAME.player) {
+      if (!NET_BOATS.frames.get(B.id)?.rider) return false;
+      netBoatSend('ignite', { id: B.id, boats: [netBoatRow(B)], ambient: true });
+      return true;
+    }
     if (op === 'restore' && B.rebuildAt && GAME.t > B.rebuildAt
       && GAME.player && Math.hypot(B.x - GAME.player.x, B.z - GAME.player.z) > 30) return false;
   }

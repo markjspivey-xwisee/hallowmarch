@@ -12,6 +12,7 @@ import json
 import math
 import os
 import pathlib
+import shutil
 import subprocess
 import tempfile
 import time
@@ -79,7 +80,7 @@ async def travel(pages, page, x, z):
 async def boot(browser, origin, url, name, realm, cls, level, phone=False):
     context = await browser.new_context(viewport={"width": 430, "height": 932} if phone
                                         else {"width": 1100, "height": 720},
-                                        has_touch=phone, is_mobile=phone)
+                                        has_touch=phone, is_mobile=phone, ignore_https_errors=True)
     def socket_open(socket):
         def frame(payload):
             if isinstance(payload, str):
@@ -305,12 +306,28 @@ async def run():
     OUT.mkdir(parents=True, exist_ok=True)
     port = fixture.free_port()
     origin = f"http://127.0.0.1:{port}"
-    url = f"ws://127.0.0.1:{port}/ws"
+    tls_port = fixture.free_port()
+    public_origin = f"https://127.0.0.1:{tls_port}"
+    url = f"wss://127.0.0.1:{tls_port}/ws"
+    tls_dir = pathlib.Path(tempfile.mkdtemp(prefix="shared_world_tls_", dir=OUT))
+    openssl = shutil.which("openssl")
+    if not openssl:
+        git_openssl = pathlib.Path("C:/Program Files/Git/usr/bin/openssl.exe")
+        openssl = str(git_openssl) if git_openssl.exists() else None
+    if not openssl:
+        raise RuntimeError("OpenSSL is required for the test-only HTTPS/WSS origin fixture")
+    key_file, certificate_file = tls_dir/"key.pem", tls_dir/"certificate.pem"
+    subprocess.run([openssl, "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1",
+                    "-subj", "/CN=127.0.0.1", "-keyout", str(key_file), "-out", str(certificate_file)],
+                   check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
     env = {**os.environ, "PORT": str(port), "HM_DATA": tempfile.mkdtemp(prefix="shared_world_", dir=OUT),
-           "HM_WORLD_PERSISTENCE_MODE": "legacy", "HM_PUBLIC_ORIGIN": origin,
+           "HM_WORLD_PERSISTENCE_MODE": "legacy", "HM_PUBLIC_ORIGIN": public_origin,
            "HM_GAMING_ENABLED": "0", "HM_GAMING_BOOTSTRAP": "0", "HM_NATIVE_PLAYER_REQUIRED": "0"}
     server = subprocess.Popen(["node", str(ROOT/"server/server.js")], env=env,
                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    edge = subprocess.Popen(["node", str(ROOT/"tools/tests/shared_world_tls.mjs"), str(tls_port),
+                             str(port), str(key_file), str(certificate_file)],
+                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     browser = None
     pages = []
     try:
@@ -324,7 +341,7 @@ async def run():
             raise RuntimeError("shared-world test server did not become healthy")
         async with async_playwright() as playwright:
             browser = await playwright.chromium.launch(args=["--use-angle=swiftshader",
-                       "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"])
+                       "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist", "--ignore-certificate-errors"])
             desktop = await boot(browser, origin, url, "DesktopKeeper", 0, "warrior", 30)
             phone = await boot(browser, origin, url, "PhoneFarmer", 0, "mage", 27, phone=True)
             pages = [desktop, phone]
@@ -381,6 +398,12 @@ async def run():
     finally:
         if browser:
             await browser.close()
+        edge.terminate()
+        try:
+            edge_stdout = edge.communicate(timeout=5)[0]
+        except subprocess.TimeoutExpired:
+            edge.kill()
+            edge_stdout = edge.communicate()[0]
         server.terminate()
         try:
             stdout = server.communicate(timeout=5)[0]
@@ -388,6 +411,7 @@ async def run():
             server.kill()
             stdout = server.communicate()[0]
         (OUT/"shared_world_server.log").write_text(stdout, encoding="utf-8")
+        (OUT/"shared_world_tls.log").write_text(edge_stdout, encoding="utf-8")
         (OUT/"shared_world.json").write_text(json.dumps(REPORT, indent=2), encoding="utf-8")
 
 

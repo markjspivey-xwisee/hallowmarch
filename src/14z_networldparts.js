@@ -1,19 +1,20 @@
 /* Shared mutable world save parts. Personal save parts never enter this channel. */
 const NETPARTS = { authority: '', peer: '', admission: null, ready: false, seq: 0, readSeq: -1,
   key: '', sentAt: -Infinity, assembly: null, keys: {}, pending: new Map(), commands: new Map(),
-  receipts: [], notes: [], skills: [], lootSeq: 0, outbox: null, outAt: -Infinity, sentKeys: {}, receiptsKey: '', replay: false, applying: false, next: 0, received: 0, sent: 0, refused: 0 };
-const NETPART_ADAPTERS = new Map(), NETPART_COMMANDS = new Map();
+  receipts: [], confirmedReceipts: new Set(), resultQueue: new Map(), notes: [], skills: [], lootSeq: 0, outbox: null, awaiting: null, paused: '', outAt: -Infinity, sentKeys: {}, receiptsKey: '', replay: false, applying: false, next: 0, received: 0, sent: 0, refused: 0 };
+const NETPART_ADAPTERS = new Map(), NETPART_COMMANDS = new Map(), NETPART_RESULTS = new Map();
 const netWorldPartsActive = () => typeof NETWS !== 'undefined' && !!NETWS.url;
 const netWorldPartsConnected = () => netWorldPartsActive() && NETWS.state === 'on' && netOn()
-  && netHumanLive() && netSharedWorldReady() && !!NETPARTS.authority;
+  && netHumanLive() && netSharedWorldReady() && !!NETPARTS.authority && !NETPARTS.paused;
 function netWorldPartsCanSimulate() {
   return !netWorldPartsActive() || netWorldPartsConnected() && NETPARTS.peer === NET.self && NETPARTS.ready;
 }
 function netWorldPartsRegister(key, adapter) { NETPART_ADAPTERS.set(key, adapter); }
 function netWorldPartsRegisterCommand(op, command) { NETPART_COMMANDS.set(op, command); }
+function netWorldPartsRegisterResult(op, receive) { NETPART_RESULTS.set(op, receive); }
 function netWorldPartsReset() {
   NETPARTS.authority = ''; NETPARTS.peer = ''; NETPARTS.ready = false; NETPARTS.readSeq = -1;
-  NETPARTS.assembly = null; NETPARTS.outbox = null; NETPARTS.keys = {}; NETPARTS.sentKeys = {}; NETPARTS.key = ''; NETPARTS.sentAt = -Infinity;
+  NETPARTS.assembly = null; NETPARTS.outbox = null; NETPARTS.awaiting = null; NETPARTS.paused = ''; NETPARTS.keys = {}; NETPARTS.sentKeys = {}; NETPARTS.key = ''; NETPARTS.sentAt = -Infinity;
 }
 const netPartsClone = value => JSON.parse(JSON.stringify(value));
 const netPartsEqualAdmission = a => !!a && !!NETPARTS.admission && a.origin === NETPARTS.admission.origin
@@ -40,6 +41,7 @@ function netWorldPartsApply(frame) {
     }
     if (Array.isArray(frame.receipts)) {
       NETPARTS.receipts = frame.receipts.slice(-32);
+      NETPARTS.confirmedReceipts = new Set(NETPARTS.receipts.map(r => r.ownerAccount + ':' + r.id));
       for (const receipt of NETPARTS.receipts) {
         const pending = NETPARTS.pending.get(receipt.id);
         if (pending && pending.ownerAccount === receipt.ownerAccount) netWorldPartsResult(receipt);
@@ -50,7 +52,7 @@ function netWorldPartsApply(frame) {
   } finally { NETPARTS.applying = false; }
 }
 function netWorldPartsPublish(now, force = false) {
-  if (!netWorldPartsConnected() || NETPARTS.peer !== NET.self || !NETPARTS.ready || NETPARTS.outbox
+  if (!netWorldPartsConnected() || NETPARTS.peer !== NET.self || !NETPARTS.ready || NETPARTS.outbox || NETPARTS.awaiting
     || !force && now - NETPARTS.sentAt < 1500) return false;
   const frame = netWorldPartsCapture(), full = !NETPARTS.key;
   const nextKeys = {}, changed = {};
@@ -88,14 +90,20 @@ function netWorldPartsResult(m) {
     const pc = BUILD.pieces.find(b => b.id === m.result.pieceId);
     if (pc && pc.st === 'build') BUILD.work = { pc, x: GAME.player.x, z: GAME.player.z, t: 0, auto: true };
   }
+  if (m.ok && NETPART_RESULTS.has(p.op)) NETPART_RESULTS.get(p.op)(m.result, m);
   GOODS_UI.dirty = true; saveSoon();
 }
 function netWorldPartsExecute(m) {
   const c = m.command, spec = c && NETPART_COMMANDS.get(c.op);
   if (!spec || typeof c.id !== 'string' || c.id.length > 100) return;
   const prior = NETPARTS.receipts.find(r => r.id === c.id && r.ownerAccount === m.ownerAccount);
-  if (prior) { netWsSend({ t: 'activity', kind: 'worldparts', op: 'result',
-    authority: NETPARTS.authority, worldAdmission: NETPARTS.admission, ...prior, to: m.from }); return; }
+  if (prior) {
+    const key = prior.ownerAccount + ':' + prior.id;
+    if (NETPARTS.confirmedReceipts.has(key)) netWsSend({ t: 'activity', kind: 'worldparts', op: 'result',
+      authority: NETPARTS.authority, worldAdmission: NETPARTS.admission, ...prior, to: m.from });
+    else NETPARTS.resultQueue.set(key, { ...prior, to: m.from });
+    return;
+  }
   const peer = NET.peers.get(m.from), actor = peer?.ghost;
   const position = m.position;
   const location = spec.point?.(c.args);
@@ -112,7 +120,7 @@ function netWorldPartsExecute(m) {
   INV.goods = declared; INV.gold = 0; INV.bag = Array.from({ length: capacity }, () => ({ slot: '__occupied' }));
   NETPARTS.notes = []; NETPARTS.skills = [];
   try {
-    result = spec.run(c.args);
+    result = spec.run(c.args, { from: m.from, ownerAccount: m.ownerAccount, position: m.position, realm: m.realm, commandId: c.id });
     ok = result !== false && result?.ok !== false;
     if (!ok) reason = result?.why || 'The action is no longer available.';
   } catch (error) { reason = 'The shared action could not complete.'; reportError(error); }
@@ -123,11 +131,10 @@ function netWorldPartsExecute(m) {
   const goods = [...new Set([...Object.keys(before), ...Object.keys(after)])]
     .map(id => [id, (after[id] || 0) - (before[id] || 0)]).filter(([, n]) => n !== 0);
   const receipt = { to: m.from, ownerAccount: m.ownerAccount, id: c.id, ok, reason, goods, gold, items,
-    notes: NETPARTS.notes.slice(0, 20), skills: NETPARTS.skills.slice(0, 20), result: result?.pieceId ? { pieceId: result.pieceId } : null };
+    notes: NETPARTS.notes.slice(0, 20), skills: NETPARTS.skills.slice(0, 20), result: result && typeof result === 'object' ? result.result ?? result : null };
   NETPARTS.receipts.push(receipt); if (NETPARTS.receipts.length > 32) NETPARTS.receipts.shift();
+  NETPARTS.resultQueue.set(receipt.ownerAccount + ':' + receipt.id, receipt);
   netWorldPartsPublish(performance.now(), true);
-  netWsSend({ t: 'activity', kind: 'worldparts', op: 'result', authority: NETPARTS.authority,
-    worldAdmission: NETPARTS.admission, ...receipt });
 }
 function netWorldPartsRequest(op, args, cost = []) {
   if (!netWorldPartsActive() || NETPARTS.replay || NETPARTS.applying || netWorldPartsCanSimulate()) return false;
@@ -152,7 +159,7 @@ function netWorldPartsMessage(m) {
     if (!admission || typeof m.authority !== 'string' || typeof m.peer !== 'string') return;
     const changed = NETPARTS.authority !== m.authority;
     NETPARTS.authority = m.authority; NETPARTS.peer = m.peer; NETPARTS.admission = admission;
-    if (changed) { NETPARTS.seq = 0; NETPARTS.readSeq = -1; NETPARTS.assembly = null; NETPARTS.outbox = null; NETPARTS.sentKeys = {}; NETPARTS.key = ''; }
+    if (changed) { NETPARTS.seq = 0; NETPARTS.readSeq = -1; NETPARTS.assembly = null; NETPARTS.outbox = null; NETPARTS.awaiting = null; NETPARTS.paused = ''; NETPARTS.sentKeys = {}; NETPARTS.key = ''; }
     // A new authority must take the canonical cache before publishing. A fresh
     // world without a cache may be seeded only by the server-elected host.
     if (m.worldpartsReady === false && m.peer === NET.self) NETPARTS.ready = true;
@@ -160,6 +167,10 @@ function netWorldPartsMessage(m) {
     return;
   }
   if (m.kind !== 'worldparts' || m.authority !== NETPARTS.authority || !netPartsEqualAdmission(m.worldAdmission)) return;
+  if (m.ok === false && m.op === 'snapshot') {
+    NETPARTS.paused = m.reason || 'snapshot_refused'; NETPARTS.outbox = null; NETPARTS.awaiting = null;
+    NETPARTS.refused++; uiError('Shared world synchronization paused: ' + NETPARTS.paused); return;
+  }
   if (m.op === 'result') {
     const pending = NETPARTS.pending.get(m.id);
     if (pending && m.ownerAccount === pending.ownerAccount) netWorldPartsResult(m); return;
@@ -177,11 +188,32 @@ function netWorldPartsMessage(m) {
   const serial = Array.from({ length: a.total }, (_, i) => a.chunks.get(i)).join('');
   NETPARTS.assembly = null;
   let frame; try { frame = JSON.parse(serial); } catch { return; }
-  if (NETPARTS.peer === NET.self && NETPARTS.ready) { NETPARTS.readSeq = m.seq; return; }
+  if (NETPARTS.peer === NET.self && NETPARTS.ready) {
+    const ack = NETPARTS.awaiting;
+    if (ack && ack.seq === m.seq) {
+      NETPARTS.key = ack.serial; NETPARTS.sentKeys = ack.nextKeys; NETPARTS.receiptsKey = ack.receiptsKey;
+      NETPARTS.awaiting = null; NETPARTS.sent++;
+      for (const receipt of frame.receipts || []) {
+        const key = receipt.ownerAccount + ':' + receipt.id;
+        NETPARTS.confirmedReceipts.add(key);
+        const queued = NETPARTS.resultQueue.get(key);
+        if (queued) {
+          netWsSend({ t: 'activity', kind: 'worldparts', op: 'result', authority: NETPARTS.authority,
+            worldAdmission: NETPARTS.admission, ...queued });
+          NETPARTS.resultQueue.delete(key);
+        }
+      }
+      if (NETPARTS.confirmedReceipts.size > 64) NETPARTS.confirmedReceipts = new Set(NETPARTS.receipts.map(r => r.ownerAccount + ':' + r.id));
+    }
+    NETPARTS.readSeq = m.seq; return;
+  }
   if (netWorldPartsApply(frame)) { NETPARTS.readSeq = m.seq; NETPARTS.key = serial; }
 }
 function netWorldPartsPump(now) {
   if (!netWorldPartsConnected()) return;
+  if (NETPARTS.awaiting && now - NETPARTS.awaiting.sentAt > 5000) {
+    NETPARTS.awaiting = null; NETPARTS.sentKeys = {}; NETPARTS.key = '';
+  }
   netWorldPartsPublish(now);
   const out = NETPARTS.outbox;
   if (out && now - NETPARTS.outAt >= 200) {
@@ -194,8 +226,7 @@ function netWorldPartsPump(now) {
       out.part++;
     }
     if (out.part === out.total) {
-      NETPARTS.key = out.serial; NETPARTS.sentKeys = out.nextKeys; NETPARTS.receiptsKey = out.receiptsKey;
-      NETPARTS.outbox = null; NETPARTS.sent++;
+      NETPARTS.awaiting = { ...out, sentAt: now }; NETPARTS.outbox = null;
     }
   }
   if (NETPARTS.ready) for (const [id, p] of NETPARTS.pending) {
@@ -207,7 +238,7 @@ function netWorldPartsPump(now) {
 }
 queueMicrotask(() => {
   for (const [key, part] of Object.entries(SAVE_PARTS.world)) {
-    if (['boats', 'realm'].includes(key)) continue;
+    if (['boats', 'realm', 'roam'].includes(key)) continue;
     netWorldPartsRegister(key, { save: () => part.save(), apply: value => part.load(value) });
   }
   if (typeof buildSharedSave === 'function') netWorldPartsRegister('build', { save: buildSharedSave, apply: buildSharedApply });
@@ -223,6 +254,7 @@ queueMicrotask(() => {
 function netWorldPartsLocalStep(dt) {
   if (!netWorldPartsActive() || netWorldPartsCanSimulate()) return;
   if (typeof stepJob === 'function') stepJob(dt);
+  if (typeof dpJobStep === 'function') dpJobStep(dt);
   netWorldPartsLootStep();
 }
 function netWorldPartsLootSave() {
@@ -362,7 +394,7 @@ function netWorldPartsCoreSave() {
       else if (rel.state === 'carried') { rel.state = 'ground'; rel.since = GAME.t; rel.carrier = null; }
       return { id: rel.id, state: rel.state, at: rel.at, from: rel.from, slot: rel.slot,
         peer: e ? e === GAME.player ? NET.self : e.netPeer || null : null,
-        actor: e && typeof netEntityId === 'function' ? netEntityId(e) : null,
+        actor: e ? e.netEntityId || null : null,
         x: rel.x || 0, y: rel.y || 0, z: rel.z || 0, age: GAME.t - (rel.since || GAME.t) };
     }),
     doors: HOUSES.map(H => ({ id: H.num, leaves: houseLeavesOf(H).map(L => [L.open, L.target]),
@@ -431,3 +463,35 @@ queueMicrotask(() => registerSavePart('char', 'sharedWorldReservations', {
     }
   },
 }));
+
+queueMicrotask(() => {
+  const depth = SAVE_PARTS.world.depth;
+  if (depth) netWorldPartsRegister('depth', {
+    save: () => depth.save(),
+    apply: value => {
+      const job = DEPTH.job;
+      // Legacy apple-log restoration allocates colliders; remove the previous
+      // replicas before replaying the canonical image.
+      for (const p of FORAGE.list) if (p.logColl) { bCollRemove(p.logColl); p.logColl = null; }
+      depth.load(value);
+      for (const i of DEPTH.pendGrub || []) {
+        const t = W.trees[i]; if (!t) continue;
+        t.grubbed = true; t.felled = true; t.regrowAt = 0;
+        if (t.coll) t.coll.active = false;
+        natShowRegular(t, 0); DEPTH.grub.add(i);
+      }
+      DEPTH.pendGrub = null; DEPTH.job = job;
+    },
+  });
+  const tracks = SAVE_PARTS.world.tracks;
+  if (tracks) netWorldPartsRegister('tracks', {
+    save: () => tracks.save(),
+    apply: value => {
+      if (TRACKS.mesh) {
+        TRACKS.mesh.geometry.attributes.iK.array.fill(0);
+        TRACKS.n = 0; TRACKS.head = 0; TRACKS.cells.clear();
+      }
+      tracks.load(value);
+    },
+  });
+});

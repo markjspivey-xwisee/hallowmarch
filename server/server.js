@@ -17,6 +17,7 @@
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import crypto from 'node:crypto';
 import { WebSocketServer } from 'ws';
 import { makeSeason, loadRealmModule, seasonRoomPolicy } from './season.js';
@@ -39,7 +40,7 @@ import { makeField } from './fieldarmies.js'; // [season2] the season's armies o
 import { createHumanPlayGate } from './human-play.js';
 import { createSharedScene } from './shared-scene.js';
 
-const HERE = path.dirname(new URL(import.meta.url).pathname);
+const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '..');
 const CFG = {
   port: +process.env.PORT || 8787,

@@ -73,6 +73,9 @@ test('large snapshots are paced, bounded, and followed by changed-part deltas', 
   const first = c.sent.filter(m => m.op === 'snapshot');
   assert.ok(first.every(m => JSON.stringify(m).length < 8192));
   assert.equal(c.api.state.outbox, null);
+  assert.ok(c.api.state.awaiting);
+  for (const packet of first) c.api.message(packet);
+  assert.equal(c.api.state.awaiting, null);
   const full = JSON.parse(first.map(m => m.data).join('')); assert.equal(full.full, true);
   c.sent.length = 0; building = 'changed'; c.tick(2000); c.tick(200);
   const delta = JSON.parse(c.sent.filter(m => m.op === 'snapshot').map(m => m.data).join(''));

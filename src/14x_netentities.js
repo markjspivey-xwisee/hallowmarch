@@ -35,6 +35,7 @@ function netEntityRegister(e) {
 }
 function netEntityFind(id) {
   if (typeof id !== 'string') return null;
+  if (id.startsWith('peer:')) return id.slice(5) === NET.self ? GAME.player : NET.peers.get(id.slice(5))?.ghost || null;
   const e = NET_ENTITIES.bodies.get(id);
   if (e && !e.removed) return e;
   if (typeof netNpcFind === 'function') return netNpcFind(id);
@@ -125,6 +126,7 @@ function netEntityApply(e, row, immediate = false) {
   e.netEntityOwner = row.owner || null;
   e.tame = row.tame ? netEntityPlain(row.tame) : null;
   if (e.tame && row.owner && row.owner !== NET.self) e.tame.owner = 'remote';
+  if (e.tame && e.role === 'animal' && typeof ANIMALS !== 'undefined' && !ANIMALS.list.includes(e)) ANIMALS.list.push(e);
   e.flying = !!row.flying;
   if (row.ai && e.ai) Object.assign(e.ai, netEntityPlain(row.ai));
   if (typeof WAR !== 'undefined') {
@@ -309,16 +311,19 @@ function netEntityCommand(kind, dst, amount, opts = {}) {
   return netEntitySend('command', { command });
 }
 function netEntityDamage(src, dst, amount, opts = {}) {
-  if (!netEntityShared() || NET_ENTITIES.applying) return null;
+  if (!netEntityShared()) return null;
   const worldSrc = netEntityOwned(src) || netEntityTown(src), worldDst = netEntityOwned(dst) || netEntityTown(dst);
   if (worldDst && dst.netEntityOwner && dst.netEntityOwner !== NET.self && netEntityMine()) {
     netEntitySend('result', { to: dst.netEntityOwner, result: { id: NET_ENTITIES.authority + ':pet-hurt:' + (++NET_ENTITIES.commands),
-      kind: 'damage', source: src?.netNpcId || src?.netEntityId, target: dst.netEntityId, amount, opts: netEntityPlain(opts) } });
+      kind: 'damage', source: src?.netNpcId || src?.netEntityId || (src?.netPeer ? 'peer:' + src.netPeer : null),
+      target: dst.netEntityId, amount, opts: netEntityPlain(opts) } });
     return amount;
   }
+  if (NET_ENTITIES.applying) return null;
   if (worldDst && netEntityOwnPet(dst)) return null;
   if (worldDst && !netEntityCanSimulateWorld()) {
-    if (src === GAME.player || src?.tame?.owner === 'player') netEntityCommand('damage', dst, amount, opts);
+    if (src === GAME.player || netEntityOwnPet(src)) netEntityCommand('damage', dst, amount,
+      netEntityOwnPet(src) ? { ...opts, petSource: src.netEntityId } : opts);
     return 0;
   }
   if (worldSrc && dst?.role === 'remote' && netEntityMine()) {
@@ -330,7 +335,13 @@ function netEntityDamage(src, dst, amount, opts = {}) {
   return null;
 }
 function netEntityHeal(src, dst, amount) {
-  if (!netEntityShared() || NET_ENTITIES.applying) return null;
+  if (!netEntityShared()) return null;
+  if (dst.netEntityOwner && dst.netEntityOwner !== NET.self && netEntityMine()) {
+    netEntitySend('result', { to: dst.netEntityOwner, result: { id: NET_ENTITIES.authority + ':pet-heal:' + (++NET_ENTITIES.commands),
+      kind: 'heal', source: src?.netNpcId || src?.netEntityId || (src?.netPeer ? 'peer:' + src.netPeer : null),
+      target: dst.netEntityId, amount } }); return 0;
+  }
+  if (NET_ENTITIES.applying || netEntityOwnPet(dst)) return null;
   if ((netEntityOwned(dst) || netEntityTown(dst)) && !netEntityCanSimulateWorld()) {
     if (src === GAME.player) netEntityCommand('heal', dst, amount);
     return 0;
@@ -342,8 +353,14 @@ function netEntityHeal(src, dst, amount) {
   return null;
 }
 function netEntityBuff(dst, kind, value, dur, src, extra) {
-  if (!netEntityShared() || NET_ENTITIES.applying) return false;
+  if (!netEntityShared()) return false;
   const source = getEnt(src);
+  if (dst.netEntityOwner && dst.netEntityOwner !== NET.self && netEntityMine()) {
+    netEntitySend('result', { to: dst.netEntityOwner, result: { id: NET_ENTITIES.authority + ':pet-buff:' + (++NET_ENTITIES.commands),
+      kind: 'buff', source: source?.netNpcId || source?.netEntityId || (source?.netPeer ? 'peer:' + source.netPeer : null),
+      target: dst.netEntityId, buff: kind, amount: value, dur, extra: netEntityPlain(extra) } }); return true;
+  }
+  if (NET_ENTITIES.applying || netEntityOwnPet(dst)) return false;
   if (dst?.role === 'remote' && netEntityMine() && (netEntityOwned(source) || netEntityTown(source))) {
     netEntitySend('result', { to: dst.netPeer, result: { id: NET_ENTITIES.authority + ':buff:' + (++NET_ENTITIES.commands),
       kind: 'buff', source: source.netNpcId || source.netEntityId, buff: kind, amount: value, dur, extra: netEntityPlain(extra) } });
@@ -381,16 +398,20 @@ function netEntityHandleCommand(m) {
     NET_ENTITIES.buffers.set(row.id, [{ at: performance.now(), row }]);
     return;
   }
-  const cmd = m.command, target = netEntityFind(cmd.target), peer = NET.peers.get(m.from), src = peer?.ghost;
-  if (!target?.alive || !src?.alive || !m.position || !Number.isFinite(m.position.x) || !Number.isFinite(m.position.z)) return;
-  if (Math.hypot(target.x - m.position.x, target.z - m.position.z) > 65 || Math.abs(target.y - src.y) > 40) return;
-  const amount = typeof cmd.amount === 'number' && Number.isFinite(cmd.amount) ? Math.max(0, Math.min(baseDmg(src.level) * 40, cmd.amount)) : 0;
+  if (!netEntityCanSimulateWorld()) return;
+  const cmd = m.command, target = netEntityFind(cmd.target), peer = NET.peers.get(m.from), actor = peer?.ghost;
   const opts = cmd.opts && typeof cmd.opts === 'object' ? cmd.opts : {};
+  const pet = typeof opts.petSource === 'string' ? netEntityFind(opts.petSource) : null;
+  if (pet && (pet.netEntityOwner !== m.from || !m.position || Math.hypot(pet.x - m.position.x, pet.z - m.position.z) > 120)) return;
+  const src = pet || actor, origin = pet ? { x: pet.x, z: pet.z } : m.position;
+  if (!target?.alive || !src?.alive || !m.position || !Number.isFinite(m.position.x) || !Number.isFinite(m.position.z)) return;
+  if (Math.hypot(target.x - origin.x, target.z - origin.z) > 65 || Math.abs(target.y - src.y) > 40) return;
+  const amount = typeof cmd.amount === 'number' && Number.isFinite(cmd.amount) ? Math.max(0, Math.min(baseDmg(src.level) * 40, cmd.amount)) : 0;
   NET_ENTITIES.applying = true;
   try {
     if (cmd.kind === 'damage' && isEnemy(src, target) && amount > 0) {
       const range = opts.kind === 'melee' && !opts.dot ? Math.max(6, src.meleeRange || 3) : 65;
-      if (Math.hypot(target.x - m.position.x, target.z - m.position.z) <= range) { dealDamage(src, target, amount, opts); NET_ENTITIES.stats.hits++; }
+      if (Math.hypot(target.x - origin.x, target.z - origin.z) <= range) { dealDamage(src, target, amount, opts); NET_ENTITIES.stats.hits++; }
     } else if (cmd.kind === 'heal' && !isEnemy(src, target) && amount > 0) healEnt(src, target, amount);
     else if (cmd.kind === 'buff' && typeof opts.kind === 'string' && typeof NET_BUFFS !== 'undefined' && NET_BUFFS[opts.kind]) {
       const friendly = ['hot', 'dr', 'dmg', 'shield'].includes(opts.kind);
@@ -418,7 +439,7 @@ function netEntityResult(result) {
       if (result.kind === 'damage' && isEnemy(src, target)) dealDamage(src, target, amount, result.opts || {});
       else if (result.kind === 'heal' && !isEnemy(src, target)) healEnt(src, target, amount);
       else if (result.kind === 'buff' && typeof result.buff === 'string' && typeof NET_BUFFS !== 'undefined' && NET_BUFFS[result.buff])
-        addBuff(P, result.buff, amount, Math.max(0, Math.min(30, +result.dur || 0)), src.id, result.extra);
+        addBuff(target, result.buff, amount, Math.max(0, Math.min(30, +result.dur || 0)), src.id, result.extra);
     }
   } finally { NET_ENTITIES.applying = false; }
 }
