@@ -380,10 +380,10 @@ function marchConsultingCreate(parent) {
   actions.append(ask, later, stop); guidance.append(actions);
   const result = marchConsultingNode('section'); result.id = 'march-consulting-result'; guidance.append(result);
   const privacy = marchConsultingNode('details'); privacy.id = 'march-coach-options';
-  privacy.append(marchConsultingNode('summary', 'Set up Foxxi guidance'));
+  privacy.append(marchConsultingNode('summary', 'Start a 15-minute guidance session'));
   privacy.append(marchConsultingNode('p', 'Shares your current milestone and a small gameplay summary with Foxxi. Chat, inventory contents and other players’ private records are excluded.'));
   privacy.append(marchConsultingNode('p', 'Enable a 15-minute guidance session to review new observations automatically and keep its plans privately in your pod. You can stop sharing at any time.'));
-  const enable = marchConsultingButton('Enable Foxxi guidance · 15 minutes', () => marchConsultingRun(marchConsultingEnable)); enable.id = 'march-consulting-connect';
+  const enable = marchConsultingButton('Start Foxxi guidance for 15 minutes', () => marchConsultingRun(marchConsultingEnable)); enable.id = 'march-consulting-connect';
   privacy.append(enable);
   const preview = marchConsultingNode('details'); preview.append(marchConsultingNode('summary', 'Technical sharing details'));
   const pre = marchConsultingNode('pre'); pre.id = 'march-coach-preview'; pre.style.cssText = 'white-space:pre-wrap;font-size:12px'; preview.append(pre); privacy.append(preview);
@@ -470,7 +470,7 @@ function marchConsultingRender() {
     }
     $('march-consulting-connect').hidden = s.enabled;
     $('march-consulting-connect').disabled = s.busy || !ready;
-    $('march-coach-options').querySelector('summary').textContent = s.enabled ? 'Guidance privacy' : 'Set up Foxxi guidance';
+    $('march-coach-options').querySelector('summary').textContent = s.enabled ? 'Guidance privacy' : 'Start a 15-minute guidance session';
     $('march-consulting-request').hidden = !s.enabled;
     $('march-consulting-request').disabled = s.busy || !!s.reviewed;
     $('march-consulting-quiet').hidden = !s.enabled;

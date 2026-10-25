@@ -1,8 +1,8 @@
 /* ================================================================== */
 /* [net] the season: the realms' life on the server, told and fed     */
 /* ================================================================== */
-// Version 19. With the March's own server (14p_netws.js) the three realms live on while nobody plays: the server steps
-// their strategic state (RS, the shared contract with loops: CLAUDE.md, Multiplayer, the season) day and night, and every
+// With the March's own server (14p_netws.js), the three realms share one strategic state. The server steps it only
+// while human players are active; an empty March stays in standby without catching up unattended time. Every
 // player of a realm sees it and feeds it. Here: what the server tells (`season`: its day and phase, the keeps and who
 // holds them, the realm's stores, its works and votes, its armies, the news; the realm's roster, who is on now and who was
 // today; on the first telling what happened while you were away and the realm's chat), the keeps' holders taken into the
@@ -12,7 +12,7 @@
 // work, a target, an officer's muster), the war panel's line, the Season page of the Chronicle, a field note, help and
 // tips. Alone (no server) none of it runs and the page plays exactly as before.
 const NETS = { s: null, roster: null, k: null, at: 0, first: false, away: -1, q: 0, waits: new Map(), given: {}, chat: [], busy: false, noted: false, told: false, stats: { msgs: 0, keepsApplied: 0, stores: 0, contribs: 0, took: 0, refused: 0, orders: 0 } };
-const NETS_PHASE = { build: 'Building', war: 'War', final: 'The final week', over: 'Over' };
+const NETS_PHASE = { build: 'Building', war: 'War', final: 'Final active week', over: 'Over' };
 // what a carried good is worth to the realm's stores (loops's own table when it is here)
 const NETS_WORTH = {
   grain: ['food', 1], flour: ['food', 2.2], bread: ['food', 1.4], meat_raw: ['food', 1], meat_cooked: ['food', 1.3], fish_raw: ['food', 0.8], fish_cooked: ['food', 1],
@@ -93,9 +93,9 @@ function netsApply(first) {
     NETS.told = true;
     const R = netsRealmName(P.faction);
     if (NETS.away > 300) {
-      uiToast(`While you were away (${netsAgo(NETS.away)}), the season went on: ${s.news.length ? s.news.length + ' things happened' : 'all was quiet'}. The Season page tells it.`, 'hint');
+      uiToast(`Welcome back after ${netsAgo(NETS.away)}. The shared season advances during human play and pauses when empty. The Season page has recent news.`, 'hint');
       for (const L of s.news.slice(-6)) uiLog('Season: ' + L[2], 'sys');
-    } else uiLog(`The season of the March, day ${s.day} of ${s.days}: ${NETS_PHASE[s.phase].toLowerCase()}. ${R} holds ${k.filter((r) => r === P.faction).length} keeps.`, 'sys');
+    } else uiLog(`The shared season, active day ${s.day} of ${s.days}: ${NETS_PHASE[s.phase].toLowerCase()}. ${R} holds ${k.filter((r) => r === P.faction).length} keeps. The world pauses when no human players are active.`, 'sys');
     for (const L of NETS.chat.slice(-4)) uiLog(`${L[1]} (earlier): ${L[2]}`, 'sys');
   }
   if (!NETS.noted && P) { NETS.noted = true; loreNote('netseason'); }
@@ -139,7 +139,7 @@ function netSeasonHudHTML() {
   if (!netsOn()) return '';
   const s = NETS.s, P = GAME.player, ro = NETS.roster;
   const left = Math.max(0, s.len - s.t);
-  return `<div class="ns-line" title="The season of the March: the realms live on while you are away">Season ${s.n} · ${s.over ? 'over' : 'day ' + s.day + ' of ' + s.days} · ${NETS_PHASE[s.phase]}${!s.over && s.phase === 'build' ? '' : ''}${ro && P ? ` · <b style="color:${REALMS[P.faction].color}">${ro.now}</b> of ${esc(netsRealmName(P.faction))} on` : ''}${s.over ? '' : `<small> · ${netsAgo(left)} left</small>`}</div>${season2HudLine() /* [season2] */}`;
+  return `<div class="ns-line" title="The shared season advances while human players are active and pauses when empty">Season ${s.n} · ${s.over ? 'over' : 'active day ' + s.day + ' of ' + s.days} · ${NETS_PHASE[s.phase]}${!s.over && s.phase === 'build' ? '' : ''}${ro && P ? ` · <b style="color:${REALMS[P.faction].color}">${ro.now}</b> of ${esc(netsRealmName(P.faction))} on` : ''}${s.over ? '' : `<small> · ${netsAgo(left)} of active play left</small>`}</div>${season2HudLine() /* [season2] */}`;
 }
 // what the player carries that the realm's stores take, by store
 function netsCarried() {
@@ -201,7 +201,7 @@ queueMicrotask(netsWrapLoops);
 function netsChronSeason() {
   const P = GAME.player;
   if (!netsOn() || !P) {
-    return `<h2>The season</h2><p class="lead">On the March's own server the three realms live on day and night: their stores fill and empty, their works are built, their armies march and lay siege by the numbers while nobody is there, and a season lasts weeks. Players of a realm come and go when they can, bring what they gathered, vote for the realm's works and its targets, and fight its battles when they meet.</p><p role="status">${esc(typeof NETWS !== 'undefined' && NETWS.worldPauseReason || netsConnectionText())}</p>`;
+    return `<h2>The season</h2><p class="lead">The three realms share a ${NETS.s?.days || 28}-day season measured in active play time. Their stores, works, armies and season clock advance while human players are active. The world pauses when empty. Bring what you gather, vote for your realm's works and targets, and fight alongside other players when they are here.</p><p role="status">${esc(typeof NETWS !== 'undefined' && NETWS.worldPauseReason || netsConnectionText())}</p>`;
   }
   const s = NETS.s, r = P.faction, R = REALMS[r], ro = NETS.roster;
   const goodsRow = (o) => Object.entries(o).map(([g, n]) => `${fmtInt(n)} ${g}`).join(', ');
@@ -216,11 +216,11 @@ function netsChronSeason() {
   const pts = s.pts.map((p, i) => `<li style="--rc:${REALMS[i].color}"${i === r ? ' class="on"' : ''}><b>${esc(netsRealmName(i))}</b> ${fmtInt(p)} points · ${((n) => n + (n === 1 ? ' keep' : ' keeps'))(s.keeps.filter((K) => K.r === i).length)}</li>`).join('');
   const officer = realmRank(GAME.prog.rp) >= 5;
   return `<h2>The season</h2>
-<p class="lead">Season ${s.n}, ${s.over ? `over: ${s.winner >= 0 ? esc(netsRealmName(s.winner)) + ' holds the March' : 'the March is quiet'}` : `day ${s.day} of ${s.days}`}: ${esc(NETS_PHASE[s.phase].toLowerCase())}. The realms live on while you are away: every keep held earns its realm points through the season (twice in the final week), and the realm with the most at its end holds the March.</p>
+<p class="lead">Season ${s.n}, ${s.over ? `over: ${s.winner >= 0 ? esc(netsRealmName(s.winner)) + ' holds the March' : 'the March is quiet'}` : `active day ${s.day} of ${s.days}`}: ${esc(NETS_PHASE[s.phase].toLowerCase())}. This shared season lasts ${s.days} days of active play time and pauses when no human players are active. While it runs, every keep held earns its realm points (twice in the final seven active days). The realm with the most at its end holds the March.</p>
 <div class="now"><ul class="gd-aims ns-pts">${pts}</ul></div>
 <h3 data-cf-open>${esc(R.name)}'s stores</h3><ul class="gd-aims ns-st">${st}</ul><div class="acts ns-give">${give}</div>
 <h3 data-cf-open>Works</h3><p>The realm builds the work with the most votes from its stores as the goods come in. One vote each for each work${officer ? '; yours counts thrice (an officer of the realm)' : '; an officer of the realm (rank 5) counts thrice'}.</p><ul class="gd-aims ns-proj">${proj}</ul>
-<h3>The keeps and the armies</h3><ul class="gd-aims ns-keeps">${keeps}</ul><p>${esc(R.name)}'s next levy in ${netsAgo(s.levyIn)}.${officer ? '' : ' An officer of the realm (rank 5) may call a muster now.'}</p><ul class="ns-armies">${armies}</ul>${officer && s.phase !== 'build' ? '<div class="acts"><button type="button" class="btn ns-btn" data-ns="muster">Call a muster</button></div>' : ''}
+<h3>The keeps and the armies</h3><ul class="gd-aims ns-keeps">${keeps}</ul><p>${esc(R.name)}'s next levy in ${netsAgo(s.levyIn)} of active play.${officer ? '' : ' An officer of the realm (rank 5) may call a muster now.'}</p><ul class="ns-armies">${armies}</ul>${officer && s.phase !== 'build' ? '<div class="acts"><button type="button" class="btn ns-btn" data-ns="muster">Call a muster</button></div>' : ''}
 ${season2ChronHTML() /* [season2] (08o_season2.js) */}
 <h3 data-cf-open>Your realm today</h3><p>${ro ? `${ro.now} on now, ${ro.day} today.` : ''}</p><ul class="ns-roster">${list}</ul>
 <h3 data-cf-open>News of the season</h3><ul class="ns-news">${news}</ul>
@@ -251,8 +251,8 @@ if (typeof G2_SEE !== 'undefined') G2_SEE.season = ['war', 'orders'];
 /* what players are told                                               */
 /* ------------------------------------------------------------------ */
 Object.assign(FIELD_NOTES, {
-  netseason: { t: 'The season', x: () => `This March runs on its server: the realms live on while you are away, for weeks. Bring what you gather to your realm's stores, vote for its works and its targets, and see who of your realm is on: the Season page of the Chronicle${IS_TOUCH ? '' : ' (J)'}.` },
+  netseason: { t: 'The shared season', x: () => `This March shares a ${NETS.s?.days || 28}-day season measured in active play time. The world advances while human players are active and pauses when empty. Bring what you gather to your realm's stores, vote for its works and targets, and find other players on the Chronicle's Season page${IS_TOUCH ? '' : ' (J)'}.` },
 });
-GUIDE_HELP.push(() => `<h3>The season</h3><p>On the March's own server a season lasts weeks, and the realms live on while nobody plays: their stores fill from their towns and the keeps they hold, the works their players voted for are built, their armies muster, march and lay siege by the numbers. You help your realm when you can: bring what you gathered to its stores (the Season page of the Chronicle: Bring), vote for its next work and the keep it marches on, and fight beside whoever of your realm is on. Every keep held earns its realm points through the season, twice in the final week; the realm with the most at the season's end holds the March. When you come back you are told what happened while you were away.</p>`);
-LOADING_TIPS.push('On the March\'s server the season goes on while you are away: the Season page tells what your realm did, and what it needs.');
+GUIDE_HELP.push(() => `<h3>The shared season</h3><p>On the March's server, the three realms share a ${NETS.s?.days || 28}-day season measured in active play time. Stores fill, works are built, armies march and the season clock advances while human players are active. The world pauses when empty, so time away does not automatically move the season forward. Other players can keep it moving while you are away. Bring goods to your realm's stores (Chronicle → Season → Bring), vote for its next work and target, and fight beside your realm. Keeps held earn season points while the world is active, twice in the final seven active days. The realm with the most points at the season's end holds the March. The Season page has recent news when you return.</p>`);
+LOADING_TIPS.push('The shared season counts active play time. The world advances while human players are active and pauses when empty.');
 window.__hm.netseason = { NETS, msg: netSeasonMsg, give: netsGive, giveAll: netsGiveAll, vote: netsVote, hud: netSeasonHudHTML, carried: netsCarried, render: netsRender };

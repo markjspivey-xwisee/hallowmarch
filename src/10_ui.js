@@ -33,6 +33,11 @@ function bindTitle() {
   $('name-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('btn-begin').click(); });
   $('btn-begin').onclick = () => {
     if (GAME.started) return;
+    if (UI.titleSave?.char) {
+      audioUnlock();
+      void nativePlayerBegin({ ...UI.titleSave.char, fresh: false });
+      return;
+    }
     const name = ($('name-input').value || '').trim().replace(/\s+/g, ' ').slice(0, 18) || randomName(UI.realm);
     audioUnlock();
     void nativePlayerBegin({ v: 1, name, realm: UI.realm, cls: UI.cls, level: UI.start === 'veteran' ? 15 : 1, xp: 0, rp: 0, fresh: true });
@@ -41,7 +46,7 @@ function bindTitle() {
     const s = UI.titleSave;
     if (GAME.started || !s || !s.char) return;
     audioUnlock();
-    void nativePlayerBegin({ ...s.char });
+    void nativePlayerBegin({ ...s.char, fresh: false });
   };
   UI.titleBound = true;
 }
@@ -49,6 +54,7 @@ function setupTitle(save) {
   if (!UI.titleBound) bindTitle();
   UI.titleSave = save && save.char ? save : null;
   UI.nameTouched = false;
+  $('character-create-fields').hidden = !!UI.titleSave;
   if (UI.titleSave) {
     const c = save.char;
     $('continue').hidden = false;
@@ -726,6 +732,7 @@ function hideJoystick() { $('joy').classList.remove('on'); }
 /* ------------------------------------------------------------------ */
 /* menus                                                               */
 /* ------------------------------------------------------------------ */
+let menuReturnFocus = null;
 function onEscape() {
   if (UI.modal === 'mobile') { mobileTray(false); return; }
   if (UI.modal === 'map') { toggleMap(false); return; }
@@ -741,9 +748,12 @@ function onEscape() {
 function openMenu(tab = 'char') {
   if (UI.modal === 'net' && typeof netSheetToggle === 'function') netSheetToggle(false);
   if (UI.modal && UI.modal !== 'menu') return;
+  const opening = UI.modal !== 'menu';
+  if (opening) menuReturnFocus = document.activeElement;
   UI.modal = 'menu';
   $('menu').hidden = false;
   renderMenu(tab);
+  if (opening) $('menu-tabs').querySelector('[aria-selected="true"]')?.focus({ preventScroll: true });
 }
 function openCompanion() {
   if (typeof netSheetToggle === 'function') netSheetToggle(false);
@@ -758,10 +768,23 @@ function openPlayerIdentity() {
   const connect = $('netsheet-acct')?.querySelector('.native-player button');
   if (connect) { connect.scrollIntoView({ block: 'nearest' }); connect.focus({ preventScroll: true }); }
 }
-function closeMenu() { $('menu').hidden = true; UI.modal = null; UI.confirmNew = false; $('btn-newchar').textContent = 'New character'; }
+function closeMenu() {
+  const wasOpen = !$('menu').hidden;
+  $('menu').hidden = true; UI.modal = null; UI.confirmNew = false; $('btn-newchar').textContent = 'New character';
+  if (!wasOpen) return;
+  const available = el => el?.isConnected && !el.disabled && !el.closest('[hidden], [inert]') && el.getClientRects().length;
+  const prior = menuReturnFocus; menuReturnFocus = null;
+  const focus = available(prior) && prior !== document.body ? prior
+    : [$('btn-menu'), $('mobile-menu-toggle')].find(available);
+  focus?.focus({ preventScroll: true });
+}
 function renderMenu(tab) {
   UI.menuTab = tab;
-  document.querySelectorAll('#menu-tabs button').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.tab === tab)));
+  document.querySelectorAll('#menu-tabs button').forEach((b) => {
+    const selected = b.dataset.tab === tab;
+    b.setAttribute('aria-selected', String(selected)); b.tabIndex = selected ? 0 : -1;
+    if (selected) $('menu-body').setAttribute('aria-labelledby', b.id);
+  });
   const P = GAME.player, prog = GAME.prog;
   const body = $('menu-body');
   if (tab === 'companion') {
@@ -811,6 +834,24 @@ function renderMenu(tab) {
   }
 }
 $('menu-tabs').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) renderMenu(b.dataset.tab); });
+$('menu-tabs').addEventListener('keydown', (e) => {
+  if (e.altKey || e.ctrlKey || e.metaKey || e.isComposing || !['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return;
+  const tabs = [...$('menu-tabs').querySelectorAll('[role="tab"]')], index = tabs.indexOf(e.target.closest('[role="tab"]'));
+  if (index < 0 || !tabs.length) return;
+  const next = e.key === 'Home' ? 0 : e.key === 'End' ? tabs.length - 1
+    : (index + (e.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
+  e.preventDefault(); e.stopPropagation(); renderMenu(tabs[next].dataset.tab); tabs[next].focus({ preventScroll: true });
+});
+$('menu').addEventListener('keydown', (e) => {
+  if (UI.modal !== 'menu' || e.key !== 'Tab') return;
+  const focusable = [...$('menu').querySelectorAll('button, input, select, textarea, summary, a[href], [tabindex]')]
+    .filter(el => !el.disabled && el.tabIndex >= 0 && !el.closest('[hidden], [inert]') && el.getClientRects().length);
+  const first = focusable[0], last = focusable.at(-1);
+  if (!first) return;
+  if (!$('menu').contains(document.activeElement)) { e.preventDefault(); (e.shiftKey ? last : first).focus(); }
+  else if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+  else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+});
 $('btn-resume').onclick = () => closeMenu();
 $('menu-close').onclick = () => closeMenu();
 $('btn-newchar').onclick = () => {

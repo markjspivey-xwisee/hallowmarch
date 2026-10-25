@@ -189,7 +189,7 @@ export async function guardHumanConsultingOwner({ owner, gameOrigin, initialize 
     if (!privacy?.open || !privacy.textContent.includes('Shares your current milestone and a small gameplay summary with Foxxi.')
       || !privacy.textContent.includes('Chat, inventory contents and other players’ private records are excluded.')
       || !privacy.textContent.includes('15-minute guidance session') || !privacy.textContent.includes('keep its plans privately in your pod')
-      || !privacy.textContent.includes('stop sharing at any time') || button?.textContent !== 'Enable Foxxi guidance · 15 minutes') fail('qa_human_disclosure');
+      || !privacy.textContent.includes('stop sharing at any time') || button?.textContent !== 'Start Foxxi guidance for 15 minutes') fail('qa_human_disclosure');
   }
   if (action === 'enable' || action === 'withdraw') {
     if (!trace || action === 'enable' && (!trace.localVerified || trace.enableClicked)) fail('qa_human_single_click');

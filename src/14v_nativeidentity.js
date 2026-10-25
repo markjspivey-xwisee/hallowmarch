@@ -1,5 +1,5 @@
 /* Owner identity and private character saves, composed through native ports. */
-const NATIVE_PLAYER = { status: null, profile: null, cache: null, module: null, state: 'idle', message: '', busy: false, channel: null, authRefusal: null, switching: false, provisional: null, provisionalOpening: null, provisionalContext: null, playFlight: null, recoveryOpen: false, conflict: null, claimLastConfirmed: false, promoted: false, claimConfirmationPending: false };
+const NATIVE_PLAYER = { status: null, profile: null, cache: null, module: null, state: 'idle', message: '', busy: false, busyMessage: '', channel: null, authRefusal: null, switching: false, provisional: null, provisionalOpening: null, provisionalContext: null, playFlight: null, recoveryOpen: false, conflict: null, claimLastConfirmed: false, promoted: false, claimConfirmationPending: false };
 const nativePlayerError = (code, message) => Object.assign(new Error(message), { code });
 async function nativePlayerRequest(url, { method = 'GET', body, timeoutMs, token = NETWS.token } = {}) {
   // Durable admission and record registration include queued native CAS/readback.
@@ -31,10 +31,15 @@ function nativePlayerIsProvisional() {
 }
 function nativePlayerCanPlayNow() {
   return NATIVE_PLAYER.status?.provisionalPlay?.enabled === true && !NATIVE_PLAYER.status?.bound
-    && !NATIVE_PLAYER.authRefusal && !NATIVE_PLAYER.newAdventure && !NATIVE_PLAYER.switching && !NATIVE_PLAYER.claimPendingResume;
+    && !NATIVE_PLAYER.authRefusal && !NATIVE_PLAYER.newAdventure && !NATIVE_PLAYER.switching && !NATIVE_PLAYER.claimPendingResume
+    && !nativePlayerGuestExpired() && !NATIVE_PLAYER.expiredAdventure;
 }
 function nativePlayerQuotaExhausted() {
   return nativePlayerIsProvisional() && (NATIVE_PLAYER.provisional?.status().quota === true || /quota|budget/.test(NATIVE_PLAYER.state));
+}
+function nativePlayerGuestExpired() {
+  const expiry = NATIVE_PLAYER.provisional?.status().guestExpiresAt;
+  return !NATIVE_PLAYER.promoted && (NATIVE_PLAYER.state === 'guest_expired' || !!expiry && expiry <= Date.now());
 }
 async function nativePlayerGuestRequest(url, options = {}, context = NATIVE_PLAYER.provisionalContext) {
   const target = new URL(url, location.origin);
@@ -180,7 +185,7 @@ async function nativePlayerBegin(save) {
     await startGame(save, () => !NETWS.reload && NETWS.host === host && NETWS.acct?.id === accountId
       && NATIVE_PLAYER.profile === profile && (!SAVE.native || SAVE.readConfirmed && NATIVE_PLAYER.status?.verified));
     nativePlayerRender();
-  });
+  }, 'Connecting your character…');
   NATIVE_PLAYER.playFlight = flight;
   try { return await flight; } finally { if (NATIVE_PLAYER.playFlight === flight) NATIVE_PLAYER.playFlight = null; }
 }
@@ -299,6 +304,12 @@ async function nativePlayerSaveRef(initialization = { active: true }) {
     NATIVE_PLAYER.state = status.enabled && !status.bound ? 'native_identity_required' : 'native_signin_required';
     return blocked;
   }
+  // A verified canonical sign-in selects that owner's private save. An older
+  // unclaimed device remains stored for recovery, but is not the active player.
+  // Pending source-claim recovery returned its provisional port above.
+  NATIVE_PLAYER.provisional?.close(); NATIVE_PLAYER.provisional = null; NATIVE_PLAYER.provisionalContext = null;
+  NATIVE_PLAYER.provisionalProofToken = ''; NATIVE_PLAYER.provisionalProofContext = null;
+  NATIVE_PLAYER.promoted = true; NATIVE_PLAYER.expiredAdventure = null;
   SAVE.lsKey = 'hallowmarch.native.' + owner;
   try {
     const module = await nativePlayerModules();
@@ -330,7 +341,9 @@ async function nativePlayerSaveRef(initialization = { active: true }) {
   } catch (error) { if (!active()) return null; NATIVE_PLAYER.state = error.code || 'unavailable'; return blocked; }
 }
 function nativePlayerSaveMessage() {
+  if (NATIVE_PLAYER.busy && !GAME.started) return (NATIVE_PLAYER.busyMessage || 'Preparing your character…') + ' Keep this page open until confirmation finishes.';
   if (!SAVE.native) return SAVE.backend === 'db' ? 'Progress saves automatically to your game account.' : 'Progress saves automatically in this browser.';
+  if (nativePlayerGuestExpired() || NATIVE_PLAYER.expiredAdventure) return 'This temporary session expired. Open a character saved to Interego, or start a new one. Existing saves and browser keys are kept.';
   if (nativePlayerNewAdventureAllowed()) return 'This game sign-in expired. Reconnect your identity or start a new character. Your existing private saves are kept.';
   if (nativePlayerCanPlayNow()) return 'Play now. Save this character to your Interego identity later.';
   if (nativePlayerIsProvisional()) {
@@ -360,7 +373,7 @@ function nativePlayerRender() {
       box = document.createElement('section'); box.className = 'native-player';
       if (target.classList.contains('card-body')) target.prepend(box); else target.appendChild(box);
     }
-    const renderKey = JSON.stringify([NETWS.acct?.id, status.bound, status.provisional, SAVE.readConfirmed, !!SAVE.loaded, SAVE.loading?.settled, NATIVE_PLAYER.state, NATIVE_PLAYER.busy, NATIVE_PLAYER.switching, NATIVE_PLAYER.message, NATIVE_PLAYER.recoveryOpen, !!NATIVE_PLAYER.conflict, NATIVE_PLAYER.profile?.status(), nativePlayerFreshAllowed(), nativePlayerNewAdventureAllowed()]);
+    const renderKey = JSON.stringify([NETWS.acct?.id, status.bound, status.provisional, SAVE.readConfirmed, !!SAVE.loaded, SAVE.loading?.settled, NATIVE_PLAYER.state, NATIVE_PLAYER.busy, NATIVE_PLAYER.switching, NATIVE_PLAYER.message, NATIVE_PLAYER.recoveryOpen, !!NATIVE_PLAYER.conflict, NATIVE_PLAYER.profile?.status(), nativePlayerFreshAllowed(), nativePlayerNewAdventureAllowed(), nativePlayerGuestExpired(), nativePlayerExpiredAdventureAllowed()]);
     if (box._nativeKey === renderKey) continue;
     box._nativeKey = renderKey;
     const sameOwner = box._nativeOwner === NETWS.acct?.id;
@@ -371,15 +384,19 @@ function nativePlayerRender() {
     box._nativeOwner = NETWS.acct?.id;
     box.replaceChildren();
     const add = (tag, text) => { const node = document.createElement(tag); node.textContent = text; box.appendChild(node); return node; };
-    const provisional = nativePlayerIsProvisional();
-    add('h3', provisional ? 'Keep your character' : status.bound ? 'Your identity and character' : nativePlayerCanPlayNow() ? 'Start your adventure' : 'Your identity and character');
-    add('p', status.bound || nativePlayerCanPlayNow() || nativePlayerNewAdventureAllowed() ? nativePlayerSaveMessage() : 'Connect your Interego identity to open your private character.');
+    const provisional = nativePlayerIsProvisional(), expired = nativePlayerGuestExpired() || !!NATIVE_PLAYER.expiredAdventure;
+    add('h3', expired ? 'Temporary session expired' : provisional ? 'Keep your character' : status.bound ? 'Your identity and character' : nativePlayerCanPlayNow() ? 'Start your adventure' : 'Your identity and character');
+    add('p', expired || status.bound || nativePlayerCanPlayNow() || nativePlayerNewAdventureAllowed() ? nativePlayerSaveMessage() : 'Connect your Interego identity to open your private character.');
     const action = (label, run) => {
       const b = add('button', label); b.type = 'button'; b.className = 'btn'; b.disabled = NATIVE_PLAYER.busy;
       b.style.minHeight = '44px'; b.style.margin = '4px'; b.style.touchAction = 'manipulation';
       b.onclick = () => run(); return b;
     };
-    if (provisional) {
+    if (expired) {
+      action('Open my saved character', nativePlayerConnect);
+      if (target.classList.contains('card-body') && nativePlayerExpiredAdventureAllowed()) action('Start a new character', nativePlayerExpiredAdventure);
+      if (NATIVE_PLAYER.provisional?.status().claim?.targetAvailable || NATIVE_PLAYER.provisional?.status().claimStarted) add('p', 'A character claim was started. Connect the identity you used to keep it; its original browser key has not been replaced.');
+    } else if (provisional) {
       if (nativePlayerQuotaExhausted() && SAVE.pending) {
         add('p', 'Your latest progress is waiting to save. Keep the last confirmed checkpoint first; this open game will then save its latest progress to your identity.');
         action('Keep last confirmed save', () => nativePlayerClaimConnect({ lastConfirmed: true }));
@@ -391,7 +408,7 @@ function nativePlayerRender() {
     if (target.classList.contains('card-body') && nativePlayerNewAdventureAllowed()) action('Play with a new character', nativePlayerNewAdventure);
     if (target.classList.contains('card-body') && nativePlayerFreshAllowed()) action(
       NATIVE_PLAYER.authRefusal.reason === 'native_owner_mismatch' ? 'Sign in with a different account' : 'Start a fresh sign-in', () => nativePlayerConnect(true));
-    if (SAVE.native && !SAVE.readConfirmed && !GAME.started && !NATIVE_PLAYER.switching) action('Retry connection', () => nativePlayerTask(nativePlayerRetryLoad));
+    if (!expired && SAVE.native && !SAVE.readConfirmed && !GAME.started && !NATIVE_PLAYER.switching) action('Retry connection', () => nativePlayerTask(nativePlayerRetryLoad));
     const profile = NATIVE_PLAYER.switching ? null : NATIVE_PLAYER.profile;
     if (profile) {
       action(NATIVE_PLAYER.recoveryOpen ? 'Hide recovery options' : 'Recovery options', () => { NATIVE_PLAYER.recoveryOpen = !NATIVE_PLAYER.recoveryOpen; nativePlayerRender(); });
@@ -442,16 +459,26 @@ function nativePlayerRender() {
     }
     if (NATIVE_PLAYER.message) { const p = add('p', NATIVE_PLAYER.message); p.setAttribute('role', 'status'); }
   }
-  if ($('save-note')) $('save-note').textContent = nativePlayerSaveMessage();
+  const titleBusy = NATIVE_PLAYER.busy && !GAME.started;
+  if ($('save-note')) {
+    const note = $('save-note'); note.setAttribute('role', 'status'); note.setAttribute('aria-live', 'polite'); note.setAttribute('aria-atomic', 'true');
+    note.textContent = titleBusy ? nativePlayerSaveMessage() : !GAME.started && NATIVE_PLAYER.message ? NATIVE_PLAYER.message
+      : nativePlayerGuestExpired() || NATIVE_PLAYER.expiredAdventure ? 'Expired session. Existing saves and browser keys are kept.' : nativePlayerSaveMessage();
+  }
   // The owner index may reveal a record without any game-server pointer. Only
   // an actual private read (or confirmed absence) and held key permit entry.
   const profileStatus = NATIVE_PLAYER.profile?.status();
-  const blocked = NATIVE_PLAYER.busy || NATIVE_PLAYER.switching || (SAVE.native && !nativePlayerCanPlayNow()
+  const blocked = NATIVE_PLAYER.busy || NATIVE_PLAYER.switching || nativePlayerGuestExpired() || !!NATIVE_PLAYER.expiredAdventure || (SAVE.native && !nativePlayerCanPlayNow()
     && (!status?.verified || !SAVE.readConfirmed || !profileStatus || (profileStatus.hasRecord && (!profileStatus.keyPresent || !SAVE.loaded))));
-  for (const id of ['btn-begin', 'btn-continue']) if ($(id)) $(id).disabled = !!blocked;
-  if ($('btn-begin')) $('btn-begin').textContent = NATIVE_PLAYER.busy && NATIVE_PLAYER.playFlight ? 'Opening your character…' : nativePlayerCanPlayNow() ? 'Play now' : 'Enter the realm';
+  for (const id of ['btn-begin', 'btn-continue']) if ($(id)) {
+    $(id).disabled = !!blocked; $(id).setAttribute('aria-busy', String(titleBusy));
+  }
+  const titleCharacter = typeof UI !== 'undefined' && UI.titleSave?.char;
+  if ($('btn-begin')) $('btn-begin').textContent = titleBusy ? NATIVE_PLAYER.busyMessage
+    : titleCharacter ? 'Continue as ' + titleCharacter.name : nativePlayerCanPlayNow() ? 'Play now' : 'Enter the realm';
+  if ($('btn-continue')) $('btn-continue').textContent = titleBusy ? NATIVE_PLAYER.busyMessage : 'Return to the march';
   if ($('btn-keep-character')) {
-    $('btn-keep-character').hidden = !nativePlayerIsProvisional();
+    $('btn-keep-character').hidden = !nativePlayerIsProvisional() || nativePlayerGuestExpired();
     $('btn-keep-character').disabled = NATIVE_PLAYER.busy || NATIVE_PLAYER.switching;
     $('btn-keep-character').onclick = () => { openPlayerIdentity(); nativePlayerRender(); };
   }
@@ -461,12 +488,12 @@ async function nativePlayerRetryLoad() {
   await loadSave({ retry: true });
   nativePlayerRender();
 }
-async function nativePlayerTask(run) {
+async function nativePlayerTask(run, busyMessage = 'Preparing your character…') {
   if (NATIVE_PLAYER.busy) return;
-  NATIVE_PLAYER.busy = true; NATIVE_PLAYER.message = ''; nativePlayerRender();
+  NATIVE_PLAYER.busyMessage = busyMessage; NATIVE_PLAYER.busy = true; NATIVE_PLAYER.message = ''; nativePlayerRender();
   try { await run(); }
   catch (error) { NATIVE_PLAYER.message = error.message || 'Your pod did not confirm the operation. Try again.'; }
-  finally { NATIVE_PLAYER.busy = false; nativePlayerRender(); }
+  finally { NATIVE_PLAYER.busy = false; NATIVE_PLAYER.busyMessage = ''; nativePlayerRender(); }
 }
 function nativePlayerClaimConnect({ lastConfirmed = false } = {}) {
   if (NATIVE_PLAYER.busy || !nativePlayerIsProvisional() || !NATIVE_PLAYER.provisional) return;
@@ -625,6 +652,53 @@ function nativePlayerNewAdventureAllowed() {
     && NETWS.acct?.id === choice.accountId && NETWS.token === choice.socketToken
     && NATIVE_PLAYER.provisional === choice.session;
 }
+function nativePlayerExpiredAdventureAllowed() {
+  const choice = NATIVE_PLAYER.expiredAdventure, session = NATIVE_PLAYER.provisional;
+  if (!nativePlayerSwitchIdle() || !session || !NATIVE_PLAYER.status?.provisionalPlay?.enabled
+    || NATIVE_PLAYER.profile || SAVE.loaded?.char || SAVE.readConfirmed || NATIVE_PLAYER.claimPendingResume
+    || NATIVE_PLAYER.claimConfirmationPending || NATIVE_PLAYER.promoted || NATIVE_PLAYER.openExistingPending
+    || NATIVE_PLAYER.channel || NETWS.reload || NETWS.openP || NETWS.linkP) return false;
+  if (choice) return choice.session === session && choice.host === NETWS.host
+    && choice.accountId === NETWS.acct?.id && choice.socketToken === NETWS.token;
+  return nativePlayerGuestExpired() && session.status().provisional === true && !session.status().claim?.targetAvailable && !session.status().claimStarted;
+}
+function nativePlayerExpiredAdventure() {
+  if (NATIVE_PLAYER.busy || NATIVE_PLAYER.switching || !nativePlayerExpiredAdventureAllowed()) return;
+  return nativePlayerTask(async () => {
+    const session = NATIVE_PLAYER.provisional, host = NETWS.host;
+    const choice = NATIVE_PLAYER.expiredAdventure || { session, host, accountId: NETWS.acct?.id, socketToken: NETWS.token, archived: false };
+    NATIVE_PLAYER.expiredAdventure = choice;
+    const allowed = () => NATIVE_PLAYER.expiredAdventure === choice && nativePlayerExpiredAdventureAllowed();
+    NATIVE_PLAYER.switching = true; nativePlayerRender();
+    try {
+      const metadata = await session.peek();
+      if (!allowed() || (!choice.archived && (!metadata?.expired || metadata.claimedOwnerDid || metadata.targetAvailable || metadata.claimStarted))
+        || (choice.archived && metadata !== null)) throw new Error('The character connection changed. Retry before starting a new one.');
+      const token = NETWS.token || await netWsToken(host);
+      if (!allowed() || !token) throw new Error('The previous game connection is unavailable. Retry before starting a new character.');
+      if (!choice.archived) {
+        await session.archiveExpired({ isCurrent: allowed }); choice.archived = true;
+      }
+      if (!allowed()) throw new Error('The game connection changed. The expired browser key was kept. Retry before starting a new character.');
+      await netWsTokenForget(host, token, allowed);
+      if (!allowed()) throw new Error('The game connection changed. Retry before starting a new character.');
+      session.close(); NATIVE_PLAYER.provisional = null; NATIVE_PLAYER.provisionalContext = null;
+      NATIVE_PLAYER.provisionalProofToken = ''; NATIVE_PLAYER.provisionalProofContext = null;
+      NATIVE_PLAYER.expiredAdventure = null; NATIVE_PLAYER.newAdventure = null; NATIVE_PLAYER.authRefusal = null;
+      NATIVE_PLAYER.state = 'identity_unconfirmed';
+      NATIVE_PLAYER.status = { enabled: true, bound: false, verified: false, recordLinks: {}, provisionalPlay: NATIVE_PLAYER.status.provisionalPlay };
+      if (NETWS.link) NETWS.link.close(); else netWsRetire(NETWS.ws, 'explicit expired character restart');
+      NETWS.token = ''; NETWS.acct = null; NETWS.sessionRefusal = null;
+      if (!await netLinkWS() || NETWS.host !== host || NETWS.reload || !nativePlayerSwitchIdle()) throw new Error('The new game connection is unavailable. Retry the connection.');
+      const accountId = NETWS.acct?.id, nextToken = NETWS.token, generation = NETWS.generation;
+      await loadSave({ retry: true });
+      if (NETWS.host !== host || NETWS.acct?.id !== accountId || NETWS.token !== nextToken || NETWS.generation !== generation || NETWS.reload) {
+        throw new Error('The game connection changed. Retry before playing.');
+      }
+      NATIVE_PLAYER.message = 'Choose Play now to begin. The expired browser key and all existing private saves were kept.';
+    } finally { NATIVE_PLAYER.switching = false; nativePlayerRender(); }
+  });
+}
 function nativePlayerNewAdventure() {
   if (NATIVE_PLAYER.busy || NATIVE_PLAYER.switching || !nativePlayerNewAdventureAllowed()) return;
   return nativePlayerTask(async () => {
@@ -719,7 +793,7 @@ function nativePlayerConnect(fresh = false) {
         nativePlayerRender(); return;
       }
       if (event.data?.type !== 'hallowmarch-native-connected') return;
-      channel.close(); NATIVE_PLAYER.channel = null;
+      channel.close(); if (NATIVE_PLAYER.channel === channel) NATIVE_PLAYER.channel = null;
       if (!GAME.started) { NETWS.reload = true; location.reload(); return; }
       void Promise.resolve(starting).then(() => nativePlayerTask(() => nativePlayerReconnect(expected, event.data)));
     };
@@ -738,7 +812,7 @@ function nativePlayerConnect(fresh = false) {
         NATIVE_PLAYER.authRefusal = { host, token };
         error.message = 'The previous game session has expired or was refused. Start a fresh sign-in, then choose your existing identity.';
       }
-      popup.close(); channel.close(); throw error;
+      popup.close(); channel.close(); if (NATIVE_PLAYER.channel === channel) NATIVE_PLAYER.channel = null; throw error;
     }
   });
 }
@@ -835,4 +909,5 @@ if (window.__hm) window.__hm.nativePlayerStatus = () => {
     profileStatus: profile ? { state: profile.state, keyPresent: profile.keyPresent === true, hasRecord: profile.hasRecord === true,
       pending: profile.pending === true, indexed: profile.indexed === true, linked: profile.linked === true } : null };
 };
+
 

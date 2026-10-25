@@ -289,9 +289,13 @@ async def context_loss(page, errors, console_errors, navigations):
 
 def title_warmup_receipts(startup):
     rows = startup.get('titleWarmup', [])
-    expected = ['post','sky','terrain','grass','flowers','trees','water','structures','crowds','other']
-    check([row['id'] for row in rows] == expected,
-          'first Ready follows the complete ordered post and material-family warmup')
+    ids = [row['id'] for row in rows]
+    prefix = ['post','sky','terrain','grass','flowers','trees','water','structures']
+    crowds = [value for value in ids if value == 'crowds' or value.startswith('crowds-')]
+    complete_crowds = crowds == ['crowds'] or (len(crowds) > 1 and
+        crowds == ['crowds-' + str(index + 1) for index in range(len(crowds))])
+    check(complete_crowds and ids == prefix + crowds + ['other'],
+          'first Ready follows every ordered material family and every separately fenced crowd batch')
     check(all(row['completed'] and row['fenceComplete'] and
               math.isfinite(row['fenceWaitMs']) and row['fenceWaitMs'] >= 0 and
               row['exercised'] == (row['workCalls'] > 0) and row['workTriangles'] >= 0 and
@@ -731,3 +735,4 @@ if __name__ == '__main__':
         print('FAIL startup graphics regression', flush=True)
         traceback.print_exc()
         sys.exit(1)
+

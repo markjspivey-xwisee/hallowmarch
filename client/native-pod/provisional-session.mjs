@@ -148,7 +148,7 @@ export async function createProvisionalPlayerSession({ origin = globalThis.locat
     return { state, provisional: !!metadata && !claimed && !metadata.claimedOwnerDid, guestExpiresAt: metadata?.guestExpiresAt || null,
       characterId: journal?.characterId || metadata?.characterId || null, ownerDid: currentBinding?.subjectDid || metadata?.claimedOwnerDid || metadata?.ownerDid || null,
       keyPresent: current?.status().keyPresent || false, pending: !!pendingCanonicalSave || current?.status().pending || false,
-      quota: sourceQuota && !claimed, claim: journal?.claim ? { ...copy(journal.claim), targetAvailable: !!metadata?.targetClaim } :
+      quota: sourceQuota && !claimed, claimStarted: !!metadata && Object.hasOwn(metadata, 'lastConfirmedClaim'), claim: journal?.claim ? { ...copy(journal.claim), targetAvailable: !!metadata?.targetClaim } :
         metadata?.targetClaim ? { targetAvailable: true } : null };
   }
   function profile(binding, credential, deferred = false) {
@@ -548,9 +548,21 @@ export async function createProvisionalPlayerSession({ origin = globalThis.locat
         claimedOwnerDid: metadata.claimedOwnerDid || null, expired: metadata.guestExpiresAt <= now(),
         gameAdmitted: metadata.gameAdmitted === true,
         targetAvailable: !!metadata.targetClaim, targetOwnerDid: metadata.targetClaim?.binding.subjectDid || null,
-        lastConfirmedClaim: metadata.lastConfirmedClaim === true } : null;
+        lastConfirmedClaim: metadata.lastConfirmedClaim === true, claimStarted: Object.hasOwn(metadata, 'lastConfirmedClaim') } : null;
     },
     bootstrap: () => serialized(() => provision()), resume: input => serialized(() => resume(input)),
+    archiveExpired: options => serialized(async () => {
+      metadata = await device.peekMetadata();
+      if (!metadata || claimed || metadata.claimedOwnerDid || metadata.targetClaim || Object.hasOwn(metadata, 'lastConfirmedClaim') || metadata.guestExpiresAt > now()
+        || pendingCanonicalSave || current?.status().pending || options?.isCurrent?.() !== true) {
+        fail('guest_restart_refused', 'Keep the current character connection open. Only an expired, unclaimed character can start over.');
+      }
+      const result = await device.archiveExpired({ ...options, expectedOwnerDid: metadata.ownerDid });
+      current?.close(); if (sourceProfile !== current) sourceProfile?.close(); if (targetProfile !== current) targetProfile?.close();
+      metadata = null; current = null; sourceProfile = null; targetProfile = null; currentBinding = null;
+      save = null; journal = null; sourceQuota = false; state = 'idle';
+      return result;
+    }),
     get: () => serialized(async () => {
       if (!current) fail('not_connected', 'Open the native character before reading it.');
       const found = await current.get();
@@ -568,3 +580,4 @@ export async function createProvisionalPlayerSession({ origin = globalThis.locat
     close() { closed = true; current?.close(); if (sourceProfile !== current) sourceProfile?.close(); if (targetProfile !== current) targetProfile?.close(); device.close(); void accessCache.close?.(); },
   });
 }
+

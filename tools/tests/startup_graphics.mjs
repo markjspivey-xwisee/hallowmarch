@@ -443,6 +443,23 @@ test('family warming preserves hidden objects and reports empty families without
   assert.equal(f.ctx.GRAPHICS_STARTUP.titleWarmup[0].exercised,true,'post batch counts its actual composite draw');
   f.restored();
 });
+test('cold crowd meshes each finish their fence and yield before the next shader is submitted',async()=>{
+  const f=titleFixture(),beast={name:'beast',type:'Mesh',id:71,visible:true,
+    geometry:{id:171},material:{name:'beast material',type:'ShaderMaterial',id:271}};
+  f.inventory.renderables.push(beast);f.inventory.sets.crowds.add(beast);
+  const pending=f.run();await f.flush();
+  while(f.fences.at(-1).stage!=='crowds-1'){await f.fence();await f.paint();}
+  assert.equal(f.events.some(x=>x==='direct:crowds-2:beast'),false);
+  await f.fence();
+  assert.equal(f.fences.at(-1).stage,'crowds-1','next crowd waits for a paint opportunity');
+  await f.paint();assert.equal(f.fences.at(-1).stage,'crowds-2');
+  assert.ok(f.events.includes('direct:crowds-2:beast'));
+  assert.equal(f.events.some(x=>x==='direct:crowds-1:beast'),false);
+  await f.finish(pending);
+  assert.deepEqual(f.fences.map(x=>x.stage),[...titleStages.slice(0,-2),'crowds-1','crowds-2','other','combined']);
+  assert.equal(f.ctx.GRAPHICS_STARTUP.titleFinal.newPrograms,0);
+  assert.equal(beast.visible,true);assert.equal(f.ctx.GAME.t,27);assert.equal(f.ctx.GAME.player,null);
+});
 test('unchanged concurrent title redraw requests coalesce and reuse completed warming',async()=>{
   const f=titleFixture(),first=f.run();assert.equal(f.run(),first);assert.equal(f.run(),first);await f.finish(first);
   assert.deepEqual(f.fences.map(x=>x.stage),[...titleStages,'combined','combined']);
@@ -690,3 +707,4 @@ test('normal sky fragment and both sky vertices preserve their earlier compiler 
   assert.equal(recovery.vertexShader,normal.vertexShader);
   assert.notEqual(recovery.fragmentShader,normal.fragmentShader);
 });
+

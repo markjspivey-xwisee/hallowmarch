@@ -1,8 +1,9 @@
-// [loops] The season in the page (version 19): the realms' strategic life (08m_realm.js, RS) wired to the live war,
+// [loops] The legacy solo season in the page: the realms' strategic life (08m_realm.js, RS) wired to the live war,
 // the stores and the player. While you play, the page's own war and stores run and RS keeps the clock, the phases,
 // the season points, the projects and the offensives (the stores are copied into RS before each step and back after);
 // while you are away RS alone runs the war, and on your return it is stepped by the real time that passed (at most
 // three weeks) and you are told what happened: on the title, in a banner and on the Chronicle's Season page.
+// Hosted shared play uses 14q_netseason.js instead; its human-gated clock pauses when the March is empty.
 
 const SEASONP = {
   rs: null, pend: undefined, ln: 0, mute: false, away: null, said: {},
@@ -61,11 +62,11 @@ function seasonAway(el) {
 }
 function seasonAwayText(sum, el) {
   const bits = sum.lines.filter((x) => !/^While you were away/.test(x)).slice(-3);
-  return `While you were away (${rsmDur(el)}): ${bits.length ? bits.join(' ') : 'the March held its breath.'} ${seasonClockText(sum)}`;
+  return `Solo season update (${rsmDur(el)} of season time): ${bits.length ? bits.join(' ') : 'the March held its breath.'} ${seasonClockText(sum)}`;
 }
 const SEASON_PHASE = { muster: 'the muster', war: 'the war', reckon: 'the reckoning' };
 function seasonClockText(sum) {
-  return `Season ${sum.n}, ${SEASON_PHASE[sum.phase]}, day ${sum.day} of ${sum.days}: ${sum.clock}.`;
+  return `Solo season ${sum.n}, ${SEASON_PHASE[sum.phase]}, season day ${sum.day} of ${sum.days}: ${sum.clock}.`;
 }
 
 // a keep the season gives to another realm than the live war shows (after time away, or a battle's end in the war)
@@ -256,7 +257,7 @@ function seasonHudLine() {
   const O = sum.offs.filter((q) => q.ours || q.against).sort((a, b) => a.inS - b.inS)[0];
   if (O) off = `<div class="season-off">${O.state === 'planned' ? `${REALMS[O.r].name} marches on ${O.keep} in ${rsmDur(O.inS)}` : `${REALMS[O.r].name}'s offensive on ${O.keep} is under way`}</div>`;
   const s2 = season2HudLine(); // [season2] an army of the season near, or an offensive to join (08o_season2.js)
-  return `<div class="season-hud"><b>Season ${sum.n} · ${capFirst(SEASON_PHASE[sum.phase].replace('the ', ''))}</b> day ${sum.day}/${sum.days}, ${sum.clock} · ${pts}${s2 || off}</div>`;
+  return `<div class="season-hud"><b>Solo season ${sum.n} · ${capFirst(SEASON_PHASE[sum.phase].replace('the ', ''))}</b> season day ${sum.day}/${sum.days}, ${sum.clock} · ${pts}${s2 || off}</div>`;
 }
 // a sentence for the herald and the war table
 function seasonWarText(r) {
@@ -296,16 +297,16 @@ function chronSeason() {
   const news = RS.log.filter((L) => L.r === me || L.r === -1 || L.k === 'big').slice(-8).reverse().map((L) => `<li><small>day ${Math.floor(L.t / 86400) + 1}</small> ${esc(L.x)}</li>`).join('');
   const past = RS.past.slice(-4).reverse().map((p) => `<li>Season ${p.n}: <b>${REALMS[p.w].name}</b> (${p.sp.map((v, r) => `${REALMS[r].name} ${fmtInt(v)}`).join(', ')})</li>`).join('');
   const y = SEASONP.you;
-  return `<p class="lead">The war is a season of ${sum.days} days: the muster (building; no keep falls), the war, the reckoning (the most points wins). The realms live on while you are away.</p>
+  return `<p class="lead">This solo war uses its own season clock over ${sum.days} season days: the muster (building; no keep falls), the war, the reckoning (the most points wins). Shared play uses a separate clock that advances while human players are active and pauses when empty.</p>
     <div class="now"><p><b>${seasonClockText(sum)}</b></p><ol class="plain season-stand">${stand}</ol>
     ${offs ? `<ul class="plain">${offs}</ul>` : ''}
-    ${SEASONP.away ? `<p><b>While you were away (${rsmDur(SEASONP.away.el)}):</b> ${esc(SEASONP.away.sum.lines.filter((x) => !/^While/.test(x)).slice(-3).join(' '))}</p>` : ''}</div>
+    ${SEASONP.away ? `<p><b>Solo season update (${rsmDur(SEASONP.away.el)} of season time):</b> ${esc(SEASONP.away.sum.lines.filter((x) => !/^While/.test(x)).slice(-3).join(' '))}</p>` : ''}</div>
     <h3 data-cf-open>The realm's work</h3><p>${REALMS[me].name} pours its stores into one work at a time. ${officer ? 'You are an officer: your word sets it.' : 'Vote for the next.'} Gold to the treasury buys what the work lacks at the border fairs${y.pts ? `; you have given ${y.pts.toFixed(1)} season points` : ''}.</p>
     <div class="acts">${gold}</div><ul class="gd-aims season-proj">${projs}</ul>
     <h3>Season points</h3><p>Each hour of the war a realm's own keep counts ${RSM.sp.own}, a keep taken ${RSM.sp.won}, an enemy hallow in its temple ${RSM.sp.hallow}. A work finished ${RSM.sp.project} (a tier of walls ${RSM.sp.tier}), an offensive that takes its keep ${RSM.sp.offensive} (beaten off, ${Math.round(RSM.sp.offensive * 0.6)} to the defender), a battle won ${RSM.sp.battle}, every ${RSM.sp.units} units delivered one. A realm behind works harder and its walls stand stronger, and the others turn on the leader.</p>
     ${season2ChronHTML() /* [season2] the armies of the season and the battles to join (08o_season2.js) */}
-    <h3>Offensives</h3><p>An offensive is announced about two days ahead: the realm marches with everything it trained and every engine it stockpiled. Defend the keep named: raise its walls, fill its stores, be there.</p>${aims}
-    <h3>The season's length</h3><p>This season lasts ${sum.days} days. The next: ${[7, 21, 42].map((d) => `<button type="button" class="btn season-btn" data-season="len:${d}"${(RS.nextLen || RS.len) === d * 86400 ? ' aria-pressed="true"' : ''}>${d / 7} week${d > 7 ? 's' : ''}</button>`).join(' ')}</p>
+    <h3>Offensives</h3><p>An offensive is announced about two season days ahead: the realm marches with everything it trained and every engine it stockpiled. Defend the keep named: raise its walls, fill its stores, be there.</p>${aims}
+    <h3>The solo season's length</h3><p>This solo season lasts ${sum.days} season days. The next: ${[7, 21, 42].map((d) => `<button type="button" class="btn season-btn" data-season="len:${d}"${(RS.nextLen || RS.len) === d * 86400 ? ' aria-pressed="true"' : ''}>${d} season days</button>`).join(' ')}</p>
     <h3>What each work does and wants</h3><ul class="plain">${wants}</ul>
     <h3>The season's news</h3><ul class="plain season-news">${news || '<li>Nothing yet.</li>'}</ul>
     ${past ? `<h3>Seasons past</h3><ul class="plain">${past}</ul>` : ''}`;
@@ -332,7 +333,7 @@ function seasonTitleText(save) {
     if (el > 120) realmSimStep(RS, el);
     const r = save.char ? save.char.realm : 0, sum = realmSimSummary(RS, r, since);
     const bits = sum.lines.filter((x) => !/^While you were away/.test(x)).slice(-2);
-    return `${seasonClockText(sum)} ${REALMS[r].name} stands ${ordinalWord(sum.place)}.${el > 120 ? ` While you were away (${rsmDur(el)}): ${bits.join(' ') || 'quiet.'}` : ''}`;
+    return `${seasonClockText(sum)} ${REALMS[r].name} stands ${ordinalWord(sum.place)}.${el > 120 ? ` Solo season update (${rsmDur(el)} of season time): ${bits.join(' ') || 'quiet.'}` : ''}`;
   } catch (err) { reportError(err); return ''; }
 }
 
@@ -344,7 +345,7 @@ queueMicrotask(() => $('menu-body').addEventListener('click', (ev) => { // ($ is
   if (act === 'proj') ok = seasonVote(id);
   else if (act === 'gold') ok = seasonGiveGold(+id);
   else if (act === 'aim') ok = seasonAim(+id);
-  else if (act === 'len' && SEASONP.rs) { const d = clamp(+id || 42, 7, 84); SEASONP.rs.nextLen = d * 86400; uiToast(`The next season will last ${d} days.`); saveSoon(); ok = true; }
+  else if (act === 'len' && SEASONP.rs) { const d = clamp(+id || 42, 7, 84); SEASONP.rs.nextLen = d * 86400; uiToast(`The next solo season will last ${d} season days.`); saveSoon(); ok = true; }
   if (ok) { sfx('click'); renderChronicle($('menu-body'), true); }
 }));
 
@@ -359,18 +360,18 @@ queueMicrotask(() => { // (CHRON, FIELD_NOTES, GUIDE_WATCH, GUIDE_HELP and LOADI
   }
   if (typeof G2_SEE !== 'undefined') G2_SEE.season = ['stores', 'war'];
   Object.assign(FIELD_NOTES, {
-    lseason: { t: 'A season of weeks', x: (R) => `The war is fought over a season of ${SEASONP.days} days: the muster (skirmishes: no keep falls for the season), the war, the reckoning. Keeps and hallows held, projects built and goods delivered win it; the realms live on while you are away. The Chronicle's Season page.` },
+    lseason: { t: 'The solo season', x: (R) => `This solo war uses a season of ${SEASONP.days} season days: the muster (skirmishes: no keep falls for the season), the war, the reckoning. Keeps and hallows held, projects built and goods delivered win it. Shared play advances while human players are active and pauses when empty. See the Chronicle's Season page.` },
     loffensive: { t: 'An offensive is coming', x: (R) => `An offensive is announced against a keep of ${R.name}. Raise its walls, fill its stores, and be there when it comes: the war panel counts it down.` },
   });
   GUIDE_WATCH.lseason = (P) => !!SEASONP.rs && GAME.prog.level >= 4;
   GUIDE_WATCH.loffensive = (P) => !!SEASONP.rs && SEASONP.rs.offs.some((O) => O.state === 'planned' && SEASONP.rs.keeps[O.k].h === P.faction);
-  GUIDE_HELP.push(() => `<h3>The season</h3><p>The war is a season of ${SEASONP.days} days: the muster, the war, the reckoning. Each hour a keep or an enemy hallow held earns its realm season points, and so do projects built, offensives won and goods delivered. Offensives are announced days ahead. Your realm votes on its work (officers from realm rank 5 set it); give gold to its treasury on the Chronicle's Season page. The realms live on while you are away, and you are told what happened when you return.</p>`);
+  GUIDE_HELP.push(() => seasonServer() ? '' : `<h3>The solo season</h3><p>This solo war uses its own clock over ${SEASONP.days} season days: the muster, the war, the reckoning. Each season hour a keep or an enemy hallow held earns its realm season points, and so do projects built, offensives won and goods delivered. Offensives are announced season days ahead. Your realm votes on its work (officers from realm rank 5 set it); give gold to its treasury on the Chronicle's Season page. Shared realms use a separate clock that advances while human players are active and pauses when empty.</p>`);
   // the path: the realm's work funded (pv 3, with the stores' steps: 08m_loops.js)
   const S = { id: 'fund', lv: 15, old: 20, pv: 3, title: "Fund the realm's work", short: "Fund the realm's work",
     hint: (R) => `${R.name} pours its stores into one work at a time: walls, a granary, a yard, a smithy, siege engines. On the Chronicle's Season page give gold to its treasury, or vote for the next work.`,
     reward: { gold: (L) => 40 + L * 4 } };
   if (!PATH_BY_ID[S.id]) { const i = PATH_STEPS.findIndex((q) => q.lv > S.lv); PATH_STEPS.splice(i < 0 ? PATH_STEPS.length : i, 0, S); PATH_BY_ID[S.id] = S; PATH_STEPS.forEach((q, j) => { q.idx = j; }); }
-  LOADING_TIPS.push('A season lasts weeks: the realm that holds and prepares best wins it, not the one that wins an hour.', 'Offensives are announced days ahead on the war panel: raise the walls of the keep named and be there when it comes.', 'The realms live on while you are away: the Chronicle\'s Season page tells what happened.');
+  if (!seasonServer()) LOADING_TIPS.push('A solo season uses its own clock: see the Chronicle\'s Season page for its progress.', 'Offensives are announced in season time on the war panel: raise the walls of the keep named and be there when it comes.');
 });
 queueMicrotask(() => {
   if (!window.__hm) return;

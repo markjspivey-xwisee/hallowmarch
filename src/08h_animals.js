@@ -330,7 +330,7 @@ function initAnimals() {
   initWildHorses();
   anBuildUI();
   window.addEventListener('keydown', (ev) => {
-    if (!GAME.started || typing() || ev.repeat) return;
+    if (!GAME.started || typing() || gameplayKeyIgnored(ev) || ev.repeat) return;
     if (ev.code === 'KeyK') { if (UI.modal === 'dialog' && ANIMALS.dlg) anCloseDialog(); else if (!UI.modal) openAnimals(); }
     // Esc while marking out a paddock stops marking (and nothing else)
     if (ev.code === 'Escape' && ANIMALS.marking && !UI.modal) { ANIMALS.marking = null; ANIMALS.uiDirty = true; uiLog('You stop marking out the paddock.', 'sys'); ev.stopImmediatePropagation(); }

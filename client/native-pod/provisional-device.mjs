@@ -71,8 +71,28 @@ export function indexedDbProvisionalStorage({ indexedDB = globalThis.indexedDB, 
       { code: mismatch ? 'device_changed' : 'device_storage_unavailable' }));
     });
   }
+  async function archiveAndReplace(scope, revision, archiveScope, replacement, isCurrent) {
+    const db = await database();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('devices', 'readwrite'), store = tx.objectStore('devices');
+      let mismatch = false;
+      const read = store.get(scope);
+      read.onsuccess = () => {
+        const original = read.result;
+        if (original?.revision !== revision || !isCurrent()) { mismatch = true; tx.abort(); return; }
+        // Both writes commit together. The original nonextractable signing key,
+        // owner/pod routing and claim metadata remain intact in the archive.
+        store.add(original, archiveScope); store.put(replacement, scope);
+      };
+      tx.oncomplete = () => resolve(replacement);
+      tx.onabort = tx.onerror = () => reject(Object.assign(new Error(mismatch
+        ? 'This browser play session changed in another tab.' : 'The expired play key could not be preserved. Try again.'),
+      { code: mismatch ? 'device_changed' : 'device_storage_unavailable' }));
+    });
+  }
   return Object.freeze({ load: scope => transact(scope), create: (scope, record) => transact(scope, record),
     replace: (scope, revision, record) => transact(scope, record, revision),
+    archiveAndReplace,
     async close() { if (opening) (await opening).close(); opening = null; } });
 }
 
@@ -195,6 +215,24 @@ export function createProvisionalDevice({ origin = globalThis.location?.origin, 
       return clone(checked.metadata);
     },
     async metadata() { return clone((await open()).metadata); },
+    async archiveExpired({ expectedOwnerDid, isCurrent = () => false } = {}) {
+      active();
+      const record = await validate(await storage.load(scope)), metadata = record.metadata;
+      if (!metadata || metadata.ownerDid !== expectedOwnerDid || metadata.guestExpiresAt > now()
+        || metadata.claimedOwnerDid || metadata.targetClaim || Object.hasOwn(metadata, 'lastConfirmedClaim') || !isCurrent()) {
+        fail('guest_restart_refused', 'Only an expired, unclaimed temporary character can start over.');
+      }
+      if (typeof storage.archiveAndReplace !== 'function') fail('device_storage_unavailable', 'This browser cannot preserve the expired play key.');
+      const pair = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign', 'verify']);
+      const publicKeyJwk = provisionalPublicKey(await crypto.subtle.exportKey('jwk', pair.publicKey));
+      active();
+      if (!isCurrent()) fail('device_changed', 'The character connection changed before a new character could be selected.');
+      const archiveScope = JSON.stringify([SCHEMA, gameOrigin, 'expired', record.revision]);
+      const replacement = { schema: SCHEMA, origin: gameOrigin, revision: crypto.randomUUID(), createdAt: now(),
+        privateKey: pair.privateKey, publicKeyJwk, metadata: null };
+      current = await validate(await storage.archiveAndReplace(scope, record.revision, archiveScope, replacement, isCurrent));
+      return { archived: true };
+    },
     async remember(value) {
       const record = await open(), metadata = metadataOf(value);
       if (!metadata) fail('invalid_device_metadata', 'A provisional identity is required.');
@@ -221,3 +259,4 @@ export function createProvisionalDevice({ origin = globalThis.location?.origin, 
     close() { closed = true; current = null; void storage.close?.(); },
   });
 }
+

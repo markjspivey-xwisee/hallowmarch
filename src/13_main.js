@@ -232,7 +232,14 @@ function renderTitleFrame() {
       if (!TITLE_WARMED) {
         TITLE_WARM_GENERATION++;
         GRAPHICS_STARTUP.titleWarmup = [];
-        const stages = [['post', new Set()], ...Object.entries(inventory.sets)];
+        // Crowds contain several expensive rig programs, even when their
+        // instance counts are zero at the title. Fence and yield between meshes
+        // so one cold crowd family cannot monopolize the whole loading screen.
+        const families = Object.entries(inventory.sets).flatMap(([id, members]) =>
+          id === 'crowds' && members.size > 1
+            ? Array.from(members, (object, index) => [id + '-' + (index + 1), new Set([object])])
+            : [[id, members]]);
+        const stages = [['post', new Set()], ...families];
         let resized = false;
         for (const [id, members] of stages) {
           await waitForTitleVisibility();
@@ -859,5 +866,6 @@ boot().catch((err) => {
   reportError(err);
   $('loadmsg').textContent = 'Something went wrong while building the world. Reloading may help.';
 });
+
 
 

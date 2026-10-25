@@ -326,13 +326,30 @@ export function createSharedScene({ hostFor, live, admission, stateFor, send, ch
       const serialized = stableScene(command), prior = seen.ids.get(id);
       if (++seen.count > 20 || !c.pos || now() - c.posT > 5000
         || prior && (kind !== 'worldparts' || prior.serialized !== serialized || now() - prior.at < 2000)) return false;
-      seen.ids.set(id, { serialized, at: now() });
+      const stamp = { serialized, at: now(), ...(prior?.towerBrand ? { towerBrand: prior.towerBrand } : {}) };
+      seen.ids.set(id, stamp);
       if (seen.ids.size > 128) seen.ids.delete(seen.ids.keys().next().value);
       s.commands.set(c.peer, seen); const host = room.clients.get(s.host);
       if (!host || !live(host)) return false;
       if (kind === 'worldparts' && command.op === 'boat.rebuild') return rebuildBoat(c, command, s);
+      let actorState;
+      if (kind === 'worldparts' && command.op === 'tower.brand') {
+        const args = command.args, fast = c.fast;
+        if (!args || Array.isArray(args) || Object.keys(args).length !== 1 || !Number.isSafeInteger(args.id) || args.id < 0 || args.id > 511
+          || Object.keys(command.goods || {}).length) return false;
+        if (!stamp.towerBrand) {
+          if (!fast || !Array.isArray(fast.p) || fast.p.length !== 3 || !fast.p.every(Number.isFinite) || Math.abs(fast.p[1]) > 500
+            || fast.d !== 0 || !Number.isInteger(fast.fl) || !(fast.fl & 2) || !Number.isFinite(fast.a)
+            || [14, 18].includes(Math.floor(fast.a))) return false;
+          stamp.towerBrand = { actorState: { alive: true, brand: true, y: fast.p[1], motion: null },
+            position: { x: c.pos.x, z: c.pos.z }, realm: c.slow?.r ?? -1 };
+        }
+        actorState = stamp.towerBrand.actorState;
+      }
       send(host, { t: 'activity', kind, op: 'command', authority: s.authority, worldAdmission: s.worldAdmission,
-        peer: s.host, from: c.peer, ownerAccount: c.acct?.id || c.peer, position: { x: c.pos.x, z: c.pos.z }, realm: c.slow?.r ?? -1, at: now(), command });
+        peer: s.host, from: c.peer, ownerAccount: c.acct?.id || c.peer,
+        position: stamp.towerBrand?.position || { x: c.pos.x, z: c.pos.z }, realm: stamp.towerBrand?.realm ?? c.slow?.r ?? -1, at: now(), command,
+        ...(actorState ? { actorState } : {}) });
       return true;
     }
     if (kind === 'worldparts' && s.worldBarrier && ['snapshot', 'settled'].includes(m.op)) return false;

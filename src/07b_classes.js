@@ -1210,7 +1210,7 @@ function classHold(on, src = 'key') {
   if (on && (UI.modal || !P.alive)) return;
   CLS.hold = on; CLS.holdSrc = on ? src : null;
   if (P.cls === 'warrior') setBlock(P, on);
-  else if (P.cls === 'archer') { if (on) startDraw(P); else { const t = getEnt(P.target); releaseDraw(P, t && t.alive && isEnemy(P, t) ? t : null); } }
+  else if (P.cls === 'archer') { if (on) startDraw(P); else if (src === 'cancel') csOf(P).drawFrom = -1; else { const t = getEnt(P.target); releaseDraw(P, t && t.alive && isEnemy(P, t) ? t : null); } }
   else if (P.cls === 'priest') { if (on) startPrayer(P); else stopPrayer(P); }
   else if (P.cls === 'mage' && on) { const t = getEnt(P.target); if (t && t.alive && isEnemy(P, t)) uiFloatAt(P.x, P.y + 2.4, P.z, comboHint(P, t) || 'No reaction', 'xp'); }
 }

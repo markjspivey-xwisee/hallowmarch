@@ -77,6 +77,7 @@ jobs:
               python3 -m unittest discover -s tools/tests -p ci_runner_regression.py
               node --test tools/tests/startup_graphics.mjs tools/tests/gpu_diagnostic.mjs tools/tests/net_reconnect.mjs tools/tests/net_world_pause.mjs tools/tests/net_social_delivery.mjs
               node --test tools/tests/gameplay_activity_profile.test.mjs tools/tests/progressive_ui.test.mjs
+              node --test tools/tests/recovery_shader_equivalence.test.mjs tools/tests/input_lifecycle.test.mjs tools/tests/menu_accessibility.test.mjs
               node --test tools/tests/party_companion.mjs tools/tests/party_companion_network.mjs tools/tests/party_companion_transport.mjs tools/tests/season_connection_ui.mjs
               node --test tools/tests/companies_regression.mjs tools/tests/fieldarmies_regression.mjs tools/tests/fisher_liveness.mjs
               node tools/tests/net_companies.mjs

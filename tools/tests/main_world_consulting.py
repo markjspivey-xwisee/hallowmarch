@@ -156,7 +156,7 @@ async def main():
             async def destination(tab):
                 state=await page.evaluate(r"""() => ({tab:__hm.UI.menuTab,modal:__hm.UI.modal,
                   overlays:[...document.querySelectorAll('.overlay')].filter(e=>!e.hidden&&e.getClientRects().length).map(e=>e.id),
-                  selected:[...document.querySelectorAll('#menu-tabs [aria-checked="true"]')].map(e=>e.dataset.tab)})""")
+                  selected:[...document.querySelectorAll('#menu-tabs [role="tab"][aria-selected="true"]')].map(e=>e.dataset.tab)})""")
                 assert state=={'tab':tab,'modal':'menu','overlays':['menu'],'selected':[tab]},state
 
             async def navigation_only():
@@ -226,10 +226,10 @@ async def main():
             assert not await page.locator('#march-coach-options').evaluate('(e)=>e.open')
             assert not await page.locator('#march-coach-preview').is_visible()
             discover=page.locator('#march-coach-options > summary')
-            assert await discover.inner_text()=='Set up Foxxi guidance'
+            assert await discover.inner_text()=='Start a 15-minute guidance session'
             await discover.click()
             assert await page.locator('#march-coach-options').evaluate('(e)=>e.open')
-            assert await page.get_by_role('button',name='Enable Foxxi guidance · 15 minutes',exact=True).is_visible()
+            assert await page.get_by_role('button',name='Start Foxxi guidance for 15 minutes',exact=True).is_visible()
             assert not await page.locator('#march-coach-preview').is_visible()
             assert await page.locator('#march-learning-enable').is_visible()
             assert await page.evaluate("__consultingFixture.external===0&&__consultingFixture.requests===0&&__consultingFixture.journalCreations===0&&!__consultingFixture.calls.some(x=>x.startsWith('consent:')||x==='foxxi-delivery')")
@@ -381,3 +381,4 @@ async def main():
             print(json.dumps({'pageErrors':errors,'plannerCalls':'fixture only','unknownDeliveryReplayed':False}),flush=True)
         finally:await browser.close()
 if __name__=='__main__':asyncio.run(main())
+

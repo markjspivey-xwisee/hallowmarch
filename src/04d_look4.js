@@ -31,26 +31,34 @@ const LOOK4_STUB_GLSL = /* glsl */`
   }
   float look4Stub(vec2 q, float dims, float seed){
     float s = look4Mod(seed * 7.0, 11.0);
+    // One initialized result keeps the wall/outside branches explicit to FXC.
+    float height = 1e4;
     if (dims < 0.0) {
       float R = -dims * 0.01;
-      if (length(q) > R + ${LOOK4_MARGIN.toFixed(2)} && !(q.y > 0.0 && q.y < R + 1.35 && abs(q.x) < 1.2)) return 1e4; // (the porch's posts too)
-      float u = (atan(q.x + 1e-6, q.y) + 3.14159265) * R;
-      float i = floor(u / ${LOOK4_SEG.toFixed(2)}), n = floor(6.2831853 * R / ${LOOK4_SEG.toFixed(2)});
-      // (round: the far side from the breach the highest, the distance taken round the ring)
-      float b = look4Mod(s * 5.0 + 3.0, n), d = abs(i - b), t = min(d, n - d) / max(1.0, n * 0.5);
-      float j = look4Mod(i * 7.0 + s * 5.0 + look4Mod(i * i, 11.0), 9.0) - 4.0;
-      return clamp(0.34 + 0.82 * t + 0.04 * j, 0.3, 1.3);
+      if (!(length(q) > R + ${LOOK4_MARGIN.toFixed(2)} && !(q.y > 0.0 && q.y < R + 1.35 && abs(q.x) < 1.2))) { // (the porch's posts too)
+        float u = (atan(q.x + 1e-6, q.y) + 3.14159265) * R;
+        float i = floor(u / ${LOOK4_SEG.toFixed(2)}), n = floor(6.2831853 * R / ${LOOK4_SEG.toFixed(2)});
+        // (round: the far side from the breach the highest, the distance taken round the ring)
+        float b = look4Mod(s * 5.0 + 3.0, n), d = abs(i - b), t = min(d, n - d) / max(1.0, n * 0.5);
+        float j = look4Mod(i * 7.0 + s * 5.0 + look4Mod(i * i, 11.0), 9.0) - 4.0;
+        height = clamp(0.34 + 0.82 * t + 0.04 * j, 0.3, 1.3);
+      }
+    } else {
+      float Wc = floor(dims / 4096.0), W2 = Wc * 0.01, D2 = (dims - Wc * 4096.0) * 0.01;
+      float ex = abs(q.x) - W2, ez = abs(q.y) - D2;
+      if (!(ex > ${LOOK4_MARGIN.toFixed(2)} || (ez > ${LOOK4_MARGIN.toFixed(2)} && !(q.y > 0.0 && ez < 1.35 && abs(q.x) < 1.6)))) {
+        float f = 0.0, u = 0.0, len = 0.0;
+        if (ez > ex) { f = q.y > 0.0 ? 0.0 : 2.0; u = q.y > 0.0 ? q.x + W2 : W2 - q.x; len = 2.0 * W2; }
+        else { f = q.x > 0.0 ? 1.0 : 3.0; u = q.x > 0.0 ? D2 - q.y : q.y + D2; len = 2.0 * D2; }
+        float i = floor(clamp(u, 0.0, len - 0.001) / ${LOOK4_SEG.toFixed(2)}), last = floor((len - 0.001) / ${LOOK4_SEG.toFixed(2)});
+        if (i < 0.5 || i > last - 0.5) height = 1.2 + 0.05 * look4Mod(f * 3.0 + s, 5.0);
+        else {
+          float n = last + 1.0, b = 1.0 + look4Mod(f * 5.0 + s * 3.0 + 2.0, max(n - 2.0, 1.0));
+          height = look4Prof(i, n, b, f, s);
+        }
+      }
     }
-    float Wc = floor(dims / 4096.0), W2 = Wc * 0.01, D2 = (dims - Wc * 4096.0) * 0.01;
-    float ex = abs(q.x) - W2, ez = abs(q.y) - D2;
-    if (ex > ${LOOK4_MARGIN.toFixed(2)} || (ez > ${LOOK4_MARGIN.toFixed(2)} && !(q.y > 0.0 && ez < 1.35 && abs(q.x) < 1.6))) return 1e4;
-    float f, u, len;
-    if (ez > ex) { f = q.y > 0.0 ? 0.0 : 2.0; u = q.y > 0.0 ? q.x + W2 : W2 - q.x; len = 2.0 * W2; }
-    else { f = q.x > 0.0 ? 1.0 : 3.0; u = q.x > 0.0 ? D2 - q.y : q.y + D2; len = 2.0 * D2; }
-    float i = floor(clamp(u, 0.0, len - 0.001) / ${LOOK4_SEG.toFixed(2)}), last = floor((len - 0.001) / ${LOOK4_SEG.toFixed(2)});
-    if (i < 0.5 || i > last - 0.5) return 1.2 + 0.05 * look4Mod(f * 3.0 + s, 5.0);
-    float n = last + 1.0, b = 1.0 + look4Mod(f * 5.0 + s * 3.0 + 2.0, max(n - 2.0, 1.0));
-    return look4Prof(i, n, b, f, s);
+    return height;
   }
 `;
 // the same in JS: the house's walls' own numbers (a round house by its outer radius r, a box house by w, d)

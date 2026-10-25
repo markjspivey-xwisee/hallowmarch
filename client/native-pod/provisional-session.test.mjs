@@ -86,6 +86,35 @@ test('first Play confirms a private checkpoint; reload resumes it without provis
   assert.equal(f.requests.filter(call => call.path.endsWith('/play/challenge')).length, 2);
   assert(f.calls.some(call => call.op === 'reauthenticate'));
 });
+
+test('explicit expiry archival closes only the expired session and leaves its private checkpoint and credentials intact', async () => {
+  const f = fixture(), original = await f.make(); await original.bootstrap();
+  await original.set({ v: 1, char: { name: 'Expired hero', level: 5 } });
+  const before = clone([...f.records]), credentials = clone([...f.credentials]); let archives = 0;
+  f.device.archiveExpired = async options => {
+    assert.equal(options.expectedOwnerDid, guest.subjectDid); assert.equal(options.isCurrent(), true);
+    archives++; await f.device.remember(null); return { archived: true };
+  };
+  const next = await f.make({ now: () => NOW + 86400001 }); await next.peek();
+  assert.equal((await next.peek()).expired, true);
+  await next.archiveExpired({ isCurrent: () => true });
+  assert.equal(archives, 1); assert.equal(await next.peek(), null); assert.equal(next.status().provisional, false);
+  assert.equal(next.profile(), null); assert.deepEqual([...f.records], before); assert.deepEqual([...f.credentials], credentials);
+  assert.equal(f.sessions.length, 1, 'archival does not silently provision or admit another player');
+});
+
+test('expiry archival never replaces a live or pending-claim session or proceeds after cancellation', async () => {
+  for (const mode of ['live', 'claim', 'started', 'cancelled']) {
+    const f = fixture(), initial = await f.make(); await initial.bootstrap();
+    if (mode === 'claim') { await initial.prepareClaim(); await initial.stageClaimTarget(f.target()); }
+    if (mode === 'started') await initial.prepareClaim();
+    let archives = 0; f.device.archiveExpired = async () => { archives++; return { archived: true }; };
+    const next = await f.make({ now: () => mode === 'live' ? NOW : NOW + 86400001 }); await next.peek();
+    const before = f.metadata;
+    await assert.rejects(next.archiveExpired({ isCurrent: () => mode !== 'cancelled' }), { code: 'guest_restart_refused' });
+    assert.equal(archives, 0); assert.deepEqual(f.metadata, before);
+  }
+});
 test('failed first relay exchange reload retries incomplete bootstrap with the same browser key, owner, pod and deadline', async () => {
   const f = fixture(); let refuseExchange = true;
   const first = await f.make({ fetch: async (url, options) => {
@@ -338,3 +367,4 @@ test('acknowledged canonical promotion remains active when local connection fail
   const confirmed = await session.retrySession(); assert.equal(confirmed.localSessionPending, false); assert(confirmed.profile);
   assert.equal(f.requests.filter(call => call.path.endsWith('/claim-complete')).length, 1);
 });
+

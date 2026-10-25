@@ -1161,7 +1161,7 @@ function survivalKitButtons() {
 /* keys: V to eat or drink, C for the crafting book                    */
 /* ------------------------------------------------------------------ */
 window.addEventListener('keydown', (e) => {
-  if (!GAME.started || typing() || e.repeat) return;
+  if (!GAME.started || typing() || gameplayKeyIgnored(e) || e.repeat) return;
   if (e.code === 'Escape' && UI.modal === 'craft') { closeCraft(); return; }
   if (e.code === 'KeyC') { if (UI.modal === 'craft') closeCraft(); else if (!UI.modal) openCraft(null); return; }
   if (UI.modal) return;
