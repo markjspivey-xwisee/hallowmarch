@@ -75,8 +75,85 @@ function nodeSiteName(node) {
   const R = REALMS.find((q) => q.nav.muster === node);
   return R ? R.musterSite.name : 'the road';
 }
+// Metadata contains IDs, never independent copies of world objectives. Resolve only
+// canonical targets; an incomplete legacy order can then go back to its commander.
+const cwFinitePoint = (p) => !!p && Number.isFinite(p.x) && Number.isFinite(p.z);
+function cwOrderRef(list, ref) {
+  const id = ref && typeof ref === 'object' ? ref.id : ref;
+  return Number.isSafeInteger(id) && id >= 0 && list[id]?.id === id ? list[id] : null;
+}
+function cwOrderView(wb, O = wb.order) {
+  if (!O || typeof O !== 'object' || !REALMS[wb.realm]) return null;
+  let refs;
+  if (O.type === 'attack' || O.type === 'defend' || O.type === 'garrison') {
+    const keep = cwOrderRef(WAR.keeps, O.keep);
+    if (!keep) return null;
+    refs = { keep };
+  } else if (O.type === 'raid' || O.type === 'carry' || O.type === 'retrieve') {
+    const relic = cwOrderRef(WAR.relics, O.relic);
+    if (!relic || !REALMS[relic.realm]) return null;
+    refs = { relic };
+    if (O.type === 'raid') {
+      // Older snapshots omitted the temple. Its current hallow location is the
+      // only unambiguous recovery; a carried/dropped hallow needs a new order.
+      const temple = cwOrderRef(WAR.temples, O.temple) ||
+        (O.temple == null && relic.state === 'temple' ? WAR.temples.find((T) => T.realm === relic.at) : null);
+      if (!temple) return null;
+      refs.temple = temple;
+    }
+  } else if (O.type === 'patrol') {
+    const node = cwOrderRef(NAV.nodes, O.node) ||
+      (O.node == null && O.home ? REALMS[wb.realm].nav.muster : null);
+    if (!node) return null;
+    refs = { node };
+  } else if (O.type === 'rally') return O;
+  else return null;
+  return Object.keys(refs).every((key) => O[key] === refs[key]) ? O : { ...O, ...refs };
+}
+function cwRallyCaller(O) {
+  let P = null;
+  if (O.rallyPeer == null) P = GAME.player; // standalone orders predate peer ownership
+  else if (typeof O.rallyPeer === 'string' && O.rallyPeer) {
+    if (typeof NET !== 'undefined' && O.rallyPeer === NET.self) P = GAME.player;
+    else if (typeof netEntityFind === 'function') P = netEntityFind('peer:' + O.rallyPeer);
+  }
+  return P && P.alive && !P.removed && cwFinitePoint(P) ? P : null;
+}
+// Called after replica membership is restored, and before a promoted keeper's
+// first NPC tick (which precedes updateWar). Do not move or reissue a band's order.
+function cwPrepareReplicaBand(wb) {
+  if (!wb || !Array.isArray(wb.members)) return false;
+  const oldOrder = wb.order;
+  wb.order = cwOrderView(wb);
+  const members = wbMembers(wb);
+  for (const e of members) { e.warband = wb; if (!e.ai) e.ai = {}; }
+  const L = wbLeader(wb);
+  if (!L) { wb.L = null; wb.leaderGoal = null; return false; }
+  wb.L = L; wb.lid = L.id;
+  const resetTrail = !Array.isArray(wb.trail) || !wb.trail.length || !wb.trail.every(cwFinitePoint);
+  if (resetTrail) { wb.trail = [{ x: L.x, z: L.z }]; wb.trailBase = 0; }
+  const resetBase = !Number.isSafeInteger(wb.trailBase) || wb.trailBase < 0;
+  if (resetBase) wb.trailBase = 0;
+  if (resetTrail || resetBase) for (const e of members) e.ai.trailAbs = undefined;
+  const resetRoute = !!oldOrder && !wb.order;
+  const validPath = Array.isArray(wb.path) && wb.path.length && wb.path.every((id) => cwOrderRef(NAV.nodes, id));
+  if (resetRoute || !validPath) { wb.path = null; wb.pathIdx = 0; wb.goal = null; }
+  else {
+    wb.pathIdx = Number.isSafeInteger(wb.pathIdx) ? clamp(wb.pathIdx, 0, wb.path.length) : 0;
+    if (!cwOrderRef(NAV.nodes, wb.goal)) wb.goal = wb.path[wb.path.length - 1];
+  }
+  if (resetRoute || !cwFinitePoint(wb.leaderGoal)) wb.leaderGoal = { x: L.x, z: L.z };
+  if (!Number.isFinite(wb.progX) || !Number.isFinite(wb.progZ)) { wb.progX = L.x; wb.progZ = L.z; }
+  if (!Number.isFinite(wb.lastProgress)) wb.lastProgress = GAME.t;
+  if (!Number.isFinite(wb.realProgress)) wb.realProgress = GAME.t;
+  if (!Number.isFinite(wb.engagedUntil)) wb.engagedUntil = -99;
+  if (typeof wb.engaged !== 'boolean') wb.engaged = false;
+  return true;
+}
 // the whole order in plain words, as the herald would cry it
 function orderPhrase(wb, O) {
+  O = cwOrderView(wb, O);
+  if (!O) return 'awaits orders';
   const R = REALMS[wb.realm];
   const you = O.byPlayer ? ' at your command' : '';
   const w3 = !O.byPlayer && war3OrderPhrase(wb, O); // [war3] a column, a keep braced or secured (08k_war3.js)
@@ -99,13 +176,13 @@ function orderPhrase(wb, O) {
       if (O.home) return 'turns for home: the campaign is over';
       if (O.why === 'temple') return `stands guard at the ${R.templeName} against raiders`;
       return `keeps watch at ${nodeSiteName(O.node)}`;
-    case 'rally': return `rallies to ${GAME.player ? GAME.player.name : 'you'}`;
+    case 'rally': { const P = cwRallyCaller(O); return `rallies to ${P ? P.name : O.rallyPeer != null ? 'its caller' : 'you'}`; }
     default: return 'awaits orders';
   }
 }
 // the short form, for nameplates and lists: [glyph, "Attack", "Ráth Fiacla"]
 function orderShort(wb) {
-  const O = wb.order;
+  const O = cwOrderView(wb);
   if (!O) return ['lpatrol', 'Mustering', ''];
   let what = '';
   if (O.type === 'attack' || O.type === 'defend' || O.type === 'garrison') what = O.keep.site.name; // [war3] garrison
@@ -113,7 +190,7 @@ function orderShort(wb) {
   else if (O.type === 'carry') what = `${REALMS[O.relic.realm].hallowName} home`;
   else if (O.type === 'retrieve') what = REALMS[O.relic.realm].hallowName;
   else if (O.type === 'patrol') what = O.home ? 'home' : nodeSiteName(O.node).replace(/^the /, '');
-  else if (O.type === 'rally') what = GAME.player ? GAME.player.name : '';
+  else if (O.type === 'rally') { const P = cwRallyCaller(O); what = P ? P.name : ''; }
   return [ORDER_GLYPH[O.type] || 'lpatrol', O.home ? 'Withdraw' : ORDER_WORD[O.type] || O.type, what];
 }
 function phaseWord(wb) {
@@ -331,8 +408,8 @@ function playerOrder(wbId, cmd, target) {
 }
 // a rally order: the band follows the player around the frontier (called from updateWarband)
 function rallyPoint(wb, O, L) {
-  const P = GAME.player;
-  if (!P || !P.alive || P.faction !== wb.realm || GAME.t > O.until || inDungeon(P) || Math.hypot(P.x, P.z) > R_RING + 40) return false;
+  const P = cwRallyCaller(O);
+  if (!P || P.faction !== wb.realm || GAME.t > O.until || inDungeon(P) || Math.hypot(P.x, P.z) > R_RING + 40) return false;
   const d = dist(L.x, L.z, P.x, P.z);
   // stand a few strides short of the player, on the side the band comes from
   O.point = d > 7 ? { x: P.x + ((L.x - P.x) * 5) / d, z: P.z + ((L.z - P.z) * 5) / d } : { x: L.x, z: L.z };
@@ -636,21 +713,21 @@ function cwBadge(ctx, x, y, s, glyph, col) {
 }
 // where a band is going, in world space
 function cwTarget(wb) {
-  const O = wb.order;
+  const O = cwOrderView(wb);
   if (!O) return null;
   if (O.type === 'attack' || O.type === 'defend' || O.type === 'garrison') return { x: O.keep.site.x, z: O.keep.site.z }; // [war3] garrison
   if (O.type === 'raid') return { x: O.temple.site.x, z: O.temple.site.z };
   if (O.type === 'carry') { const S = REALMS[wb.realm].templeSite; return { x: S.x, z: S.z }; }
-  if (O.type === 'retrieve') { const p = relicPosition(O.relic); return { x: p.x, z: p.z }; }
-  if (O.type === 'rally') { const P = GAME.player; return P ? { x: P.x, z: P.z } : null; }
+  if (O.type === 'retrieve') { const p = relicPosition(O.relic); return cwFinitePoint(p) ? { x: p.x, z: p.z } : null; }
+  if (O.type === 'rally') { const P = cwRallyCaller(O) || (O.rallyPeer != null && cwFinitePoint(O) ? O : null); return P ? { x: P.x, z: P.z } : null; }
   if (O.type === 'patrol') return { x: O.node.x, z: O.node.z };
   return null;
 }
 function cwRoute(wb) {
   const L = wbLeader(wb), T = cwTarget(wb);
-  if (!L || !T) return null;
+  if (!cwFinitePoint(L) || !cwFinitePoint(T)) return null;
   const pts = [{ x: L.x, z: L.z }];
-  if (wb.path) for (let i = Math.max(0, wb.pathIdx); i < wb.path.length; i++) { const n = NAV.nodes[wb.path[i]]; if (n) pts.push({ x: n.x, z: n.z }); }
+  if (Array.isArray(wb.path)) for (let i = Math.max(0, wb.pathIdx || 0); i < wb.path.length; i++) { const n = cwOrderRef(NAV.nodes, wb.path[i]); if (cwFinitePoint(n)) pts.push({ x: n.x, z: n.z }); }
   pts.push(T);
   return pts;
 }
