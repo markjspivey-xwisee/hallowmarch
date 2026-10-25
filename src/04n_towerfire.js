@@ -282,23 +282,83 @@ function towerConeHeapGeo(T) { // [perf2] (it was made at the boot for every con
   return b.build();
 }
 
-// save part world.x.towerfire: which towers burn or lie fallen, how far their rebuilding has come
+// A save part is also a shared snapshot. Reconcile its complete state without
+// replaying ignition/collapse events, whose guards correctly reject stale state.
+function towerFireRestore(d) {
+  if (d != null && !Array.isArray(d)) return;
+  const rows = new Map(), castles = new Set();
+  const num = (v, lo, hi, fallback) => Number.isFinite(v) ? clamp(v, lo, hi) : fallback;
+  for (const q of (d || []).slice(0, 64)) {
+    if (!Array.isArray(q) || q.length < 3 || q.length > 4 || !Number.isInteger(q[0]) || q[0] < 0 || ![0, 1, 2].includes(q[1]) || !Number.isFinite(q[2])) continue;
+    if (q.length === 4 && (!q[3] || typeof q[3] !== 'object' || Array.isArray(q[3])
+      || Object.keys(q[3]).some(k => !['char', 'fresh', 'heat', 'y0', 'elapsed', 'quiet', 'embers', 'newTimber'].includes(k)))) continue;
+    const T = TOWER.list[q[0]];
+    if (T && (T.look === 'timber' || T.look === 'rath')) rows.set(T, q);
+  }
+  for (const T of TOWER.list) {
+    if (T.look !== 'timber' && T.look !== 'rath') continue;
+    const q = rows.get(T), state = q ? q[1] : 0, v = q ? q[2] : 0;
+    const extra = q && q[3] && typeof q[3] === 'object' && !Array.isArray(q[3]) ? q[3] : {};
+    const oldBurn = T.burn;
+    if (oldBurn && state !== 1) for (const f of oldBurn.fires || []) f.until = GAME.t;
+    if (state === 1) {
+      T.fallen = null;
+      const time = clamp(v, 0, TFIRE.burn), heat = num(extra.heat, 0, 1, clamp(time / TFIRE.climb, 0.1, 1));
+      T.burn = oldBurn || { fires: [], tick: 0, told: false };
+      Object.assign(T.burn, { t: time, heat,
+        y0: T.look === 'rath' ? num(extra.y0, T.TT + 0.6, T.apex - 0.5, T.TT + 2) : num(extra.y0, 1.8, T.TT, 3) });
+      T.char = num(extra.char, 0, 1, clamp(time / TFIRE.burn, 0, 1) * 0.9 + heat * 0.1);
+    } else {
+      T.burn = null;
+      if (state === 2) {
+        const r = clamp(v, 0, 1);
+        T.fallen = T.fallen || {};
+        Object.assign(T.fallen, { t: num(extra.elapsed, 0, 1e7, 0), r, quiet: num(extra.quiet, 0, 1e7, 0),
+          fresh: num(extra.newTimber, 0, 1, Math.min(1, r * 3)), ember: num(extra.embers, 0, 1, 0) });
+        T.char = num(extra.char, 0, 1, Math.max(0, 1 - r * 1.5));
+      } else { T.fallen = null; T.char = num(extra.char, 0, 1, 0); }
+    }
+    T.fresh = num(extra.fresh, 0, 1, 0);
+    const down = !!T.fallen, blocked = down || !!T.breached;
+    let structureChanged = false;
+    const set = (object, key, value) => { if (object[key] !== value) { object[key] = value; structureChanged = true; } };
+    for (const f of T.topFloors || []) set(f, 'active', !blocked);
+    for (const c of T.topColls || []) set(c, 'active', !blocked);
+    const top = T.look === 'rath' ? null : (T.ladders || []).find(L => Math.abs(L.yt - T.TT) < 0.01);
+    if (top) {
+      set(top, 'gone', blocked || !!top.brGone);
+      const hatch = top.hatch;
+      if (hatch) {
+        set(hatch, 'gone', top.gone);
+        if (hatch.gone) { hatch.held = false; hatch.until = 0; }
+        set(hatch.floor, 'active', !hatch.gone && hatch.k < 0.25);
+        set(hatch.lidColl, 'active', !hatch.gone && hatch.k > 0.8);
+      }
+    }
+    if (T.heap) set(T.heap, 'visible', down);
+    if (structureChanged) for (const K of TOWER.keeps || []) if (K.C === T.C) { K.dirty = true; for (const part of K.parts) part.dirty = true; }
+    castles.add(T.C);
+  }
+  // Followers do not run tower simulation: its shader must update on receipt.
+  for (const C of castles) castleTowerUpload(C);
+}
+
+// The first three fields retain compatibility with existing saved worlds.
+// Optional details preserve rain-damped heat and reconstruction clocks on handoff.
 queueMicrotask(() => registerSavePart('world', 'towerfire', {
   save() {
     const out = [];
-    TOWER.list.forEach((T, i) => { if ((T.look === 'timber' || T.look === 'rath') && (T.burn || T.fallen)) out.push([i, T.burn ? 1 : 2, +(T.burn ? T.burn.t : T.fallen.r).toFixed(2)]); }); // [siege2] a rath's cone too
+    const round = v => +((v || 0).toFixed(2));
+    TOWER.list.forEach((T, i) => {
+      if (out.length >= 64 || (T.look !== 'timber' && T.look !== 'rath') || !(T.burn || T.fallen || T.char > 0.005 || T.fresh > 0.005)) return;
+      const B = T.burn, F = T.fallen, extra = { char: round(T.char), fresh: round(T.fresh) };
+      if (B) Object.assign(extra, { heat: round(B.heat), y0: round(B.y0) });
+      if (F) Object.assign(extra, { elapsed: round(F.t), quiet: round(F.quiet), embers: round(F.ember), newTimber: round(F.fresh) });
+      out.push([i, B ? 1 : F ? 2 : 0, round(B ? B.t : F ? F.r : 0), extra]);
+    });
     return out.length ? out : undefined;
   },
-  load(d) {
-    if (!Array.isArray(d)) return;
-    for (const q of d.slice(0, 64)) {
-      if (!Array.isArray(q)) continue;
-      const T = TOWER.list[q[0] | 0], v = +q[2];
-      if (!T || (T.look !== 'timber' && T.look !== 'rath') || !isFinite(v)) continue; // [siege2]
-      if (q[1] === 1) { towerIgnite(T, T.look === 'rath' ? T.TT + 2 : 3); T.burn.t = clamp(v, 0, TFIRE.burn - 1); T.burn.heat = clamp(v / TFIRE.climb, 0.1, 1); }
-      else if (q[1] === 2) { T.burn = { t: 0, heat: 0, fires: [] }; towerFallIn(T); T.fallen.r = clamp(v, 0, 0.99); T.fallen.ember = 0; } // [walls] gone cold
-    }
-  },
+  load: towerFireRestore,
   key(d) { return d ? d.map((q) => q[0] * 10 + q[1]).join(',') : ''; },
 }));
 queueMicrotask(() => { if (window.__hm) window.__hm.towerfire = { TFIRE, towerIgnite, towerFireAt, towerFireCone, towerFallIn, towerRebuilt, updateTowerFires, castleTowerUpload, towerFireOffers, list: () => TOWER.list.filter((T) => T.look === 'timber') }; });

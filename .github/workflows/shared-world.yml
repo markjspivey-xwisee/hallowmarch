@@ -36,6 +36,7 @@ jobs:
           node --test tools/shared-resource-jobs.test.mjs tools/shared-hatch-ownership.test.mjs tools/tests/net_animals_client.mjs tools/tests/shared_combat_fields.mjs tools/tests/shared_world_tls.test.mjs tools/tests/net_boats_client.mjs tools/net-npcs.test.mjs tools/tests/shared_entities.mjs tools/tests/net_worldparts.mjs tools/tests/net_dungeons.mjs tools/tests/shared_world_proximity.mjs tools/tests/shared_dungeon_handoff.mjs tools/tests/shared_dungeon_fall.mjs
           node --test tools/tests/net_reconnect.mjs tools/tests/net_world_pause.mjs tools/tests/server_human_lifecycle.test.mjs
           node --test tools/tests/shared_scene_protocol.mjs
+          node --test tools/tests/towerfire_snapshot.test.mjs
       - name: Actual WebSocket clients
         if: ${{ !cancelled() }}
         run: node tools/tests/shared_scene_transport.mjs
