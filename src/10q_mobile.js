@@ -102,16 +102,7 @@ function mobileNameplateEligible(e, P) {
 }
 
 function mobileStopInput() {
-  const ids = [...INPUT.pointers.keys()];
-  if (INPUT.joy) ids.push(INPUT.joy.id);
-  for (const id of ids) {
-    try { if (canvas.hasPointerCapture(id)) canvas.releasePointerCapture(id); } catch (e) { /* already released */ }
-  }
-  INPUT.keys.clear(); INPUT.pointers.clear(); INPUT.joy = null; INPUT.look = null; INPUT.drag = null;
-  hideJoystick();
-  if (GAME.player && CLS.hold) classHold(false);
-  for (const b of document.querySelectorAll('#tpad .cls-btn.hold')) b.classList.remove('on');
-  for (const b of document.querySelectorAll('#tpad .is-pressed')) b.classList.remove('is-pressed');
+  cancelPlayerInput();
 }
 function mobileViewport() {
   if (!IS_TOUCH) return;
@@ -151,13 +142,19 @@ function mobileTray(open = UI.modal !== 'mobile', focus = true, section = 'world
   }
 }
 function mobileBind() {
-  if (!IS_TOUCH || MOBILE_UI.bound || !$('mobile-tray')) return;
+  if (MOBILE_UI.bound) return;
   MOBILE_UI.bound = true;
-  // A synchronous observer also covers menus opened outside this file, including
-  // an open/close pair between frames while a movement key is held.
+  // Modal input cancellation applies to desktop too: a drawn bow must never
+  // fire through a map or menu, even if the sheet opens/closes between frames.
   let modal = UI.modal;
   Object.defineProperty(UI, 'modal', { configurable: true, enumerable: true,
-    get() { return modal; }, set(value) { if (modal !== value) { modal = value; mobileModalChanged(value); } } });
+    get() { return modal; }, set(value) {
+      if (modal === value) return;
+      modal = value;
+      if (IS_TOUCH && $('mobile-tray')) mobileModalChanged(value);
+      else if (value) cancelPlayerInput();
+    } });
+  if (!IS_TOUCH || !$('mobile-tray')) { if (modal) cancelPlayerInput(); return; }
   mobileModalChanged(modal);
   mobilePreferences();
   mobileBindNoZoom();

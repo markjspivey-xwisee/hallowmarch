@@ -986,7 +986,7 @@ window.addEventListener('keydown', (e) => {
 }, true);
 // J opens the Chronicle
 window.addEventListener('keydown', (e) => {
-  if (e.code !== 'KeyJ' || e.repeat || !GAME.started || typing()) return;
+  if (e.code !== 'KeyJ' || e.repeat || !GAME.started || typing() || gameplayKeyIgnored(e)) return;
   if (UI.modal === 'menu' && UI.menuTab === 'chronicle') closeMenu();
   else if (!UI.modal) openChronicle(LORE.chronSec);
 });

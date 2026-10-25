@@ -77,6 +77,92 @@ function fixture({ prior = null, snapshot = { v: 1, char: null }, bootstrapGate,
   return { ...context.fixture, context, calls, session, profile, profileState, SAVE: context.SAVE, NETWS: context.NETWS, GAME: context.GAME };
 }
 
+function expiredFixture() {
+  const deadline = Date.now() - 1000, f = fixture({ prior: { ownerDid: 'did:fixture:expired', expired: true, guestExpiresAt: deadline } });
+  let metadata = { ownerDid: 'did:fixture:expired', expired: true, guestExpiresAt: deadline }, archives = 0, forgotten = 0;
+  f.NATIVE_PLAYER.status = { ...f.NATIVE_PLAYER.status, bound: true, provisional: true };
+  f.NATIVE_PLAYER.state = 'guest_expired';
+  f.NATIVE_PLAYER.provisional = f.session;
+  f.session.peek = async () => metadata;
+  f.session.status = () => ({ provisional: !!metadata, guestExpiresAt: metadata?.guestExpiresAt, claimStarted: metadata?.claimStarted === true,
+    claim: metadata?.targetAvailable ? { targetAvailable: true } : null });
+  f.session.profile = () => null;
+  f.session.archiveExpired = async options => { assert.equal(options.isCurrent(), true); archives++; metadata = null; return { archived: true }; };
+  f.session.close = () => {};
+  f.context.netWsRetire = () => {};
+  f.context.netWsTokenForget = async (host, token, allowed) => { assert.equal(allowed(), true); assert.equal(token, 'opaque-game-token'); forgotten++; };
+  f.context.netLinkWS = async () => { f.NETWS.token = 'fresh-game-token'; f.NETWS.acct = { id: 'fresh-transport' }; return true; };
+  f.context.loadSave = async () => { f.NATIVE_PLAYER.status = { enabled: true, bound: false, provisionalPlay: { enabled: true } }; };
+  const actual = vm.runInContext('({ nativePlayerExpiredAdventureAllowed, nativePlayerExpiredAdventure, nativePlayerSaveMessage })', f.context);
+  return { ...f, ...actual, setMetadata: value => { metadata = value; }, get archives() { return archives; }, get forgotten() { return forgotten; } };
+}
+
+test('expired guest requires an explicit restart and preserves its key before opening a fresh Play now session', async () => {
+  const f = expiredFixture();
+  assert.equal(f.nativePlayerCanPlayNow(), false); assert.equal(f.nativePlayerExpiredAdventureAllowed(), true);
+  assert.match(f.nativePlayerSaveMessage(), /temporary session expired/i); assert.equal(f.archives, 0);
+  await f.nativePlayerExpiredAdventure();
+  assert.equal(f.archives, 1); assert.equal(f.forgotten, 1); assert.equal(f.NETWS.token, 'fresh-game-token');
+  assert.equal(f.nativePlayerCanPlayNow(), true); assert.equal(f.calls.bootstrap, 0); assert.equal(f.calls.starts.length, 0);
+  assert.match(f.NATIVE_PLAYER.message, /expired browser key.*kept/); assert.equal(f.NATIVE_PLAYER.switching, false);
+});
+
+test('expired restart refuses pending saves, known characters, owner claims and changed connections', async () => {
+  for (const change of [f => { f.SAVE.pending = { char: { name: 'Unsaved' } }; }, f => { f.GAME.started = true; },
+    f => { f.SAVE.loaded = { char: { name: 'Known' } }; }, f => { f.NATIVE_PLAYER.claimPendingResume = true; },
+    f => { f.NATIVE_PLAYER.claimConfirmationPending = true; }, f => { f.NATIVE_PLAYER.promoted = true; },
+    f => { f.NATIVE_PLAYER.profile = f.profile; }, f => { f.setMetadata({ expired: true, targetAvailable: true, guestExpiresAt: Date.now() - 1 }); },
+    f => { f.setMetadata({ expired: true, claimStarted: true, guestExpiresAt: Date.now() - 1 }); }, f => { f.NETWS.reload = true; }]) {
+    const f = expiredFixture(); change(f); assert.equal(f.nativePlayerExpiredAdventureAllowed(), false);
+    await f.nativePlayerExpiredAdventure(); assert.equal(f.archives, 0); assert.equal(f.forgotten, 0); assert.equal(f.NETWS.token, 'opaque-game-token');
+  }
+  for (const metadata of [{ expired: false }, { expired: true, claimedOwnerDid: 'did:fixture:owner' }, { expired: true, targetAvailable: true }, { expired: true, claimStarted: true }]) {
+    const f = expiredFixture(); f.session.peek = async () => metadata;
+    await f.nativePlayerExpiredAdventure(); assert.equal(f.archives, 0); assert.equal(f.forgotten, 0);
+  }
+  const f = expiredFixture(); f.session.peek = async () => { f.NETWS.host = 'other.example'; return { expired: true }; };
+  await f.nativePlayerExpiredAdventure(); assert.equal(f.archives, 0); assert.equal(f.forgotten, 0);
+});
+
+test('a failed transport replacement can retry after archival without discarding or rotating the original key again', async () => {
+  const f = expiredFixture(), forget = f.context.netWsTokenForget; let attempts = 0;
+  f.context.netWsTokenForget = async (...args) => { if (++attempts === 1) throw Error('storage temporarily unavailable'); return forget(...args); };
+  await f.nativePlayerExpiredAdventure();
+  assert.equal(f.archives, 1); assert.equal(f.NETWS.token, 'opaque-game-token'); assert.equal(f.nativePlayerExpiredAdventureAllowed(), true);
+  assert.equal(f.nativePlayerCanPlayNow(), false);
+  await f.nativePlayerExpiredAdventure(); assert.equal(f.archives, 1); assert.equal(f.forgotten, 1); assert.equal(f.nativePlayerCanPlayNow(), true);
+});
+
+test('failed saved-character sign-in releases its closed channel so explicit expired restart remains available', async () => {
+  const f = expiredFixture(); let popupClosed = false, channelClosed = false;
+  f.context.window.open = () => ({ sessionStorage: { setItem() {} }, close() { popupClosed = true; } });
+  f.context.crypto = { randomUUID: () => 'fixture-owner-channel' };
+  f.context.BroadcastChannel = class { close() { channelClosed = true; } };
+  vm.runInContext('nativePlayerRequest = async () => { throw Error("Identity temporarily unavailable"); }; nativePlayerConnect();', f.context);
+  await flush();
+  assert.equal(popupClosed, true); assert.equal(channelClosed, true); assert.equal(f.NATIVE_PLAYER.channel, null);
+  assert.equal(f.NATIVE_PLAYER.busy, false); assert.equal(f.nativePlayerExpiredAdventureAllowed(), true);
+  await f.nativePlayerExpiredAdventure(); assert.equal(f.archives, 1); assert.equal(f.nativePlayerCanPlayNow(), true);
+});
+
+test('a verified saved-owner read does not inherit the expiry or provisional UI of an older unclaimed browser device', async () => {
+  const f = fixture({ canonical: true, prior: { ownerDid: 'did:fixture:expired', guestExpiresAt: 1, expired: true },
+    statusOverride: { provisionalPlay: { enabled: true } } });
+  let closed = 0; f.session.close = () => { closed++; };
+  f.session.status = () => ({ provisional: true, guestExpiresAt: 1 });
+  f.profile.connect = async () => {};
+  f.profile.get = async () => ({ exists: true, data: () => ({ v: 1, char: { name: 'Saved owner hero', level: 7 } }) });
+  vm.runInContext(`NATIVE_PLAYER.module = Promise.resolve({ createPlayerPodProfile: () => fixtureProfile });
+    NATIVE_PLAYER.cache = { list: async () => [{ ownerDid: 'did:fixture:owner', podUrl: 'https://pod.example/owner/' }],
+      get: async () => ({ credential: { kind: 'fixture-native-grant' } }) };`, f.context);
+  const ref = await f.nativePlayerSaveRef({ active: true });
+  assert.equal((await ref.get()).data().char.name, 'Saved owner hero');
+  assert.equal(closed, 1); assert.equal(f.NATIVE_PLAYER.provisional, null); assert.equal(f.NATIVE_PLAYER.promoted, true);
+  assert.equal(vm.runInContext('nativePlayerGuestExpired()', f.context), false);
+  assert.equal(vm.runInContext('nativePlayerIsProvisional()', f.context), false);
+  assert.equal(f.calls.bootstrap, 0); assert.equal(f.calls.resume, 0);
+});
+
 test('new-player title discovery does not provision a pod, create a key or start play', async () => {
   const f = fixture(); const ref = await f.nativePlayerSaveRef({ active: true });
   assert.equal(ref.blocked, true); assert.equal(f.calls.peek, 1);
@@ -465,3 +551,4 @@ test('a paced guest timer does not publish from an idle game and retains dirty p
   f.SAVE.pending = { n: 2 }; await f.publish(); await flush(); f.setLive(false); await f.advance(30000);
   assert.deepEqual(f.writes, [{ n: 1 }]); assert.equal(f.SAVE.pending.n, 2); assert.equal(f.timers.size, 0);
 });
+

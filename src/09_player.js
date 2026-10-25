@@ -35,7 +35,29 @@ function createPlayer(save) {
 /* input                                                               */
 /* ------------------------------------------------------------------ */
 const typing = () => { const a = document.activeElement; return a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.tagName === 'SELECT' || a.isContentEditable); };
+// Browser shortcuts and IME composition belong to the browser or text editor.
+// Shift remains available for sprinting and reverse target selection.
+function gameplayKeyIgnored(e) { return !!(e.ctrlKey || e.metaKey || e.altKey || e.isComposing || e.keyCode === 229); }
+function gameplayControlKey(e) {
+  if (!['Space', 'Enter', 'NumpadEnter', 'Tab'].includes(e.code)) return false;
+  const active = document.activeElement;
+  return !!(active && active.closest && active.closest('button, a[href], summary, [role="button"], [role="tab"], [role="radio"]'));
+}
+function cancelPlayerInput() {
+  const ids = new Set(INPUT.pointers.keys());
+  if (INPUT.joy) ids.add(INPUT.joy.id);
+  // Clear first: releasing capture synchronously dispatches lostpointercapture.
+  INPUT.keys.clear(); INPUT.pointers.clear(); INPUT.joy = null; INPUT.look = null; INPUT.drag = null; INPUT.wheel = 0;
+  for (const id of ids) {
+    try { if (canvas.hasPointerCapture(id)) canvas.releasePointerCapture(id); } catch (err) { /* already released */ }
+  }
+  hideJoystick();
+  if (GAME.player && CLS.hold) classHold(false, 'cancel');
+  for (const b of document.querySelectorAll('#tpad .cls-btn.hold')) b.classList.remove('on');
+  for (const b of document.querySelectorAll('#tpad .is-pressed')) b.classList.remove('is-pressed');
+}
 window.addEventListener('keydown', (e) => {
+  if (gameplayKeyIgnored(e) || e.defaultPrevented || gameplayControlKey(e)) return;
   const k = e.code;
   if (k === 'Escape' && GAME.started && !e.repeat) { e.preventDefault(); onEscape(); return; }
   if (typing()) return;
@@ -59,7 +81,9 @@ window.addEventListener('keydown', (e) => {
   if (k === 'KeyH') openMenu('help');
 });
 window.addEventListener('keyup', (e) => { INPUT.keys.delete(e.code); });
-window.addEventListener('blur', () => { INPUT.keys.clear(); INPUT.joy = null; });
+window.addEventListener('blur', cancelPlayerInput);
+document.addEventListener('visibilitychange', () => { if (document.hidden) cancelPlayerInput(); });
+document.addEventListener('focusin', () => { if (typing()) cancelPlayerInput(); });
 const keyDown = (...codes) => codes.some((c) => INPUT.keys.has(c));
 
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());

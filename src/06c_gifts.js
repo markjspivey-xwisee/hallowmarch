@@ -771,9 +771,7 @@ function giftHUD() {
 }
 // key 9 calls the realm gift (the 1-8 keys are the abilities, in 09_player.js)
 window.addEventListener('keydown', (e) => {
-  if (e.code !== 'Digit9' || e.repeat || !GAME.started || UI.modal) return;
-  const a = document.activeElement;
-  if (a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA')) return;
+  if (e.code !== 'Digit9' || e.repeat || !GAME.started || UI.modal || typing() || gameplayKeyIgnored(e)) return;
   useRealmGift();
 });
 

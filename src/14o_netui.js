@@ -65,7 +65,7 @@ function netUiOn() {
   }
 }
 addEventListener('keydown', (e) => {
-  if (!NETUI.on || !GAME.started || typing()) return;
+  if (!NETUI.on || !GAME.started || typing() || gameplayKeyIgnored(e) || gameplayControlKey(e)) return;
   if (e.code === 'KeyP' && !e.repeat && (!UI.modal || UI.modal === 'net')) { e.preventDefault(); netSheetToggle(); }
   else if ((e.code === 'Enter' || e.code === 'NumpadEnter') && !UI.modal && !BUILD.mode && netPeopleCount() > 0) { e.preventDefault(); netChatOpen(NETUI.chan); }
   else if (e.code === 'Escape' && UI.modal === 'net') { e.preventDefault(); e.stopImmediatePropagation(); netSheetToggle(false); }

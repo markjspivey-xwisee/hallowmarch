@@ -1106,7 +1106,7 @@ function bRenderBar() {
 }
 // keys while building: R turns, Z/X pick the piece before or after, Enter sets it down, G or Escape stops
 window.addEventListener('keydown', (e) => {
-  if (typing() || !GAME.started || e.repeat) return;
+  if (typing() || gameplayKeyIgnored(e) || !GAME.started || e.repeat) return;
   if (e.code === 'KeyG' && (!UI.modal || BUILD.mode)) { e.preventDefault(); e.stopImmediatePropagation(); buildToggle(); return; }
   if (!BUILD.mode || UI.modal) return;
   const k = e.code, i = BP_ORDER.indexOf(BUILD.mode.t);

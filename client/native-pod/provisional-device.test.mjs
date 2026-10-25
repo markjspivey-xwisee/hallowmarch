@@ -11,6 +11,11 @@ function storage() {
     async create(scope, value) { creates++; if (!records.has(scope)) records.set(scope, structuredClone(value)); return this.load(scope); },
     async replace(scope, revision, value) {
       assert.equal(records.get(scope)?.revision, revision); records.set(scope, structuredClone(value)); return this.load(scope);
+    },
+    async archiveAndReplace(scope, revision, archiveScope, value, isCurrent) {
+      if (records.get(scope)?.revision !== revision || !isCurrent()) throw Object.assign(Error('changed'), { code: 'device_changed' });
+      assert(!records.has(archiveScope)); records.set(archiveScope, structuredClone(records.get(scope)));
+      records.set(scope, structuredClone(value)); return this.load(scope);
     } };
 }
 const from64 = value => Uint8Array.from(Buffer.from(value, 'base64url'));
@@ -67,3 +72,54 @@ test('an unreadable original device key is never replaced', async () => {
   await assert.rejects(next.publicDescription(), { code: 'invalid_device_key' });
   assert.equal(store.creates, 1);
 });
+
+test('explicit expired restart archives the exact signing key and routing before selecting a fresh device', async () => {
+  const store = storage(), now = 2000000000000, device = createProvisionalDevice({ origin, crypto: webcrypto, storage: store, now: () => now });
+  const oldKey = await device.publicDescription();
+  const metadata = { ownerDid: 'did:web:identity.example:users:expired', podUrl: 'https://pod.example/expired/',
+    issuer: 'https://identity.example', relayUrl: 'https://relay.example', provisionalEndpoint: 'https://identity.example/play/provisional',
+    guestExpiresAt: now - 1, attestation: 'original-public-attestation', proofKeyThumbprint: oldKey.proofKeyThumbprint };
+  await device.remember(metadata);
+  const [scope, original] = [...store.records][0];
+  await device.archiveExpired({ expectedOwnerDid: metadata.ownerDid, isCurrent: () => true });
+  assert.equal(await device.peekMetadata(), null); assert.equal(store.records.size, 2);
+  assert.notDeepEqual(await device.publicDescription(), oldKey);
+  const [archiveScope, archived] = [...store.records].find(([key]) => key !== scope);
+  assert(archiveScope.includes('expired')); assert.deepEqual(archived.metadata, metadata);
+  assert.equal(archived.revision, original.revision); assert.equal(archived.privateKey.extractable, false);
+  const proof = await webcrypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, archived.privateKey, new TextEncoder().encode('recovery-proof'));
+  const verifier = await webcrypto.subtle.importKey('jwk', oldKey.publicKeyJwk, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['verify']);
+  assert.equal(await webcrypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, verifier, proof, new TextEncoder().encode('recovery-proof')), true);
+});
+
+test('restart refuses live, claimed, pending, foreign or concurrently changed devices without losing keys', async () => {
+  for (const mode of ['live', 'claimed', 'pending', 'started', 'foreign', 'cancelled', 'concurrent']) {
+    const store = storage(), now = 2000000000000, device = createProvisionalDevice({ origin, crypto: webcrypto, storage: store, now: () => now });
+    const key = await device.publicDescription();
+    const metadata = { ownerDid: 'did:web:identity.example:users:expired', podUrl: 'https://pod.example/expired/',
+      issuer: 'https://identity.example', relayUrl: 'https://relay.example', provisionalEndpoint: 'https://identity.example/play/provisional',
+      guestExpiresAt: now + (mode === 'live' ? 60000 : -1), attestation: 'public-attestation', proofKeyThumbprint: key.proofKeyThumbprint,
+      ...(mode === 'claimed' ? { claimedOwnerDid: 'did:web:identity.example:users:alice' } : {}) };
+    await device.remember(metadata);
+    if (mode === 'started') await device.remember({ ...metadata, lastConfirmedClaim: false });
+    if (mode === 'pending') {
+      const [scope, record] = [...store.records][0];
+      // A valid pending claim is enough to prevent rollover, even after expiry.
+      const targetClaim = { binding: { subjectDid: metadata.ownerDid, podUrl: metadata.podUrl },
+        appSession: { purpose: 'character-claim-target', claimOperationId: 'pending-operation', guestOwnerDid: metadata.ownerDid,
+          targetOwnerDid: metadata.ownerDid, audience: origin, sourceChallenge: 'pending-proof', expiresAt: now - 1 } };
+      store.records.set(scope, { ...record, metadata: { ...metadata, targetClaim } });
+    }
+    if (mode === 'concurrent') {
+      const replace = store.archiveAndReplace;
+      store.archiveAndReplace = async function(scope, revision, ...rest) {
+        store.records.set(scope, { ...store.records.get(scope), revision: 'newer-tab-revision' });
+        return replace.call(this, scope, revision, ...rest);
+      };
+    }
+    await assert.rejects(device.archiveExpired({ expectedOwnerDid: mode === 'foreign' ? 'did:other:owner' : metadata.ownerDid,
+      isCurrent: () => mode !== 'cancelled' }), { code: mode === 'concurrent' ? 'device_changed' : 'guest_restart_refused' });
+    assert.equal(store.records.size, 1); assert.deepEqual(await device.publicDescription(), key);
+  }
+});
+
