@@ -32,7 +32,7 @@
     },
     {
       "path": "src/08n_season.js",
-      "digest": "sha256:1d62e6b717c7edffda6cbf75b842d9b0cdef1b6c0cb615a6030953e3e1e14073"
+      "digest": "sha256:a8666629cfa35ee6a014e0ebb12bdf5674f5f290aa26d628fec8d96533e6167c"
     },
     {
       "path": "src/08o_season2.js",
@@ -40,7 +40,7 @@
     },
     {
       "path": "src/10_ui.js",
-      "digest": "sha256:87dd0ad0f67e47611b716dc72b9828c80fa8dd8d549a7bf4a3df83c73e22ee8d"
+      "digest": "sha256:71f0c6f8ce6a25df2bfce61b28347d3e3b8f231f8c60defc4497ba6a9e6e92fc"
     },
     {
       "path": "src/10c_lore.js",
@@ -88,7 +88,7 @@
     },
     {
       "path": "src/14q_netseason.js",
-      "digest": "sha256:3811eccc086f803a917a3ae69fa12dd3f49148481df3467574fa76539ed1ac3b"
+      "digest": "sha256:a79552359519796f38a4a79db78c416f6df21af45e59712b9062196a55bcb537"
     },
     {
       "path": "src/14r_companies.js",
@@ -1759,11 +1759,11 @@
       ],
       "source": {
         "path": "src/08n_season.js",
-        "digest": "sha256:1d62e6b717c7edffda6cbf75b842d9b0cdef1b6c0cb615a6030953e3e1e14073",
+        "digest": "sha256:a8666629cfa35ee6a014e0ebb12bdf5674f5f290aa26d628fec8d96533e6167c",
         "selector": "FIELD_NOTES.loffensive",
         "lines": {
-          "start": 363,
-          "end": 363
+          "start": 364,
+          "end": 364
         }
       },
       "requiresContext": true,
@@ -1775,7 +1775,7 @@
         "note": "loffensive",
         "availability": "Collected in the game when relevant"
       },
-      "revisionDigest": "sha256:8b64f897f4821aa4548501c96811e152e23fdc394003df2b3279e0fec4a3864c"
+      "revisionDigest": "sha256:6488c7c4dbd9314b1aafb3abcff6aa413a6e96802e3836b437ffcd9f4058baa4"
     },
     {
       "id": "field-note:loot",
@@ -1838,7 +1838,7 @@
     {
       "id": "field-note:lseason",
       "kind": "job-aid",
-      "title": "A season of weeks",
+      "title": "The solo season",
       "purpose": "performance-support",
       "audience": [
         "human",
@@ -1846,11 +1846,11 @@
       ],
       "source": {
         "path": "src/08n_season.js",
-        "digest": "sha256:1d62e6b717c7edffda6cbf75b842d9b0cdef1b6c0cb615a6030953e3e1e14073",
+        "digest": "sha256:a8666629cfa35ee6a014e0ebb12bdf5674f5f290aa26d628fec8d96533e6167c",
         "selector": "FIELD_NOTES.lseason",
         "lines": {
-          "start": 362,
-          "end": 362
+          "start": 363,
+          "end": 363
         }
       },
       "requiresContext": true,
@@ -1862,7 +1862,7 @@
         "note": "lseason",
         "availability": "Collected in the game when relevant"
       },
-      "revisionDigest": "sha256:1131dec13c60f91753ca0eb151849e428ec0520a183caf7330e4b91da91e64df"
+      "revisionDigest": "sha256:634a1378c6487e5fb3e1745747e46a9ea9fc54304fd882bf67bef1da4ef15fae"
     },
     {
       "id": "field-note:lshort",
@@ -2041,7 +2041,7 @@
     {
       "id": "field-note:netseason",
       "kind": "job-aid",
-      "title": "The season",
+      "title": "The shared season",
       "purpose": "performance-support",
       "audience": [
         "human",
@@ -2049,7 +2049,7 @@
       ],
       "source": {
         "path": "src/14q_netseason.js",
-        "digest": "sha256:3811eccc086f803a917a3ae69fa12dd3f49148481df3467574fa76539ed1ac3b",
+        "digest": "sha256:a79552359519796f38a4a79db78c416f6df21af45e59712b9062196a55bcb537",
         "selector": "FIELD_NOTES.netseason",
         "lines": {
           "start": 254,
@@ -2065,7 +2065,7 @@
         "note": "netseason",
         "availability": "Collected in the game when relevant"
       },
-      "revisionDigest": "sha256:c5f5ba39fde37d57fbdc7d2aa2c53b956c6d614dec702bbab2ce2854d653c68f"
+      "revisionDigest": "sha256:04cf4332d6d1790dd0364466ed0e7efdab5964802c7cda764059d86ea6ae8572"
     },
     {
       "id": "field-note:news",
@@ -3055,7 +3055,7 @@
       ],
       "source": {
         "path": "src/10_ui.js",
-        "digest": "sha256:87dd0ad0f67e47611b716dc72b9828c80fa8dd8d549a7bf4a3df83c73e22ee8d",
+        "digest": "sha256:71f0c6f8ce6a25df2bfce61b28347d3e3b8f231f8c60defc4497ba6a9e6e92fc",
         "selector": "drawWorldMap(): .legend",
         "lines": {
           "start": 524,
@@ -3070,7 +3070,7 @@
       "ui": {
         "destination": "Map"
       },
-      "revisionDigest": "sha256:8248c070eb8721d32672e1db0d11fc10963854bb6b61152c31273cf76f9f4ff6"
+      "revisionDigest": "sha256:f584aafcccc98da55249a3e8b14b98ef4469a8ea44dbb5bf135ad75d1701374d"
     }
   ],
   "courses": [
@@ -3093,5 +3093,5 @@
       "assessment": null
     }
   ],
-  "revisionDigest": "sha256:12a2aaf7a376d2092364d85c21558679698429c114fe0d455e5a0e82ee6f0a96"
+  "revisionDigest": "sha256:9311455e3a481a50cd4c45ea0c56baa701a28da3853503a1569d4abf29f55a4f"
 }

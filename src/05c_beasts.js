@@ -641,8 +641,11 @@ function beastVS(depth) {
     if (b == 2) { rotP(rotY(headY * w) * rotX(headX * w), uNeck); b = 1; w = 1.0; }
     if (b == 15) { rotP(rotY(tailY * w) * rotX(tailX * w), uTail); b = 0; w = 1.0; }
     if (b >= 3 && b <= 14) {
-      int leg = (b - 3) / 3;
-      int rel = b - 3 - leg * 3;
+      // This branch only admits the twelve leg bones (3..14). Keep the
+      // quotient/remainder in that exact float range rather than asking FXC
+      // to lower signed integer division and its sign-correction instructions.
+      float boneOffset = float(b) - 3.0, legNumber = floor(boneOffset / 3.0);
+      int leg = int(legNumber), rel = int(boneOffset - legNumber * 3.0);
       bool fr = leg < 2;
       float o = leg == 0 ? off.x : (leg == 1 ? off.y : (leg == 2 ? off.z : off.w));
       vec3 fp = bbFoot(ph + o, duty, reachB);

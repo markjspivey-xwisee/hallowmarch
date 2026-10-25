@@ -49,7 +49,7 @@ function glslFunctions(glsl) {
   const vector = n => (...args) => Object.fromEntries('xyzw'.slice(0, n).split('').map((k, i) => [k, args.length === 1 ? args[0] : args[i]]));
   const ctx = { $op: (op, a, b) => apply(operators[op] || (() => { throw Error('Unsupported operator ' + op); }), a, b),
     min: (a, b) => apply(Math.min, a, b), max: (a, b) => apply(Math.max, a, b), abs: unary(Math.abs),
-    length: p => Math.hypot(...Object.values(p)), vec2: vector(2), vec3: vector(3), float: x => x,
+    length: p => Math.hypot(...Object.values(p)), vec2: vector(2), vec3: vector(3), float: x => x, int: Math.trunc,
     sin: Math.sin, cos: Math.cos, pow: Math.pow, atan: Math.atan2, floor: Math.floor, fract: x => x - Math.floor(x),
     step: (edge, x) => x < edge ? 0 : 1,
     clamp: (v, a, b) => Math.min(b, Math.max(a, v)), mix: (a, b, t) => a * (1 - t) + b * t,
@@ -129,6 +129,17 @@ test('ragged round and box walls preserve released footprint, porch and corner h
 });
 test('realm banners preserve all released glyphs and the neutral fallback', () => {
   assert.equal(bannerHash(banners()), '85180a740272a78f45b029678ee82ff70de33832ff5e5c6d51b2a0a37519d20d');
+});
+test('beast leg decoding preserves every bone and rounding boundary without signed division', () => {
+  const text = source('05c_beasts.js'), start = text.indexOf('if (b >= 3 && b <= 14) {');
+  assert.ok(start > 0);
+  const end = text.indexOf('bool fr =', start), code = text.slice(start + 'if (b >= 3 && b <= 14) {'.length, end);
+  const fn = glslFunctions('vec2 decode(int b){' + code + 'return vec2(float(leg), float(rel));}').decode;
+  for (let encoded = 2560; encoded < 14848; encoded++) {
+    const bone = Math.trunc(encoded / 1024 + 0.5), leg = Math.trunc((bone - 3) / 3), rel = bone - 3 - leg * 3;
+    const result = fn(bone);
+    assert.equal(result.x, leg);assert.equal(result.y, rel);
+  }
 });
 test('generated heavy helpers have initialized results, a single return and no signed motif loops', () => {
   const device = devices().split('float l3DeviceD(')[1].split('float l3DeviceMask(')[0].replace(/\/\/[^\n]*/g, '');

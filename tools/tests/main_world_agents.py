@@ -104,7 +104,7 @@ async def main():
             async def only_panel(panel,tab=None):
                 state=await page.evaluate(r"""() => ({modal:__hm.UI.modal,
                   overlays:[...document.querySelectorAll('.overlay')].filter(e=>!e.hidden&&e.getClientRects().length).map(e=>e.id),
-                  selected:[...document.querySelectorAll('#menu-tabs [aria-checked="true"]')].map(e=>e.dataset.tab)})""")
+                  selected:[...document.querySelectorAll('#menu-tabs [role="tab"][aria-selected="true"]')].map(e=>e.dataset.tab)})""")
                 assert state['overlays']==[panel] and state['modal']==('net' if panel=='netsheet' else 'menu'),state
                 if tab:assert state['selected']==[tab],state
 
@@ -272,3 +272,4 @@ async def main():
             print(json.dumps(result),flush=True)
         finally:await browser.close()
 if __name__=='__main__':asyncio.run(main())
+

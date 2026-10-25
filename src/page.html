@@ -215,7 +215,7 @@
   .sheet p { margin: 0; color: var(--ink-dim); }
   .seg { display: inline-flex; gap: 3px; padding: 3px; border-radius: 999px; background: rgba(0, 0, 0, 0.35); border: 1px solid var(--line); flex-wrap: wrap; }
   .seg button { border: 0; background: none; padding: 6px 12px; border-radius: 999px; cursor: pointer; color: var(--ink-dim); font-weight: 500; }
-  .seg button[aria-checked="true"] { background: var(--bronze-hi); color: #1b140b; }
+  .seg button[aria-checked="true"], .seg button[aria-selected="true"] { background: var(--bronze-hi); color: #1b140b; }
   #menu-tabs button { min-height: 44px; }
   .setrow { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
   .keys { display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px; font-size: 14px; }
@@ -1440,17 +1440,17 @@
   </div>
 </div>
 <div class="overlay" id="menu" hidden>
-  <div class="sheet panel" role="dialog" aria-labelledby="menu-title">
+  <div class="sheet panel" role="dialog" aria-modal="true" aria-labelledby="menu-title">
     <div class="menu-heading"><h2 id="menu-title">Hallowmarch</h2><button type="button" class="btn" id="menu-close" aria-label="Close menu">Close ×</button></div>
-    <div class="seg" role="tablist" id="menu-tabs">
-      <button type="button" data-tab="char" aria-checked="true">Character</button>
-      <button type="button" data-tab="companion" aria-checked="false">Companion</button>
-      <button type="button" data-tab="progress" aria-checked="false">Progress</button>
-      <button type="button" data-tab="chronicle" aria-checked="false">Chronicle</button>
-      <button type="button" data-tab="settings" aria-checked="false">Settings</button>
-      <button type="button" data-tab="help" aria-checked="false">How to play</button>
+    <div class="seg" role="tablist" id="menu-tabs" aria-label="Game menu">
+      <button type="button" role="tab" id="menu-tab-char" data-tab="char" aria-controls="menu-body" aria-selected="true">Character</button>
+      <button type="button" role="tab" id="menu-tab-companion" data-tab="companion" aria-controls="menu-body" aria-selected="false" tabindex="-1">Companion</button>
+      <button type="button" role="tab" id="menu-tab-progress" data-tab="progress" aria-controls="menu-body" aria-selected="false" tabindex="-1">Progress</button>
+      <button type="button" role="tab" id="menu-tab-chronicle" data-tab="chronicle" aria-controls="menu-body" aria-selected="false" tabindex="-1">Chronicle</button>
+      <button type="button" role="tab" id="menu-tab-settings" data-tab="settings" aria-controls="menu-body" aria-selected="false" tabindex="-1">Settings</button>
+      <button type="button" role="tab" id="menu-tab-help" data-tab="help" aria-controls="menu-body" aria-selected="false" tabindex="-1">How to play</button>
     </div>
-    <div id="menu-body"></div>
+    <div id="menu-body" role="tabpanel" aria-labelledby="menu-tab-char"></div>
     <div class="actions"><button class="btn" id="btn-newchar" type="button">New character</button><button class="btn primary" id="btn-resume" type="button">Resume</button></div>
   </div>
 </div>
