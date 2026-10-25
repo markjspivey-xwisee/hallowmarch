@@ -103,6 +103,76 @@ function harness() {
   return { scope, window, document, canvas, actions, captures, removed, player, ...scope.hooks };
 }
 
+function joystickHarness(hand = 'right') {
+  const h = harness();
+  function classList(...initial) {
+    const names = new Set(initial);
+    return { add: name => names.add(name), remove: name => names.delete(name), contains: name => names.has(name),
+      toggle(name, enabled) { if (enabled) names.add(name); else names.delete(name); } };
+  }
+  const joy = { classList: classList(), style: {}, firstChild: { style: {} } };
+  const hint = { style: { opacity: '' } }, hud = { contains: () => false, inert: false }, tray = { hidden: true };
+  const nodes = { joy, joyhint: hint, hud, 'mobile-tray': tray };
+  h.document.body = { classList: classList('touch') };
+  Object.assign(h.scope, { $: id => nodes[id] || null, view: { w: 390, h: 844 }, MOBILE_PREFS: { hand },
+    MOBILE_UI: { focus: null }, queueMicrotask: run => run() });
+  const mobile = read('10q_mobile.js'), ui = read('10_ui.js');
+  vm.runInContext(['mobileMovementZone', 'mobileStopInput', 'mobileModalChanged'].map(name => extract(mobile, name)).join('\n') +
+    '\n' + ['showJoystick', 'hideJoystick'].map(name => extract(ui, name)).join('\n'), h.scope);
+  const page = read('page.html');
+  const idleOpacity = [...page.matchAll(/body\.touch #joyhint \{([^}]+)\}/g)]
+    .map(match => match[1].match(/(?:^|;)\s*opacity:\s*([\d.]+)/)).filter(Boolean).at(-1)?.[1];
+  assert.ok(Number(idleOpacity) > 0 && Number(idleOpacity) < 1, 'the idle guide remains faintly visible');
+  assert.match(page, /body\.touch\.mobile-modal-open #touch,[\s\S]*?\{\s*visibility: hidden;/);
+  assert.match(page, /body\.touch\.mobile-left-handed #joyhint \{ left: auto; right: 14px; \}/);
+  return { ...h, joy, hint, hud,
+    cueOpacity: () => h.document.body.classList.contains('mobile-modal-open') ? 0 : Number(hint.style.opacity === '' ? idleOpacity : hint.style.opacity),
+    modal(value) { h.scope.UI.modal = value; h.scope.mobileModalChanged(value); } };
+}
+
+for (const hand of ['right', 'left']) {
+  test(`${hand}-handed controls keep a faint idle guide across repeated release, cancellation and lost capture`, () => {
+    const h = joystickHarness(hand), x = hand === 'right' ? 60 : 330;
+    for (const [i, ending] of ['pointerup', 'pointercancel', 'lostpointercapture'].entries()) {
+      assert.ok(h.cueOpacity() > 0 && h.cueOpacity() < 1); assert.equal(h.joy.classList.contains('on'), false);
+      h.canvas.dispatch('pointerdown', { pointerId: i + 1, pointerType: 'touch', clientX: x, clientY: 600 });
+      assert.equal(h.INPUT.joy.id, i + 1); assert.equal(h.joy.classList.contains('on'), true); assert.equal(h.cueOpacity(), 0);
+      assert.equal(h.joy.style.left, x + 'px'); assert.equal(h.joy.style.top, '600px');
+      h.canvas.dispatch('pointermove', { pointerId: i + 1, clientX: x + 20, clientY: 625 });
+      assert.equal(h.joy.firstChild.style.transform, 'translate(20px, 25px)'); assert.equal(h.cueOpacity(), 0);
+      h.canvas.dispatch(ending, { pointerId: i + 1, clientX: x + 20, clientY: 625 });
+      assert.equal(h.INPUT.joy, null); assert.equal(h.joy.classList.contains('on'), false);
+      assert.ok(h.cueOpacity() > 0 && h.cueOpacity() < 1); assert.ok(!h.actions.includes('pick'));
+    }
+  });
+}
+
+test('releasing a second finger leaves the active movement stick visible and its idle guide hidden', () => {
+  const h = joystickHarness();
+  h.canvas.dispatch('pointerdown', { pointerId: 1, pointerType: 'touch', clientX: 60, clientY: 600 });
+  h.canvas.dispatch('pointerdown', { pointerId: 2, pointerType: 'touch', clientX: 300, clientY: 600 });
+  h.canvas.dispatch('pointercancel', { pointerId: 2 });
+  assert.equal(h.INPUT.joy.id, 1); assert.equal(h.joy.classList.contains('on'), true); assert.equal(h.cueOpacity(), 0);
+  h.canvas.dispatch('pointerup', { pointerId: 1 });
+  assert.equal(h.joy.classList.contains('on'), false); assert.ok(h.cueOpacity() > 0);
+});
+
+test('opening a modal cancels the stick and hides the guide, then restores an idle guide and a working next drag', () => {
+  const h = joystickHarness();
+  h.canvas.dispatch('pointerdown', { pointerId: 1, pointerType: 'touch', clientX: 60, clientY: 600 });
+  h.modal('menu');
+  assert.equal(h.INPUT.joy, null); assert.equal(h.joy.classList.contains('on'), false);
+  assert.equal(h.hud.inert, true); assert.equal(h.cueOpacity(), 0);
+  h.canvas.dispatch('pointerdown', { pointerId: 2, pointerType: 'touch', clientX: 60, clientY: 600 });
+  assert.equal(h.INPUT.joy, null); assert.equal(h.joy.classList.contains('on'), false);
+  h.modal(null);
+  assert.equal(h.hud.inert, false); assert.ok(h.cueOpacity() > 0 && h.cueOpacity() < 1);
+  h.canvas.dispatch('pointerdown', { pointerId: 3, pointerType: 'touch', clientX: 60, clientY: 600 });
+  assert.equal(h.INPUT.joy.id, 3); assert.equal(h.joy.classList.contains('on'), true); assert.equal(h.cueOpacity(), 0);
+  h.window.dispatch('blur');
+  assert.equal(h.INPUT.joy, null); assert.equal(h.joy.classList.contains('on'), false); assert.ok(h.cueOpacity() > 0);
+});
+
 test('blur cancels active movement/camera/joystick and bow draw before releasing pointer capture', () => {
   const h = harness();
   h.INPUT.keys.add('KeyW'); h.INPUT.joy = { id: 3, dx: 1, dy: 0 };

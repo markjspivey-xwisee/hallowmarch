@@ -727,7 +727,10 @@ function showJoystick(x, y, dx, dy) {
   j.firstChild.style.transform = `translate(${dx}px, ${dy}px)`;
   $('joyhint').style.opacity = 0;
 }
-function hideJoystick() { $('joy').classList.remove('on'); }
+function hideJoystick() {
+  $('joy').classList.remove('on');
+  $('joyhint').style.opacity = '';
+}
 
 /* ------------------------------------------------------------------ */
 /* menus                                                               */
