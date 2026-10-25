@@ -69,7 +69,6 @@ function harness(options = {}) {
     emitClose() { this.readyState = 3; this.onclose?.({ code: 1006 }); }
   }
   const GAME = { ready: false, started: false, player: null, prog: null };
-  const buttons = new Map(['btn-begin', 'btn-continue', 'save-note'].map(id => [id, { disabled: false, textContent: '' }]));
   const binding = { subjectDid: 'did:web:identity.test:users:u-owner', podUrl: 'https://pod.test/u-owner/' };
   const nativeProfile = options.nativeProfile || { connect: async () => {}, get: async () => ({ exists: false }),
     status: () => ({ keyPresent: true, hasRecord: false }), set: async () => {}, close() {} };
@@ -79,12 +78,17 @@ function harness(options = {}) {
     async bootstrap() { provisionalCalls.bootstrap++; }, async resume() { provisionalCalls.resume++; },
     profile: () => null, claimProfile: () => null, status: () => ({ provisional: false }), close() { provisionalCalls.close++; },
   });
-  const node = (tag, className = '') => ({ tagName: tag, className, children: [], style: {}, textContent: '',
+  const node = (tag, className = '') => ({ tagName: tag, className, children: [], style: {}, textContent: '', attributes: new Map(),
     classList: { contains: value => className.split(' ').includes(value) },
     appendChild(child) { this.children.push(child); }, prepend(child) { this.children.unshift(child); },
-    replaceChildren() { this.children = []; }, setAttribute() {},
+    replaceChildren() { this.children = []; },
+    setAttribute(name, value) { this.attributes.set(String(name), String(value)); },
+    getAttribute(name) { return this.attributes.get(String(name)) ?? null; },
+    removeAttribute(name) { this.attributes.delete(String(name)); },
     querySelector(selector) { return selector === '.native-player' ? this.children.find(child => child.className === 'native-player') : null; },
   });
+  const buttons = new Map(['btn-begin', 'btn-continue', 'save-note'].map(id => [id,
+    Object.assign(node(id === 'save-note' ? 'p' : 'button'), { id, disabled: false })]));
   const titleBody = node('div', 'card-body');
   const requests = [], titleUpdates = [], settingUpdates = [], worldUpdates = [];
   const context = vm.createContext({
@@ -653,6 +657,11 @@ for (const keyPresent of [true, false]) test('recovered native binding after tra
   assert.equal(h.H.NATIVE_PLAYER.profile, profile); assert.equal(h.storage.get('native-key-fixture'), 'retained-key-material');
   assert.equal(JSON.parse(h.storage.get('hallowmarch.save.v1')).char.name, previousLocal.char.name);
   assert.equal(h.H.SAVE.readConfirmed, keyPresent); assert.equal(h.buttons.get('btn-begin').disabled, !keyPresent); assert.equal(h.buttons.get('btn-continue').disabled, !keyPresent);
+  assert.equal(h.buttons.get('save-note').getAttribute('role'), 'status');
+  assert.equal(h.buttons.get('save-note').getAttribute('aria-live'), 'polite');
+  assert.equal(h.buttons.get('save-note').getAttribute('aria-atomic'), 'true');
+  assert.equal(h.buttons.get('btn-begin').getAttribute('aria-busy'), 'false');
+  assert.equal(h.buttons.get('btn-continue').getAttribute('aria-busy'), 'false');
   if (keyPresent) {
     assert.equal(loaded.char.name, ownNative.char.name); assert.equal(h.H.SAVE.loaded.char.name, ownNative.char.name);
   } else { assert.equal(loaded, null); assert.equal(h.H.SAVE.loaded, null); }
