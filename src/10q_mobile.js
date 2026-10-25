@@ -314,6 +314,11 @@ function mobileSync() {
       util.appendChild(el);
     }
   }
+  const keep = $('btn-keep-character');
+  if (keep && keep.parentElement !== util) {
+    keep.dataset.mobileSection = 'world character social options';
+    util.prepend(keep);
+  }
   const needs = $('needs'), extra = $('mobile-extra-actions');
   if (needs && extra && needs.nextElementSibling !== extra) util.insertBefore(needs, extra);
   const P = GAME.player;

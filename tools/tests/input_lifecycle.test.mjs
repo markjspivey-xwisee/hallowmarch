@@ -8,6 +8,60 @@ const read = name => readFileSync(new URL('src/' + name, root), 'utf8');
 const input = read('09_player.js').split('const _proj =')[0];
 const classes = read('07b_classes.js');
 const classUI = read('10d_classes_ui.js');
+const mobileSyncSource = extract(read('10q_mobile.js'), 'mobileSync');
+
+function mobileSaveFixture(touch = true) {
+  class Node {
+    constructor(id) { this.id = id; this.children = []; this.parentElement = null; this.dataset = {}; }
+    appendChild(node) { this.detach(node); this.children.push(node); node.parentElement = this; }
+    prepend(node) { this.detach(node); this.children.unshift(node); node.parentElement = this; }
+    detach(node) { if (node.parentElement) node.parentElement.children.splice(node.parentElement.children.indexOf(node), 1); }
+    closest(selector) { return selector === 'button' ? this : null; }
+  }
+  const hud = new Node('hud'), utilities = new Node('mobile-tray-utilities'), nav = new Node('mobile-tray-nav');
+  const keep = new Node('btn-keep-character'), originalAction = () => 'open original identity panel';
+  keep.hidden = false; keep.disabled = false; keep.onclick = originalAction; hud.appendChild(keep);
+  const elements = new Map([hud, utilities, nav, keep].map(node => [node.id, node]));
+  const scope = vm.createContext({ IS_TOUCH: touch, MOBILE_UI: { bound: true }, GAME: { player: null }, UI: { modal: null },
+    $: id => elements.get(id) || null });
+  vm.runInContext(mobileSyncSource + '\nglobalThis.sync = mobileSync;', scope);
+  return { hud, utilities, keep, originalAction, sync: scope.sync, scope };
+}
+
+test('touch moves the existing save CTA out of the world into the first row of every menu section without duplicating it', () => {
+  const f = mobileSaveFixture(); f.sync();
+  assert.equal(f.hud.children.includes(f.keep), false); assert.equal(f.keep.parentElement, f.utilities);
+  assert.equal(f.utilities.children[0], f.keep);
+  assert.deepEqual(f.keep.dataset.mobileSection.split(' '), ['world', 'character', 'social', 'options']);
+  assert.equal(f.keep.onclick, f.originalAction); assert.equal(f.keep.onclick(), 'open original identity panel');
+  assert.equal(f.keep.hidden, false); assert.equal(f.keep.disabled, false);
+  f.sync(); assert.deepEqual(f.utilities.children, [f.keep]);
+});
+
+test('mobile save CTA preserves native expired or claimed visibility and pending-operation disabled state', () => {
+  const f = mobileSaveFixture(); f.keep.hidden = true; f.keep.disabled = true; f.sync(); f.sync();
+  assert.equal(f.keep.parentElement, f.utilities); assert.equal(f.keep.hidden, true); assert.equal(f.keep.disabled, true);
+  assert.equal(f.keep.onclick, f.originalAction);
+});
+
+test('desktop keeps its existing floating save action in the HUD', () => {
+  const f = mobileSaveFixture(false); f.sync();
+  assert.equal(f.keep.parentElement, f.hud); assert.deepEqual(f.utilities.children, []);
+  assert.equal(f.keep.onclick, f.originalAction); assert.equal(f.keep.hidden, false);
+});
+
+test('existing mobile tray handoff clears its modal guard before the relocated save action opens identity settings', () => {
+  const f = mobileSaveFixture(); f.sync(); const callbacks = [];
+  f.scope.UI.modal = 'mobile';
+  f.scope.tray = { addEventListener(type, run, capture) { assert.equal(type, 'click'); assert.equal(capture, true); callbacks.push(run); } };
+  f.scope.mobileTray = (open, focus) => { assert.equal(open, false); assert.equal(focus, false); f.scope.UI.modal = null; };
+  const mobile = read('10q_mobile.js'), start = mobile.indexOf("  tray.addEventListener('click', (e) => {", mobile.indexOf('// Existing buttons retain their listeners'));
+  vm.runInContext(mobile.slice(start, mobile.indexOf('  }, true);', start) + '  }, true);'.length), f.scope);
+  let opened = false;
+  f.keep.onclick = () => { assert.equal(f.scope.UI.modal, null); opened = true; };
+  callbacks[0]({ target: f.keep }); f.keep.onclick(); assert.equal(opened, true);
+});
+
 function extract(source, name) {
   const start = source.indexOf('function ' + name + '(');
   assert.ok(start >= 0, name);
