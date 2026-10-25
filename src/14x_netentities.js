@@ -238,9 +238,12 @@ function netEntityReceive(payload, immediate = false) {
   NET_ENTITIES.complete = true; NET_ENTITIES.waiting = false;
   if (payload.meta) netEntityApplyMeta(payload.meta);
   NET_ENTITIES.stats.frames++;
-  if (netEntityMine()) for (const e of NET_ENTITIES.bodies.values()) {
-    e.netEntityPose = null;
-    if (e.ai) { e.ai.path = null; e.ai.think = 0; }
+  if (netEntityMine()) {
+    for (const e of NET_ENTITIES.bodies.values()) {
+      e.netEntityPose = null;
+      if (e.ai) { e.ai.path = null; e.ai.think = 0; }
+    }
+    netEntityPrepareWarbands();
   }
   return true;
 }
@@ -368,14 +371,83 @@ function netEntityApplyDungeon(image) {
   if (DEEP.heat && DEEP.heatTex && typeof deepHeatUpload === 'function') deepHeatUpload();
 }
 
+// Keep objectives as canonical IDs and clocks relative to the sender. Scene
+// objects (temples, navigation nodes and siege geometry) must never cross JSON.
+function netEntityOrderEncode(O) {
+  if (!O || typeof O.type !== 'string') return null;
+  const row = { type: O.type };
+  for (const key of ['keep', 'temple', 'relic', 'node']) {
+    const id = typeof O[key] === 'object' ? O[key]?.id : O[key];
+    if (Number.isSafeInteger(id) && id >= 0) row[key] = id;
+  }
+  for (const key of ['phase', 'why']) if (typeof O[key] === 'string') row[key] = O[key].slice(0, 240);
+  for (const key of ['home', 'byPlayer']) if (O[key] === true) row[key] = true;
+  for (const key of ['since', 'until', 'holdUntil', 'bombSince', 'bombFirst', 'breachBan'])
+    if (Number.isFinite(O[key])) row[key + 'In'] = clamp(O[key] - GAME.t, -86400, 86400);
+  const point = O.point || O;
+  if (Number.isFinite(point.x) && Number.isFinite(point.z)) { row.x = point.x; row.z = point.z; }
+  if (O.type === 'rally') {
+    row.rallyPeer = typeof O.rallyPeer === 'string' ? O.rallyPeer : NET.self;
+    if (!Number.isFinite(row.x) && GAME.player) { row.x = GAME.player.x; row.z = GAME.player.z; }
+  }
+  if (O.siegeE != null && typeof siegeById === 'function') {
+    const E = siegeById(O.siegeE);
+    if (E?.ent?.netEntityId) row.engine = E.ent.netEntityId;
+  }
+  return row;
+}
+function netEntityOrderDecode(row) {
+  if (!row || typeof row.type !== 'string') return null;
+  const O = { type: row.type, since: GAME.t };
+  const lists = { keep: WAR.keeps, temple: WAR.temples, relic: WAR.relics, node: NAV.nodes };
+  for (const [key, list] of Object.entries(lists)) {
+    const id = row[key];
+    if (id == null) continue; // older encoders emitted null for unused targets
+    if (!Number.isSafeInteger(id) || id < 0 || list[id]?.id !== id) return null;
+    O[key] = list[id];
+  }
+  for (const key of ['phase', 'why']) if (typeof row[key] === 'string') O[key] = row[key].slice(0, 240);
+  for (const key of ['home', 'byPlayer']) if (row[key] === true) O[key] = true;
+  for (const key of ['since', 'until', 'holdUntil', 'bombSince', 'bombFirst', 'breachBan'])
+    if (Number.isFinite(row[key + 'In'])) O[key] = GAME.t + clamp(row[key + 'In'], -86400, 86400);
+  if (Number.isFinite(row.x) && Number.isFinite(row.z)) { O.x = row.x; O.z = row.z; }
+  if (typeof row.rallyPeer === 'string' && row.rallyPeer.length <= 160 && row.rallyPeer) O.rallyPeer = row.rallyPeer;
+  if (typeof row.engine === 'string') {
+    const e = netEntityFind(row.engine);
+    if (e?.siegeEngine != null && typeof siegeById === 'function' && siegeById(e.siegeEngine)?.ent === e) O.siegeE = e.siegeEngine;
+  }
+  return O;
+}
+function netEntityPrepareWarbands() {
+  if (typeof WAR === 'undefined' || typeof cwPrepareReplicaBand !== 'function') return;
+  for (const w of WAR.warbands) {
+    const O = w.order;
+    if (O) {
+      // Legacy shared rallies have no caller identity. Never redirect them to
+      // the new keeper's own player when authority changes.
+      if (O.type === 'rally' && !O.rallyPeer) { w.order = null; w.path = null; w.goal = null; w.leaderGoal = null; }
+      else {
+        if ((O.type === 'patrol' || O.type === 'rally') && !Number.isFinite(O.until)) O.until = GAME.t + 45;
+        if (O.phase === 'hold' && !Number.isFinite(O.holdUntil)) O.holdUntil = GAME.t + 35;
+        // A breach route refers to local geometry; rebuild it from the world.
+        if (O.phase === 'breach' || O.phase === 'gap' || (O.phase === 'bombard' && O.siegeE == null)) {
+          O.phase = 'travel'; w.path = null; w.goal = null;
+          delete O.breach; delete O.gap; delete O.bombSince; delete O.bombFirst;
+        }
+      }
+    }
+    cwPrepareReplicaBand(w);
+  }
+}
+const netEntityBandMember = (e, realm) => netEntityOwned(e) && !netEntityPersonal(e)
+  && e.role === 'soldier' && e.faction === realm;
 function netEntityMeta() {
   const ref = id => getEnt(id)?.netEntityId || null;
   const meta = { dungeon: netEntityDungeonMeta() };
   if (typeof WAR !== 'undefined') meta.warbands = WAR.warbands.slice(0, 96).map(w => ({
     id: w.id, realm: w.realm, ord: w.ord || 0, members: w.members.map(ref).filter(Boolean),
     season: w.season ? netEntityPlain(w.season) : null,
-    order: w.order ? { type: w.order.type, keep: w.order.keep?.id ?? null, relic: w.order.relic?.id ?? null,
-      x: w.order.x, z: w.order.z, phase: w.order.phase } : null }));
+    order: netEntityOrderEncode(w.order) }));
   if (typeof CAMPS !== 'undefined') meta.camps = CAMPS.slice(0, 128).map(c => ({ id: c.id,
     members: [...c.members].map(ref).filter(Boolean), elite: ref(c.eliteId),
     eliteIn: Math.max(0, c.eliteAt - GAME.t), respawn: c.respawnAt.slice(0, 32).map(t => Math.max(0, t - GAME.t)) }));
@@ -393,16 +465,23 @@ function netEntityApplyMeta(meta) {
   netEntityApplyDungeon(meta.dungeon);
   const ref = id => netEntityFind(id)?.id || null;
   if (typeof WAR !== 'undefined' && Array.isArray(meta.warbands) && meta.warbands.length <= 96) {
-    const old = new Map(WAR.warbands.map(w => [w.id, w]));
+    const old = new Map(WAR.warbands.map(w => [w.id, w])), assigned = new Set();
+    for (const w of old.values()) for (const id of w.members) {
+      const e = getEnt(id); if (netEntityBandMember(e, w.realm) && e.warband === w) e.warband = null;
+    }
     WAR.warbands = meta.warbands.filter(w => Number.isSafeInteger(w.id) && [0, 1, 2].includes(w.realm) && Array.isArray(w.members)).map(row => {
       const w = old.get(row.id) || { id: row.id, realm: row.realm, path: null, pathIdx: 0,
         created: GAME.t, engagedUntil: -99, lastProgress: GAME.t, progX: 0, progZ: 0 };
-      w.realm = row.realm; w.ord = row.ord; w.members = row.members.map(ref).filter(id => id != null); w.season = row.season;
-      w.order = row.order ? { ...row.order, keep: WAR.keeps[row.order.keep] || null,
-        relic: WAR.relics[row.order.relic] || null, since: GAME.t + 1 } : null;
+      w.realm = row.realm; w.ord = row.ord;
+      w.members = [...new Set(row.members.slice(0, 2048).map(id => netEntityFind(id))
+        .filter(e => netEntityBandMember(e, row.realm) && !assigned.has(e.id)).map(e => e.id))];
+      for (const id of w.members) assigned.add(id);
+      w.season = row.season;
+      w.order = netEntityOrderDecode(row.order);
       for (const id of w.members) { const e = getEnt(id); if (e) e.warband = w; }
       return w;
     });
+    for (const w of WAR.warbands) if (typeof cwPrepareReplicaBand === 'function') cwPrepareReplicaBand(w);
     WAR.nextWb = Math.max(WAR.nextWb, ...WAR.warbands.map(w => w.id + 1));
     for (const C of WAR.commanders) { C.nextThink = GAME.t + 1; C.nextSpawn = Math.max(C.nextSpawn, GAME.t + 2); }
   }
@@ -681,6 +760,7 @@ function netEntityResult(result) {
 function netEntityMessage(m) {
   if (!m || m.t !== 'activity') return false;
   if (m.kind === 'authority') {
+    const wasMine = netEntityMine();
     const current = typeof netCurrentWorldAdmission === 'function' ? netCurrentWorldAdmission() : m.worldAdmission;
     if (!current || !m.worldAdmission || current.origin !== m.worldAdmission.origin || current.epoch !== m.worldAdmission.epoch
       || typeof m.authority !== 'string' || !m.authority || typeof m.peer !== 'string') return false;
@@ -690,6 +770,7 @@ function netEntityMessage(m) {
     }
     NET_ENTITIES.authority = m.authority; NET_ENTITIES.peer = m.peer; NET_ENTITIES.admission = { ...m.worldAdmission };
     if (!m.hasEntities && NET_ENTITIES.peer === NET.self) NET_ENTITIES.complete = true;
+    if (!wasMine && netEntityMine()) netEntityPrepareWarbands();
     return true;
   }
   if (m.kind !== 'entities' || m.authority !== NET_ENTITIES.authority || !m.worldAdmission
