@@ -13,9 +13,9 @@ const source = name => readFileSync(new URL('src/' + name, root), 'utf8');
 // the hashes below were recorded from the released helpers before the rewrite.
 function glslFunctions(glsl) {
   const js = glsl.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, '')
-    .replace(/\b(?:float|int|vec[234])\s+(\w+)\s*\(([^)]*)\)/g, (_, name, args) =>
-      'function ' + name + '(' + args.replace(/\b(?:float|int|vec[234])\s+/g, '') + ')')
-    .replace(/\b(?:float|int|vec[234])\s+/g, 'let ');
+    .replace(/\b(?:float|int|bool|vec[234])\s+(\w+)\s*\(([^)]*)\)/g, (_, name, args) =>
+      'function ' + name + '(' + args.replace(/\b(?:float|int|bool|vec[234])\s+/g, '') + ')')
+    .replace(/\b(?:float|int|bool|vec[234])\s+/g, 'let ');
   const emit = node => {
     if (!node) return '';
     switch (node.type) {
@@ -139,6 +139,26 @@ test('beast leg decoding preserves every bone and rounding boundary without sign
     const bone = Math.trunc(encoded / 1024 + 0.5), leg = Math.trunc((bone - 3) / 3), rel = bone - 3 - leg * 3;
     const result = fn(bone);
     assert.equal(result.x, leg);assert.equal(result.y, rel);
+  }
+});
+test('FXC-safe spine sign preserves the original angle bits and every sampled leg rotation', () => {
+  const text = source('05c_beasts.js'), match = text.match(/tg = bbRot\(tg, uSpine\.zy, ([^;]+)\);/);
+  assert.ok(match);
+  const expression = match[1], rotation = text.match(/vec2 bbRot\([^\n]+/)[0];
+  const helpers = glslFunctions(rotation + '\nfloat angle(float spine,bool fr){return ' + expression + ';}\n' +
+    'vec2 twist(vec2 p,vec2 c,float spine,bool fr){return bbRot(p,c,' + expression + ');}\n' +
+    'vec2 released(vec2 p,vec2 c,float spine,bool fr){return bbRot(p,c,fr ? -spine : spine);}') ;
+  const buffer = new ArrayBuffer(4), words = new Uint32Array(buffer), floats = new Float32Array(buffer);
+  const bitPatterns = [0, 0x80000000, 1, 0x80000001, 0x7f7fffff, 0xff7fffff];
+  for (let i = 0; i < 10000; i++) bitPatterns.push(Math.imul(i, 2654435761) >>> 0);
+  for (const bits of bitPatterns) {
+    words[0] = bits;const spine = floats[0];if (!Number.isFinite(spine)) continue;
+    for (const fr of [false, true]) assert.ok(Object.is(helpers.angle(spine, fr), fr ? -spine : spine));
+  }
+  for (let i = -200; i <= 200; i++) for (const fr of [false, true]) {
+    const p = {x: i / 31,y: i / 47},c = {x: i / 97,y: i / 113},spine = Math.fround(i / 2000);
+    const actual = helpers.twist(p,c,spine,fr),released = helpers.released(p,c,spine,fr);
+    assert.ok(Object.is(actual.x,released.x));assert.ok(Object.is(actual.y,released.y));
   }
 });
 test('generated heavy helpers have initialized results, a single return and no signed motif loops', () => {

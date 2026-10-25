@@ -217,18 +217,40 @@ function updateTowerFires(dt) {
   if (TFIRE.dirty.size) { for (const C of TFIRE.dirty) castleTowerUpload(C); TFIRE.dirty.clear(); }
 }
 
+// The same exact surface reach is checked by the elected world keeper.
+function towerBrandCanReach(T, P) {
+  if (!T || !P || !P.alive || P.motion || ![P.x, P.y, P.z].every(Number.isFinite) || T.burn || T.fallen) return false;
+  if (T.look === 'rath') return dist2(P.x, P.z, T.wx, T.wz) < (T.RO + 0.4) ** 2 && Math.abs(P.y - (T.S.y + T.TT)) < 0.8;
+  if (T.look !== 'timber' || Math.abs(P.x - T.wx) > T.HO + 3 || Math.abs(P.z - T.wz) > T.HO + 3 || P.y - T.S.y > T.TT + 2) return false;
+  const l = twLocal(T, P.x, P.z), d = Math.max(Math.abs(l.x), Math.abs(l.z)) - T.HO;
+  return Math.abs(d) < 1.6;
+}
+function towerBrandIgnite(T, P = GAME.player) {
+  if (!P?.brand || !towerBrandCanReach(T, P)) return false;
+  const id = TOWER.list.indexOf(T);
+  if (id < 0) return false;
+  // Followers submit an intent, never a speculative local world mutation.
+  // A just-taken brand may not be in the last unchanged pose. Publish once for
+  // this human action, before its command, using the existing fast channel.
+  if (typeof netWorldPartsConnected === 'function' && netWorldPartsConnected() && !netWorldPartsCanSimulate()
+    && typeof netSendFast === 'function') { NET.fastKey = ''; NET.fastAt = -Infinity; netSendFast(performance.now()); }
+  if (typeof netWorldPartsRequest === 'function' && netWorldPartsRequest('tower.brand', { id })) return false;
+  if (typeof netWorldPartsActive === 'function' && netWorldPartsActive() && !netWorldPartsCanSimulate()) return false;
+  return towerIgnite(T, T.look === 'rath' ? T.TT + 2 : P.y - T.S.y + 1.2);
+}
+
 // E with a burning brand by the logs of a timber tower
 function towerFireOffers(P, offer) {
   if (!P.brand || P.motion) return;
   palisadeFireOffers(P, offer); // [siege2] a burh's palisade (04g_burn.js)
   for (const T of TOWER.list) {
-    if (T.look === 'rath') { if (!T.burn && !T.fallen && dist2(P.x, P.z, T.wx, T.wz) < (T.RO + 0.4) ** 2 && Math.abs(P.y - (T.S.y + T.TT)) < 0.8) offer(0.2, 1.8, 'Set the thatch alight', () => { towerIgnite(T, T.TT + 2); }, 0.12); continue; } // [siege2] on an Eriu tower's platform, under its cone
+    if (T.look === 'rath') { if (!T.burn && !T.fallen && dist2(P.x, P.z, T.wx, T.wz) < (T.RO + 0.4) ** 2 && Math.abs(P.y - (T.S.y + T.TT)) < 0.8) offer(0.2, 1.8, 'Set the thatch alight', () => { towerBrandIgnite(T, P); }, 0.12); continue; } // [siege2] on an Eriu tower's platform, under its cone
     if (T.look !== 'timber' || T.burn || T.fallen) continue;
     if (Math.abs(P.x - T.wx) > T.HO + 3 || Math.abs(P.z - T.wz) > T.HO + 3) continue;
     const l = twLocal(T, P.x, P.z), d = Math.max(Math.abs(l.x), Math.abs(l.z)) - T.HO;
     if (P.y - T.S.y > T.TT + 2) continue;
     const inside = d < -(T.HO - T.HI);
-    offer(Math.max(0.05, Math.abs(d)), 1.6, 'Set the tower alight', () => { towerIgnite(T, P.y - T.S.y + 1.2); }, inside ? 0.1 : 0.15);
+    offer(Math.max(0.05, Math.abs(d)), 1.6, 'Set the tower alight', () => { towerBrandIgnite(T, P); }, inside ? 0.1 : 0.15);
   }
 }
 

@@ -144,7 +144,8 @@ function netWorldPartsExecute(m) {
   }
   // One slot remains available for a server-created canonical outcome.
   if (NETPARTS.receipts.filter(r => !r.settled).length >= 23) return;
-  const peer = NET.peers.get(m.from), actor = m.from === NET.self ? GAME.player : peer?.ghost;
+  const peer = NET.peers.get(m.from), actor = c.op === 'tower.brand' && typeof spec.actor === 'function'
+    ? spec.actor(m) : m.from === NET.self ? GAME.player : peer?.ghost;
   const position = m.position;
   const location = spec.point?.(c.args);
   if (!actor || !position || !Number.isFinite(position.x) || !Number.isFinite(position.z)
@@ -761,3 +762,23 @@ function netWorldPartsPruneReceipts() {
   const recent = new Set(NETPARTS.receipts.filter(r => r.settled).slice(-8));
   NETPARTS.receipts = NETPARTS.receipts.filter(r => !r.settled || recent.has(r));
 }
+
+// Tower brand commands carry a bounded server-derived actor pose, so this
+// interaction also works when the keeper is too far away to render its caller.
+function netWorldPartsTowerActor(m) {
+  const state = m.actorState, p = m.position;
+  if (!state || state.alive !== true || state.brand !== true || state.motion !== null
+    || !Number.isFinite(state.y) || Math.abs(state.y) > 500 || !p || ![p.x, p.z].every(Number.isFinite)) return null;
+  return { role: 'remote', netPeer: m.from, faction: m.realm, level: 1, alive: true,
+    x: p.x, y: state.y, z: p.z, brand: { until: GAME.t + 1 }, motion: null };
+}
+queueMicrotask(() => netWorldPartsRegisterCommand('tower.brand', {
+  durable: false, actor: netWorldPartsTowerActor, range: 18,
+  point: a => Number.isInteger(a?.id) && TOWER.list[a.id] ? { x: TOWER.list[a.id].wx, z: TOWER.list[a.id].wz } : { x: Infinity, z: Infinity },
+  run: a => {
+    if (!a || Object.keys(a).length !== 1 || !Number.isInteger(a.id) || a.id < 0) return false;
+    const T = TOWER.list[a.id], P = GAME.player;
+    if (!P?.brand || !towerBrandCanReach(T, P)) return false;
+    return { ok: towerIgnite(T, T.look === 'rath' ? T.TT + 2 : P.y - T.S.y + 1.2) };
+  },
+}));

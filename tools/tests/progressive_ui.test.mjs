@@ -5,6 +5,7 @@ import fs from 'node:fs/promises';
 import vm from 'node:vm';
 
 const identity = await fs.readFile(new URL('../../src/14v_nativeidentity.js', import.meta.url), 'utf8');
+const titleUI = await fs.readFile(new URL('../../src/10_ui.js', import.meta.url), 'utf8');
 const saves = await fs.readFile(new URL('../../src/12_save.js', import.meta.url), 'utf8');
 const main = await fs.readFile(new URL('../../src/13_main.js', import.meta.url), 'utf8');
 const startSource = main.slice(main.indexOf('function startGame('), main.indexOf('function newCharacter('));
@@ -96,6 +97,131 @@ function expiredFixture() {
   const actual = vm.runInContext('({ nativePlayerExpiredAdventureAllowed, nativePlayerExpiredAdventure, nativePlayerSaveMessage })', f.context);
   return { ...f, ...actual, setMetadata: value => { metadata = value; }, get archives() { return archives; }, get forgotten() { return forgotten; } };
 }
+
+function titleRenderer(f) {
+  const nodes = Object.fromEntries(['btn-begin', 'btn-continue', 'save-note'].map(id => [id, {
+    textContent: '', disabled: false, attributes: {},
+    setAttribute(name, value) { this.attributes[name] = String(value); },
+  }]));
+  f.context.document = { querySelector: () => null };
+  f.context.$ = id => nodes[id] || null;
+  f.context.titleNodes = nodes; f.context.titleRenders = [];
+  const render = identity.slice(identity.indexOf('function nativePlayerRender()'), identity.indexOf('async function nativePlayerRetryLoad()'));
+  vm.runInContext(render + `
+    const actualTitleRender = nativePlayerRender;
+    nativePlayerRender = () => {
+      actualTitleRender(); titleRenders.push({ busy: NATIVE_PLAYER.busy, flight: !!NATIVE_PLAYER.playFlight,
+        begin: titleNodes['btn-begin'].textContent, hint: titleNodes['save-note'].textContent });
+    };
+    nativePlayerRender();`, f.context);
+  return nodes;
+}
+
+function boundTitle(f) {
+  const nodes = titleRenderer(f);
+  for (const id of ['realm-pick', 'class-pick', 'realm-blurb', 'class-blurb', 'opt-recruit', 'opt-veteran',
+    'name-input', 'btn-dice', 'continue', 'continue-desc', 'season-title', 'title', 'character-create-fields']) {
+    nodes[id] = { hidden: false, value: '', textContent: '', innerHTML: '', attributes: {}, listeners: {},
+      setAttribute(name, value) { this.attributes[name] = String(value); },
+      addEventListener(type, handler) { this.listeners[type] = handler; }, querySelectorAll: () => [] };
+  }
+  Object.assign(f.context, { UI: { realm: 0, cls: 'warrior', start: 'recruit' },
+    REALMS: [{ id: 0, name: 'Logres', color: '#c00' }, { id: 1, name: 'Ériu', color: '#0c0' }, { id: 2, name: 'Thule', color: '#00c' }],
+    REALM_BLURB: ['Realm one', 'Realm two', 'Realm three'], CLASSES: { warrior: { name: 'Warrior', role: 'Fighter', blurb: 'Fight' } },
+    randomName: () => 'Random stranger', emblemSvg: () => '', iconSvg: () => '', audioUnlock() {}, sfx() {},
+    realmRank: () => 3, seasonTitleText: () => '' });
+  const title = titleUI.slice(titleUI.indexOf('function syncTitle()'), titleUI.indexOf('function bindHUD()'));
+  vm.runInContext(title + `
+    const actualBoundTitleBegin = nativePlayerBegin;
+    nativePlayerBegin = value => { titleEntry = actualBoundTitleBegin(value); return titleEntry; };
+  `, f.context);
+  return { nodes, setup: f.context.setupTitle, entry: () => f.context.titleEntry };
+}
+
+test('both actual title entry buttons resume the saved character and ignore hidden random creation fields', async () => {
+  for (const button of ['btn-begin', 'btn-continue']) {
+    const saved = { v: 1, char: { v: 1, name: 'PlaytestScout', realm: 0, cls: 'warrior', level: 15,
+      xp: 7342, rp: 225, hp: 127, gear: { main: 'saved-sword' }, fresh: true } };
+    const original = clone(saved), f = fixture({ canonical: true, hasRecord: true }), title = boundTitle(f);
+    f.SAVE.loaded = saved; title.setup(saved);
+    assert.equal(title.nodes['character-create-fields'].hidden, true); assert.equal(title.nodes.continue.hidden, false);
+    assert.equal(title.nodes['btn-begin'].textContent, 'Continue as PlaytestScout');
+    title.nodes['name-input'].value = 'Different random name'; f.context.UI.start = 'recruit';
+    title.nodes[button].onclick(); await title.entry();
+    assert.equal(f.calls.starts.length, 1); assert.deepEqual(f.calls.starts[0], { ...saved.char, fresh: false });
+    assert.equal(f.calls.starts[0].name, 'PlaytestScout'); assert.equal(f.calls.starts[0].level, 15); assert.equal(f.calls.starts[0].xp, 7342);
+    assert.equal(f.calls.starts[0].fresh, false); assert.deepEqual(saved, original, 'resuming never mutates the saved record');
+    assert.equal(f.calls.bootstrap, 0); assert.equal(f.calls.keys, 0); assert.equal(f.calls.finalSaves, 0);
+  }
+});
+
+test('new players keep fresh title creation, and explicit fresh-title setup restores the hidden form', async () => {
+  const f = fixture(), title = boundTitle(f); title.setup(null);
+  assert.equal(title.nodes['character-create-fields'].hidden, false); assert.equal(title.nodes.continue.hidden, true);
+  assert.equal(title.nodes['btn-begin'].textContent, 'Play now'); title.nodes['name-input'].value = 'New adventurer';
+  title.nodes['btn-begin'].onclick(); await title.entry();
+  assert.equal(f.calls.starts[0].name, 'New adventurer'); assert.equal(f.calls.starts[0].level, 1);
+  assert.equal(f.calls.starts[0].xp, 0); assert.equal(f.calls.starts[0].fresh, true);
+  const returning = fixture({ canonical: true, hasRecord: true }), reset = boundTitle(returning);
+  returning.SAVE.loaded = { v: 1, char: { name: 'Kept hero', realm: 0, cls: 'warrior', level: 15, xp: 900 } };
+  reset.setup(returning.SAVE.loaded); assert.equal(reset.nodes['character-create-fields'].hidden, true);
+  reset.setup(null); assert.equal(reset.nodes['character-create-fields'].hidden, false); assert.equal(reset.nodes.continue.hidden, true);
+  reset.nodes['name-input'].value = 'Explicit new hero'; reset.nodes['btn-begin'].onclick(); await reset.entry();
+  assert.equal(returning.calls.starts[0].name, 'Explicit new hero'); assert.equal(returning.calls.starts[0].fresh, true);
+});
+
+test('returning primary entry retains the existing switching, busy and private-read fences and retries the same character', async () => {
+  for (const block of ['switching', 'busy', 'unconfirmed']) {
+    const saved = { v: 1, char: { name: 'Kept hero', realm: 0, cls: 'warrior', level: 15, xp: 900 } };
+    const f = fixture({ canonical: true, hasRecord: true }), title = boundTitle(f); f.SAVE.loaded = saved; title.setup(saved);
+    if (block === 'unconfirmed') f.SAVE.readConfirmed = false; else f.NATIVE_PLAYER[block] = true;
+    vm.runInContext('nativePlayerRender()', f.context); assert.equal(title.nodes['btn-begin'].disabled, true);
+    title.nodes['btn-begin'].onclick(); await title.entry(); assert.equal(f.calls.starts.length, 0); assert.deepEqual(f.context.UI.titleSave.char, saved.char);
+    f.NATIVE_PLAYER.busy = false; f.NATIVE_PLAYER.switching = false; f.SAVE.readConfirmed = true;
+    vm.runInContext('nativePlayerRender()', f.context); assert.equal(title.nodes['btn-begin'].disabled, false);
+    title.nodes['btn-begin'].onclick(); await title.entry();
+    assert.deepEqual(f.calls.starts[0], { ...saved.char, fresh: false }); assert.equal(f.calls.bootstrap, 0);
+  }
+});
+
+test('first Play immediately shows live connecting feedback before its unresolved session opens, then exposes retry after failure', async () => {
+  const sessionGate = deferred(), f = fixture(), nodes = titleRenderer(f);
+  f.context.sessionOpening = sessionGate.promise;
+  vm.runInContext('nativePlayerProvisionalSession = () => sessionOpening;', f.context);
+  assert.equal(nodes['btn-begin'].textContent, 'Play now');
+  const opening = f.nativePlayerBegin(fresh());
+  // The very first synchronous busy render precedes playFlight assignment.
+  const firstBusy = f.context.titleRenders.find(render => render.busy);
+  assert.equal(firstBusy.flight, false); assert.equal(firstBusy.begin, 'Connecting your character…');
+  assert.match(firstBusy.hint, /Keep this page open until confirmation finishes/);
+  for (const id of ['btn-begin', 'btn-continue']) {
+    assert.equal(nodes[id].disabled, true); assert.equal(nodes[id].textContent, 'Connecting your character…');
+    assert.equal(nodes[id].attributes['aria-busy'], 'true');
+  }
+  assert.equal(nodes['save-note'].attributes.role, 'status'); assert.equal(nodes['save-note'].attributes['aria-live'], 'polite');
+  assert.equal(nodes['save-note'].attributes['aria-atomic'], 'true');
+  await flush(); assert.equal(f.calls.starts.length, 0); assert.equal(nodes['btn-begin'].disabled, true);
+  sessionGate.reject(Error('The character connection is unavailable. Retry Play now.')); await opening;
+  assert.equal(f.NATIVE_PLAYER.busy, false); assert.equal(nodes['btn-begin'].disabled, false);
+  assert.equal(nodes['btn-begin'].textContent, 'Play now'); assert.equal(nodes['btn-continue'].textContent, 'Return to the march');
+  assert.equal(nodes['btn-begin'].attributes['aria-busy'], 'false');
+  assert.equal(nodes['save-note'].textContent, 'The character connection is unavailable. Retry Play now.');
+  const retryGate = deferred(); f.context.sessionOpening = retryGate.promise;
+  const retry = f.nativePlayerBegin(fresh()); assert.equal(nodes['btn-begin'].textContent, 'Connecting your character…');
+  assert(!nodes['save-note'].textContent.includes('unavailable'), 'the explicit retry replaces the old failure with current progress');
+  retryGate.reject(Error('Retry could not connect. Try again.')); await retry;
+  assert.equal(nodes['btn-begin'].textContent, 'Play now'); assert.equal(nodes['save-note'].textContent, 'Retry could not connect. Try again.');
+});
+
+test('other title preparation tasks show immediate accurate feedback without relying on a play flight', async () => {
+  const gate = deferred(), f = fixture(), nodes = titleRenderer(f); f.context.preparation = gate.promise;
+  const pending = vm.runInContext('nativePlayerTask(() => preparation)', f.context);
+  assert.equal(f.NATIVE_PLAYER.playFlight, null); assert.equal(nodes['btn-begin'].textContent, 'Preparing your character…');
+  assert.match(nodes['save-note'].textContent, /Preparing your character/); assert.equal(nodes['btn-begin'].disabled, true);
+  gate.resolve(); await pending;
+  assert.equal(f.NATIVE_PLAYER.busyMessage, ''); assert.equal(nodes['btn-begin'].textContent, 'Play now');
+  assert.equal(nodes['btn-begin'].disabled, false); assert.equal(nodes['btn-begin'].attributes['aria-busy'], 'false');
+});
 
 test('expired guest requires an explicit restart and preserves its key before opening a fresh Play now session', async () => {
   const f = expiredFixture();

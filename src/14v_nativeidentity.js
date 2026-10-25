@@ -1,5 +1,5 @@
 /* Owner identity and private character saves, composed through native ports. */
-const NATIVE_PLAYER = { status: null, profile: null, cache: null, module: null, state: 'idle', message: '', busy: false, channel: null, authRefusal: null, switching: false, provisional: null, provisionalOpening: null, provisionalContext: null, playFlight: null, recoveryOpen: false, conflict: null, claimLastConfirmed: false, promoted: false, claimConfirmationPending: false };
+const NATIVE_PLAYER = { status: null, profile: null, cache: null, module: null, state: 'idle', message: '', busy: false, busyMessage: '', channel: null, authRefusal: null, switching: false, provisional: null, provisionalOpening: null, provisionalContext: null, playFlight: null, recoveryOpen: false, conflict: null, claimLastConfirmed: false, promoted: false, claimConfirmationPending: false };
 const nativePlayerError = (code, message) => Object.assign(new Error(message), { code });
 async function nativePlayerRequest(url, { method = 'GET', body, timeoutMs, token = NETWS.token } = {}) {
   // Durable admission and record registration include queued native CAS/readback.
@@ -185,7 +185,7 @@ async function nativePlayerBegin(save) {
     await startGame(save, () => !NETWS.reload && NETWS.host === host && NETWS.acct?.id === accountId
       && NATIVE_PLAYER.profile === profile && (!SAVE.native || SAVE.readConfirmed && NATIVE_PLAYER.status?.verified));
     nativePlayerRender();
-  });
+  }, 'Connecting your character…');
   NATIVE_PLAYER.playFlight = flight;
   try { return await flight; } finally { if (NATIVE_PLAYER.playFlight === flight) NATIVE_PLAYER.playFlight = null; }
 }
@@ -341,6 +341,7 @@ async function nativePlayerSaveRef(initialization = { active: true }) {
   } catch (error) { if (!active()) return null; NATIVE_PLAYER.state = error.code || 'unavailable'; return blocked; }
 }
 function nativePlayerSaveMessage() {
+  if (NATIVE_PLAYER.busy && !GAME.started) return (NATIVE_PLAYER.busyMessage || 'Preparing your character…') + ' Keep this page open until confirmation finishes.';
   if (!SAVE.native) return SAVE.backend === 'db' ? 'Progress saves automatically to your game account.' : 'Progress saves automatically in this browser.';
   if (nativePlayerGuestExpired() || NATIVE_PLAYER.expiredAdventure) return 'This temporary session expired. Open a character saved to Interego, or start a new one. Existing saves and browser keys are kept.';
   if (nativePlayerNewAdventureAllowed()) return 'This game sign-in expired. Reconnect your identity or start a new character. Your existing private saves are kept.';
@@ -458,15 +459,24 @@ function nativePlayerRender() {
     }
     if (NATIVE_PLAYER.message) { const p = add('p', NATIVE_PLAYER.message); p.setAttribute('role', 'status'); }
   }
-  if ($('save-note')) $('save-note').textContent = nativePlayerGuestExpired() || NATIVE_PLAYER.expiredAdventure
-    ? 'Expired session. Existing saves and browser keys are kept.' : nativePlayerSaveMessage();
+  const titleBusy = NATIVE_PLAYER.busy && !GAME.started;
+  if ($('save-note')) {
+    const note = $('save-note'); note.setAttribute('role', 'status'); note.setAttribute('aria-live', 'polite'); note.setAttribute('aria-atomic', 'true');
+    note.textContent = titleBusy ? nativePlayerSaveMessage() : !GAME.started && NATIVE_PLAYER.message ? NATIVE_PLAYER.message
+      : nativePlayerGuestExpired() || NATIVE_PLAYER.expiredAdventure ? 'Expired session. Existing saves and browser keys are kept.' : nativePlayerSaveMessage();
+  }
   // The owner index may reveal a record without any game-server pointer. Only
   // an actual private read (or confirmed absence) and held key permit entry.
   const profileStatus = NATIVE_PLAYER.profile?.status();
   const blocked = NATIVE_PLAYER.busy || NATIVE_PLAYER.switching || nativePlayerGuestExpired() || !!NATIVE_PLAYER.expiredAdventure || (SAVE.native && !nativePlayerCanPlayNow()
     && (!status?.verified || !SAVE.readConfirmed || !profileStatus || (profileStatus.hasRecord && (!profileStatus.keyPresent || !SAVE.loaded))));
-  for (const id of ['btn-begin', 'btn-continue']) if ($(id)) $(id).disabled = !!blocked;
-  if ($('btn-begin')) $('btn-begin').textContent = NATIVE_PLAYER.busy && NATIVE_PLAYER.playFlight ? 'Opening your character…' : nativePlayerCanPlayNow() ? 'Play now' : 'Enter the realm';
+  for (const id of ['btn-begin', 'btn-continue']) if ($(id)) {
+    $(id).disabled = !!blocked; $(id).setAttribute('aria-busy', String(titleBusy));
+  }
+  const titleCharacter = typeof UI !== 'undefined' && UI.titleSave?.char;
+  if ($('btn-begin')) $('btn-begin').textContent = titleBusy ? NATIVE_PLAYER.busyMessage
+    : titleCharacter ? 'Continue as ' + titleCharacter.name : nativePlayerCanPlayNow() ? 'Play now' : 'Enter the realm';
+  if ($('btn-continue')) $('btn-continue').textContent = titleBusy ? NATIVE_PLAYER.busyMessage : 'Return to the march';
   if ($('btn-keep-character')) {
     $('btn-keep-character').hidden = !nativePlayerIsProvisional() || nativePlayerGuestExpired();
     $('btn-keep-character').disabled = NATIVE_PLAYER.busy || NATIVE_PLAYER.switching;
@@ -478,12 +488,12 @@ async function nativePlayerRetryLoad() {
   await loadSave({ retry: true });
   nativePlayerRender();
 }
-async function nativePlayerTask(run) {
+async function nativePlayerTask(run, busyMessage = 'Preparing your character…') {
   if (NATIVE_PLAYER.busy) return;
-  NATIVE_PLAYER.busy = true; NATIVE_PLAYER.message = ''; nativePlayerRender();
+  NATIVE_PLAYER.busyMessage = busyMessage; NATIVE_PLAYER.busy = true; NATIVE_PLAYER.message = ''; nativePlayerRender();
   try { await run(); }
   catch (error) { NATIVE_PLAYER.message = error.message || 'Your pod did not confirm the operation. Try again.'; }
-  finally { NATIVE_PLAYER.busy = false; nativePlayerRender(); }
+  finally { NATIVE_PLAYER.busy = false; NATIVE_PLAYER.busyMessage = ''; nativePlayerRender(); }
 }
 function nativePlayerClaimConnect({ lastConfirmed = false } = {}) {
   if (NATIVE_PLAYER.busy || !nativePlayerIsProvisional() || !NATIVE_PLAYER.provisional) return;

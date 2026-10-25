@@ -47,6 +47,7 @@
   #title .brand p span { white-space: nowrap; } /* the tagline breaks only between its phrases, never before a lone word */
   #title .card { pointer-events: auto; margin: calc(16px + var(--safe-t)) 16px calc(16px + var(--safe-b)) 0; padding: 0; display: flex; flex-direction: column; overflow: hidden; background: rgba(14, 15, 19, 0.82); min-height: 0; }
   #title .card-body { flex: 1; min-height: 0; overflow-y: auto; padding: 20px 22px 14px; display: flex; flex-direction: column; gap: 16px; }
+  #character-create-fields { display: grid; gap: 16px; }
   #title .card-foot { padding: 12px 22px 14px; display: grid; gap: 8px; border-top: 1px solid var(--line); }
   #title h2 { margin: 0; font: 400 15px/1 var(--caps); letter-spacing: 0.12em; color: var(--bronze-hi); text-transform: uppercase; }
   .step { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
@@ -1321,7 +1322,9 @@
       <p id="continue-desc"></p>
       <p id="season-title" class="season-title"></p><!-- [loops] -->
       <button class="btn primary" id="btn-continue" type="button">Return to the march</button>
+      <p class="fineprint">To start over later, choose Menu → New character.</p>
     </div>
+    <div id="character-create-fields">
     <div class="step">
       <h2>Choose your realm</h2>
       <div class="realms" role="radiogroup" aria-label="Realm" id="realm-pick"></div>
@@ -1342,6 +1345,7 @@
         <button class="opt" type="button" role="radio" id="opt-recruit" aria-checked="true"><b>Recruit</b><small>Level 1, in your home realm</small></button>
         <button class="opt" type="button" role="radio" id="opt-veteran" aria-checked="false"><b>Veteran</b><small>Level 15, ready for the frontier</small></button>
       </div>
+    </div>
     </div>
     </div>
     <div class="card-foot">

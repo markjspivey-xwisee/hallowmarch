@@ -664,7 +664,9 @@ function beastVS(depth) {
       tg -= vec2(lungeZ, bob);
       tg.y += sink.y; tg = bbRot(tg, vPiv, -thV);
       tg = bbRot(tg, vec2(uSpine.z, uFT.y), -pitch);
-      tg = bbRot(tg, uSpine.zy, fr ? -spine : spine);
+      // Select a constant sign before multiplying: FXC can emit an invalid
+      // negated source operand for the equivalent signed-value conditional.
+      tg = bbRot(tg, uSpine.zy, spine * (fr ? -1.0 : 1.0));
       vec3 Lr = fr ? uFL : uBL, Tr = fr ? uFT : uBT;
       // [polish] a foot to the side of the leg's plane: the leg swings out about its top (the feet do not cross), reaching
       // as far down, and the hoof or paw rolls back level. [motion3] The turn is the one that sets the low joint (the

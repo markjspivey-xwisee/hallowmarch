@@ -33,6 +33,11 @@ function bindTitle() {
   $('name-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('btn-begin').click(); });
   $('btn-begin').onclick = () => {
     if (GAME.started) return;
+    if (UI.titleSave?.char) {
+      audioUnlock();
+      void nativePlayerBegin({ ...UI.titleSave.char, fresh: false });
+      return;
+    }
     const name = ($('name-input').value || '').trim().replace(/\s+/g, ' ').slice(0, 18) || randomName(UI.realm);
     audioUnlock();
     void nativePlayerBegin({ v: 1, name, realm: UI.realm, cls: UI.cls, level: UI.start === 'veteran' ? 15 : 1, xp: 0, rp: 0, fresh: true });
@@ -41,7 +46,7 @@ function bindTitle() {
     const s = UI.titleSave;
     if (GAME.started || !s || !s.char) return;
     audioUnlock();
-    void nativePlayerBegin({ ...s.char });
+    void nativePlayerBegin({ ...s.char, fresh: false });
   };
   UI.titleBound = true;
 }
@@ -49,6 +54,7 @@ function setupTitle(save) {
   if (!UI.titleBound) bindTitle();
   UI.titleSave = save && save.char ? save : null;
   UI.nameTouched = false;
+  $('character-create-fields').hidden = !!UI.titleSave;
   if (UI.titleSave) {
     const c = save.char;
     $('continue').hidden = false;
