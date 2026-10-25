@@ -228,10 +228,17 @@ function roomFor(policy) {
   }
   return null;
 }
+function roomNeedsWarbandOrders(R) {
+  if (!R) return false;
+  const activity = (R.diagnostic ? R.diagnosticWorld : WORLDS[R.name])?.activity;
+  return !!activity?.entities?.meta?.warbands?.some(w => typeof w.orderToken === 'string' && w.orderToken);
+}
 function roomHost(R) {
   let best = null;
+  const needsOrders = roomNeedsWarbandOrders(R);
   for (const c of R.clients.values()) {
     if (!isHumanPlaying(c) || !c.slow || c.slow.on !== 1) continue;
+    if (needsOrders && c.slow.warbandOrders !== 1) continue;
     const capable = c.slow.sharedScene === 2, previous = best?.slow?.sharedScene === 2;
     if (!best || capable && !previous || capable === previous
       && (c.since < best.since || c.since === best.since && c.peer < best.peer)) best = c;
@@ -850,7 +857,8 @@ function onMsg(c, raw) {
   if (!c.acct) return;
   if (m.t === 'slow') {
     const principalVerified = !nativePlayersRequired || !!PLAYER_ACCOUNTS.humanPrincipalFor(c);
-    if (nativePlayersRequired && principalVerified && m.d?.on === 1 && m.d.sharedScene !== 2) {
+    if (principalVerified && m.d?.on === 1 && (nativePlayersRequired && m.d.sharedScene !== 2
+      || roomNeedsWarbandOrders(c.room) && m.d.warbandOrders !== 1)) {
       const why = 'Reload Hallowmarch to join the shared world. Your saved character is preserved.';
       send(c, { t: 'reload-required', code: 'shared_scene_upgrade_required', why });
       c.ws.close(4006, why); return;

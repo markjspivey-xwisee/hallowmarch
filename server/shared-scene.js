@@ -52,6 +52,49 @@ function rowsRead(rows, max, clean) {
   for (const r of rows) { const value = clean(r); if (!value || ids.has(value.id)) return null; ids.add(value.id); out.push(value); }
   return out;
 }
+function warbandOrderValid(o) {
+  if (o === null) return true;
+  if (!o || Array.isArray(o) || !['attack', 'defend', 'garrison', 'raid', 'carry', 'retrieve', 'patrol', 'rally'].includes(o.type)
+    || Object.keys(o).some(k => !['type', 'keep', 'temple', 'relic', 'node', 'x', 'z', 'phase', 'byPlayer', 'home', 'why', 'untilLeft', 'sinceLeft', 'rallyPeer', 'rallyName'].includes(k))) return false;
+  const ref = (v, max) => Number.isSafeInteger(v) && v >= 0 && v < max;
+  if (['attack', 'defend', 'garrison'].includes(o.type) && !ref(o.keep, 6)
+    || o.type === 'raid' && (!ref(o.temple, 3) || !ref(o.relic, 3))
+    || ['carry', 'retrieve'].includes(o.type) && !ref(o.relic, 3) || o.type === 'patrol' && !ref(o.node, 4096)) return false;
+  return ['keep', 'temple', 'relic', 'node'].every(k => o[k] == null || ref(o[k], k === 'keep' ? 6 : k === 'node' ? 4096 : 3))
+    && (o.x == null && o.z == null || finite(o.x, -4000, 4000) && finite(o.z, -4000, 4000))
+    && (o.phase == null || ['travel', 'siege', 'assault', 'hold', 'bombard', 'breach', 'gap'].includes(o.phase))
+    && typeof o.byPlayer === 'boolean' && typeof o.home === 'boolean' && typeof o.why === 'string' && o.why.length <= 32
+    && (o.untilLeft == null || finite(o.untilLeft, 0, 1e6)) && (o.sinceLeft == null || finite(o.sinceLeft, -1e6, 1e6))
+    && (o.rallyPeer == null || keyOk(o.rallyPeer) && o.rallyPeer.length <= 100)
+    && (o.rallyName == null || typeof o.rallyName === 'string' && o.rallyName.length <= 56);
+}
+// Army effects and their receipts enter the retained cache together. Commands
+// have a token so an already queued entity snapshot cannot undo a newer order.
+function warbandReceiptEffects(entities, receipts, before) {
+  const known = new Set((before || []).map(r => r.ownerAccount + ':' + r.id));
+  const fresh = (receipts || []).filter(r => r.action === 'warband.order' && r.ok && !known.has(r.ownerAccount + ':' + r.id));
+  if (!fresh.length) return { entities, patches: [] };
+  if (!Array.isArray(entities?.meta?.warbands) || entities.meta.warbands.length > 96) return null;
+  let warbands = entities.meta.warbands.slice(); const patches = [];
+  for (const r of fresh) {
+    const w = r.result?.warband, at = warbands.findIndex(b => b.id === w?.id);
+    const campaign = r.result?.campaign;
+    if (!w || !Number.isSafeInteger(w.id) || at < 0 || !Number.isSafeInteger(campaign) || campaign < 1 || campaign > 1e9
+      || warbands[at].orderCampaign > campaign || !warbandOrderValid(w.order) || typeof r.id !== 'string' || !r.id || r.id.length > 100) return null;
+    warbands[at] = { ...warbands[at], order: w.order, orderToken: r.id, orderCampaign: campaign };
+    patches.push({ warband: { id: w.id, order: w.order }, orderToken: r.id, campaign });
+  }
+  return { entities: { ...entities, meta: { ...entities.meta, warbands } }, patches };
+}
+function keepCanonicalWarbandOrders(entities, prior) {
+  if (!Array.isArray(entities?.meta?.warbands) || !Array.isArray(prior?.meta?.warbands)) return entities;
+  const old = new Map(prior.meta.warbands.map(w => [w.id, w]));
+  return { ...entities, meta: { ...entities.meta, warbands: entities.meta.warbands.map(w => {
+    const was = old.get(w.id);
+    return was?.orderToken && !(w.orderCampaign > (was.orderCampaign || 1)) && w.orderToken !== was.orderToken
+      ? { ...w, order: was.order, orderToken: was.orderToken, orderCampaign: was.orderCampaign || 1 } : w;
+  }) } };
+}
 function sceneValue(kind, old, payload) {
   if (!payload || payload.v !== 1 || typeof payload.full !== 'boolean' || !safeJson(payload)) return null;
   let value;
@@ -326,7 +369,8 @@ export function createSharedScene({ hostFor, live, admission, stateFor, send, ch
       const serialized = stableScene(command), prior = seen.ids.get(id);
       if (++seen.count > 20 || !c.pos || now() - c.posT > 5000
         || prior && (kind !== 'worldparts' || prior.serialized !== serialized || now() - prior.at < 2000)) return false;
-      const stamp = { serialized, at: now(), ...(prior?.towerBrand ? { towerBrand: prior.towerBrand } : {}) };
+      const stamp = { serialized, at: now(), ...(prior?.towerBrand ? { towerBrand: prior.towerBrand } : {}),
+        ...(prior?.warbandOrder ? { warbandOrder: prior.warbandOrder } : {}) };
       seen.ids.set(id, stamp);
       if (seen.ids.size > 128) seen.ids.delete(seen.ids.keys().next().value);
       s.commands.set(c.peer, seen); const host = room.clients.get(s.host);
@@ -346,9 +390,30 @@ export function createSharedScene({ hostFor, live, admission, stateFor, send, ch
         }
         actorState = stamp.towerBrand.actorState;
       }
+      if (kind === 'worldparts' && command.op === 'warband.order') {
+        const a = command.args, f = c.fast;
+        if (host.slow?.warbandOrders !== 1 || !a || Array.isArray(a) || Object.keys(a).sort().join(',') !== 'campaign,cmd,table,target,wb'
+          || !Number.isSafeInteger(a.campaign) || a.campaign < 1 || a.campaign > 1e9
+          || !Number.isSafeInteger(a.wb) || a.wb < 1 || a.wb > 1e9
+          || !['attack', 'defend', 'raid', 'rally', 'release'].includes(a.cmd)
+          || !Number.isSafeInteger(a.target) || !Number.isSafeInteger(a.table) || a.table < -1 || a.table > 4095
+          || (['rally', 'release'].includes(a.cmd) ? a.target !== -1 : a.target < 0 || a.target >= (a.cmd === 'raid' ? 3 : 6))
+          || Object.keys(command.goods || {}).length) return false;
+        if (!stamp.warbandOrder) {
+          if (!f || !Array.isArray(f.p) || f.p.length !== 3 || !f.p.every(Number.isFinite) || Math.abs(f.p[1]) > 500 || f.d !== 0
+            || ![0, 1, 2].includes(c.slow?.r)) return false;
+          stamp.warbandOrder = { actorState: { alive: true, y: f.p[1],
+            level: Number.isFinite(c.slow.l) ? Math.max(1, Math.min(60, Math.floor(c.slow.l))) : 1,
+            rank: Number.isFinite(c.slow.rr) ? Math.max(0, Math.min(20, Math.floor(c.slow.rr))) : 0,
+            name: String(c.slow.dn || c.slow.n || 'the commander').slice(0, 56) },
+            position: { x: c.pos.x, z: c.pos.z }, realm: c.slow.r };
+        }
+        actorState = stamp.warbandOrder.actorState;
+      }
+      const actorStamp = stamp.warbandOrder || stamp.towerBrand;
       send(host, { t: 'activity', kind, op: 'command', authority: s.authority, worldAdmission: s.worldAdmission,
         peer: s.host, from: c.peer, ownerAccount: c.acct?.id || c.peer,
-        position: stamp.towerBrand?.position || { x: c.pos.x, z: c.pos.z }, realm: stamp.towerBrand?.realm ?? c.slow?.r ?? -1, at: now(), command,
+        position: actorStamp?.position || { x: c.pos.x, z: c.pos.z }, realm: actorStamp?.realm ?? c.slow?.r ?? -1, at: now(), command,
         ...(actorState ? { actorState } : {}) });
       return true;
     }
@@ -410,14 +475,26 @@ export function createSharedScene({ hostFor, live, admission, stateFor, send, ch
     let payload;
     try { payload = JSON.parse([...Array(pending.total)].map((_, i) => pending.parts.get(i)).join('')); }
     catch { delete s.pending[kind]; return false; }
-    delete s.pending[kind]; const merged = sceneValue(kind, s.streams[kind], payload);
+    delete s.pending[kind]; let merged = sceneValue(kind, s.streams[kind], payload);
     if (!merged) return false;
+    let orderPatches = [];
+    if (kind === 'entities') {
+      merged = keepCanonicalWarbandOrders(merged, s.streams.entities);
+      if (payload.meta?.warbands) payload = { ...payload, meta: merged.meta };
+    }
+    if (kind === 'worldparts') {
+      const effect = warbandReceiptEffects(s.streams.entities, merged.receipts, s.streams.worldparts?.receipts);
+      if (!effect) return false;
+      s.streams.entities = effect.entities; orderPatches = effect.patches;
+    }
     if (kind === 'worldparts' && s.rebuildReceiptAwaitHost && payload.receipts?.some(r =>
       r.id === s.rebuildReceiptAwaitHost.id && r.ownerAccount === s.rebuildReceiptAwaitHost.ownerAccount
       && r.digest === s.rebuildReceiptAwaitHost.digest)) s.rebuildReceiptAwaitHost = null;
     s.streams[kind] = merged; s.streamSeq[kind] = m.seq;
     if (!persist(room, s)) return refuse(c, s, m, 'scene_capacity');
     const publish = changedAuthority => {
+      for (const patch of orderPatches) broadcast(room, { t: 'activity', kind: 'entities', op: 'warband-order',
+        authority: s.authority, worldAdmission: s.worldAdmission, peer: s.host, ...patch });
       const publicPayload = kind === 'worldparts' ? changedAuthority ? s.publicWorldparts : { ...payload, receipts: s.publicWorldparts.receipts } : payload;
       const seq = changedAuthority ? 0 : m.seq;
       if (kind === 'worldparts') s.publicWorldSeq = seq;

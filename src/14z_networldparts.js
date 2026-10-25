@@ -144,7 +144,7 @@ function netWorldPartsExecute(m) {
   }
   // One slot remains available for a server-created canonical outcome.
   if (NETPARTS.receipts.filter(r => !r.settled).length >= 23) return;
-  const peer = NET.peers.get(m.from), actor = c.op === 'tower.brand' && typeof spec.actor === 'function'
+  const peer = NET.peers.get(m.from), actor = ['tower.brand', 'warband.order'].includes(c.op) && typeof spec.actor === 'function'
     ? spec.actor(m) : m.from === NET.self ? GAME.player : peer?.ghost;
   const position = m.position;
   const location = spec.point?.(c.args);
@@ -172,6 +172,7 @@ function netWorldPartsExecute(m) {
   const goods = [...new Set([...Object.keys(before), ...Object.keys(after)])]
     .map(id => [id, (after[id] || 0) - (before[id] || 0)]).filter(([, n]) => n !== 0);
   const receipt = { durable: typeof spec.durable === 'function' ? spec.durable(c.args) !== false : spec.durable !== false,
+    ...(c.op === 'warband.order' ? { action: c.op } : {}),
     digest: crypto.randomUUID(), to: m.from, ownerAccount: m.ownerAccount, id: c.id, ok, reason, goods, gold, items,
     notes: NETPARTS.notes.slice(0, 20), skills: NETPARTS.skills.slice(0, 20), result: result && typeof result === 'object' ? result.result ?? result : null };
   NETPARTS.receipts.push(receipt); netWorldPartsPruneReceipts();
@@ -782,3 +783,42 @@ queueMicrotask(() => netWorldPartsRegisterCommand('tower.brand', {
     return { ok: towerIgnite(T, T.look === 'rath' ? T.TT + 2 : P.y - T.S.y + 1.2) };
   },
 }));
+
+// Warband commands use the accepted connection's progression and pose. Hall
+// access remains a canonical keeper check, and never borrows the keeper's grant.
+function netWorldPartsWarbandActor(m) {
+  const s = m.actorState, p = m.position;
+  if (!s || s.alive !== true || !Number.isFinite(s.y) || Math.abs(s.y) > 500
+    || !Number.isSafeInteger(s.level) || s.level < 1 || s.level > 60
+    || !Number.isSafeInteger(s.rank) || s.rank < 0 || s.rank > 20
+    || ![0, 1, 2].includes(m.realm) || !p || ![p.x, p.z].every(v => Number.isFinite(v) && Math.abs(v) <= 4000)) return null;
+  return { role: 'remote', netPeer: m.from, faction: m.realm, alive: true, x: p.x, y: s.y, z: p.z,
+    level: s.level, name: typeof s.name === 'string' ? s.name.slice(0, 56) : 'the commander',
+    netCommand: true, commandRank: s.rank, commandTable: -1 };
+}
+queueMicrotask(() => {
+  netWorldPartsRegisterCommand('warband.order', {
+    durable: false, actor: netWorldPartsWarbandActor,
+    run: (a, context) => {
+      if (!a || Object.keys(a).sort().join(',') !== 'campaign,cmd,table,target,wb'
+        || !Number.isSafeInteger(a.campaign) || a.campaign !== CAMPAIGN.n
+        || !Number.isSafeInteger(a.wb) || a.wb < 1 || !Number.isSafeInteger(a.target)
+        || !Number.isSafeInteger(a.table) || a.table < -1 || a.table > 4095
+        || !['attack', 'defend', 'raid', 'rally', 'release'].includes(a.cmd)) return false;
+      GAME.player.commandTable = a.table;
+      const r = cwPlayerOrder(a.wb, a.cmd, a.target);
+      if (!r.ok) return { ok: false, why: r.message };
+      const wb = WAR.warbands.find(w => w.id === a.wb && !w.dead);
+      wb.orderToken = context.commandId;
+      return { ok: true, result: { message: r.message, ordered: !!r.ordered,
+        campaign: CAMPAIGN.n, warband: { id: wb.id, order: netEntityOrderMeta(wb.order) } } };
+    },
+  });
+  netWorldPartsRegisterResult('warband.order', result => {
+    if (result?.ordered) { CAMPAIGN.story.you.orders++; sfx('horn'); }
+    if (typeof result?.message === 'string') {
+      if (typeof CWUI !== 'undefined') CWUI.msg = result.message;
+      uiToast(result.message);
+    }
+  });
+});

@@ -4,6 +4,7 @@ const NET_ENTITIES = { authority: '', peer: '', admission: null, complete: false
   seq: 0, received: -1, next: 1, at: -Infinity, applying: false, rows: new Map(), bodies: new Map(),
   sent: new Map(), buffers: new Map(), assembly: null, commands: 0, rewards: new Set(), rewarding: false,
   petsAt: -Infinity, metaKey: '', published: false, lastRefusal: '',
+  orderPatches: new Map(),
   stats: { frames: 0, sent: 0, made: 0, hits: 0, refused: 0, commands: 0, rewards: 0 } };
 const netEntityShared = () => typeof NETWS !== 'undefined' && !!NETWS.url;
 const netEntityPrivate = e => !e || e === GAME.player || e.role === 'player' || e.role === 'remote'
@@ -368,14 +369,73 @@ function netEntityApplyDungeon(image) {
   if (DEEP.heat && DEEP.heatTex && typeof deepHeatUpload === 'function') deepHeatUpload();
 }
 
+function netEntityOrderMeta(O) {
+  if (!O) return null;
+  return { type: O.type, keep: O.keep?.id ?? null, relic: O.relic?.id ?? null,
+    temple: O.temple?.id ?? null, node: O.node?.id ?? null,
+    ...(Number.isFinite(O.x) && Number.isFinite(O.z) ? { x: netEntityR(O.x), z: netEntityR(O.z) } : {}),
+    phase: O.phase, byPlayer: O.byPlayer === true, home: O.home === true,
+    why: typeof O.why === 'string' ? O.why.slice(0, 32) : '',
+    ...(Number.isFinite(O.until) ? { untilLeft: Math.ceil(clamp(O.until - GAME.t, 0, 1e6)) } : {}),
+    ...(Number.isFinite(O.since) ? { sinceLeft: Math.ceil(clamp(O.since - GAME.t, -1e6, 1e6)) } : {}),
+    ...(O.rallyPeer ? { rallyPeer: O.rallyPeer, rallyName: String(O.rallyName || '').slice(0, 56) } : {}) };
+}
+function netEntityReadOrder(row) {
+  if (!row || !['attack', 'defend', 'garrison', 'raid', 'carry', 'retrieve', 'patrol', 'rally'].includes(row.type)) return null;
+  const at = (list, id) => Number.isSafeInteger(id) && id >= 0 ? list[id] || null : null;
+  const keep = at(WAR.keeps, row.keep), temple = at(WAR.temples, row.temple), relic = at(WAR.relics, row.relic);
+  const node = typeof NAV !== 'undefined' ? at(NAV.nodes, row.node) : null;
+  if (['attack', 'defend', 'garrison'].includes(row.type) && !keep || row.type === 'raid' && (!temple || !relic)
+    || ['carry', 'retrieve'].includes(row.type) && !relic || row.type === 'patrol' && !node) return null;
+  const O = { type: row.type, keep, temple, relic, node,
+    byPlayer: row.byPlayer === true, home: row.home === true,
+    phase: ['travel', 'siege', 'assault', 'hold', 'bombard', 'breach', 'gap'].includes(row.phase) ? row.phase : 'travel',
+    why: typeof row.why === 'string' ? row.why.slice(0, 32) : '', since: GAME.t + 1 };
+  if ([row.x, row.z].every(v => Number.isFinite(v) && Math.abs(v) <= 4000)) { O.x = row.x; O.z = row.z; }
+  if (Number.isFinite(row.untilLeft) && row.untilLeft >= 0 && row.untilLeft <= 1e6) O.until = GAME.t + row.untilLeft;
+  else if (row.type === 'rally' || row.type === 'patrol') O.until = GAME.t + (row.type === 'rally' ? 300 : 30);
+  if (Number.isFinite(row.sinceLeft) && Math.abs(row.sinceLeft) <= 1e6) O.since = GAME.t + row.sinceLeft;
+  if (row.type === 'rally' && typeof row.rallyPeer === 'string' && row.rallyPeer.length > 0 && row.rallyPeer.length <= 100
+    && !/[\u0000-\u001f\u007f]/.test(row.rallyPeer)) {
+    O.rallyPeer = row.rallyPeer; O.rallyName = typeof row.rallyName === 'string' ? row.rallyName.slice(0, 56) : '';
+  }
+  return O;
+}
+function netEntityApplyBandOrder(w, row, token) {
+  token = typeof token === 'string' && token.length <= 100 ? token : '';
+  if (w.orderToken && token !== w.orderToken && (w.orderOldTokens || []).includes(token)) return;
+  if (token !== (w.orderToken || '')) {
+    w.orderOldTokens = [...(w.orderOldTokens || []), w.orderToken || ''].slice(-8);
+  }
+  w.order = netEntityReadOrder(row); w.orderToken = token;
+  w.path = null; w.pathIdx = 0; w.goal = null;
+}
+function netEntityOrderPatch(m) {
+  const row = m.warband;
+  if (!row || !Number.isSafeInteger(row.id) || row.id < 1 || typeof m.orderToken !== 'string'
+    || !m.orderToken || m.orderToken.length > 100 || !Number.isSafeInteger(m.campaign) || m.campaign < 1
+    || row.order !== null && !netEntityReadOrder(row.order)) return false;
+  const w = WAR.warbands.find(w => w.id === row.id);
+  if (w) {
+    if (w.orderCampaign > m.campaign) return false;
+    if (w.orderCampaign !== m.campaign) { w.orderToken = ''; w.orderOldTokens = []; }
+    w.orderCampaign = m.campaign;
+    if (w.orderToken !== m.orderToken) netEntityApplyBandOrder(w, row.order, m.orderToken);
+  } else {
+    NET_ENTITIES.orderPatches.set(row.id, { order: row.order, token: m.orderToken, campaign: m.campaign });
+    if (NET_ENTITIES.orderPatches.size > 96) NET_ENTITIES.orderPatches.delete(NET_ENTITIES.orderPatches.keys().next().value);
+  }
+  return true;
+}
 function netEntityMeta() {
   const ref = id => getEnt(id)?.netEntityId || null;
   const meta = { dungeon: netEntityDungeonMeta() };
   if (typeof WAR !== 'undefined') meta.warbands = WAR.warbands.slice(0, 96).map(w => ({
     id: w.id, realm: w.realm, ord: w.ord || 0, members: w.members.map(ref).filter(Boolean),
+    orderToken: typeof w.orderToken === 'string' ? w.orderToken : '',
+    orderCampaign: typeof CAMPAIGN !== 'undefined' ? CAMPAIGN.n : 1,
     season: w.season ? netEntityPlain(w.season) : null,
-    order: w.order ? { type: w.order.type, keep: w.order.keep?.id ?? null, relic: w.order.relic?.id ?? null,
-      x: w.order.x, z: w.order.z, phase: w.order.phase } : null }));
+    order: netEntityOrderMeta(w.order) }));
   if (typeof CAMPS !== 'undefined') meta.camps = CAMPS.slice(0, 128).map(c => ({ id: c.id,
     members: [...c.members].map(ref).filter(Boolean), elite: ref(c.eliteId),
     eliteIn: Math.max(0, c.eliteAt - GAME.t), respawn: c.respawnAt.slice(0, 32).map(t => Math.max(0, t - GAME.t)) }));
@@ -398,8 +458,16 @@ function netEntityApplyMeta(meta) {
       const w = old.get(row.id) || { id: row.id, realm: row.realm, path: null, pathIdx: 0,
         created: GAME.t, engagedUntil: -99, lastProgress: GAME.t, progX: 0, progZ: 0 };
       w.realm = row.realm; w.ord = row.ord; w.members = row.members.map(ref).filter(id => id != null); w.season = row.season;
-      w.order = row.order ? { ...row.order, keep: WAR.keeps[row.order.keep] || null,
-        relic: WAR.relics[row.order.relic] || null, since: GAME.t + 1 } : null;
+      const patch = NET_ENTITIES.orderPatches.get(row.id);
+      if (patch) {
+        if (!(w.orderCampaign > patch.campaign)) { netEntityApplyBandOrder(w, patch.order, patch.token); w.orderCampaign = patch.campaign; }
+        NET_ENTITIES.orderPatches.delete(row.id);
+      }
+      const campaign = Number.isSafeInteger(row.orderCampaign) && row.orderCampaign >= 1 ? row.orderCampaign : 1;
+      if (!(w.orderCampaign > campaign)) {
+        if (w.orderCampaign && w.orderCampaign !== campaign) { w.orderToken = ''; w.orderOldTokens = []; }
+        netEntityApplyBandOrder(w, row.order, row.orderToken); w.orderCampaign = campaign;
+      }
       for (const id of w.members) { const e = getEnt(id); if (e) e.warband = w; }
       return w;
     });
@@ -685,6 +753,7 @@ function netEntityMessage(m) {
     if (!current || !m.worldAdmission || current.origin !== m.worldAdmission.origin || current.epoch !== m.worldAdmission.epoch
       || typeof m.authority !== 'string' || !m.authority || typeof m.peer !== 'string') return false;
     if (m.authority !== NET_ENTITIES.authority) {
+      NET_ENTITIES.orderPatches.clear();
       NET_ENTITIES.sent.clear(); NET_ENTITIES.received = -1; NET_ENTITIES.seq = 0; NET_ENTITIES.assembly = null; NET_ENTITIES.published = false;
       NET_ENTITIES.waiting = m.hasEntities === true;
     }
@@ -703,6 +772,7 @@ function netEntityMessage(m) {
     }
     return false;
   }
+  if (m.op === 'warband-order') return netEntityOrderPatch(m);
   if (m.op === 'owner-left' && typeof m.owner === 'string' && Array.isArray(m.ids) && m.ids.length <= 2048) {
     for (const id of m.ids) {
       const e = NET_ENTITIES.bodies.get(id);
