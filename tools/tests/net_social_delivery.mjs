@@ -10,7 +10,7 @@ import { createHumanPlayGate } from '../../server/human-play.js';
 const repo = fileURLToPath(new URL('../../', import.meta.url)).replace(/\/$/, '');
 const clientSource = ['14n_net.js', '14o_netui.js'].map(name => readFileSync(repo + '/src/' + name, 'utf8')).join('\n');
 const serverSource = readFileSync(repo + '/server/server.js', 'utf8');
-const roomHostSource = serverSource.slice(serverSource.indexOf('function roomHost('), serverSource.indexOf('const send =', serverSource.indexOf('function roomHost(')));
+const roomHostSource = serverSource.slice(serverSource.indexOf('function roomNeedsWarbandOrders('), serverSource.indexOf('const send =', serverSource.indexOf('function roomHost(')));
 const evForSource = serverSource.slice(serverSource.indexOf('function evFor('), serverSource.indexOf('/* ------------------------------------------------------------------ */', serverSource.indexOf('function evFor(')));
 const onFastSource = serverSource.slice(serverSource.indexOf('function onFast('), serverSource.indexOf('/* ------------------------------------------------------------------ */', serverSource.indexOf('function onFast(')));
 const plain = value => JSON.parse(JSON.stringify(value));
@@ -60,7 +60,7 @@ function server() {
     Date: { now: () => now }, Map, Object, Array, JSON, Math, Number,
     isHumanPlaying: humanPlay.isPlaying,
     STATS: { badMsgs: 0, paceDropped: 0, chatKept: 0, hitsFar: 0, evDropped: 0, relayed: 0, evRelayed: 0, farRelayed: 0, thinned: 0 },
-    CFG: { maxPace: 35, interest: 260, farEvery: 2500 }, WORLD: { ports: [] },
+    CFG: { maxPace: 35, interest: 260, farEvery: 2500 }, WORLD: { ports: [] }, WORLDS: {},
     regionOf: () => 'a', regionsTell() {}, worldNow: () => null, KEEP_REGION: {},
     dist: (a, b) => Math.hypot(a.x - b.x, a.z - b.z), legitJump: () => false,
     SEASON: { chatIn: (...args) => kept.push(args) }, cleanName: x => x,
