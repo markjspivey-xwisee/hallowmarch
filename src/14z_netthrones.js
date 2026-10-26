@@ -10,7 +10,7 @@ function netThroneClaim(H) {
   if (typeof netSendFast === 'function') { NET.fastKey = ''; NET.fastAt = -Infinity; netSendFast(performance.now()); }
   if (!netThroneSend('claim', H.num)) { uiError('Connect to the shared March before taking the high seat.'); return; }
   NET_THRONES.pending = { H, seq: NET_THRONES.seq, at: performance.now() };
-  uiToast('Requesting the high seat…');
+  uiToast('Requesting the high seat.');
 }
 function netThroneHeld(H) {
   return netEntityLive() && !!NET_THRONES.authority
@@ -52,9 +52,14 @@ function netThroneMessage(m) {
   }
 }
 function netThroneUpdate() {
+  // A stationary commander still needs a fresh pose. Reuse the action throttle
+  // only during live human play; throne/map updates must not renew an idle lease.
+  if (HALL.sit && hallThroneGrant() && typeof netHumanLive === 'function' && netHumanLive()
+    && typeof netActivityPosition === 'function') netActivityPosition();
   const p = NET_THRONES.pending;
   if (p && (!hallSeatAvailable(p.H) || performance.now() - p.at > 8000)) {
     NET_THRONES.pending = null; netThroneSend('release', p.H.num);
     uiError('The high seat request ended. You can try again.');
   }
 }
+
