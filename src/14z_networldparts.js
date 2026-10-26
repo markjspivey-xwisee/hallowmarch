@@ -797,7 +797,8 @@ function netWorldPartsWarbandActor(m) {
     || ![0, 1, 2].includes(m.realm) || !p || ![p.x, p.z].every(v => Number.isFinite(v) && Math.abs(v) <= 4000)) return null;
   return { role: 'remote', netPeer: m.from, faction: m.realm, alive: true, x: p.x, y: s.y, z: p.z,
     level: s.level, name: typeof s.name === 'string' ? s.name.slice(0, 56) : 'the commander',
-    netCommand: true, commandRank: s.rank, commandTable: -1 };
+    netCommand: true, commandRank: s.rank, commandTable: -1,
+    commandThrone: Number.isSafeInteger(s.throne) && s.throne >= 0 && s.throne < 4096 ? s.throne : -1 };
 }
 queueMicrotask(() => {
   netWorldPartsRegisterCommand('warband.order', {

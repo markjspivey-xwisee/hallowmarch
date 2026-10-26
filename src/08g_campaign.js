@@ -364,15 +364,23 @@ function planWar(C) {
 /* ------------------------------------------------------------------ */
 function cwCanCommand() {
   const P = GAME.player;
-  if (P?.netCommand) return P.commandRank >= 3 || P.level >= 20 || cwCommandTable(P, P.commandTable);
+  if (P?.netCommand) return P.commandRank >= 3 || P.level >= 20 || cwCommandTable(P, P.commandTable)
+    || (typeof cwCommandThrone === 'function' && cwCommandThrone(P));
   const prog = GAME.prog;
-  return !!prog && (realmRank(prog.rp) >= 3 || prog.level >= 20 || hallCommandGrant()); // [building] or at the war table of a keep your realm holds (04k_hall.js)
+  return !!prog && (realmRank(prog.rp) >= 3 || prog.level >= 20 || hallCommandGrant()
+    || (typeof hallThroneGrant === 'function' && hallThroneGrant()));
+}
+function cwCommandThrone(P) {
+  if (!P?.alive || !Number.isSafeInteger(P.commandThrone) || P.commandThrone < 0) return false;
+  const H = HALL.list.find(h => h.num === P.commandThrone), sp = H?.hallSpots?.seat;
+  return !!sp && hallHolder(H) === P.faction && houseIntact(H) && H.state !== 'burning'
+    && dist2(P.x, P.z, sp.x, sp.z) <= 4;
 }
 // A remote table grant is checked against the keeper's hall, never its own local grant.
 function cwCommandTable(P, id) {
   if (!P?.alive || !Number.isSafeInteger(id) || id < 0 || typeof HALL === 'undefined') return false;
   const H = HALL.list.find(h => h.num === id), sp = H?.hallSpots?.table;
-  return !!sp && hallHolder(H) === P.faction && houseIntact(H)
+  return !!sp && hallHolder(H) === P.faction && houseIntact(H) && H.state !== 'burning'
     && dist2(P.x, P.z, sp.x, sp.z) < 3.4 * 3.4;
 }
 // what the player may order a band to do, as [cmd, target, label]
@@ -403,7 +411,8 @@ function cwPlayerOrder(wbId, cmd, target) {
       if (typeof netSendSlow === 'function') netSendSlow(performance.now(), true);
       if (typeof netSendFast === 'function') { NET.fastKey = ''; NET.fastAt = -Infinity; netSendFast(performance.now()); }
     }
-    const table = hallCommandGrant() ? HALL.grant.H.num : -1;
+    const table = typeof hallThroneGrant === 'function' && hallThroneGrant() ? HALL.sit.H.num
+      : hallCommandGrant() ? HALL.grant.H.num : -1;
     const version = wb.orderCampaign === CAMPAIGN.n ? wb.orderVersion || 0 : 0;
     netWorldPartsRequest('warband.order', { wb: wbId, cmd, target, table, campaign: CAMPAIGN.n, version }, [], true);
     return { ok: false, pending: true, message: 'Your order is awaiting the shared keeper.' };
@@ -897,6 +906,8 @@ function campaignSideHTML() {
     ? `<p class="cw-now"><b style="color:${REALMS[CAMPAIGN.winner].light}">${REALMS[CAMPAIGN.winner].name}</b> has won the March. The armies go home; the March resets in ${fmtClock(CAMPAIGN.peaceUntil - GAME.t)}.</p>`
     : `<p class="cw-rules">Hold <b>${CW.KEEPS} of the 6 keeps</b> for ${CW.KEEP_HOLD / 60} minutes, or <b>both enemy hallows</b> for ${CW.HALLOW_HOLD / 60}, and your realm wins the March (three keeps, more than any other realm, build the claim at two fifths of the pace). At one hour the realm with the most renown wins.</p>`;
   let cmd = '';
+  const throne = typeof hallThroneGrant === 'function' && hallThroneGrant()
+    ? `<div class="cw-throne"><b>High seat of ${esc(HALL.sit.H.S.name)}</b><p>The March stays live while you command.</p><button type="button" class="btn cw-leave">Leave throne</button></div>` : '';
   const bands = cwBandsOf(P.faction);
   const can = cwCanCommand();
   const rows = bands.map((wb) => {
@@ -911,7 +922,7 @@ function campaignSideHTML() {
   }
   const note = can ? (CWUI.sel ? '' : '<p class="cw-tip">Choose a warband to command it.</p>') : '<p class="cw-tip">From realm rank 3 or level 20 you can command these warbands from the map.</p>';
   const hist = CAMPAIGN.history.slice(-3).reverse().map((h) => `<li style="--rc:${REALMS[h.w].color}"><i></i><b>${ordinalWord(h.n).replace(/^./, (c) => c.toUpperCase())}</b><span>${REALMS[h.w].name}, ${h.how === 'keeps' ? 'by keeps' : h.how === 'hallows' ? 'by hallows' : 'by renown'}, ${h.m} min</span></li>`).join('');
-  return `<div class="cw-side"><h4>Campaign ${CAMPAIGN.n}<span class="num">${CAMPAIGN.state === 'peace' ? 'peace' : fmtClock(campaignElapsed())}</span></h4>${head}<ul class="cw-stand">${standing}</ul>
+  return `<div class="cw-side">${throne}<h4>Campaign ${CAMPAIGN.n}<span class="num">${CAMPAIGN.state === 'peace' ? 'peace' : fmtClock(campaignElapsed())}</span></h4>${throne ? '' : `${head}<ul class="cw-stand">${standing}</ul>`}
     <h4>Warbands of ${R.name}</h4>${note}<div class="cw-bands">${rows}</div>${cmd}${CWUI.msg ? `<p class="cw-msg">${esc(CWUI.msg)}</p>` : ''}
     ${hist ? `<h4>Past campaigns</h4><ul class="cw-stand">${hist}</ul>` : ''}</div>`;
 }
@@ -932,6 +943,7 @@ function cwBindMap() {
   CWUI.bound = true;
   const ov = $('mapov');
   ov.addEventListener('click', (ev) => {
+    if (ev.target.closest('.cw-leave')) { hallLeave(); return; }
     const b = ev.target.closest('.cw-band');
     if (b && !b.disabled) { const id = +b.dataset.wb; CWUI.sel = CWUI.sel === id ? null : id; CWUI.msg = ''; sfx('click'); cwRefreshSide(true); drawWorldMap(true); return; }
     const c = ev.target.closest('.cw-cmd');
@@ -1089,6 +1101,9 @@ function updateCampaignUI(dt) {
 #mapside .cw-cmd[aria-disabled="true"] { opacity: 0.5; }
 #mapside .cw-msg { color: #ffe7a8; font-size: 12.5px; }
 #mapside .cw-tip { font-style: italic; }
+#mapside .cw-band, #mapside .cw-cmd, #mapside .cw-leave { min-height: 44px; }
+#mapside .cw-throne { display: grid; gap: 6px; padding: 10px; border: 1px solid var(--bronze-hi); border-radius: 6px; }
+#mapside .cw-throne p { margin: 0; }
 #cw-victory { z-index: 35; }
 #cw-victory .cw-vic { width: min(600px, 100%); text-align: center; justify-items: center; gap: 8px; padding: 16px 22px; border-color: var(--rc); box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6), 0 0 60px color-mix(in srgb, var(--rc) 40%, transparent), 0 20px 50px rgba(0, 0, 0, 0.6); animation: cw-in 0.6s ease; }
 #cw-victory .cw-crest { width: 84px; height: 95px; margin: -4px 0 -6px; filter: drop-shadow(0 6px 12px rgba(0, 0, 0, 0.5)); animation: cw-sway 4s ease-in-out infinite alternate; transform-origin: 50% 10%; }

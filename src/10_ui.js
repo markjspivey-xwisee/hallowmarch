@@ -469,7 +469,7 @@ function drawDungeonMapView(ctx, S, P) {
   const side = $('mapside');
   side.innerHTML = `<h3>The Hollow Barrow</h3><p>The old dead of the March sleep badly here. Their king sits his throne at the far end, behind the gate of the Well of Souls.</p>
     <ul><li><b>Way out</b><span>the stair by the mouth</span></li><li><b>The gate</b><span>${DUN.gates.well.open > 0.5 ? 'open' : 'shut: its warden holds the key'}</span></li><li><b>The Hollow King</b><span>${BARROW_STATE.kingDead ? 'fallen, for now' : 'waiting'}</span></li></ul>
-    <button class="btn" type="button" id="btn-mapclose">Close map</button>`;
+    <button class="btn" type="button" id="btn-mapclose">${HALL.sit ? 'Leave throne' : 'Close map'}</button>`;
   $('btn-mapclose').onclick = () => toggleMap(false);
 }
 function drawWorldMap(canvasOnly = false) { // [campaign] canvasOnly: the live redraw leaves the side panel alone
@@ -542,6 +542,7 @@ function bgClose(id, fn) {
 function toggleMap(force) {
   const ov = $('mapov');
   const open = force === undefined ? ov.hidden : force;
+  if (!open && HALL.sit) hallLeave();
   if (open && UI.modal && UI.modal !== 'map') return;
   ov.hidden = !open;
   UI.modal = open ? 'map' : null;

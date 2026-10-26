@@ -492,6 +492,9 @@ function netEntityMeta() {
   const ref = id => getEnt(id)?.netEntityId || null;
   const campaign = typeof CAMPAIGN !== 'undefined' ? CAMPAIGN.n : 1;
   const meta = { dungeon: netEntityDungeonMeta() };
+  if (typeof HALL !== 'undefined') meta.thrones = HALL.list.filter(H => H.hallSpots?.seat).slice(0, 6).map(H => ({
+    id: H.num, realm: hallHolder(H), x: H.hallSpots.seat.x, y: H.y, z: H.hallSpots.seat.z,
+    ready: houseIntact(H) && H.state !== 'burning' }));
   if (typeof WAR !== 'undefined') meta.warbands = WAR.warbands.slice(0, 96).map(w => ({
     id: w.id, realm: w.realm, ord: w.ord || 0, members: w.members.map(ref).filter(Boolean),
     orderToken: (w.orderCampaign || 1) === campaign && typeof w.orderToken === 'string' ? w.orderToken : '',
