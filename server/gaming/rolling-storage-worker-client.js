@@ -6,7 +6,7 @@ const diagnostic=value=>{
   const out={};
   for(const [key,v] of Object.entries(value))
     if(key==='phase'&&typeof v==='string'&&/^[a-z-]{1,40}$/.test(v)
-      || ['streams','checkpoints','receipts','writeBudgetBuckets','bindings','rawBytes','wireBytes','compressedBytes'].includes(key)
+      || ['streams','checkpoints','inputCheckpoints','checkpointsDropped','receipts','writeBudgetBuckets','bindings','rawBytes','wireBytes','compressedBytes'].includes(key)
       &&Number.isSafeInteger(v)&&v>=0)out[key]=v;
   return out;
 };

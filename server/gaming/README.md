@@ -193,7 +193,7 @@ checkpoint window, or approximately five minutes plus the checkpoint interval of
 Status marks background captures as deferred rather than claiming they are durable.
 
 The configured multiplayer provider now keeps current streams, compact operation
-receipts and one checkpoint per minute for a rolling hour inside one encrypted,
+receipts and up to one checkpoint per minute for a rolling hour inside one encrypted,
 revision-guarded native resource. It creates no permanent per-operation artifact
 or commit files. Current streams survive history expiry. Rollback restores only
 the shared world/season stream at a new version; current player bindings and
@@ -207,7 +207,7 @@ bytes. Successful saves share a persisted 64 MiB encrypted-write budget per
 rolling hour, retained conservatively through 61 minute buckets. Exact retries
 do not charge twice; concurrent writers share the same CAS-bound reservations.
 The SDK refuses any write larger than its reserved encrypted bytes before PUT. Capacity failures preserve the confirmed head and report an error rather
-than silently shortening the rollback window or dropping active streams. Retries
+than dropping active streams or operation receipts. When only historical checkpoints exceed the raw, wire or compressed capacity, the encoder deterministically coarsens the densest interior time spans, retaining the oldest and newest available rollback points. Current streams, permission tombstones and receipts are unchanged. Advertised rollback points match those actually retained; minute sampling is a target, not a guaranteed rollback resolution. If the current state and protected time anchors cannot fit, the write still fails closed. Retries
 require the exact original operation input, and historical idempotency receipts
 expire after one hour. Status reports the bounded mode and checkpoint count.
 

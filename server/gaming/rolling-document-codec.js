@@ -82,43 +82,80 @@ export function validateRollingDocument(doc, configuration) {
     return doc;
   }
 
+// Capacity is distinct from validation: malformed data must never disappear
+// merely because removing its historical checkpoint would make an encoding fit.
+function historyCapacity(message) {
+  const failure = new DurableStoreError(message, 'PAYLOAD_TOO_LARGE', 413);
+  failure.rollingHistoryCapacity = true;
+  throw failure;
+}
 function compress(wire, measured) {
   const bytes=Buffer.from(canonical(wire,0,WIRE_DEPTH));
   Object.assign(measured,{wireBytes:bytes.length,phase:'document-wire-limit'});
-  if(bytes.length>MAX_JSON) error('Encoded rollback window exceeds its uncompressed budget.','PAYLOAD_TOO_LARGE',413);
+  if(bytes.length>MAX_JSON) historyCapacity('Encoded rollback window exceeds its uncompressed budget.');
   const compressed=brotliCompressSync(bytes,{params:{
     [zlibConstants.BROTLI_PARAM_QUALITY]:6,[zlibConstants.BROTLI_PARAM_LGWIN]:BROTLI_WINDOW_BITS}});
   Object.assign(measured,{compressedBytes:compressed.length,phase:'document-compressed-limit'});
-  if(compressed.length>MAX_COMPRESSED) error('Rollback window exceeds its compressed storage budget.','PAYLOAD_TOO_LARGE',413);
+  if(compressed.length>MAX_COMPRESSED) historyCapacity('Rollback window exceeds its compressed storage budget.');
   measured.phase='native-byte-artifact';
   return compressed;
 }
+// Keep the temporal anchors and coarsen the densest interior spans first.
+// Equal spans shed older detail first. At most 61 points means this selection
+// is bounded; halving between compression attempts permits at most six retries.
+function coarsenCheckpoints(points) {
+  const retained=[...points], target=Math.max(2,Math.ceil(points.length/2));
+  while(retained.length>target) {
+    let remove=1, span=Infinity;
+    for(let i=1;i<retained.length-1;i++) {
+      const next=retained[i+1].at-retained[i-1].at;
+      if(next<span) {span=next;remove=i;}
+    }
+    retained.splice(remove,1);
+  }
+  return retained;
+}
+function encodeWithinCapacity(doc,measured,preparedWire) {
+  let candidate=doc, wire=preparedWire;
+  for(;;) {
+    try {
+      measured.phase='document-json';
+      const raw=Buffer.from(canonical(candidate));
+      Object.assign(measured,{rawBytes:raw.length,checkpoints:candidate.checkpoints.length,
+        checkpointsDropped:measured.inputCheckpoints-candidate.checkpoints.length,phase:'document-raw-limit'});
+      if(raw.length>MAX_JSON) historyCapacity('Rollback window exceeds its uncompressed budget.');
+      wire=wire??encodeRollingHistoryColumns(candidate);
+      const compressed=compress(wire,measured);
+      return {wire,compressed,measured,checkpointTimes:candidate.checkpoints.map(point=>point.at)};
+    } catch(e) {
+      if(e.rollingHistoryCapacity!==true||candidate.checkpoints.length<=2) throw e;
+      candidate={...candidate,checkpoints:coarsenCheckpoints(candidate.checkpoints)};
+      wire=undefined;
+    }
+  }
+}
 export function encodeRollingDocument(doc,configuration) {
   const measured={phase:'document-json',streams:doc.streams?.length,checkpoints:doc.checkpoints?.length,
+    inputCheckpoints:doc.checkpoints?.length,checkpointsDropped:0,
     receipts:doc.receipts?.length,writeBudgetBuckets:doc.writeBudget?.length,
     bindings:doc.streams?.find(row=>row.streamId==='player-bindings-v1')?.state?.bindings?.length??0};
   try {
     validateRollingDocument(doc,configuration);
-    const raw=Buffer.from(canonical(doc));
-    Object.assign(measured,{rawBytes:raw.length,phase:'document-raw-limit'});
-    if(raw.length>MAX_JSON) error('Rollback window exceeds its uncompressed budget.','PAYLOAD_TOO_LARGE',413);
-    const wire=encodeRollingHistoryColumns(doc),compressed=compress(wire,measured);
-    return {wire,compressed,measured};
+    return encodeWithinCapacity(doc,measured);
   } catch(e) { e.measured=measured; throw e; }
 }
 export function finishRollingDocument(wire,writeBudget,configuration,priorMeasured) {
   const measured={...priorMeasured};
   try {
-    // Phase B changes only this operation's reservation. Reconstruct and
-    // validate the complete document before returning final storage bytes.
+    // Reservation bytes can tip a near-capacity Phase A over its bound. Apply
+    // the same history-only policy in Phase B without mutating its input wire.
     const doc=decodeRollingHistory(wire);
     doc.writeBudget=writeBudget;validateRollingDocument(doc,configuration);
-    wire.current.writeBudget=writeBudget;
+    measured.inputCheckpoints=measured.inputCheckpoints??doc.checkpoints.length;
     measured.writeBudgetBuckets=writeBudget.length;
-    const raw=Buffer.from(canonical(doc));
-    measured.rawBytes=raw.length;
-    if(raw.length>MAX_JSON) error('Rollback window exceeds its uncompressed budget.','PAYLOAD_TOO_LARGE',413);
-    return {compressed:compress(wire,measured),measured};
+    const reserved={...wire,current:{...wire.current,writeBudget}};
+    const result=encodeWithinCapacity(doc,measured,reserved);
+    return {compressed:result.compressed,measured:result.measured,checkpointTimes:result.checkpointTimes};
   } catch(e) { e.measured=measured;throw e; }
 }
 export function decodeRollingDocument(bytes,contentType,configuration) {

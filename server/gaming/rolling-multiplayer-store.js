@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { brotliCompressSync, constants as zlibConstants } from 'node:zlib';
 import { InteregoGamingStore, createNativeTransport, DurableStoreError, DurableStoreConflictError } from './interego-store.js';
 import { encodeRollingHistoryColumns } from './rolling-history-columns.js';
-import { validateRollingDocument } from './rolling-document-codec.js';
+import { validateRollingDocument, encodeRollingDocument, finishRollingDocument } from './rolling-document-codec.js';
 import { rollingStorageWorker } from './rolling-storage-worker-client.js';
 
 export const MULTIPLAYER_HISTORY_MS = 60 * 60 * 1000;
@@ -26,7 +26,19 @@ function canonical(x, depth = 0, maximumDepth = 64) {
 }
 const copy = x => JSON.parse(canonical(x));
 const conflict = e => e?.status === 412 || e?.name === 'NativeCommitConflictError';
-/** Current shared state plus one checkpoint per minute for a rolling hour.
+function retainedCheckpointRows(doc,times) {
+  if(!Array.isArray(times)||times.length>doc.checkpoints.length
+    ||times.some((at,i)=>!Number.isSafeInteger(at)||i>0&&at<=times[i-1])) error('Invalid retained rollback points.');
+  const rows=new Map(doc.checkpoints.map(point=>[point.at,point]));
+  if(times.some(at=>!rows.has(at))
+    ||doc.checkpoints.length>0&&(times[0]!==doc.checkpoints[0].at||times.at(-1)!==doc.checkpoints.at(-1).at)) {
+    error('Rollback compaction changed its temporal anchors.');
+  }
+  return times.map(at=>rows.get(at));
+}
+/** Current shared state plus up to one checkpoint per minute for a rolling hour.
+ * Historical resolution coarsens under capacity pressure while preserving the
+ * oldest and newest retained points; current streams and receipts stay exact.
  * One encrypted native CAS resource replaces permanent per-operation archives.
  * Personal owner-pod saves and learning archives are not stored here.
  * Expired idempotency receipts are not promises of indefinite replay. */
@@ -81,6 +93,7 @@ export class RollingMultiplayerStore extends InteregoGamingStore {
       const final=await this.storageWorker.run('finish',{wire:first.wire,writeBudget,context,measured:first.measured});
       Object.assign(measured,final.measured);
       if(!(final.compressed instanceof Uint8Array)||final.compressed.length>MAX_COMPRESSED)error('Invalid rolling worker result.');
+      doc.checkpoints=retainedCheckpointRows(doc,final.checkpointTimes);
       doc.writeBudget=writeBudget;this.lastEnvelope=doc;
       const finalArtifact=this.artifactCodec.createNativeByteArtifact({owner:this.owner,contentType:TYPE,bytes:final.compressed});
       measured.phase='prepared';return {artifact:finalArtifact,maxEncryptedBytes:charge};
@@ -110,27 +123,26 @@ export class RollingMultiplayerStore extends InteregoGamingStore {
   }
   prepareWrite(doc, measured = { phase: 'preparing' }) {
     this.lastCommitSize = measured;
-    // Budget reservation changes current metadata only. Reuse this operation's
-    // exact history encoding while sizing the final reserved representation.
-    const preparedHistory = {};
-    const artifact = this.artifact(doc, measured, preparedHistory);
-    // Reserve a little above the real encrypted size before encoding the
-    // reservation itself. The SDK enforces this exact ceiling before PUT.
-    measured.phase = 'native-sizing';
-    const estimate = this.nativeClient.atomicCheckpointSize?.(artifact) ?? 1024 * 1024;
-    measured.encryptedEstimateBytes = estimate;
-    if (!Number.isSafeInteger(estimate) || estimate < 1 || estimate > 1024 * 1024) error('Invalid native checkpoint byte estimate.');
-    const charge = Math.min(1024 * 1024, Math.ceil((estimate + 4096) / 4096) * 4096);
-    const used = doc.writeBudget.reduce((sum, bucket) => sum + bucket.bytes, 0);
-    Object.assign(measured, { phase: 'write-budget', reservedBytes: charge, usedBudgetBytes: used });
-    if (used + charge > MULTIPLAYER_WRITE_BYTES) error('Multiplayer save budget is full; pending saves will retry after capacity returns.', 'NATIVE_WRITE_BUDGET', 503);
-    const minute = Math.floor(doc.writtenAt / 60000), last = doc.writeBudget.at(-1);
-    doc.writeBudget = [...doc.writeBudget.filter(bucket => bucket.minute !== minute), { minute, bytes: (last?.minute === minute ? last.bytes : 0) + charge }];
-    this.checked(doc);
-    preparedHistory.wire.current.writeBudget = doc.writeBudget;
-    const finalArtifact = this.artifact(doc, measured, preparedHistory);
-    measured.phase = 'prepared';
-    return { artifact: finalArtifact, maxEncryptedBytes: charge };
+    const context=this.workerContext(), first=encodeRollingDocument(doc,context);
+    Object.assign(measured,first.measured);
+    const artifact=this.artifactCodec.createNativeByteArtifact({owner:this.owner,contentType:TYPE,bytes:first.compressed});
+    measured.phase='native-sizing';
+    const estimate=this.nativeClient.atomicCheckpointSize?.(artifact)??1024*1024;
+    measured.encryptedEstimateBytes=estimate;
+    if(!Number.isSafeInteger(estimate)||estimate<1||estimate>1024*1024) error('Invalid native checkpoint byte estimate.');
+    const charge=Math.min(1024*1024,Math.ceil((estimate+4096)/4096)*4096);
+    const used=doc.writeBudget.reduce((sum,bucket)=>sum+bucket.bytes,0);
+    Object.assign(measured,{phase:'write-budget',reservedBytes:charge,usedBudgetBytes:used});
+    if(used+charge>MULTIPLAYER_WRITE_BYTES) error('Multiplayer save budget is full; pending saves will retry after capacity returns.','NATIVE_WRITE_BUDGET',503);
+    const minute=Math.floor(doc.writtenAt/60000),last=doc.writeBudget.at(-1);
+    const writeBudget=[...doc.writeBudget.filter(bucket=>bucket.minute!==minute),
+      {minute,bytes:(last?.minute===minute?last.bytes:0)+charge}];
+    const final=finishRollingDocument(first.wire,writeBudget,context,first.measured);
+    Object.assign(measured,final.measured);
+    const finalArtifact=this.artifactCodec.createNativeByteArtifact({owner:this.owner,contentType:TYPE,bytes:final.compressed});
+    doc.checkpoints=retainedCheckpointRows(doc,final.checkpointTimes);
+    doc.writeBudget=writeBudget;this.lastEnvelope=doc;measured.phase='prepared';
+    return {artifact:finalArtifact,maxEncryptedBytes:charge};
   }
   async read(migrationRetries = 3) {
     const stored = await this.nativeClient.readAtomicCheckpoint();
@@ -290,7 +302,7 @@ export class RollingMultiplayerStore extends InteregoGamingStore {
     } catch (e) { const recovered = replay(await this.read()); if (recovered) return recovered; throw e; }
   }
   performanceStatus() { return { ...super.performanceStatus(), snapshotMode: 'bounded-rolling-hour', retentionMs: MULTIPLAYER_HISTORY_MS,
-    checkpointResolutionMs: 60000, maxEncryptedBytes: 1024 * 1024, writeBudgetBytes: MULTIPLAYER_WRITE_BYTES,
+    checkpointResolutionMs: 60000, checkpointResolutionMode: 'adaptive-history', maxEncryptedBytes: 1024 * 1024, writeBudgetBytes: MULTIPLAYER_WRITE_BYTES,
     storageCodec: 'lossless-history-columns-v1+brotli', maxLogicalBytes: MAX_JSON, maxCompressedBytes: MAX_COMPRESSED,
     brotliWindowBits: BROTLI_WINDOW_BITS,
     lastCommitSize: this.lastCommitSize ? { ...this.lastCommitSize } : null,
