@@ -526,7 +526,7 @@ function drawWorldMap(canvasOnly = false) { // [campaign] canvasOnly: the live r
     const where = r.state === 'temple' ? (r.at === r.realm ? 'safe at home' : `held by ${REALMS[r.at].name}`) : r.state === 'carried' ? `carried by ${REALMS[r.carrierRealm ?? 0].name}` : 'lying in the field';
     return `<li><b style="color:${REALMS[r.realm].light}">${REALMS[r.realm].hallowName}</b><span>${where}</span></li>`;
   }).join('');
-  const news = WAR.news.slice(-6).reverse().map((n) => `<div>${n.text}</div>`).join('') || '<div>The frontier is quiet, for now.</div>';
+  const news = WAR.news.slice(-6).reverse().map((n) => `<div>${esc(n.text)}</div>`).join('') || '<div>The frontier is quiet, for now.</div>';
   side.innerHTML = `<h3>The Hallowmarch</h3>${farmMapSide() /* [farming] the season (08i_farm_draw.js) */}<div id="cw-side-host"></div>
     <div class="legend"><span><i style="background:#ddd;clip-path:polygon(0 0,100% 0,100% 55%,50% 100%,0 55%)"></i>Keep (colour shows the holder)</span><span><i style="background:#ddd;clip-path:polygon(25% 0,75% 0,100% 50%,75% 100%,25% 100%,0 50%)"></i>Temple of a hallow</span><span><i style="background:#ddd;clip-path:polygon(50% 0,100% 100%,0 100%)"></i>Muster and portal</span><span><i style="background:#ffe28a;border-radius:50%"></i>A hallow</span></div>
     <ul>${keepRows}</ul><ul>${relicRows}</ul><div class="news">${news}</div>

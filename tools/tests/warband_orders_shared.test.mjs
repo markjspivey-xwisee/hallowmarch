@@ -269,6 +269,54 @@ test('a command for a newly spawned band absent from retained metadata settles a
   assert.equal(f.state.activity.entities.meta.warbands.some(w=>w.id===2),false);
 });
 
+test('remote rally names and keeper result messages remain text in campaign status and map news',()=>{
+  const f=fixture(), name='<img src=x onerror=alert(1)>', message='<svg onload=alert(2)> & "orders"';
+  // Use the real phrase/announcement path: the general protocol fixture uses
+  // a short phrase stub that would hide a remote name entering these messages.
+  vm.runInContext([extract(campaignSource,'orderPhrase'),extract(campaignSource,'announceOrder'),
+    extract(read('src/08_ai.js'),'news')].join('\n'),f.a.scope);
+  f.a.scope.WAR.news=[];f.a.scope.uiLog=()=>{};f.a.scope.sndNewsCue=()=>{};
+  const escapeSource=read('src/10b_kit.js').split('\n').find(line=>line.startsWith('const esc ='));
+  assert.ok(escapeSource);
+  function prepareSide(p) {
+    Object.assign(p.scope,{cwTopClaims:()=>[],foreignHallows:()=>0,campaignElapsed:()=>0,fmtClock:()=>'',
+      cwBandsOf:()=>p.scope.WAR.warbands,wbMembers:()=>[],iconSvg:()=>'',
+      CW:{KEEPS:6,KEEP_HOLD:600,HALLOW_HOLD:600}});
+    p.scope.CAMPAIGN.renown=[0,0,0];p.scope.CAMPAIGN.history=[];p.scope.CWUI.sel=null;
+    vm.runInContext(escapeSource+'\n'+extract(campaignSource,'phaseWord')+'\n'
+      +extract(campaignSource,'campaignSideHTML'),p.scope);
+  }
+  prepareSide(f.a);prepareSide(f.b);
+  f.b.c.slow.dn=name;f.relayPose(f.b);
+  f.b.playerOrder(1,'rally',-1);f.drain();f.pump();
+  assert.ok(f.b.scope.CWUI.msg.includes(name),'the accepted name reaches the plain-text result');
+  assert.ok(f.a.scope.WAR.news.at(-1).text.includes(name),'the accepted order reaches real realm news');
+  for(const p of [f.a,f.b]) {
+    const html=p.scope.campaignSideHTML();
+    assert.equal(html.includes(name),false);assert.ok(html.includes('&lt;img'));
+  }
+  // Run the actual map-side renderer without its unrelated canvas drawing.
+  const map=extract(read('src/10_ui.js'),'drawWorldMap'), sideAt=map.indexOf('  // side panel');
+  assert.ok(sideAt>0);
+  const elements=new Map();
+  f.a.scope.$=id=>{if(!elements.has(id))elements.set(id,{});return elements.get(id);};
+  f.a.scope.farmMapSide=()=>'';f.a.scope.cwRefreshSide=()=>{};
+  vm.runInContext('function renderMapSide(){\n'+map.slice(sideAt,-2)+'\n}',f.a.scope);
+  f.a.scope.renderMapSide();
+  const newsHTML=elements.get('mapside').innerHTML;
+  assert.equal(newsHTML.includes(name),false);assert.ok(newsHTML.includes('&lt;img'));
+  // A keeper supplies result.message; it remains untrusted even when its
+  // matching order and receipt are accepted by the shared-scene server.
+  f.b.playerOrder(1,'attack',1);f.drain();
+  const proposed=f.a.NETPARTS.receipts.findLast(r=>r.ok&&r.result?.warband?.id===1&&!r.settled);
+  assert.ok(proposed);proposed.result.message=message;
+  f.a.NETPARTS.outbox=null;f.a.netWorldPartsPublish(f.a.scope.performance.now(),true);f.pump();
+  assert.equal(f.b.scope.CWUI.msg,message);assert.equal(f.b.notices.at(-1),message);
+  const html=f.b.scope.campaignSideHTML();
+  assert.equal(html.includes(message),false);assert.ok(html.includes('&lt;svg'));
+  assert.ok(html.includes('&amp;'));assert.ok(html.includes('&quot;orders&quot;'));
+});
+
 test('capability handoff fences legacy keepers, native keeper orders share receipts, standalone remains immediate, and idle makes no writes',()=>{
   const f=fixture();f.a.c.slow.warbandOrders=0;f.a.scope.NET.peers.get('b').slow.warbandOrders=0;f.b.scope.NET.peers.get('a').slow.warbandOrders=0;
   assert.match(f.b.playerOrder(1,'attack',1),/updated game/);assert.equal(f.up.length,0);

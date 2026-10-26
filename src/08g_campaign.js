@@ -912,7 +912,7 @@ function campaignSideHTML() {
   const note = can ? (CWUI.sel ? '' : '<p class="cw-tip">Choose a warband to command it.</p>') : '<p class="cw-tip">From realm rank 3 or level 20 you can command these warbands from the map.</p>';
   const hist = CAMPAIGN.history.slice(-3).reverse().map((h) => `<li style="--rc:${REALMS[h.w].color}"><i></i><b>${ordinalWord(h.n).replace(/^./, (c) => c.toUpperCase())}</b><span>${REALMS[h.w].name}, ${h.how === 'keeps' ? 'by keeps' : h.how === 'hallows' ? 'by hallows' : 'by renown'}, ${h.m} min</span></li>`).join('');
   return `<div class="cw-side"><h4>Campaign ${CAMPAIGN.n}<span class="num">${CAMPAIGN.state === 'peace' ? 'peace' : fmtClock(campaignElapsed())}</span></h4>${head}<ul class="cw-stand">${standing}</ul>
-    <h4>Warbands of ${R.name}</h4>${note}<div class="cw-bands">${rows}</div>${cmd}${CWUI.msg ? `<p class="cw-msg">${CWUI.msg}</p>` : ''}
+    <h4>Warbands of ${R.name}</h4>${note}<div class="cw-bands">${rows}</div>${cmd}${CWUI.msg ? `<p class="cw-msg">${esc(CWUI.msg)}</p>` : ''}
     ${hist ? `<h4>Past campaigns</h4><ul class="cw-stand">${hist}</ul>` : ''}</div>`;
 }
 function cwRefreshSide(force = false) {
