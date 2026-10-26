@@ -1122,6 +1122,8 @@ function updateCampaignUI(dt) {
 @keyframes cw-in { from { opacity: 0; transform: translateY(14px) scale(0.98); } }
 @keyframes cw-sway { from { transform: rotate(-1.6deg); } to { transform: rotate(1.6deg); } }
 @media (max-width: 760px), (pointer: coarse) {
+  #mapov.throne-mode .cw-throne { padding: 6px 8px; gap: 2px; }
+  #mapov.throne-mode .cw-throne p, #mapov.throne-mode .cw-leave { display: none; }
   #war .cw-claim { font-size: 10.5px; }
   #war .cw-h { font-size: 10.5px; }
   #war .cw-rule { font-size: 10px; }

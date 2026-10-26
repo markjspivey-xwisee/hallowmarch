@@ -25,9 +25,9 @@ function netThroneMessage(m) {
   if (!m || m.t !== 'activity' || !['authority', 'thrones'].includes(m.kind)
     || !netSameWorldAdmission(netCurrentWorldAdmission(), m.worldAdmission)) return;
   if (m.kind === 'authority') {
-    if (typeof m.authority !== 'string' || !m.authority) return;
+    if (typeof m.authority !== 'string' || !m.authority || typeof m.peer !== 'string' || m.peer.length > 128) return;
     if (NET_THRONES.authority !== m.authority) {
-      NET_THRONES.pending = null; NET_THRONES.revision = -1;
+      NET_THRONES.pending = null; NET_THRONES.revision = -1; NET_THRONES.seats = [];
       NET_THRONES.authority = m.authority;
     }
   } else if (m.authority !== NET_THRONES.authority) return;

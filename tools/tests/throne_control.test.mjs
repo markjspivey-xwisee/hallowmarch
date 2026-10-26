@@ -86,3 +86,9 @@ test('remote low-rank caller requires server-stamped throne plus canonical owner
   f.H.state = 'burning'; assert.equal(f.scope.cwCanCommand(), false);
   f.H.state = 'intact'; f.P.x = 4; assert.equal(f.scope.cwCanCommand(), false);
 });
+test('an authority without throne support cannot retain an earlier grant', () => {
+  const f = fixture(); f.claim(); f.grant();
+  f.message({ kind: 'authority', authority: 'legacy', peer: 'a' });
+  assert.equal(f.scope.hallThroneGrant(), false);
+  assert.equal(f.scope.cwCanCommand(), false);
+});
