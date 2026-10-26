@@ -1124,6 +1124,9 @@ function updateCampaignUI(dt) {
 @media (max-width: 760px), (pointer: coarse) {
   #mapov.throne-mode .cw-throne { padding: 6px 8px; gap: 2px; }
   #mapov.throne-mode .cw-throne p, #mapov.throne-mode .cw-leave { display: none; }
+  #mapov.throne-mode #mapside #btn-mapclose {
+    grid-row: 1; position: sticky; top: 0; z-index: 2; min-height: 44px; background: #202630;
+  }
   #war .cw-claim { font-size: 10.5px; }
   #war .cw-h { font-size: 10.5px; }
   #war .cw-rule { font-size: 10px; }
