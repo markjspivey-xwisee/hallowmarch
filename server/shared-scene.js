@@ -1,5 +1,6 @@
 // One bounded latest scene per game-owned world. No event history or idle timers.
 import { randomBytes } from 'node:crypto';
+import { createThrones } from './thrones.js';
 const finite = (v, lo, hi) => typeof v === 'number' && Number.isFinite(v) && v >= lo && v <= hi;
 const sameAdmission = (a, b) => a?.origin === b?.origin && Number.isSafeInteger(a?.epoch) && a.epoch === b?.epoch;
 const boatId = v => Number.isSafeInteger(v) && v >= 1 && v <= 128;
@@ -231,6 +232,7 @@ export function createSharedScene({ hostFor, live, admission, stateFor, send, ch
           worldparts: valid ? sceneValue('worldparts', null, kept.worldparts) : null },
         streamSeq: { entities: 0, worldparts: 0 }, pending: {}, commands: new Map() };
       s.burntSince = new Map(s.boats.filter(b => b.st === 'burnt').map(b => [b.id, now()])); s.rebuildAwaitSnapshot = new Set();
+      s.thrones = createThrones({ now, live, sameAdmission });
       s.publicWorldparts = s.streams.worldparts; s.publicWorldSeq = 0; s.worldBarrier = null;
       s.needsReadback = typeof confirmPersist === 'function' && !!s.publicWorldparts?.receipts?.some(receiptNeedsCommit);
       if (s.needsReadback) s.publicWorldparts = null;
@@ -261,7 +263,7 @@ export function createSharedScene({ hostFor, live, admission, stateFor, send, ch
   }
   function authorityFrame(s) {
     return { t: 'activity', kind: 'authority', authority: s.authority, peer: s.host, worldAdmission: s.worldAdmission,
-      boats: s.boats, npcs: s.npcs, hasEntities: !!s.streams.entities, entitiesReady: !!s.streams.entities, worldpartsReady: !!(s.publicWorldparts || s.worldBarrier || s.needsReadback) };
+      boats: s.boats, npcs: s.npcs, thrones: s.thrones.snapshot(), hasEntities: !!s.streams.entities, entitiesReady: !!s.streams.entities, worldpartsReady: !!(s.publicWorldparts || s.worldBarrier || s.needsReadback) };
   }
   function frame(s, kind, op, rows, extra = {}) {
     return { t: 'activity', kind, op, authority: s.authority, peer: s.host, worldAdmission: s.worldAdmission,
@@ -284,6 +286,8 @@ export function createSharedScene({ hostFor, live, admission, stateFor, send, ch
   function sync(room, target = null) {
     if (!room || !canMutate() || !sessions.has(room) && !hostFor(room)) return null;
     const s = session(room), selected = hostFor(room), host = selected && live(selected) ? selected.peer : ''; let released = false;
+    if (s.thrones.prune(room, s.streams.entities?.meta?.thrones, s.worldAdmission))
+      broadcast(room, { t: 'activity', kind: 'thrones', authority: s.authority, worldAdmission: s.worldAdmission, ...s.thrones.snapshot() });
     for (const b of s.boats) if (b.rider && ![...room.clients.values()].some(c => c.peer === b.rider && live(c))) {
       b.rider = null; b.vx = 0; b.vz = 0; released = true;
     }
@@ -432,6 +436,7 @@ export function createSharedScene({ hostFor, live, admission, stateFor, send, ch
           if (!f || !Array.isArray(f.p) || f.p.length !== 3 || !f.p.every(Number.isFinite) || Math.abs(f.p[1]) > 500 || f.d !== 0
             || ![0, 1, 2].includes(c.slow?.r)) return false;
           stamp.warbandOrder = { actorState: { alive: true, y: f.p[1],
+            ...(s.thrones.held(c.peer, a.table) ? { throne: a.table } : {}),
             level: Number.isFinite(c.slow.l) ? Math.max(1, Math.min(60, Math.floor(c.slow.l))) : 1,
             rank: Number.isFinite(c.slow.rr) ? Math.max(0, Math.min(20, Math.floor(c.slow.rr))) : 0,
             name: String(c.slow.dn || c.slow.n || 'the commander').slice(0, 56) },
@@ -539,6 +544,15 @@ export function createSharedScene({ hostFor, live, admission, stateFor, send, ch
     // the current scope: that would fence a client which has already resumed.
     if (!sameAdmission(m.worldAdmission, s.worldAdmission) || !sameAdmission(c.worldAdmission, s.worldAdmission)
       || m.authority !== s.authority) return false;
+    if (m.kind === 'thrones') {
+      const result = s.thrones.handle(c, m, s.streams.entities?.meta?.thrones, s.worldAdmission);
+      if (!result) return false;
+      if (result.ok) broadcast(room, { t: 'activity', kind: 'thrones', authority: s.authority,
+        worldAdmission: s.worldAdmission, ...s.thrones.snapshot() });
+      send(c, { t: 'activity', kind: 'thrones', authority: s.authority, worldAdmission: s.worldAdmission,
+        ...s.thrones.snapshot(), request: m.seq, id: m.id, ...result });
+      return result.ok;
+    }
     if (['entities', 'worldparts'].includes(m.kind)) return streamHandle(c, m, s);
     if (!['boats', 'npcs'].includes(m.kind)) return false;
     if (m.op === 'snapshot') {

@@ -460,6 +460,7 @@ async function netServerSaveRef() {
 
 // Each authority message is scoped to this live socket and its admitted world.
 function netSharedSceneMessage(m) {
+  if (typeof netThroneMessage === 'function') netThroneMessage(m);
   if (m?.kind === 'authority' && typeof m.peer === 'string' && m.peer.length <= 128
     && typeof netCurrentWorldAdmission === 'function' && netSameWorldAdmission(netCurrentWorldAdmission(), netWorldAdmissionRead(m.worldAdmission)))
     NET.serverSceneHost = m.peer;
@@ -469,6 +470,7 @@ function netSharedSceneMessage(m) {
   if (typeof netWorldPartsMessage === 'function') netWorldPartsMessage(m);
 }
 function netSharedSceneReset() {
+  if (typeof netThroneReset === 'function') netThroneReset();
   NET.serverSceneHost = '';
   if (typeof netBoatReset === 'function') netBoatReset();
   if (typeof netNpcReset === 'function') netNpcReset();

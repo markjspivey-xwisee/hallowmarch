@@ -527,10 +527,10 @@ function drawWorldMap(canvasOnly = false) { // [campaign] canvasOnly: the live r
     return `<li><b style="color:${REALMS[r.realm].light}">${REALMS[r.realm].hallowName}</b><span>${where}</span></li>`;
   }).join('');
   const news = WAR.news.slice(-6).reverse().map((n) => `<div>${esc(n.text)}</div>`).join('') || '<div>The frontier is quiet, for now.</div>';
-  side.innerHTML = `<h3>The Hallowmarch</h3>${farmMapSide() /* [farming] the season (08i_farm_draw.js) */}<div id="cw-side-host"></div>
+  side.innerHTML = `${HALL.sit ? '' : `<h3>The Hallowmarch</h3>${farmMapSide()}`}<div id="cw-side-host"></div>
     <div class="legend"><span><i style="background:#ddd;clip-path:polygon(0 0,100% 0,100% 55%,50% 100%,0 55%)"></i>Keep (colour shows the holder)</span><span><i style="background:#ddd;clip-path:polygon(25% 0,75% 0,100% 50%,75% 100%,25% 100%,0 50%)"></i>Temple of a hallow</span><span><i style="background:#ddd;clip-path:polygon(50% 0,100% 100%,0 100%)"></i>Muster and portal</span><span><i style="background:#ffe28a;border-radius:50%"></i>A hallow</span></div>
     <ul>${keepRows}</ul><ul>${relicRows}</ul><div class="news">${news}</div>
-    <button class="btn" type="button" id="btn-mapclose">Close map</button>`;
+    <button class="btn" type="button" id="btn-mapclose">${HALL.sit ? 'Leave throne' : 'Close map'}</button>`;
   cwRefreshSide(true); // [campaign] the campaign and the warbands (08g_campaign.js)
   $('btn-mapclose').onclick = () => toggleMap(false);
 }
@@ -542,6 +542,8 @@ function bgClose(id, fn) {
 function toggleMap(force) {
   const ov = $('mapov');
   const open = force === undefined ? ov.hidden : force;
+  if (!open && HALL.sit) hallLeave();
+  ov.classList.toggle('throne-mode', !!HALL.sit);
   if (open && UI.modal && UI.modal !== 'map') return;
   ov.hidden = !open;
   UI.modal = open ? 'map' : null;

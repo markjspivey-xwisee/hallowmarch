@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
+import { encodeRollingHistoryColumns } from './rolling-history-columns.js';
 import { setTimeout as delay, setImmediate as turn } from 'node:timers/promises';
 import { RollingStorageWorker } from './rolling-storage-worker-client.js';
 import { RollingMultiplayerStore } from './rolling-multiplayer-store.js';
@@ -137,4 +139,119 @@ test('unproven termination fences the CPU lane instead of starting a replacement
  assert.equal(pool.fenced,true);
  await assert.rejects(pool.run('validate',{doc:empty(c),context:c}),{code:'DURABILITY_UNAVAILABLE'});
  assert.equal(pool.worker,null);
+});
+
+
+const PRESSURE_WORLD='hallowmarch-world-season-v1';
+const pressureHash=value=>createHash('sha256').update(value).digest('hex');
+const pressureCanonical=value=>value===null||typeof value!=='object'?JSON.stringify(value):Array.isArray(value)
+ ?'['+value.map(pressureCanonical).join(',')+']':'{'+Object.keys(value).sort().map(k=>JSON.stringify(k)+':'+pressureCanonical(value[k])).join(',')+'}';
+function pressureText(seed,length,hex=false) {
+ const alphabet=Array.from({length:94},(_,i)=>String.fromCharCode(33+i)).filter(c=>c!=='"'&&c!=='\\').join('');
+ const bytes=Buffer.alloc(length);let state=(Math.imul(seed+1,0x9e3779b1)>>>0)||1;
+ for(let i=0;i<length;i++){state^=state<<13;state^=state>>>17;state^=state<<5;bytes[i]=hex?state&255:alphabet.charCodeAt((state>>>0)%alphabet.length)}
+ return bytes.toString(hex?'hex':'ascii');
+}
+function pressureRecord(c,streamId,state,version) {
+ return {schema:'urn:interego:gaming:stream:v1',namespace:c.namespace,streamId,version,state,event:null,
+  operationId:'gaming-v1-'+pressureHash(streamId+':'+version)};
+}
+function pressureWindow(c) {
+ const doc=empty(c);
+ doc.checkpoints=Array.from({length:61},(_,minute)=>{
+  const at=c.now-(60-minute)*60000;
+  // Deliberately changing opaque scene text exercises a shape/entropy case that
+  // compact numeric-position fixtures cannot cover.
+  const value={worlds:{march:{scene:JSON.stringify({v:1,rows:[{id:'scene:pressure',p:[minute,2,minute/2],
+   payload:pressureText(minute,32*1024,true)}]})}},season:{n:2,t:minute*60,savedAt:at}};
+  const state={schema:'urn:bridge:owned-state-checkpoint:v1',owner:c.owner,liveVersion:minute+1,
+   capturedAt:at,digest:'sha256:'+pressureHash(pressureCanonical(value)),value};
+  return {at,streams:[pressureRecord(c,PRESSURE_WORLD,state,minute+1)]};
+ });
+ const grant='urn:uuid:00000000-0000-4000-8000-000000000001';
+ doc.streams=[structuredClone(doc.checkpoints.at(-1).streams[0]),
+  pressureRecord(c,'hallowmarch-main-world-agent-revocation-v1:'+grant,
+   {schema:'hallowmarch.main-world-agent-revocation/v1',grantId:grant,ownerDid:c.owner,revoked:true},1),
+  pressureRecord(c,'player-bindings-v1',{bindings:[{accountId:'retained-current-player',revoked:false}]},1)];
+ doc.receipts=doc.checkpoints.map((point,i)=>({operationId:point.streams[0].operationId,
+  inputDigest:pressureHash('pressure-input-'+i),streamId:PRESSURE_WORLD,version:i+1,at:point.at}));
+ doc.writeBudget=[{minute:Math.floor(c.now/60000)-1,bytes:4096}];
+ return doc;
+}
+
+test('capacity pressure coarsens historical scenes without losing the hour, current state or advertised rollback integrity',async t=>{
+ const pool=new RollingStorageWorker({idleMs:10}),c=context(),doc=pressureWindow(c),before=structuredClone(doc);
+ try{
+  const first=await pool.run('encode',{doc,context:c});
+  const writeBudget=[...doc.writeBudget,{minute:Math.floor(c.now/60000),bytes:4096}];
+  const final=await pool.run('finish',{wire:first.wire,writeBudget,context:c,measured:first.measured});
+  const restored=await pool.run('decode',{bytes:final.compressed,
+   contentType:'application/vnd.interego.rolling-checkpoint-delta-v1+br',context:c});
+  assert(final.compressed.length<=384*1024,'the compressed storage ceiling is unchanged');
+  assert(restored.checkpoints.length>=3&&restored.checkpoints.length<doc.checkpoints.length,
+   'only historical density is reduced under real capacity pressure');
+  assert.equal(restored.retentionMs,3600000);
+  assert.equal(restored.checkpoints[0].at,doc.checkpoints[0].at,'oldest available hour anchor survives');
+  assert.equal(restored.checkpoints.at(-1).at,doc.checkpoints.at(-1).at,'newest rollback anchor survives');
+  const originals=new Map(doc.checkpoints.map(p=>[p.at,p]));
+  for(const [i,point] of restored.checkpoints.entries()){
+   assert.deepEqual(point,originals.get(point.at),'each retained historical point stays byte-equivalent JSON');
+   if(i)assert(point.at-restored.checkpoints[i-1].at<=30*60000,'retained points cover the hour rather than only its ends');
+  }
+  assert.deepEqual(restored.streams,doc.streams,'current world, binding and permanent revocation stay exact');
+  assert.deepEqual(restored.receipts,doc.receipts,'idempotency receipts are never compacted');
+  assert.deepEqual(restored.writeBudget,writeBudget);
+  assert.deepEqual(doc,before,'worker preparation cannot mutate its caller');
+
+  const f=fixture(pool);
+  await f.nativeClient.commitAtomicCheckpoint(null,{owner:c.owner,
+   contentType:'application/vnd.interego.rolling-checkpoint-delta-v1+br',bytes:Uint8Array.from(final.compressed)});
+  const advertised=await f.store.rollbackCheckpoints();
+  assert.deepEqual(advertised,restored.checkpoints.map(p=>({at:p.at,version:p.streams[0].version})),
+   'a cold store advertises only physically retained, exact points');
+  assert.deepEqual((await f.store.load(PRESSURE_WORLD)).state,doc.streams[0].state);
+  const absent=doc.checkpoints.find(p=>!advertised.some(q=>q.at===p.at)),writes=f.writes();
+  assert(absent,'the fixture actually discarded an interior point');
+  await assert.rejects(f.store.restoreWorldAt(absent.at,{idempotencyKey:'compacted-checkpoint-must-not-fallback'}),
+   {code:'ROLLBACK_EXPIRED'});
+  assert.equal(f.writes(),writes,'requesting an omitted exact point cannot silently restore another world');
+  t.diagnostic(JSON.stringify({inputPoints:doc.checkpoints.length,retainedPoints:restored.checkpoints.length,
+   compressedBytes:final.compressed.length,spanMs:restored.checkpoints.at(-1).at-restored.checkpoints[0].at}));
+ }finally{await pool.fail()}
+});
+
+test('an over-capacity current state fails closed when there is no historical density to reduce',async()=>{
+ const pool=new RollingStorageWorker({idleMs:10}),c=context(),doc=empty(c);
+ doc.streams=[pressureRecord(c,'incompressible-current',{payload:pressureText(999,500*1024)},1)];
+ const before=structuredClone(doc);
+ try{
+  await assert.rejects(pool.run('encode',{doc,context:c}),{code:'PAYLOAD_TOO_LARGE'});
+  assert.deepEqual(doc,before,'capacity handling cannot truncate current state or mutate its caller');
+ }finally{await pool.fail()}
+});
+
+
+test('final reservation encoding also compacts an uncompacted over-capacity history',async()=>{
+ const pool=new RollingStorageWorker({idleMs:10}),c=context(),doc=pressureWindow(c);
+ // Sixteen independently changing points span the full hour but exceed 384 KiB.
+ // Enter Phase B directly so Phase A cannot hide a missing finalization fallback.
+ doc.checkpoints=doc.checkpoints.filter((_,i)=>i%4===0);
+ const wire=encodeRollingHistoryColumns(doc),before=structuredClone(wire);
+ const writeBudget=[...doc.writeBudget,{minute:Math.floor(c.now/60000),bytes:4096}];
+ try{
+  const final=await pool.run('finish',{wire,writeBudget,context:c,
+   measured:{phase:'prepared-test',inputCheckpoints:doc.checkpoints.length}});
+  const restored=await pool.run('decode',{bytes:final.compressed,
+   contentType:'application/vnd.interego.rolling-checkpoint-delta-v1+br',context:c});
+  assert(final.compressed.length<=384*1024);
+  assert(restored.checkpoints.length>=2&&restored.checkpoints.length<doc.checkpoints.length);
+  assert.equal(restored.checkpoints[0].at,doc.checkpoints[0].at);
+  assert.equal(restored.checkpoints.at(-1).at,doc.checkpoints.at(-1).at);
+  const originals=new Map(doc.checkpoints.map(p=>[p.at,p]));
+  for(const p of restored.checkpoints)assert.deepEqual(p,originals.get(p.at));
+  assert.deepEqual(restored.streams,doc.streams);
+  assert.deepEqual(restored.receipts,doc.receipts);
+  assert.deepEqual(restored.writeBudget,writeBudget);
+  assert.deepEqual(wire,before,'finalization cannot mutate the caller representation');
+ }finally{await pool.fail()}
 });

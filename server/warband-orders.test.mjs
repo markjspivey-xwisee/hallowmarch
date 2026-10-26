@@ -44,6 +44,20 @@ function fixture(saved = {}) {
     host(id) { host = id; next = { entities: 0, worldparts: 0 }; scene.sync(room); } };
 }
 
+test('only a live throne occupant receives a server-stamped throne command grant', () => {
+  const f = fixture(), e = entities();
+  e.meta.thrones = [{ id: 15, realm: 0, x: 2, y: 0, z: 3, ready: true }];
+  f.publish('entities', e); f.worldparts([]); f.b.slow.l = 1; f.b.slow.rr = 0;
+  assert.equal(f.send(f.b, { kind: 'thrones', op: 'claim', id: 15, seq: 1 }), true);
+  const command = id => ({ id, op: 'warband.order', args: { campaign: 1, version: 0, wb: 1, cmd: 'defend', table: 15, target: 0 }, goods: {} });
+  assert.equal(f.send(f.b, { kind: 'worldparts', op: 'command', command: command('b:seated') }), true);
+  const forwarded = () => f.packets.findLast(p => p.m.op === 'command').m.actorState;
+  assert.equal(forwarded().throne, 15); assert.equal(forwarded().level, 1);
+  assert.equal(f.send(f.b, { kind: 'thrones', op: 'release', id: 15, seq: 2 }), true);
+  assert.equal(f.send(f.b, { kind: 'worldparts', op: 'command', command: command('b:standing'), actorState: { throne: 15 } }), true);
+  assert.equal(forwarded().throne, undefined, 'caller-supplied actor context cannot forge a released seat');
+});
+
 test('orders and release revisions commit with their receipts and emit canonical patches', () => {
   const f = fixture(); f.publish('entities', entities()); f.worldparts([]);
   const first = receipt('b:attack', attack(), 1);
