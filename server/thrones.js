@@ -4,6 +4,8 @@ export function createThrones({ now, live, sameAdmission }) {
   let revision = 0;
   const validHall = h => h && Number.isSafeInteger(h.id) && h.id >= 0 && h.id < 4096
     && [0, 1, 2].includes(h.realm) && [h.x, h.y, h.z].every(Number.isFinite) && h.ready === true;
+  const hallAt = (halls, id) => Array.isArray(halls) && halls.length <= 6
+    && new Set(halls.map(h => h?.id)).size === halls.length ? halls.find(h => h?.id === id) : null;
   function eligible(c, h, admission) {
     const f = c?.fast;
     return !!(c && live(c) && sameAdmission(c.worldAdmission, admission) && validHall(h)
@@ -14,7 +16,7 @@ export function createThrones({ now, live, sameAdmission }) {
   function prune(room, halls, admission) {
     let changed = false;
     for (const [id, seat] of seats) {
-      const c = room.clients.get(seat.peer), h = halls?.find(h => h.id === id);
+      const c = room.clients.get(seat.peer), h = hallAt(halls, id);
       if (!eligible(c, h, admission) || now() - seat.at > 3000 && !c.fast.st) {
         seats.delete(id); changed = true;
       }
@@ -35,7 +37,7 @@ export function createThrones({ now, live, sameAdmission }) {
       if (current?.peer === c.peer) { seats.delete(m.id); revision++; }
       return { ok: true };
     }
-    if (!eligible(c, halls?.find(h => h.id === m.id), admission)) return { ok: false, reason: 'The high seat is unavailable. Stand near an intact hall held by your realm.' };
+    if (!eligible(c, hallAt(halls, m.id), admission)) return { ok: false, reason: 'The high seat is unavailable. Stand near an intact hall held by your realm.' };
     if (current && current.peer !== c.peer) return { ok: false, reason: 'Another commander occupies this high seat.' };
     if ([...seats.values()].some(s => s.peer === c.peer)) return { ok: false, reason: 'Leave your current high seat first.' };
     seats.set(m.id, { peer: c.peer, at: now() }); revision++;

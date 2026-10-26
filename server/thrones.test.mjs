@@ -34,6 +34,15 @@ test('old claim and release messages cannot regain or remove a later seat', () =
   assert.equal(f.handle(f.a, 'claim', 1), null);
   assert.equal(f.seats.held('a', 15), true);
 });
+test('oversized and duplicate hall registries fail closed and drop old claims', () => {
+  for (const corrupt of [f => { f.halls.push({ ...f.halls[0] }); },
+    f => { for (let id = 20; id < 25; id++) f.halls.push({ ...f.halls[0], id }); }]) {
+    const f = fixture(); f.handle(f.a, 'claim', 1); corrupt(f);
+    assert.equal(f.prune(), true);
+    assert.equal(f.handle(f.a, 'claim', 2).ok, false);
+    assert.equal(f.seats.snapshot().seats.length, 0);
+  }
+});
 test('invalid admission, death, casting, movement, stale pose, capture and fire revoke occupancy', () => {
   const changes = [f => { f.a.live = false; }, f => { f.a.worldAdmission = { ...f.admission, epoch: 2 }; },
     f => { f.a.fast.d = 1; }, f => { f.a.fast.cs = ['spell', .5]; }, f => { f.a.pos.x = 3; },
