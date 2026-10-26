@@ -250,10 +250,11 @@ async function ingress(f, extra = {}) {
   assert.ok(start>=0 && end>start);
   const stats={msgs:0,bytesIn:0,badMsgs:0,rateDropped:0,kicked:0};let fastCount=0;
   const context={STATS:stats,CFG:{maxMsg:8192,maxSave:768*1024},SHARED_SCENE:f.scene,Date,Buffer,console,
-    nativePlayersRequired:false,WORLD_STATE:null,isHumanPlaying:c=>c.live,onFast:()=>fastCount++, ...extra};
+    nativePlayersRequired:false,WORLD_STATE:null,WORLDS:{march:f.state},isHumanPlaying:c=>c.live,onFast:()=>fastCount++, ...extra};
   f.a.winT=Date.now();f.a.winN=0;f.a.ws={close:()=>{throw Error('unexpected transport close')}};
   f.b.winT=Date.now();f.b.winN=0;f.b.ws=f.a.ws;
-  vm.createContext(context);vm.runInContext(source.slice(start,end)+'\nglobalThis.onMsg=onMsg;',context);
+  const ordersStart=source.indexOf('function roomNeedsWarbandOrders(R) {'),ordersEnd=source.indexOf('function roomHost(R) {',ordersStart);
+  vm.createContext(context);vm.runInContext(source.slice(ordersStart,ordersEnd)+source.slice(start,end)+'\nglobalThis.onMsg=onMsg;',context);
   return {onMsg:context.onMsg,stats,fast:()=>fastCount};
 }
 
@@ -358,7 +359,7 @@ test('actual keep reporting follows the shared host even when another player sta
     SEASON:{keepsOf:()=>seasonal,capture:(id,r,who)=>{calls.push({id,r,who});seasonal=[r]}},
     coCaptured(){},worldsSave(){},STATS:{worldTold:0},send(){}};
   vm.createContext(context);vm.runInContext(
-    cut('function roomHost(R) {','const send =')+
+    cut('function roomNeedsWarbandOrders(R) {','const send =')+
     cut('function regionHosts(R) {','function regionsTell(')+
     cut('function worldReport(c, raw, admission) {','// [perf3] the host'),context);
   room.regions=context.regionHosts(room);
@@ -438,8 +439,8 @@ test('unauthenticated legacy identity refusal is preserved before a protocol-upg
 
 test('capable room hosts are preferred over older legacy pages without breaking all-legacy fixtures', async () => {
   const fs=await import('node:fs'),vm=await import('node:vm'),source=fs.readFileSync(new URL('./server.js',import.meta.url),'utf8');
-  const start=source.indexOf('function roomHost(R) {'),end=source.indexOf('const send =',start);
-  const context={isHumanPlaying:c=>c.live};vm.createContext(context);vm.runInContext(source.slice(start,end),context);
+  const start=source.indexOf('function roomNeedsWarbandOrders(R) {'),end=source.indexOf('const send =',start);
+  const context={WORLDS:{},isHumanPlaying:c=>c.live};vm.createContext(context);vm.runInContext(source.slice(start,end),context);
   const old={peer:'old',live:true,since:1,slow:{on:1}}, fresh={peer:'new',live:true,since:2,slow:{on:1}};
   const room={clients:new Map([['old',old],['new',fresh]])};
   assert.equal(context.roomHost(room).peer,'old','legacy-only protocol fixtures retain the previous host rule');

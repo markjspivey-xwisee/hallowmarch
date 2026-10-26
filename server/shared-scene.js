@@ -52,6 +52,76 @@ function rowsRead(rows, max, clean) {
   for (const r of rows) { const value = clean(r); if (!value || ids.has(value.id)) return null; ids.add(value.id); out.push(value); }
   return out;
 }
+function warbandOrderValid(o) {
+  if (o === null) return true;
+  if (!o || Array.isArray(o) || !['attack', 'defend', 'garrison', 'raid', 'carry', 'retrieve', 'patrol', 'rally'].includes(o.type)
+    || Object.keys(o).some(k => !['type', 'keep', 'temple', 'relic', 'node', 'x', 'z', 'phase', 'byPlayer', 'home', 'why',
+      'untilIn', 'sinceIn', 'holdUntilIn', 'bombSinceIn', 'bombFirstIn', 'breachBanIn', 'engine', 'rallyPeer', 'rallyName'].includes(k))) return false;
+  const ref = (v, max) => Number.isSafeInteger(v) && v >= 0 && v < max;
+  if (['attack', 'defend', 'garrison'].includes(o.type) && !ref(o.keep, 6)
+    || o.type === 'raid' && (!ref(o.temple, 3) || !ref(o.relic, 3))
+    || ['carry', 'retrieve'].includes(o.type) && !ref(o.relic, 3) || o.type === 'patrol' && !ref(o.node, 4096)) return false;
+  return ['keep', 'temple', 'relic', 'node'].every(k => o[k] == null || ref(o[k], k === 'keep' ? 6 : k === 'node' ? 4096 : 3))
+    && (o.x == null && o.z == null || finite(o.x, -4000, 4000) && finite(o.z, -4000, 4000))
+    && ['phase', 'why'].every(k => o[k] == null || typeof o[k] === 'string' && o[k].length <= 240)
+    && ['byPlayer', 'home'].every(k => o[k] == null || typeof o[k] === 'boolean')
+    && ['untilIn', 'sinceIn', 'holdUntilIn', 'bombSinceIn', 'bombFirstIn', 'breachBanIn'].every(k => o[k] == null || finite(o[k], -86400, 86400))
+    && (o.engine == null || keyOk(o.engine))
+    && (o.rallyPeer == null || typeof o.rallyPeer === 'string' && o.rallyPeer.length > 0 && o.rallyPeer.length <= 160)
+    && (o.rallyName == null || typeof o.rallyName === 'string' && o.rallyName.length <= 56);
+}
+const warbandOrderVersion = w => Number.isSafeInteger(w?.orderVersion) && w.orderVersion >= 0 ? w.orderVersion : 0;
+const warbandOrderCampaign = w => Number.isSafeInteger(w?.orderCampaign) && w.orderCampaign >= 1 ? w.orderCampaign : 1;
+// Army effects and their receipts enter the retained cache together. The
+// monotonic revision lives with the army, beyond the bounded receipt window.
+function warbandReceiptEffects(entities, receipts, before) {
+  const known = new Set((before || []).map(r => r.ownerAccount + ':' + r.id));
+  const fresh = (receipts || []).filter(r => r.action === 'warband.order' && r.ok && !known.has(r.ownerAccount + ':' + r.id));
+  if (!fresh.length) return { entities, receipts, patches: [] };
+  const bands = entities?.meta?.warbands;
+  if (bands != null && (!Array.isArray(bands) || bands.length > 96)) return null;
+  const warbands = (bands || []).slice(), canonicalReceipts = receipts.slice(), patches = [];
+  for (const r of fresh) {
+    const w = r.result?.warband, at = warbands.findIndex(b => b.id === w?.id);
+    const campaign = r.result?.campaign, proposed = r.result?.orderVersion;
+    if (!w || !Number.isSafeInteger(w.id) || w.id < 1 || !Number.isSafeInteger(campaign) || campaign < 1 || campaign > 1e9
+      || !Number.isSafeInteger(proposed) || proposed < 1 || !warbandOrderValid(w.order)
+      || typeof r.id !== 'string' || !r.id || r.id.length > 100) return null;
+    if (at < 0) {
+      // A band can disappear, or not reach the canonical cache, while the
+      // keeper prepares the outcome. Settle this order without stopping the
+      // unrelated shared world snapshot or inventing an army.
+      canonicalReceipts[canonicalReceipts.indexOf(r)] = { ...r, ok: false, result: null,
+        reason: 'That warband is no longer available. Choose a current warband.',
+        goods: [], gold: 0, items: [], skills: [], notes: [] };
+      continue;
+    }
+    const currentCampaign = warbandOrderCampaign(warbands[at]), currentVersion = warbandOrderVersion(warbands[at]);
+    // A delayed settled receipt can reappear after it was pruned, or after a
+    // campaign reset. It must never become a new command in either case.
+    if (campaign < currentCampaign || campaign === currentCampaign && proposed <= currentVersion) continue;
+    if (campaign !== currentCampaign) return null;
+    const version = currentVersion + 1;
+    if (!Number.isSafeInteger(version) || proposed !== version) return null;
+    warbands[at] = { ...warbands[at], order: w.order, orderToken: r.id, orderCampaign: campaign, orderVersion: version };
+    patches.push({ warband: { id: w.id, order: w.order }, orderToken: r.id, campaign, orderVersion: version });
+  }
+  return { entities: bands ? { ...entities, meta: { ...entities.meta, warbands } } : entities, receipts: canonicalReceipts, patches };
+}
+function keepCanonicalWarbandOrders(entities, prior) {
+  if (!Array.isArray(entities?.meta?.warbands)) return entities;
+  const old = new Map((prior?.meta?.warbands || []).map(w => [w.id, w]));
+  return { ...entities, meta: { ...entities.meta, warbands: entities.meta.warbands.map(w => {
+    const was = old.get(w.id);
+    if (!was) return w.orderToken || warbandOrderVersion(w) ? { ...w, orderToken: '', orderVersion: 0 } : w;
+    const campaign = warbandOrderCampaign(w), oldCampaign = warbandOrderCampaign(was), version = warbandOrderVersion(was);
+    // Only a receipt advances a command revision. An entity snapshot may move
+    // an already accepted order through AI phases, or begin a new campaign.
+    if (campaign > oldCampaign && warbandOrderVersion(w) === 0 && !w.orderToken) return w;
+    return campaign !== oldCampaign || warbandOrderVersion(w) !== version || (w.orderToken || '') !== (was.orderToken || '')
+      ? { ...w, order: was.order, orderToken: was.orderToken || '', orderCampaign: oldCampaign, orderVersion: version } : w;
+  }) } };
+}
 function sceneValue(kind, old, payload) {
   if (!payload || payload.v !== 1 || typeof payload.full !== 'boolean' || !safeJson(payload)) return null;
   let value;
@@ -86,7 +156,7 @@ function sceneValue(kind, old, payload) {
     const prior = new Map((old?.receipts || []).map(r => [receiptKey(r), r]));
     const retained = new Map(incoming.map(r => {
       const before = prior.get(receiptKey(r));
-      return [receiptKey(r), before?.settled ? { ...r, settled: true } : r];
+      return [receiptKey(r), before?.action === 'warband.order' ? before : before?.settled ? { ...r, settled: true } : r];
     }));
     // An outcome remains canonical until its authenticated owner acknowledges private readback.
     for (const r of prior.values()) if (!r.settled && !retained.has(receiptKey(r))) retained.set(receiptKey(r), r);
@@ -326,7 +396,8 @@ export function createSharedScene({ hostFor, live, admission, stateFor, send, ch
       const serialized = stableScene(command), prior = seen.ids.get(id);
       if (++seen.count > 20 || !c.pos || now() - c.posT > 5000
         || prior && (kind !== 'worldparts' || prior.serialized !== serialized || now() - prior.at < 2000)) return false;
-      const stamp = { serialized, at: now(), ...(prior?.towerBrand ? { towerBrand: prior.towerBrand } : {}) };
+      const stamp = { serialized, at: now(), ...(prior?.towerBrand ? { towerBrand: prior.towerBrand } : {}),
+        ...(prior?.warbandOrder ? { warbandOrder: prior.warbandOrder } : {}) };
       seen.ids.set(id, stamp);
       if (seen.ids.size > 128) seen.ids.delete(seen.ids.keys().next().value);
       s.commands.set(c.peer, seen); const host = room.clients.get(s.host);
@@ -346,9 +417,32 @@ export function createSharedScene({ hostFor, live, admission, stateFor, send, ch
         }
         actorState = stamp.towerBrand.actorState;
       }
+      if (kind === 'worldparts' && command.op === 'warband.order') {
+        const a = command.args, f = c.fast;
+        if (typeof command.id !== 'string' || !command.id || host.slow?.warbandOrders !== 1
+          || !a || Array.isArray(a) || Object.keys(a).sort().join(',') !== 'campaign,cmd,table,target,version,wb'
+          || !Number.isSafeInteger(a.campaign) || a.campaign < 1 || a.campaign > 1e9
+          || !Number.isSafeInteger(a.version) || a.version < 0
+          || !Number.isSafeInteger(a.wb) || a.wb < 1 || a.wb > 1e9
+          || !['attack', 'defend', 'raid', 'rally', 'release'].includes(a.cmd)
+          || !Number.isSafeInteger(a.target) || !Number.isSafeInteger(a.table) || a.table < -1 || a.table > 4095
+          || (['rally', 'release'].includes(a.cmd) ? a.target !== -1 : a.target < 0 || a.target >= (a.cmd === 'raid' ? 3 : 6))
+          || Object.keys(command.goods || {}).length) return false;
+        if (!stamp.warbandOrder) {
+          if (!f || !Array.isArray(f.p) || f.p.length !== 3 || !f.p.every(Number.isFinite) || Math.abs(f.p[1]) > 500 || f.d !== 0
+            || ![0, 1, 2].includes(c.slow?.r)) return false;
+          stamp.warbandOrder = { actorState: { alive: true, y: f.p[1],
+            level: Number.isFinite(c.slow.l) ? Math.max(1, Math.min(60, Math.floor(c.slow.l))) : 1,
+            rank: Number.isFinite(c.slow.rr) ? Math.max(0, Math.min(20, Math.floor(c.slow.rr))) : 0,
+            name: String(c.slow.dn || c.slow.n || 'the commander').slice(0, 56) },
+            position: { x: c.pos.x, z: c.pos.z }, realm: c.slow.r };
+        }
+        actorState = stamp.warbandOrder.actorState;
+      }
+      const actorStamp = stamp.warbandOrder || stamp.towerBrand;
       send(host, { t: 'activity', kind, op: 'command', authority: s.authority, worldAdmission: s.worldAdmission,
         peer: s.host, from: c.peer, ownerAccount: c.acct?.id || c.peer,
-        position: stamp.towerBrand?.position || { x: c.pos.x, z: c.pos.z }, realm: stamp.towerBrand?.realm ?? c.slow?.r ?? -1, at: now(), command,
+        position: actorStamp?.position || { x: c.pos.x, z: c.pos.z }, realm: actorStamp?.realm ?? c.slow?.r ?? -1, at: now(), command,
         ...(actorState ? { actorState } : {}) });
       return true;
     }
@@ -410,14 +504,26 @@ export function createSharedScene({ hostFor, live, admission, stateFor, send, ch
     let payload;
     try { payload = JSON.parse([...Array(pending.total)].map((_, i) => pending.parts.get(i)).join('')); }
     catch { delete s.pending[kind]; return false; }
-    delete s.pending[kind]; const merged = sceneValue(kind, s.streams[kind], payload);
+    delete s.pending[kind]; let merged = sceneValue(kind, s.streams[kind], payload);
     if (!merged) return false;
+    let orderPatches = [];
+    if (kind === 'entities') {
+      merged = keepCanonicalWarbandOrders(merged, s.streams.entities);
+      if (payload.meta?.warbands) payload = { ...payload, meta: merged.meta };
+    }
+    if (kind === 'worldparts') {
+      const effect = warbandReceiptEffects(s.streams.entities, merged.receipts, s.streams.worldparts?.receipts);
+      if (!effect) return false;
+      s.streams.entities = effect.entities; merged = { ...merged, receipts: effect.receipts }; orderPatches = effect.patches;
+    }
     if (kind === 'worldparts' && s.rebuildReceiptAwaitHost && payload.receipts?.some(r =>
       r.id === s.rebuildReceiptAwaitHost.id && r.ownerAccount === s.rebuildReceiptAwaitHost.ownerAccount
       && r.digest === s.rebuildReceiptAwaitHost.digest)) s.rebuildReceiptAwaitHost = null;
     s.streams[kind] = merged; s.streamSeq[kind] = m.seq;
     if (!persist(room, s)) return refuse(c, s, m, 'scene_capacity');
     const publish = changedAuthority => {
+      for (const patch of orderPatches) broadcast(room, { t: 'activity', kind: 'entities', op: 'warband-order',
+        authority: s.authority, worldAdmission: s.worldAdmission, peer: s.host, ...patch });
       const publicPayload = kind === 'worldparts' ? changedAuthority ? s.publicWorldparts : { ...payload, receipts: s.publicWorldparts.receipts } : payload;
       const seq = changedAuthority ? 0 : m.seq;
       if (kind === 'worldparts') s.publicWorldSeq = seq;

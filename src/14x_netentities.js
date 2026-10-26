@@ -4,6 +4,7 @@ const NET_ENTITIES = { authority: '', peer: '', admission: null, complete: false
   seq: 0, received: -1, next: 1, at: -Infinity, applying: false, rows: new Map(), bodies: new Map(),
   sent: new Map(), buffers: new Map(), assembly: null, commands: 0, rewards: new Set(), rewarding: false,
   petsAt: -Infinity, metaKey: '', published: false, lastRefusal: '',
+  orderPatches: new Map(),
   stats: { frames: 0, sent: 0, made: 0, hits: 0, refused: 0, commands: 0, rewards: 0 } };
 const netEntityShared = () => typeof NETWS !== 'undefined' && !!NETWS.url;
 const netEntityPrivate = e => !e || e === GAME.player || e.role === 'player' || e.role === 'remote'
@@ -418,6 +419,52 @@ function netEntityOrderDecode(row) {
   }
   return O;
 }
+function netEntityApplyBandOrder(w, row, token, version = 0, campaign = 1) {
+  token = typeof token === 'string' && token.length <= 100 ? token : '';
+  if (!Number.isSafeInteger(version) || version < 0 || !Number.isSafeInteger(campaign) || campaign < 1) return false;
+  const currentCampaign = w.orderCampaign || 1, currentVersion = w.orderVersion || 0;
+  if (campaign < currentCampaign || campaign === currentCampaign && (version < currentVersion
+    || version === currentVersion && token !== (w.orderToken || ''))) return false;
+  const next = netEntityOrderDecode(row), prior = w.order;
+  const sameObjective = prior === next || !!prior && !!next && prior.type === next.type
+    && prior.rallyPeer === next.rallyPeer && !!prior.home === !!next.home
+    && ['keep', 'temple', 'relic', 'node'].every(key => prior[key]?.id === next[key]?.id);
+  const sameIntent = campaign === currentCampaign && version === currentVersion && token === (w.orderToken || '');
+  w.order = next; w.orderToken = token;
+  w.orderVersion = version; w.orderCampaign = campaign;
+  w.cwMine = w.order?.byPlayer ? w.order : null;
+  // Repeated snapshots refresh clocks and AI phases without discarding a
+  // living route. A different intent or objective still replans immediately.
+  if (!sameIntent || !sameObjective) { w.path = null; w.pathIdx = 0; w.goal = null; }
+  return true;
+}
+function netEntityOrderPatch(m) {
+  const row = m.warband;
+  if (!row || !Number.isSafeInteger(row.id) || row.id < 1 || typeof m.orderToken !== 'string'
+    || !m.orderToken || m.orderToken.length > 100 || !Number.isSafeInteger(m.campaign) || m.campaign < 1
+    || !Number.isSafeInteger(m.orderVersion) || m.orderVersion < 1
+    || row.order !== null && !netEntityOrderDecode(row.order)) return false;
+  const w = WAR.warbands.find(w => w.id === row.id);
+  if (w) {
+    if (w.orderToken === m.orderToken && w.orderVersion === m.orderVersion && w.orderCampaign === m.campaign) return true;
+    const applied = netEntityApplyBandOrder(w, row.order, m.orderToken, m.orderVersion, m.campaign);
+    if (applied && netEntityMine()) {
+      w.lastProgress = GAME.t;
+      const L = wbLeader(w); if (L) { w.progX = L.x; w.progZ = L.z; }
+      if (w.order) {
+        if (w.order.type === 'raid') WAR.stats.raidOrders++;
+        announceOrder(w, w.order);
+      } else { w.cwKey = ''; news(`${wbName(w)} returns to the commander's orders.`, w.realm, 'order'); }
+    }
+    return applied;
+  } else {
+    const prior = NET_ENTITIES.orderPatches.get(row.id);
+    if (prior && (prior.campaign > m.campaign || prior.campaign === m.campaign && prior.version >= m.orderVersion)) return false;
+    NET_ENTITIES.orderPatches.set(row.id, { order: row.order, token: m.orderToken, campaign: m.campaign, version: m.orderVersion });
+    if (NET_ENTITIES.orderPatches.size > 96) NET_ENTITIES.orderPatches.delete(NET_ENTITIES.orderPatches.keys().next().value);
+  }
+  return true;
+}
 function netEntityPrepareWarbands() {
   if (typeof WAR === 'undefined' || typeof cwPrepareReplicaBand !== 'function') return;
   for (const w of WAR.warbands) {
@@ -443,9 +490,13 @@ const netEntityBandMember = (e, realm) => netEntityOwned(e) && !netEntityPersona
   && e.role === 'soldier' && e.faction === realm;
 function netEntityMeta() {
   const ref = id => getEnt(id)?.netEntityId || null;
+  const campaign = typeof CAMPAIGN !== 'undefined' ? CAMPAIGN.n : 1;
   const meta = { dungeon: netEntityDungeonMeta() };
   if (typeof WAR !== 'undefined') meta.warbands = WAR.warbands.slice(0, 96).map(w => ({
     id: w.id, realm: w.realm, ord: w.ord || 0, members: w.members.map(ref).filter(Boolean),
+    orderToken: (w.orderCampaign || 1) === campaign && typeof w.orderToken === 'string' ? w.orderToken : '',
+    orderCampaign: campaign,
+    orderVersion: (w.orderCampaign || 1) === campaign && Number.isSafeInteger(w.orderVersion) && w.orderVersion >= 0 ? w.orderVersion : 0,
     season: w.season ? netEntityPlain(w.season) : null,
     order: netEntityOrderEncode(w.order) }));
   if (typeof CAMPS !== 'undefined') meta.camps = CAMPS.slice(0, 128).map(c => ({ id: c.id,
@@ -477,7 +528,12 @@ function netEntityApplyMeta(meta) {
         .filter(e => netEntityBandMember(e, row.realm) && !assigned.has(e.id)).map(e => e.id))];
       for (const id of w.members) assigned.add(id);
       w.season = row.season;
-      w.order = netEntityOrderDecode(row.order);
+      const patch = NET_ENTITIES.orderPatches.get(row.id);
+      if (patch) {
+        netEntityApplyBandOrder(w, patch.order, patch.token, patch.version, patch.campaign);
+        NET_ENTITIES.orderPatches.delete(row.id);
+      }
+      netEntityApplyBandOrder(w, row.order, row.orderToken, row.orderVersion, row.orderCampaign);
       for (const id of w.members) { const e = getEnt(id); if (e) e.warband = w; }
       return w;
     });
@@ -765,6 +821,7 @@ function netEntityMessage(m) {
     if (!current || !m.worldAdmission || current.origin !== m.worldAdmission.origin || current.epoch !== m.worldAdmission.epoch
       || typeof m.authority !== 'string' || !m.authority || typeof m.peer !== 'string') return false;
     if (m.authority !== NET_ENTITIES.authority) {
+      NET_ENTITIES.orderPatches.clear();
       NET_ENTITIES.sent.clear(); NET_ENTITIES.received = -1; NET_ENTITIES.seq = 0; NET_ENTITIES.assembly = null; NET_ENTITIES.published = false;
       NET_ENTITIES.waiting = m.hasEntities === true;
     }
@@ -784,6 +841,7 @@ function netEntityMessage(m) {
     }
     return false;
   }
+  if (m.op === 'warband-order') return netEntityOrderPatch(m);
   if (m.op === 'owner-left' && typeof m.owner === 'string' && Array.isArray(m.ids) && m.ids.length <= 2048) {
     for (const id of m.ids) {
       const e = NET_ENTITIES.bodies.get(id);

@@ -112,10 +112,13 @@ function cwOrderView(wb, O = wb.order) {
 }
 function cwRallyCaller(O) {
   let P = null;
-  if (O.rallyPeer == null) P = GAME.player; // standalone orders predate peer ownership
-  else if (typeof O.rallyPeer === 'string' && O.rallyPeer) {
-    if (typeof NET !== 'undefined' && O.rallyPeer === NET.self) P = GAME.player;
-    else if (typeof netEntityFind === 'function') P = netEntityFind('peer:' + O.rallyPeer);
+  if (!O.rallyPeer || typeof NET === 'undefined' || O.rallyPeer === NET.self) P = GAME.player;
+  else {
+    const R = NET.peers?.get(O.rallyPeer), f = R?.fast;
+    if (R?.slow || f) {
+      if (!R?.slow?.on || !f || f.d || ![f.x, f.y, f.z].every(Number.isFinite)) return null;
+      P = { alive: true, faction: R.slow.r, x: f.x, y: f.y, z: f.z, name: R.slow.dn || R.slow.n };
+    } else if (typeof netEntityFind === 'function') P = netEntityFind('peer:' + O.rallyPeer);
   }
   return P && P.alive && !P.removed && cwFinitePoint(P) ? P : null;
 }
@@ -360,8 +363,17 @@ function planWar(C) {
 /* the player's commands                                               */
 /* ------------------------------------------------------------------ */
 function cwCanCommand() {
+  const P = GAME.player;
+  if (P?.netCommand) return P.commandRank >= 3 || P.level >= 20 || cwCommandTable(P, P.commandTable);
   const prog = GAME.prog;
   return !!prog && (realmRank(prog.rp) >= 3 || prog.level >= 20 || hallCommandGrant()); // [building] or at the war table of a keep your realm holds (04k_hall.js)
+}
+// A remote table grant is checked against the keeper's hall, never its own local grant.
+function cwCommandTable(P, id) {
+  if (!P?.alive || !Number.isSafeInteger(id) || id < 0 || typeof HALL === 'undefined') return false;
+  const H = HALL.list.find(h => h.num === id), sp = H?.hallSpots?.table;
+  return !!sp && hallHolder(H) === P.faction && houseIntact(H)
+    && dist2(P.x, P.z, sp.x, sp.z) < 3.4 * 3.4;
 }
 // what the player may order a band to do, as [cmd, target, label]
 function cwChoices(wb) {
@@ -374,37 +386,60 @@ function cwChoices(wb) {
 }
 // the player gives a band an order; returns a sentence saying what happened
 function playerOrder(wbId, cmd, target) {
+  return cwPlayerOrder(wbId, cmd, target).message;
+}
+function cwPlayerOrder(wbId, cmd, target) {
   const P = GAME.player;
   const wb = WAR.warbands.find((w) => w.id === wbId && !w.dead);
-  if (!P || !wb || wb.realm !== P.faction) return 'That warband is gone.';
-  if (!cwCanCommand()) return 'You may command warbands from realm rank 3 or level 20.';
-  if (CAMPAIGN.state !== 'war') return 'The campaign is over: the armies are going home.';
+  const no = message => ({ ok: false, message });
+  if (!P?.alive || !wb || wb.realm !== P.faction) return no('That warband is gone.');
+  if (!cwCanCommand()) return no('You may command warbands from realm rank 3 or level 20.');
+  if (CAMPAIGN.state !== 'war') return no('The campaign is over: the armies are going home.');
+  if (!['attack', 'defend', 'raid', 'rally', 'release'].includes(cmd) || !Number.isSafeInteger(target)) return no('Choose an available warband order.');
+  if (typeof netWorldPartsActive === 'function' && netWorldPartsActive() && !NETPARTS.replay) {
+    if (NETPARTS.peer && NETPARTS.peer !== NET.self && !NET.peers.get(NETPARTS.peer)?.slow?.warbandOrders)
+      return no('The shared keeper needs an updated game to accept warband orders.');
+    if (netWorldPartsConnected()) {
+      if (typeof netSendSlow === 'function') netSendSlow(performance.now(), true);
+      if (typeof netSendFast === 'function') { NET.fastKey = ''; NET.fastAt = -Infinity; netSendFast(performance.now()); }
+    }
+    const table = hallCommandGrant() ? HALL.grant.H.num : -1;
+    const version = wb.orderCampaign === CAMPAIGN.n ? wb.orderVersion || 0 : 0;
+    netWorldPartsRequest('warband.order', { wb: wbId, cmd, target, table, campaign: CAMPAIGN.n, version }, [], true);
+    return { ok: false, pending: true, message: 'Your order is awaiting the shared keeper.' };
+  }
   const now = GAME.t;
   let o = null;
-  if (cmd === 'attack') { const K = WAR.keeps[target]; if (!K || K.realm === wb.realm) return 'That keep is already ours.'; o = { type: 'attack', keep: K }; }
-  else if (cmd === 'defend') { const K = WAR.keeps[target]; if (!K || K.realm !== wb.realm) return 'Only a keep of ours can be defended.'; o = { type: 'defend', keep: K, since: now + 150 }; }
+  if (cmd === 'attack') { const K = WAR.keeps[target]; if (!K || K.realm === wb.realm) return no('That keep is already ours.'); o = { type: 'attack', keep: K }; }
+  else if (cmd === 'defend') { const K = WAR.keeps[target]; if (!K || K.realm !== wb.realm) return no('Only a keep of ours can be defended.'); o = { type: 'defend', keep: K, since: now + 150 }; }
   else if (cmd === 'raid') {
     const T = WAR.temples[target];
-    if (!T || T.realm === wb.realm) return 'Choose an enemy temple.';
-    if (!templeExposed(T)) return `The gate of the ${T.site.name} cannot be broken while ${REALMS[T.realm].name} holds both its keeps. Take one of them first.`;
+    if (!T || T.realm === wb.realm) return no('Choose an enemy temple.');
+    if (!templeExposed(T)) return no(`The gate of the ${T.site.name} cannot be broken while ${REALMS[T.realm].name} holds both its keeps. Take one of them first.`);
     const rel = WAR.relics.find((x) => x.state === 'temple' && x.at === T.realm && x.realm === wb.realm) || WAR.relics.find((x) => x.state === 'temple' && x.at === T.realm);
-    if (!rel) return `No hallow rests in the ${T.site.name} now.`;
+    if (!rel) return no(`No hallow rests in the ${T.site.name} now.`);
     o = { type: 'raid', temple: T, relic: rel };
   } else if (cmd === 'rally') {
-    if (inDungeon(P) || Math.hypot(P.x, P.z) > R_RING + 40) return 'Warbands only march on the frontier. Go to the muster first.';
+    if (inDungeon(P) || Math.hypot(P.x, P.z) > R_RING + 40) return no('Warbands only march on the frontier. Go to the muster first.');
     o = { type: 'rally', until: now + 300 };
+    if (typeof netWorldPartsActive === 'function' && netWorldPartsActive()) {
+      o.rallyPeer = P.netPeer || NET.self; o.rallyName = String(P.name || 'the commander').slice(0, 56);
+      o.x = P.x; o.z = P.z;
+    }
   } else if (cmd === 'release') {
-    if (!wb.order || !wb.order.byPlayer) return `The ${wbName(wb, false)} already follows the commander.`;
+    if (!wb.order || !wb.order.byPlayer) return no(`The ${wbName(wb, false)} already follows the commander.`);
     wb.order = null; wb.cwMine = null; wb.cwKey = '';
-    news(`${wbName(wb)} returns to the commander's orders.`, wb.realm, 'order');
-    return `The ${wbName(wb, false)} returns to the commander's orders.`;
+    if (!P.netCommand) news(`${wbName(wb)} returns to the commander's orders.`, wb.realm, 'order');
+    return { ok: true, message: `The ${wbName(wb, false)} returns to the commander's orders.` };
   }
-  if (!o) return '';
-  cwSetOrder(wb, o, 'order', true);
+  if (!o) return no('Choose an available warband order.');
+  // Shared replay only prepares an outcome. The accepted server patch applies
+  // it to the real band after the command receipt and retained cache commit.
+  if (P.netCommand) wb.order = { ...o, why: 'order', byPlayer: true, phase: 'travel' };
+  else cwSetOrder(wb, o, 'order', true);
   wb.cwMine = wb.order;
-  CAMPAIGN.story.you.orders++;
-  sfx('horn');
-  return `The ${wbName(wb, false)} ${orderPhrase(wb, wb.order).replace(' at your command', '')}.`;
+  if (!P.netCommand) { CAMPAIGN.story.you.orders++; sfx('horn'); }
+  return { ok: true, ordered: true, message: `The ${wbName(wb, false)} ${orderPhrase(wb, wb.order).replace(' at your command', '')}.` };
 }
 // a rally order: the band follows the player around the frontier (called from updateWarband)
 function rallyPoint(wb, O, L) {

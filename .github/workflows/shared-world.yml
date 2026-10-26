@@ -3,7 +3,7 @@ on:
   push:
     branches: [fix/shared-world-state-20261023, fix/shared-world-state-recovery-20261024]
   pull_request:
-    paths: ['src/**', 'server/**', 'tools/tests/shared_world.py', '.github/workflows/shared-world.yml']
+    paths: ['src/**', 'server/**', 'tools/tests/shared_world.py', 'tools/tests/warband_*.test.mjs', '.github/workflows/shared-world.yml']
 permissions:
   contents: read
 concurrency:
@@ -32,11 +32,12 @@ jobs:
       - name: Shared scene, ownership and checkpoint regressions
         if: ${{ !cancelled() }}
         run: |
-          node --test server/shared-scene.test.mjs server/gaming/hallowmarch-world-state.test.mjs server/gaming/progressive-owned-state.test.mjs
+          node --test server/shared-scene.test.mjs server/warband-orders.test.mjs server/gaming/hallowmarch-world-state.test.mjs server/gaming/progressive-owned-state.test.mjs
           node --test tools/shared-resource-jobs.test.mjs tools/shared-hatch-ownership.test.mjs tools/tests/net_animals_client.mjs tools/tests/shared_combat_fields.mjs tools/tests/shared_world_tls.test.mjs tools/tests/net_boats_client.mjs tools/net-npcs.test.mjs tools/tests/shared_entities.mjs tools/tests/net_worldparts.mjs tools/tests/net_dungeons.mjs tools/tests/shared_world_proximity.mjs tools/tests/shared_dungeon_handoff.mjs tools/tests/shared_dungeon_fall.mjs
           node --test tools/tests/net_reconnect.mjs tools/tests/net_world_pause.mjs tools/tests/server_human_lifecycle.test.mjs
           node --test tools/tests/shared_scene_protocol.mjs
           node --test tools/tests/towerfire_snapshot.test.mjs tools/tests/tower_brand_shared.test.mjs
+          node --test tools/tests/warband_campaign_repair.test.mjs tools/tests/warband_replication.test.mjs tools/tests/warband_orders_shared.test.mjs
       - name: Actual WebSocket clients
         if: ${{ !cancelled() }}
         run: node tools/tests/shared_scene_transport.mjs
