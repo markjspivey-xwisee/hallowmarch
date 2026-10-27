@@ -1,0 +1,1700 @@
+{
+  "id": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld",
+  "@context": "https://w3id.org/xapi/profiles/context",
+  "type": "Profile",
+  "conformsTo": "https://w3id.org/xapi/profiles#1.0",
+  "prefLabel": {
+    "en": "Hallowmarch observed gameplay activity"
+  },
+  "definition": {
+    "en": "Application vocabulary, statement templates and an observation-stream pattern for actual Hallowmarch gameplay observed by the owner browser. Records distinguish the authenticated observing owner, game body, controller and session. They describe game actions and outcomes without inferring learning, competency, mastery, causal intervention effects or server verification. Private own-pod records are not an assertion of LRS conformance."
+  },
+  "seeAlso": "https://github.com/markjspivey-xwisee/hallowmarch/blob/main/docs/gameplay-activity-profile.md",
+  "versions": [
+    {
+      "id": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "generatedAtTime": "2026-10-17T03:39:57Z"
+    }
+  ],
+  "author": {
+    "type": "Organization",
+    "name": "The Hallowmarch project",
+    "url": "https://github.com/markjspivey-xwisee/hallowmarch"
+  },
+  "concepts": [
+    {
+      "id": "urn:interego:gaming:activity:verb:ability.executed",
+      "type": "Verb",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "prefLabel": {
+        "en": "ability.executed"
+      },
+      "definition": {
+        "en": "The owner browser observed a game ability execute. This records execution, not successful damage or demonstrated skill."
+      }
+    },
+    {
+      "id": "urn:interego:gaming:activity:verb:ability.refused",
+      "type": "Verb",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "prefLabel": {
+        "en": "ability.refused"
+      },
+      "definition": {
+        "en": "The owner browser observed a game ability being refused. A reason may be retained; the event does not diagnose its cause."
+      }
+    },
+    {
+      "id": "urn:interego:gaming:activity:verb:combat.defeated",
+      "type": "Verb",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "prefLabel": {
+        "en": "combat.defeated"
+      },
+      "definition": {
+        "en": "The owner browser observed a creature defeat credited to this game body. This is a game outcome, not a transferable competency."
+      }
+    },
+    {
+      "id": "urn:interego:gaming:activity:verb:combat.died",
+      "type": "Verb",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "prefLabel": {
+        "en": "combat.died"
+      },
+      "definition": {
+        "en": "The owner browser observed this game body die. Death alone does not establish a knowledge, motivation or capability gap."
+      }
+    },
+    {
+      "id": "urn:interego:gaming:activity:verb:combat.healed",
+      "type": "Verb",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "prefLabel": {
+        "en": "combat.healed"
+      },
+      "definition": {
+        "en": "The owner browser observed healing applied in the game. A retained quantity is the observed game amount."
+      }
+    },
+    {
+      "id": "urn:interego:gaming:activity:verb:resource.gathered",
+      "type": "Verb",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "prefLabel": {
+        "en": "resource.gathered"
+      },
+      "definition": {
+        "en": "The owner browser observed resources gathered by the game body."
+      }
+    },
+    {
+      "id": "urn:interego:gaming:activity:verb:resource.harvested",
+      "type": "Verb",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "prefLabel": {
+        "en": "resource.harvested"
+      },
+      "definition": {
+        "en": "The owner browser observed a harvest applied by the game body."
+      }
+    },
+    {
+      "id": "urn:interego:gaming:activity:verb:craft.completed",
+      "type": "Verb",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "prefLabel": {
+        "en": "craft.completed"
+      },
+      "definition": {
+        "en": "The owner browser observed a crafting operation complete in the game."
+      }
+    },
+    {
+      "id": "urn:interego:gaming:activity:verb:craft.refused",
+      "type": "Verb",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "prefLabel": {
+        "en": "craft.refused"
+      },
+      "definition": {
+        "en": "The owner browser observed a crafting operation refused. This records the refusal and its observed reason."
+      }
+    },
+    {
+      "id": "urn:interego:gaming:activity:verb:bounty.completed",
+      "type": "Verb",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "prefLabel": {
+        "en": "bounty.completed"
+      },
+      "definition": {
+        "en": "The owner browser observed a game bounty satisfy its game completion condition."
+      }
+    },
+    {
+      "id": "urn:interego:gaming:activity:verb:bounty.claimed",
+      "type": "Verb",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "prefLabel": {
+        "en": "bounty.claimed"
+      },
+      "definition": {
+        "en": "The owner browser observed the completed bounty reward being claimed in the game."
+      }
+    },
+    {
+      "id": "urn:interego:gaming:activity:verb:supply.delivered",
+      "type": "Verb",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "prefLabel": {
+        "en": "supply.delivered"
+      },
+      "definition": {
+        "en": "The owner browser observed a supply delivery accepted by the game."
+      }
+    },
+    {
+      "id": "urn:interego:gaming:activity:verb:path.completed",
+      "type": "Verb",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "prefLabel": {
+        "en": "path.completed"
+      },
+      "definition": {
+        "en": "The owner browser observed a game progression path complete. Game progression is not a learning or mastery assessment."
+      }
+    },
+    {
+      "id": "urn:interego:gaming:activity:verb:character.respawned",
+      "type": "Verb",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "prefLabel": {
+        "en": "character.respawned"
+      },
+      "definition": {
+        "en": "The owner browser observed the game body respawn."
+      }
+    },
+    {
+      "id": "urn:interego:gaming:activity:verb:intervention.started",
+      "type": "Verb",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "prefLabel": {
+        "en": "intervention.started"
+      },
+      "definition": {
+        "en": "The owner browser observed a selected support intervention start. Starting an intervention does not establish delivery completion or an effect."
+      }
+    },
+    {
+      "id": "urn:interego:gaming:activity:verb:agent.command-accepted",
+      "type": "Verb",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "prefLabel": {
+        "en": "agent.command-accepted"
+      },
+      "definition": {
+        "en": "The owner browser observed a verified agent command accepted for its authorized game body. Acceptance confirms the input was admitted, not that movement, combat, task completion or an effective outcome occurred. The observing owner remains the statement actor; the verified agent is controller context."
+      }
+    },
+    {
+      "id": "urn:interego:gaming:activity:object:ability",
+      "type": "ActivityType",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "prefLabel": {
+        "en": "ability game activity"
+      },
+      "definition": {
+        "en": "A concrete ability game activity or game object identified by its stable game identifier. The type expresses game aboutness rather than an assessed competency."
+      }
+    },
+    {
+      "id": "urn:interego:gaming:activity:object:bounty",
+      "type": "ActivityType",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "prefLabel": {
+        "en": "bounty game activity"
+      },
+      "definition": {
+        "en": "A concrete bounty game activity or game object identified by its stable game identifier. The type expresses game aboutness rather than an assessed competency."
+      }
+    },
+    {
+      "id": "urn:interego:gaming:activity:object:character",
+      "type": "ActivityType",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "prefLabel": {
+        "en": "character game activity"
+      },
+      "definition": {
+        "en": "A concrete character game activity or game object identified by its stable game identifier. The type expresses game aboutness rather than an assessed competency."
+      }
+    },
+    {
+      "id": "urn:interego:gaming:activity:object:combat",
+      "type": "ActivityType",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "prefLabel": {
+        "en": "combat game activity"
+      },
+      "definition": {
+        "en": "A concrete combat game activity or game object identified by its stable game identifier. The type expresses game aboutness rather than an assessed competency."
+      }
+    },
+    {
+      "id": "urn:interego:gaming:activity:object:craft",
+      "type": "ActivityType",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "prefLabel": {
+        "en": "craft game activity"
+      },
+      "definition": {
+        "en": "A concrete craft game activity or game object identified by its stable game identifier. The type expresses game aboutness rather than an assessed competency."
+      }
+    },
+    {
+      "id": "urn:interego:gaming:activity:object:intervention",
+      "type": "ActivityType",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "prefLabel": {
+        "en": "intervention game activity"
+      },
+      "definition": {
+        "en": "A concrete intervention game activity or game object identified by its stable game identifier. The type expresses game aboutness rather than an assessed competency."
+      }
+    },
+    {
+      "id": "urn:interego:gaming:activity:object:path",
+      "type": "ActivityType",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "prefLabel": {
+        "en": "path game activity"
+      },
+      "definition": {
+        "en": "A concrete path game activity or game object identified by its stable game identifier. The type expresses game aboutness rather than an assessed competency."
+      }
+    },
+    {
+      "id": "urn:interego:gaming:activity:object:resource",
+      "type": "ActivityType",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "prefLabel": {
+        "en": "resource game activity"
+      },
+      "definition": {
+        "en": "A concrete resource game activity or game object identified by its stable game identifier. The type expresses game aboutness rather than an assessed competency."
+      }
+    },
+    {
+      "id": "urn:interego:gaming:activity:object:supply",
+      "type": "ActivityType",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "prefLabel": {
+        "en": "supply game activity"
+      },
+      "definition": {
+        "en": "A concrete supply game activity or game object identified by its stable game identifier. The type expresses game aboutness rather than an assessed competency."
+      }
+    },
+    {
+      "id": "urn:interego:gaming:activity:object:agent",
+      "type": "ActivityType",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "prefLabel": {
+        "en": "agent game activity"
+      },
+      "definition": {
+        "en": "A concrete game control activity involving a verified agent controller. Its observation does not establish that controller\u2019s task performance or an outcome."
+      }
+    },
+    {
+      "id": "urn:interego:gaming:activity:context",
+      "type": "ContextExtension",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "prefLabel": {
+        "en": "Observed game context"
+      },
+      "definition": {
+        "en": "Identifies the concrete body, known controller, session game context and optional task or intervention links. Controller identity is separate from the statement actor. Unknown control must remain explicit; this extension grants no control or identity authority."
+      },
+      "inlineSchema": "{\"$schema\":\"http://json-schema.org/draft-07/schema#\",\"type\":\"object\",\"additionalProperties\":false,\"required\":[\"schema\",\"eventType\",\"bodyId\",\"bodyKind\",\"controllerKind\",\"party\"],\"properties\":{\"schema\":{\"const\":\"hallowmarch.gameplay-event/v1\"},\"eventType\":{\"enum\":[\"ability.executed\",\"ability.refused\",\"combat.defeated\",\"combat.died\",\"combat.healed\",\"resource.gathered\",\"resource.harvested\",\"craft.completed\",\"craft.refused\",\"bounty.completed\",\"bounty.claimed\",\"supply.delivered\",\"path.completed\",\"character.respawned\",\"intervention.started\",\"agent.command-accepted\"]},\"bodyId\":{\"type\":\"string\",\"minLength\":1,\"maxLength\":128},\"bodyKind\":{\"enum\":[\"character\",\"owned-unit\"]},\"controllerKind\":{\"enum\":[\"unattributed\",\"human-input\",\"agent\",\"companion-autonomy\"]},\"controllerId\":{\"type\":\"string\",\"pattern\":\"^did:\",\"maxLength\":512},\"grantId\":{\"type\":\"string\",\"pattern\":\"^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$\"},\"party\":{\"type\":\"boolean\"},\"realm\":{\"type\":\"integer\",\"minimum\":0,\"maximum\":2},\"level\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":50},\"attemptId\":{\"type\":\"string\",\"pattern\":\"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$\"},\"interventionId\":{\"type\":\"string\",\"minLength\":1,\"maxLength\":64}},\"allOf\":[{\"if\":{\"properties\":{\"controllerKind\":{\"const\":\"agent\"}},\"required\":[\"controllerKind\"]},\"then\":{\"required\":[\"controllerId\"]}}]}"
+    },
+    {
+      "id": "urn:interego:gaming:activity:observation",
+      "type": "ResultExtension",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "prefLabel": {
+        "en": "Owner-browser observation provenance"
+      },
+      "definition": {
+        "en": "Marks a record as owner-browser evidence with no assessed competency. Optional quantity and reason preserve only actual observations. The ordinal is local record ordering, not a count of learning achievements."
+      },
+      "inlineSchema": "{\"$schema\":\"http://json-schema.org/draft-07/schema#\",\"type\":\"object\",\"additionalProperties\":false,\"required\":[\"authority\",\"competencyStatus\",\"historyOrdinal\"],\"properties\":{\"authority\":{\"const\":\"owner-browser-observation\"},\"competencyStatus\":{\"const\":\"not-assessed\"},\"quantity\":{\"type\":\"number\",\"minimum\":0,\"maximum\":1000000000},\"reason\":{\"type\":\"string\",\"pattern\":\"^[a-z][a-z0-9_-]{0,63}$\"},\"historyOrdinal\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":9007199254740991}}}"
+    }
+  ],
+  "templates": [
+    {
+      "id": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.0.0/ability.executed",
+      "type": "StatementTemplate",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "prefLabel": {
+        "en": "ability.executed observation"
+      },
+      "definition": {
+        "en": "The owner browser observed a game ability execute. This records execution, not successful damage or demonstrated skill."
+      },
+      "verb": "urn:interego:gaming:activity:verb:ability.executed",
+      "objectActivityType": "urn:interego:gaming:activity:object:ability",
+      "rules": [
+        {
+          "location": "$.id",
+          "presence": "included"
+        },
+        {
+          "location": "$.actor.objectType",
+          "presence": "included",
+          "all": [
+            "Agent"
+          ]
+        },
+        {
+          "location": "$.actor.account.homePage",
+          "presence": "included",
+          "all": [
+            "https://identity.interego.xwisee.com"
+          ]
+        },
+        {
+          "location": "$.actor.account.name",
+          "presence": "included"
+        },
+        {
+          "location": "$.object.objectType",
+          "presence": "included",
+          "all": [
+            "Activity"
+          ]
+        },
+        {
+          "location": "$.timestamp",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.registration",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.contextActivities.category[*].id",
+          "presence": "included",
+          "any": [
+            "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0"
+          ]
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:activity:context'].eventType",
+          "presence": "included",
+          "all": [
+            "ability.executed"
+          ]
+        },
+        {
+          "location": "$.result.extensions['urn:interego:gaming:activity:observation'].authority",
+          "presence": "included",
+          "all": [
+            "owner-browser-observation"
+          ]
+        },
+        {
+          "location": "$.result.extensions['urn:interego:gaming:activity:observation'].competencyStatus",
+          "presence": "included",
+          "all": [
+            "not-assessed"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.0.0/ability.refused",
+      "type": "StatementTemplate",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "prefLabel": {
+        "en": "ability.refused observation"
+      },
+      "definition": {
+        "en": "The owner browser observed a game ability being refused. A reason may be retained; the event does not diagnose its cause."
+      },
+      "verb": "urn:interego:gaming:activity:verb:ability.refused",
+      "objectActivityType": "urn:interego:gaming:activity:object:ability",
+      "rules": [
+        {
+          "location": "$.id",
+          "presence": "included"
+        },
+        {
+          "location": "$.actor.objectType",
+          "presence": "included",
+          "all": [
+            "Agent"
+          ]
+        },
+        {
+          "location": "$.actor.account.homePage",
+          "presence": "included",
+          "all": [
+            "https://identity.interego.xwisee.com"
+          ]
+        },
+        {
+          "location": "$.actor.account.name",
+          "presence": "included"
+        },
+        {
+          "location": "$.object.objectType",
+          "presence": "included",
+          "all": [
+            "Activity"
+          ]
+        },
+        {
+          "location": "$.timestamp",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.registration",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.contextActivities.category[*].id",
+          "presence": "included",
+          "any": [
+            "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0"
+          ]
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:activity:context'].eventType",
+          "presence": "included",
+          "all": [
+            "ability.refused"
+          ]
+        },
+        {
+          "location": "$.result.extensions['urn:interego:gaming:activity:observation'].authority",
+          "presence": "included",
+          "all": [
+            "owner-browser-observation"
+          ]
+        },
+        {
+          "location": "$.result.extensions['urn:interego:gaming:activity:observation'].competencyStatus",
+          "presence": "included",
+          "all": [
+            "not-assessed"
+          ]
+        },
+        {
+          "location": "$.result.success",
+          "presence": "included",
+          "all": [
+            false
+          ]
+        }
+      ]
+    },
+    {
+      "id": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.0.0/combat.defeated",
+      "type": "StatementTemplate",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "prefLabel": {
+        "en": "combat.defeated observation"
+      },
+      "definition": {
+        "en": "The owner browser observed a creature defeat credited to this game body. This is a game outcome, not a transferable competency."
+      },
+      "verb": "urn:interego:gaming:activity:verb:combat.defeated",
+      "objectActivityType": "urn:interego:gaming:activity:object:combat",
+      "rules": [
+        {
+          "location": "$.id",
+          "presence": "included"
+        },
+        {
+          "location": "$.actor.objectType",
+          "presence": "included",
+          "all": [
+            "Agent"
+          ]
+        },
+        {
+          "location": "$.actor.account.homePage",
+          "presence": "included",
+          "all": [
+            "https://identity.interego.xwisee.com"
+          ]
+        },
+        {
+          "location": "$.actor.account.name",
+          "presence": "included"
+        },
+        {
+          "location": "$.object.objectType",
+          "presence": "included",
+          "all": [
+            "Activity"
+          ]
+        },
+        {
+          "location": "$.timestamp",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.registration",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.contextActivities.category[*].id",
+          "presence": "included",
+          "any": [
+            "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0"
+          ]
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:activity:context'].eventType",
+          "presence": "included",
+          "all": [
+            "combat.defeated"
+          ]
+        },
+        {
+          "location": "$.result.extensions['urn:interego:gaming:activity:observation'].authority",
+          "presence": "included",
+          "all": [
+            "owner-browser-observation"
+          ]
+        },
+        {
+          "location": "$.result.extensions['urn:interego:gaming:activity:observation'].competencyStatus",
+          "presence": "included",
+          "all": [
+            "not-assessed"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.0.0/combat.died",
+      "type": "StatementTemplate",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "prefLabel": {
+        "en": "combat.died observation"
+      },
+      "definition": {
+        "en": "The owner browser observed this game body die. Death alone does not establish a knowledge, motivation or capability gap."
+      },
+      "verb": "urn:interego:gaming:activity:verb:combat.died",
+      "objectActivityType": "urn:interego:gaming:activity:object:combat",
+      "rules": [
+        {
+          "location": "$.id",
+          "presence": "included"
+        },
+        {
+          "location": "$.actor.objectType",
+          "presence": "included",
+          "all": [
+            "Agent"
+          ]
+        },
+        {
+          "location": "$.actor.account.homePage",
+          "presence": "included",
+          "all": [
+            "https://identity.interego.xwisee.com"
+          ]
+        },
+        {
+          "location": "$.actor.account.name",
+          "presence": "included"
+        },
+        {
+          "location": "$.object.objectType",
+          "presence": "included",
+          "all": [
+            "Activity"
+          ]
+        },
+        {
+          "location": "$.timestamp",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.registration",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.contextActivities.category[*].id",
+          "presence": "included",
+          "any": [
+            "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0"
+          ]
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:activity:context'].eventType",
+          "presence": "included",
+          "all": [
+            "combat.died"
+          ]
+        },
+        {
+          "location": "$.result.extensions['urn:interego:gaming:activity:observation'].authority",
+          "presence": "included",
+          "all": [
+            "owner-browser-observation"
+          ]
+        },
+        {
+          "location": "$.result.extensions['urn:interego:gaming:activity:observation'].competencyStatus",
+          "presence": "included",
+          "all": [
+            "not-assessed"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.0.0/combat.healed",
+      "type": "StatementTemplate",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "prefLabel": {
+        "en": "combat.healed observation"
+      },
+      "definition": {
+        "en": "The owner browser observed healing applied in the game. A retained quantity is the observed game amount."
+      },
+      "verb": "urn:interego:gaming:activity:verb:combat.healed",
+      "objectActivityType": "urn:interego:gaming:activity:object:combat",
+      "rules": [
+        {
+          "location": "$.id",
+          "presence": "included"
+        },
+        {
+          "location": "$.actor.objectType",
+          "presence": "included",
+          "all": [
+            "Agent"
+          ]
+        },
+        {
+          "location": "$.actor.account.homePage",
+          "presence": "included",
+          "all": [
+            "https://identity.interego.xwisee.com"
+          ]
+        },
+        {
+          "location": "$.actor.account.name",
+          "presence": "included"
+        },
+        {
+          "location": "$.object.objectType",
+          "presence": "included",
+          "all": [
+            "Activity"
+          ]
+        },
+        {
+          "location": "$.timestamp",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.registration",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.contextActivities.category[*].id",
+          "presence": "included",
+          "any": [
+            "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0"
+          ]
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:activity:context'].eventType",
+          "presence": "included",
+          "all": [
+            "combat.healed"
+          ]
+        },
+        {
+          "location": "$.result.extensions['urn:interego:gaming:activity:observation'].authority",
+          "presence": "included",
+          "all": [
+            "owner-browser-observation"
+          ]
+        },
+        {
+          "location": "$.result.extensions['urn:interego:gaming:activity:observation'].competencyStatus",
+          "presence": "included",
+          "all": [
+            "not-assessed"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.0.0/resource.gathered",
+      "type": "StatementTemplate",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "prefLabel": {
+        "en": "resource.gathered observation"
+      },
+      "definition": {
+        "en": "The owner browser observed resources gathered by the game body."
+      },
+      "verb": "urn:interego:gaming:activity:verb:resource.gathered",
+      "objectActivityType": "urn:interego:gaming:activity:object:resource",
+      "rules": [
+        {
+          "location": "$.id",
+          "presence": "included"
+        },
+        {
+          "location": "$.actor.objectType",
+          "presence": "included",
+          "all": [
+            "Agent"
+          ]
+        },
+        {
+          "location": "$.actor.account.homePage",
+          "presence": "included",
+          "all": [
+            "https://identity.interego.xwisee.com"
+          ]
+        },
+        {
+          "location": "$.actor.account.name",
+          "presence": "included"
+        },
+        {
+          "location": "$.object.objectType",
+          "presence": "included",
+          "all": [
+            "Activity"
+          ]
+        },
+        {
+          "location": "$.timestamp",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.registration",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.contextActivities.category[*].id",
+          "presence": "included",
+          "any": [
+            "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0"
+          ]
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:activity:context'].eventType",
+          "presence": "included",
+          "all": [
+            "resource.gathered"
+          ]
+        },
+        {
+          "location": "$.result.extensions['urn:interego:gaming:activity:observation'].authority",
+          "presence": "included",
+          "all": [
+            "owner-browser-observation"
+          ]
+        },
+        {
+          "location": "$.result.extensions['urn:interego:gaming:activity:observation'].competencyStatus",
+          "presence": "included",
+          "all": [
+            "not-assessed"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.0.0/resource.harvested",
+      "type": "StatementTemplate",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "prefLabel": {
+        "en": "resource.harvested observation"
+      },
+      "definition": {
+        "en": "The owner browser observed a harvest applied by the game body."
+      },
+      "verb": "urn:interego:gaming:activity:verb:resource.harvested",
+      "objectActivityType": "urn:interego:gaming:activity:object:resource",
+      "rules": [
+        {
+          "location": "$.id",
+          "presence": "included"
+        },
+        {
+          "location": "$.actor.objectType",
+          "presence": "included",
+          "all": [
+            "Agent"
+          ]
+        },
+        {
+          "location": "$.actor.account.homePage",
+          "presence": "included",
+          "all": [
+            "https://identity.interego.xwisee.com"
+          ]
+        },
+        {
+          "location": "$.actor.account.name",
+          "presence": "included"
+        },
+        {
+          "location": "$.object.objectType",
+          "presence": "included",
+          "all": [
+            "Activity"
+          ]
+        },
+        {
+          "location": "$.timestamp",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.registration",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.contextActivities.category[*].id",
+          "presence": "included",
+          "any": [
+            "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0"
+          ]
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:activity:context'].eventType",
+          "presence": "included",
+          "all": [
+            "resource.harvested"
+          ]
+        },
+        {
+          "location": "$.result.extensions['urn:interego:gaming:activity:observation'].authority",
+          "presence": "included",
+          "all": [
+            "owner-browser-observation"
+          ]
+        },
+        {
+          "location": "$.result.extensions['urn:interego:gaming:activity:observation'].competencyStatus",
+          "presence": "included",
+          "all": [
+            "not-assessed"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.0.0/craft.completed",
+      "type": "StatementTemplate",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "prefLabel": {
+        "en": "craft.completed observation"
+      },
+      "definition": {
+        "en": "The owner browser observed a crafting operation complete in the game."
+      },
+      "verb": "urn:interego:gaming:activity:verb:craft.completed",
+      "objectActivityType": "urn:interego:gaming:activity:object:craft",
+      "rules": [
+        {
+          "location": "$.id",
+          "presence": "included"
+        },
+        {
+          "location": "$.actor.objectType",
+          "presence": "included",
+          "all": [
+            "Agent"
+          ]
+        },
+        {
+          "location": "$.actor.account.homePage",
+          "presence": "included",
+          "all": [
+            "https://identity.interego.xwisee.com"
+          ]
+        },
+        {
+          "location": "$.actor.account.name",
+          "presence": "included"
+        },
+        {
+          "location": "$.object.objectType",
+          "presence": "included",
+          "all": [
+            "Activity"
+          ]
+        },
+        {
+          "location": "$.timestamp",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.registration",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.contextActivities.category[*].id",
+          "presence": "included",
+          "any": [
+            "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0"
+          ]
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:activity:context'].eventType",
+          "presence": "included",
+          "all": [
+            "craft.completed"
+          ]
+        },
+        {
+          "location": "$.result.extensions['urn:interego:gaming:activity:observation'].authority",
+          "presence": "included",
+          "all": [
+            "owner-browser-observation"
+          ]
+        },
+        {
+          "location": "$.result.extensions['urn:interego:gaming:activity:observation'].competencyStatus",
+          "presence": "included",
+          "all": [
+            "not-assessed"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.0.0/craft.refused",
+      "type": "StatementTemplate",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "prefLabel": {
+        "en": "craft.refused observation"
+      },
+      "definition": {
+        "en": "The owner browser observed a crafting operation refused. This records the refusal and its observed reason."
+      },
+      "verb": "urn:interego:gaming:activity:verb:craft.refused",
+      "objectActivityType": "urn:interego:gaming:activity:object:craft",
+      "rules": [
+        {
+          "location": "$.id",
+          "presence": "included"
+        },
+        {
+          "location": "$.actor.objectType",
+          "presence": "included",
+          "all": [
+            "Agent"
+          ]
+        },
+        {
+          "location": "$.actor.account.homePage",
+          "presence": "included",
+          "all": [
+            "https://identity.interego.xwisee.com"
+          ]
+        },
+        {
+          "location": "$.actor.account.name",
+          "presence": "included"
+        },
+        {
+          "location": "$.object.objectType",
+          "presence": "included",
+          "all": [
+            "Activity"
+          ]
+        },
+        {
+          "location": "$.timestamp",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.registration",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.contextActivities.category[*].id",
+          "presence": "included",
+          "any": [
+            "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0"
+          ]
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:activity:context'].eventType",
+          "presence": "included",
+          "all": [
+            "craft.refused"
+          ]
+        },
+        {
+          "location": "$.result.extensions['urn:interego:gaming:activity:observation'].authority",
+          "presence": "included",
+          "all": [
+            "owner-browser-observation"
+          ]
+        },
+        {
+          "location": "$.result.extensions['urn:interego:gaming:activity:observation'].competencyStatus",
+          "presence": "included",
+          "all": [
+            "not-assessed"
+          ]
+        },
+        {
+          "location": "$.result.success",
+          "presence": "included",
+          "all": [
+            false
+          ]
+        }
+      ]
+    },
+    {
+      "id": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.0.0/bounty.completed",
+      "type": "StatementTemplate",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "prefLabel": {
+        "en": "bounty.completed observation"
+      },
+      "definition": {
+        "en": "The owner browser observed a game bounty satisfy its game completion condition."
+      },
+      "verb": "urn:interego:gaming:activity:verb:bounty.completed",
+      "objectActivityType": "urn:interego:gaming:activity:object:bounty",
+      "rules": [
+        {
+          "location": "$.id",
+          "presence": "included"
+        },
+        {
+          "location": "$.actor.objectType",
+          "presence": "included",
+          "all": [
+            "Agent"
+          ]
+        },
+        {
+          "location": "$.actor.account.homePage",
+          "presence": "included",
+          "all": [
+            "https://identity.interego.xwisee.com"
+          ]
+        },
+        {
+          "location": "$.actor.account.name",
+          "presence": "included"
+        },
+        {
+          "location": "$.object.objectType",
+          "presence": "included",
+          "all": [
+            "Activity"
+          ]
+        },
+        {
+          "location": "$.timestamp",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.registration",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.contextActivities.category[*].id",
+          "presence": "included",
+          "any": [
+            "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0"
+          ]
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:activity:context'].eventType",
+          "presence": "included",
+          "all": [
+            "bounty.completed"
+          ]
+        },
+        {
+          "location": "$.result.extensions['urn:interego:gaming:activity:observation'].authority",
+          "presence": "included",
+          "all": [
+            "owner-browser-observation"
+          ]
+        },
+        {
+          "location": "$.result.extensions['urn:interego:gaming:activity:observation'].competencyStatus",
+          "presence": "included",
+          "all": [
+            "not-assessed"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.0.0/bounty.claimed",
+      "type": "StatementTemplate",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "prefLabel": {
+        "en": "bounty.claimed observation"
+      },
+      "definition": {
+        "en": "The owner browser observed the completed bounty reward being claimed in the game."
+      },
+      "verb": "urn:interego:gaming:activity:verb:bounty.claimed",
+      "objectActivityType": "urn:interego:gaming:activity:object:bounty",
+      "rules": [
+        {
+          "location": "$.id",
+          "presence": "included"
+        },
+        {
+          "location": "$.actor.objectType",
+          "presence": "included",
+          "all": [
+            "Agent"
+          ]
+        },
+        {
+          "location": "$.actor.account.homePage",
+          "presence": "included",
+          "all": [
+            "https://identity.interego.xwisee.com"
+          ]
+        },
+        {
+          "location": "$.actor.account.name",
+          "presence": "included"
+        },
+        {
+          "location": "$.object.objectType",
+          "presence": "included",
+          "all": [
+            "Activity"
+          ]
+        },
+        {
+          "location": "$.timestamp",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.registration",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.contextActivities.category[*].id",
+          "presence": "included",
+          "any": [
+            "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0"
+          ]
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:activity:context'].eventType",
+          "presence": "included",
+          "all": [
+            "bounty.claimed"
+          ]
+        },
+        {
+          "location": "$.result.extensions['urn:interego:gaming:activity:observation'].authority",
+          "presence": "included",
+          "all": [
+            "owner-browser-observation"
+          ]
+        },
+        {
+          "location": "$.result.extensions['urn:interego:gaming:activity:observation'].competencyStatus",
+          "presence": "included",
+          "all": [
+            "not-assessed"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.0.0/supply.delivered",
+      "type": "StatementTemplate",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "prefLabel": {
+        "en": "supply.delivered observation"
+      },
+      "definition": {
+        "en": "The owner browser observed a supply delivery accepted by the game."
+      },
+      "verb": "urn:interego:gaming:activity:verb:supply.delivered",
+      "objectActivityType": "urn:interego:gaming:activity:object:supply",
+      "rules": [
+        {
+          "location": "$.id",
+          "presence": "included"
+        },
+        {
+          "location": "$.actor.objectType",
+          "presence": "included",
+          "all": [
+            "Agent"
+          ]
+        },
+        {
+          "location": "$.actor.account.homePage",
+          "presence": "included",
+          "all": [
+            "https://identity.interego.xwisee.com"
+          ]
+        },
+        {
+          "location": "$.actor.account.name",
+          "presence": "included"
+        },
+        {
+          "location": "$.object.objectType",
+          "presence": "included",
+          "all": [
+            "Activity"
+          ]
+        },
+        {
+          "location": "$.timestamp",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.registration",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.contextActivities.category[*].id",
+          "presence": "included",
+          "any": [
+            "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0"
+          ]
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:activity:context'].eventType",
+          "presence": "included",
+          "all": [
+            "supply.delivered"
+          ]
+        },
+        {
+          "location": "$.result.extensions['urn:interego:gaming:activity:observation'].authority",
+          "presence": "included",
+          "all": [
+            "owner-browser-observation"
+          ]
+        },
+        {
+          "location": "$.result.extensions['urn:interego:gaming:activity:observation'].competencyStatus",
+          "presence": "included",
+          "all": [
+            "not-assessed"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.0.0/path.completed",
+      "type": "StatementTemplate",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "prefLabel": {
+        "en": "path.completed observation"
+      },
+      "definition": {
+        "en": "The owner browser observed a game progression path complete. Game progression is not a learning or mastery assessment."
+      },
+      "verb": "urn:interego:gaming:activity:verb:path.completed",
+      "objectActivityType": "urn:interego:gaming:activity:object:path",
+      "rules": [
+        {
+          "location": "$.id",
+          "presence": "included"
+        },
+        {
+          "location": "$.actor.objectType",
+          "presence": "included",
+          "all": [
+            "Agent"
+          ]
+        },
+        {
+          "location": "$.actor.account.homePage",
+          "presence": "included",
+          "all": [
+            "https://identity.interego.xwisee.com"
+          ]
+        },
+        {
+          "location": "$.actor.account.name",
+          "presence": "included"
+        },
+        {
+          "location": "$.object.objectType",
+          "presence": "included",
+          "all": [
+            "Activity"
+          ]
+        },
+        {
+          "location": "$.timestamp",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.registration",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.contextActivities.category[*].id",
+          "presence": "included",
+          "any": [
+            "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0"
+          ]
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:activity:context'].eventType",
+          "presence": "included",
+          "all": [
+            "path.completed"
+          ]
+        },
+        {
+          "location": "$.result.extensions['urn:interego:gaming:activity:observation'].authority",
+          "presence": "included",
+          "all": [
+            "owner-browser-observation"
+          ]
+        },
+        {
+          "location": "$.result.extensions['urn:interego:gaming:activity:observation'].competencyStatus",
+          "presence": "included",
+          "all": [
+            "not-assessed"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.0.0/character.respawned",
+      "type": "StatementTemplate",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "prefLabel": {
+        "en": "character.respawned observation"
+      },
+      "definition": {
+        "en": "The owner browser observed the game body respawn."
+      },
+      "verb": "urn:interego:gaming:activity:verb:character.respawned",
+      "objectActivityType": "urn:interego:gaming:activity:object:character",
+      "rules": [
+        {
+          "location": "$.id",
+          "presence": "included"
+        },
+        {
+          "location": "$.actor.objectType",
+          "presence": "included",
+          "all": [
+            "Agent"
+          ]
+        },
+        {
+          "location": "$.actor.account.homePage",
+          "presence": "included",
+          "all": [
+            "https://identity.interego.xwisee.com"
+          ]
+        },
+        {
+          "location": "$.actor.account.name",
+          "presence": "included"
+        },
+        {
+          "location": "$.object.objectType",
+          "presence": "included",
+          "all": [
+            "Activity"
+          ]
+        },
+        {
+          "location": "$.timestamp",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.registration",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.contextActivities.category[*].id",
+          "presence": "included",
+          "any": [
+            "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0"
+          ]
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:activity:context'].eventType",
+          "presence": "included",
+          "all": [
+            "character.respawned"
+          ]
+        },
+        {
+          "location": "$.result.extensions['urn:interego:gaming:activity:observation'].authority",
+          "presence": "included",
+          "all": [
+            "owner-browser-observation"
+          ]
+        },
+        {
+          "location": "$.result.extensions['urn:interego:gaming:activity:observation'].competencyStatus",
+          "presence": "included",
+          "all": [
+            "not-assessed"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.0.0/intervention.started",
+      "type": "StatementTemplate",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "prefLabel": {
+        "en": "intervention.started observation"
+      },
+      "definition": {
+        "en": "The owner browser observed a selected support intervention start. Starting an intervention does not establish delivery completion or an effect."
+      },
+      "verb": "urn:interego:gaming:activity:verb:intervention.started",
+      "objectActivityType": "urn:interego:gaming:activity:object:intervention",
+      "rules": [
+        {
+          "location": "$.id",
+          "presence": "included"
+        },
+        {
+          "location": "$.actor.objectType",
+          "presence": "included",
+          "all": [
+            "Agent"
+          ]
+        },
+        {
+          "location": "$.actor.account.homePage",
+          "presence": "included",
+          "all": [
+            "https://identity.interego.xwisee.com"
+          ]
+        },
+        {
+          "location": "$.actor.account.name",
+          "presence": "included"
+        },
+        {
+          "location": "$.object.objectType",
+          "presence": "included",
+          "all": [
+            "Activity"
+          ]
+        },
+        {
+          "location": "$.timestamp",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.registration",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.contextActivities.category[*].id",
+          "presence": "included",
+          "any": [
+            "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0"
+          ]
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:activity:context'].eventType",
+          "presence": "included",
+          "all": [
+            "intervention.started"
+          ]
+        },
+        {
+          "location": "$.result.extensions['urn:interego:gaming:activity:observation'].authority",
+          "presence": "included",
+          "all": [
+            "owner-browser-observation"
+          ]
+        },
+        {
+          "location": "$.result.extensions['urn:interego:gaming:activity:observation'].competencyStatus",
+          "presence": "included",
+          "all": [
+            "not-assessed"
+          ]
+        },
+        {
+          "location": "$.result.completion",
+          "presence": "excluded"
+        }
+      ]
+    },
+    {
+      "id": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.0.0/agent.command-accepted",
+      "type": "StatementTemplate",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "prefLabel": {
+        "en": "agent.command-accepted observation"
+      },
+      "definition": {
+        "en": "The owner browser observed a verified agent command accepted for its authorized game body. Acceptance confirms the input was admitted, not that movement, combat, task completion or an effective outcome occurred. The observing owner remains the statement actor; the verified agent is controller context."
+      },
+      "verb": "urn:interego:gaming:activity:verb:agent.command-accepted",
+      "objectActivityType": "urn:interego:gaming:activity:object:agent",
+      "rules": [
+        {
+          "location": "$.id",
+          "presence": "included"
+        },
+        {
+          "location": "$.actor.objectType",
+          "presence": "included",
+          "all": [
+            "Agent"
+          ]
+        },
+        {
+          "location": "$.actor.account.homePage",
+          "presence": "included",
+          "all": [
+            "https://identity.interego.xwisee.com"
+          ]
+        },
+        {
+          "location": "$.actor.account.name",
+          "presence": "included"
+        },
+        {
+          "location": "$.object.objectType",
+          "presence": "included",
+          "all": [
+            "Activity"
+          ]
+        },
+        {
+          "location": "$.timestamp",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.registration",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.contextActivities.category[*].id",
+          "presence": "included",
+          "any": [
+            "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0"
+          ]
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:activity:context'].eventType",
+          "presence": "included",
+          "all": [
+            "agent.command-accepted"
+          ]
+        },
+        {
+          "location": "$.result.extensions['urn:interego:gaming:activity:observation'].authority",
+          "presence": "included",
+          "all": [
+            "owner-browser-observation"
+          ]
+        },
+        {
+          "location": "$.result.extensions['urn:interego:gaming:activity:observation'].competencyStatus",
+          "presence": "included",
+          "all": [
+            "not-assessed"
+          ]
+        },
+        {
+          "location": "$.result.completion",
+          "presence": "excluded"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:activity:context'].controllerKind",
+          "presence": "included",
+          "all": [
+            "agent"
+          ]
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:activity:context'].controllerId",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:activity:context'].grantId",
+          "presence": "included"
+        },
+        {
+          "location": "$.result.success",
+          "presence": "included",
+          "all": [
+            true
+          ]
+        }
+      ]
+    }
+  ],
+  "patterns": [
+    {
+      "id": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/patterns/1.0.0/observed-event",
+      "type": "Pattern",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "alternates": [
+        "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.0.0/ability.executed",
+        "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.0.0/ability.refused",
+        "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.0.0/combat.defeated",
+        "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.0.0/combat.died",
+        "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.0.0/combat.healed",
+        "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.0.0/resource.gathered",
+        "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.0.0/resource.harvested",
+        "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.0.0/craft.completed",
+        "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.0.0/craft.refused",
+        "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.0.0/bounty.completed",
+        "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.0.0/bounty.claimed",
+        "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.0.0/supply.delivered",
+        "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.0.0/path.completed",
+        "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.0.0/character.respawned",
+        "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.0.0/intervention.started",
+        "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.0.0/agent.command-accepted"
+      ]
+    },
+    {
+      "id": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/patterns/1.0.0/observation-stream",
+      "type": "Pattern",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "primary": true,
+      "prefLabel": {
+        "en": "Observed gameplay stream"
+      },
+      "definition": {
+        "en": "One or more actual observations, in timestamp order within one session registration. The stream has no required completion, pass or intervention outcome. A fresh session has a fresh registration. This pattern describes observation records only."
+      },
+      "oneOrMore": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/patterns/1.0.0/observed-event"
+    }
+  ]
+}

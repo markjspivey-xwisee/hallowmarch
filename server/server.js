@@ -544,6 +544,8 @@ const performanceResourceHttp = createPerformanceResourceHttp({
   catalog: JSON.parse(fs.readFileSync(path.join(HERE, 'gaming', 'performance-resources.json'), 'utf8')),
   alignment: JSON.parse(fs.readFileSync(path.join(HERE, 'gaming', 'performance-consulting-alignment.json'), 'utf8')),
   activityProfile: JSON.parse(fs.readFileSync(path.join(HERE, 'gaming', 'gameplay-activity-profile.jsonld'), 'utf8')),
+  activityProfileVersions: [JSON.parse(fs.readFileSync(path.join(HERE, 'gaming', 'gameplay-activity-profile-1.0.0.jsonld'), 'utf8'))],
+  committedActivityProfile: JSON.parse(fs.readFileSync(path.join(HERE, 'gaming', 'committed-gameplay-profile.jsonld'), 'utf8')),
   publicOrigin: gamingEnvironment.HM_PUBLIC_ORIGIN || (process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : process.env.NODE_ENV !== 'production' ? `http://localhost:${CFG.port}` : undefined),
   ownership: () => gamingStore ? { did: gamingEnvironment.HM_GAMING_NATIVE_OWNER, podUrl: gamingEnvironment.HM_GAMING_NATIVE_POD_URL } : null,
   publication: gamingCapabilityStatus,

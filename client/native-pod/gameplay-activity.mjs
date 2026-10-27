@@ -1,8 +1,10 @@
 /** Private owner-browser observations. No import-time I/O, LRS delivery or learning claims. */
 export const GAMEPLAY_ACTIVITY_SCHEMA = 'hallowmarch.gameplay-activity/v1';
-export const GAMEPLAY_EVENT_SCHEMA = 'hallowmarch.gameplay-event/v1';
+export const GAMEPLAY_EVENT_LEGACY_SCHEMA = 'hallowmarch.gameplay-event/v1';
+export const GAMEPLAY_EVENT_SCHEMA = 'hallowmarch.gameplay-event/v2';
 export const GAMEPLAY_ACTIVITY_PROFILE = 'https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld';
-export const GAMEPLAY_ACTIVITY_PROFILE_VERSION = GAMEPLAY_ACTIVITY_PROFILE + '/versions/1.0.0';
+export const GAMEPLAY_ACTIVITY_PROFILE_LEGACY_VERSION = GAMEPLAY_ACTIVITY_PROFILE + '/versions/1.0.0';
+export const GAMEPLAY_ACTIVITY_PROFILE_VERSION = GAMEPLAY_ACTIVITY_PROFILE + '/versions/1.1.0';
 export const GAMEPLAY_ACTIVITY_LIMITS = Object.freeze({ pending: 64, recent: 16, attempts: 8, sessions: 80, bodies: 17, bytes: 65536 });
 export const GAMEPLAY_EVENT_TYPES = Object.freeze(['ability.executed', 'ability.refused', 'combat.defeated', 'combat.died', 'combat.healed',
   'resource.gathered', 'resource.harvested', 'craft.completed', 'craft.refused', 'bounty.completed', 'bounty.claimed',
@@ -25,7 +27,7 @@ function reference(value) {
 }
 export function validateGameplayActivityEvent(value) {
   exact(value, ['schema', 'id', 'sessionId', 'sequence', 'ordinal', 'type', 'observedAt', 'body', 'actor', 'object', 'result', 'context']);
-  if (value.schema !== GAMEPLAY_EVENT_SCHEMA || !uuid(value.id?.replace(/^urn:uuid:/, '')) || !value.id.startsWith('urn:uuid:')
+  if (![GAMEPLAY_EVENT_LEGACY_SCHEMA, GAMEPLAY_EVENT_SCHEMA].includes(value.schema) || !uuid(value.id?.replace(/^urn:uuid:/, '')) || !value.id.startsWith('urn:uuid:')
     || !uuid(value.sessionId) || !integer(value.sequence) || value.sequence < 1 || !integer(value.ordinal) || value.ordinal < 1
     || !types.has(value.type) || !iso(value.observedAt)) fail('invalid_activity_event');
   exact(value.body, ['id', 'kind']); exact(value.actor, ['kind', 'id', 'grantId']); exact(value.object, ['id', 'kind']);
@@ -184,14 +186,15 @@ export function createGameplayActivityProfile({ ownerDid, characterId, sessionId
     value.sessions = [...cursors].map(([id, sequence]) => ({ id, sequence }));
   };
   function record(input) {
-    exact(input, ['type', 'body', 'actor', 'object', 'result', 'context', 'id']);
-    const id = input.id || 'urn:uuid:' + nextUuid(), stamp = now();
+    exact(input, ['type', 'body', 'actor', 'object', 'result', 'context', 'id', 'observedAt']);
+    const id = input.id || 'urn:uuid:' + nextUuid(), observedAt = input.observedAt ?? new Date(now()).toISOString();
     if (profile.recent.some(item => item.id === id) || profile.pending.some(item => item.id === id)) return { recorded: false, duplicate: true };
     const checkpoint = profile.sessions.find(item => item.id === sessionId), sequence = (checkpoint?.sequence || 0) + 1;
     const event = validateGameplayActivityEvent({ schema: GAMEPLAY_EVENT_SCHEMA, id, sessionId, sequence,
-      ordinal: add(profile.eventCount), observedAt: new Date(stamp).toISOString(), type: input.type, body: input.body,
+      ordinal: add(profile.eventCount), observedAt, type: input.type, body: input.body,
       actor: input.actor || { kind: 'unattributed' }, object: input.object, result: input.result || {}, context: { party: false, ...input.context } });
-    const next = copy(profile); next.revision = add(next.revision); next.eventCount = add(next.eventCount); next.lastEventAt = event.observedAt;
+    const next = copy(profile); next.revision = add(next.revision); next.eventCount = add(next.eventCount);
+    next.lastEventAt = !next.lastEventAt || event.observedAt > next.lastEventAt ? event.observedAt : next.lastEventAt;
     next.counters[event.type] = add(next.counters[event.type]);
     if (event.result.quantity !== undefined) next.quantities[event.type] = add(next.quantities[event.type], event.result.quantity);
     next.evidence[event.type] = [...(next.evidence[event.type] || []).slice(-3), event.id];
@@ -329,7 +332,9 @@ export function createGameplayActivityProfile({ ownerDid, characterId, sessionId
 export function gameplayActivityStatement(event, ownerDid) {
   const value = validateGameplayActivityEvent(event); if (!text(ownerDid, 512) || !ownerDid.startsWith('did:')) fail('activity_scope');
   const actorDid = ownerDid;
-  const context = { schema: GAMEPLAY_EVENT_SCHEMA, eventType: value.type, bodyId: value.body.id, bodyKind: value.body.kind,
+  // The wire extension's shape is unchanged. Internal event v2 selects the new
+  // Profile without rewriting the payload of any saved v1 observation.
+  const context = { schema: GAMEPLAY_EVENT_LEGACY_SCHEMA, eventType: value.type, bodyId: value.body.id, bodyKind: value.body.kind,
     controllerKind: value.actor.kind, ...value.context };
   if (value.actor.id) context.controllerId = value.actor.id; if (value.actor.grantId) context.grantId = value.actor.grantId;
   const result = { extensions: { 'urn:interego:gaming:activity:observation': { authority: 'owner-browser-observation', competencyStatus: 'not-assessed', historyOrdinal: value.ordinal,
@@ -340,6 +345,6 @@ export function gameplayActivityStatement(event, ownerDid) {
     verb: { id: 'urn:interego:gaming:activity:verb:' + value.type, display: { 'en-US': value.type.replace('.', ' ') } },
     object: { objectType: 'Activity', id: 'urn:interego:gaming:activity:object:' + value.object.kind + ':' + encodeURIComponent(value.object.id),
       definition: { type: 'urn:interego:gaming:activity:object:' + value.type.split('.')[0] } }, result,
-    context: { registration: value.sessionId, contextActivities: { category: [{ id: GAMEPLAY_ACTIVITY_PROFILE_VERSION }] },
+    context: { registration: value.sessionId, contextActivities: { category: [{ id: value.schema === GAMEPLAY_EVENT_LEGACY_SCHEMA ? GAMEPLAY_ACTIVITY_PROFILE_LEGACY_VERSION : GAMEPLAY_ACTIVITY_PROFILE_VERSION }] },
       extensions: { 'urn:interego:gaming:activity:context': context } }, timestamp: value.observedAt };
 }

@@ -22,14 +22,14 @@ test('owner companion compositions expose fixed JavaScript assets and never a di
 });
 
 test('activity modules expose exact authored bytes with fixed security headers and no neighboring test files', () => {
-  for (const name of ['gameplay-activity.mjs', 'gameplay-activity-archive.mjs', 'gameplay-learning-delivery.mjs', 'checkpoint.mjs', 'vendor/interego-native-resource-browser.mjs']) {
+  for (const name of ['gameplay-activity.mjs', 'gameplay-patterns.mjs', 'gameplay-semantics.mjs', 'gameplay-activity-archive.mjs', 'gameplay-learning-delivery.mjs', 'checkpoint.mjs', 'vendor/interego-native-resource-browser.mjs']) {
     const path = '/gaming/identity/assets/' + name, response = request(path);
     assert.deepEqual(response.body, readFileSync(new URL('../../client/native-pod/' + name, import.meta.url)));
     assert.equal(response.headers['Referrer-Policy'], 'no-referrer'); assert.equal(response.headers['X-Content-Type-Options'], 'nosniff');
     assert.equal(request(path, 'HEAD').status, 200); assert.equal(request(path, 'HEAD').body, undefined);
     for (const method of ['POST', 'PUT', 'DELETE']) assert.equal(request(path, method).status, 404);
   }
-  for (const name of ['gameplay-activity.test.mjs', 'gameplay-activity-archive.test.mjs', 'gameplay-learning-delivery.test.mjs', 'gameplay-learning-delivery.integration.test.mjs', 'checkpoint.test.mjs', 'vendor/interego-native-resource-browser.manifest.json', 'gameplay-activity.mjs/anything', '%2e%2e/gameplay-activity.mjs']) {
+  for (const name of ['gameplay-activity.test.mjs', 'gameplay-patterns.test.mjs', 'gameplay-semantics.test.mjs', 'gameplay-activity-archive.test.mjs', 'gameplay-learning-delivery.test.mjs', 'gameplay-learning-delivery.integration.test.mjs', 'checkpoint.test.mjs', 'vendor/interego-native-resource-browser.manifest.json', 'gameplay-activity.mjs/anything', '%2e%2e/gameplay-activity.mjs']) {
     assert.equal(request('/gaming/identity/assets/' + name).status, 404);
   }
 });

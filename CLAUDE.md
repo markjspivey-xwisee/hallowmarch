@@ -2735,3 +2735,7 @@ Not right yet, or another's: the Ash Throne at low is dark from its door (four l
   - WebAssembly way-finding measured against JavaScript, with a tested fallback; shared server weather retained by the client decoder.
   - The carts, yards, workers, clouds, deaths and weapons of version 19 reviewed again; water drawn in fewer batches.
   - Reconnect ordering, request pacing, malformed field completion and inherited-key handling corrected. Verification and rollout are recorded in docs/version20.md. The Claude artifact remains version 19 until republished.
+
+## xAPI and I2IDL-X review (2026-10-27)
+
+`feature/xapi-i2idl-profile-20261027` compares the owner's ScaryMansion screenshot with actual Hallowmarch instrumentation. See `docs/gameplay-activity-profile.md` for the evidence and boundaries. Observed Profile 1.1.0 adds four recovery/reward motifs and bounded diagnostics; saved v1 events retain Profile 1.0.0 and their original statement IDs/content. Capture time is frozen before lazy loading. Native Profile publication and a private derived evidence view use explicit Hypothetical I2IDL-X classifications against v0.0.93. The separate committed-event API is opt-in; the legacy server sink/outbox is unchanged. This chat owns no menu or gameplay mechanics changes. The menu chat owns its rollout; hold this branch's merge/deployment until that released baseline is confirmed, then rebase and rerun relevant checks.
