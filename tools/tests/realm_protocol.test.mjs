@@ -85,7 +85,7 @@ test('logistics uses the same resource lane but defers confirmation without a th
 test('old native live clients require reload, while compatible and standby clients do not',()=>{
   assert.equal(realmManagementReloadRequired({on:1,sharedScene:2},true),true);
   assert.equal(realmManagementReloadRequired({on:1,realmManagement:'1'},true),true);
-  assert.equal(realmManagementReloadRequired({on:1,realmManagement:1,seasonField:2},true),false);
+  assert.equal(realmManagementReloadRequired({on:1,realmManagement:1,seasonField:2, sharedCombat: 1, actorDevelopment: 1},true),false);
   assert.equal(realmManagementReloadRequired({on:1,realmManagement:1,seasonField:1},true),true);
   assert.equal(realmManagementReloadRequired({on:0},true),false);assert.equal(realmManagementReloadRequired({on:1},false),false);
 });
@@ -135,7 +135,7 @@ test('actual WORLD keeper election refuses older economy or FIELD capabilities',
   const source=fs.readFileSync(new URL('../../server/server.js',import.meta.url),'utf8'),start=source.indexOf('function roomHost('),end=source.indexOf('const send =',start);
   const elect=new Function('isHumanPlaying','roomNeedsWarbandOrders',source.slice(start,end)+';return roomHost;')(()=>true,()=>false);
   const old={peer:'old',since:1,slow:{on:1,sharedScene:2,realmManagement:1,seasonField:1}},
-    modern={peer:'new',since:2,slow:{on:1,sharedScene:2,realmManagement:1,seasonField:2}};
+    modern={peer:'new',since:2,slow:{on:1,sharedScene:2,realmManagement:1,seasonField:2, sharedCombat: 1, actorDevelopment: 1}};
   const room={clients:new Map([['old',old],['new',modern]])};
   assert.equal(elect(room),modern);modern.slow.realmManagement=0;assert.equal(elect(room),null);
 });

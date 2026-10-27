@@ -41,9 +41,11 @@ function netNpcRowRead(o) {
   if (!(o.fm === null || Array.isArray(o.fm) && o.fm.length === 3
     && Number.isInteger(o.fm[0]) && o.fm[0] >= 0 && o.fm[0] <= 2 && netNpcBit(o.fm[1]) && netNpcBit(o.fm[2]))) return null;
   if (!(o.bt == null || Number.isInteger(o.bt) && o.bt >= 1 && o.bt <= 128)) return null;
+  const growth = o.growth == null ? null : typeof worldActorGrowthRead === 'function' && worldActorGrowthRead(o.growth);
+  if (o.growth != null && (!growth || Object.keys(o.growth).some(k => !['v', 'base', 'xp', 'kills', 'skills'].includes(k)))) return null;
   return { id: o.id, role: o.role, n: o.n, r: o.r, c: o.c, l: o.l, p: o.p.slice(), y: o.y,
     a: o.a, ph: o.ph, am: o.am, h: o.h, m: o.m, d: o.d, g: o.g,
-    lk: lk.slice(), st: o.st && o.st.slice(), fm: o.fm && o.fm.slice(), hm: o.hm, bt: o.bt || null };
+    lk: lk.slice(), st: o.st && o.st.slice(), fm: o.fm && o.fm.slice(), hm: o.hm, bt: o.bt || null, ...(growth ? { growth } : {}) };
 }
 function netNpcRowsRead(rows) {
   if (!Array.isArray(rows) || rows.length > NET_NPC_MAX) return null;
@@ -117,6 +119,8 @@ function netNpcBoat(e, row) {
 function netNpcApply(e, row, immediate = false) {
   e.netNpcMissing = !!row.g; e.netNpcPose = row.a;
   e.name = row.n; e.cls = row.c; e.level = row.l; e.look = netNpcLook(row.lk); e.scale = row.lk[10];
+  if (row.growth && typeof worldActorGrowthRead === 'function') e.growth = worldActorGrowthRead(row.growth);
+  else delete e.growth;
   e.maxHp = row.m; e.hp = row.h;
   if (e.alive && row.d) e.deadAt = GAME.t;
   e.alive = !row.d; e.removeAt = Infinity;
@@ -246,6 +250,8 @@ function netNpcSnapshot() {
       st: e.seat ? [e.seat.y, e.seat.yaw ?? e.yaw, e.seat.sx ?? e.x, e.seat.sz ?? e.z].map(r2) : null,
       fm: e.ai.farmer ? [e.farmTown ?? e.netNpcRealm, e.ai.fieldHand ? 1 : 0, e.ai.seedSeller ? 1 : 0] : null,
       hm: e._hamUntil > GAME.t ? 1 : 0, bt: e.boat?.id || null };
+    const growth = typeof worldActorGrowthRead === 'function' && worldActorGrowthRead(e.growth);
+    if (growth) row.growth = growth;
     const clean = netNpcRowRead(row); if (clean) rows.push(clean);
   }
   return rows;

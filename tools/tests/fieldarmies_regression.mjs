@@ -21,7 +21,7 @@ function fixture() {
   };
   const room = { regions: { f: 'a' }, clients: new Map() };
   const clients = ['a', 'b'].map(peer => ({ peer, realm: 0,
-    slow: { realmManagement: 1, seasonField: 2 }, pos: { ...WORLD.keeps[0] }, region: 'f', ws: { readyState: 1 }, room }));
+    slow: { realmManagement: 1, seasonField: 2, sharedCombat: 1, actorDevelopment: 1 }, pos: { ...WORLD.keeps[0] }, region: 'f', ws: { readyState: 1 }, room }));
   for (const c of clients) room.clients.set(c.peer, c);
   const season = { RS, M, dirty: false, fieldGrantConfirmed: () => true }, sent = [];
   const field = makeField(season, new Map([['march', room]]),

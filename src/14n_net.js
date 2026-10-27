@@ -348,7 +348,7 @@ const stepOkForGhost = (x, z) => inDungeon({ x }) || isWalkable(x, z) || !!water
 function netSlowObj() {
   const P = GAME.player, prog = GAME.prog, live = netHumanLive();
   const o = { v: 1, sharedScene: typeof NETWS !== 'undefined' && NETWS.url ? 2 : 0, on: live ? 1 : 0, since: NET.since,
-    warbandOrders: 1, seasonField: 2, realmManagement: 1,
+    warbandOrders: 1, seasonField: 2, realmManagement: 1, sharedCombat: 1, actorDevelopment: 1,
     humanLive: live ? 1 : 0, humanActivity: NET_HUMAN_PLAY.activity };
   if (P && prog) {
     const L = P.look;
@@ -567,7 +567,8 @@ function netOutHit(src, dst, amount, opts) {
   const P = GAME.player;
   if (!src || !P || dst.netCompanion || !(src === P || (src.tame && src.tame.owner === 'player')) || !dst.alive || !netOn()) return 0;
   const est = amount * (1 - (opts.pierce === true ? 0 : dst.drBase * (1 - (+opts.pierce || 0))));
-  netEvent('hit', dst.netPeer, { a: Math.round(amount * 10) / 10, c: opts.crit ? 1 : 0, k: typeof opts.kind === 'string' ? opts.kind.slice(0, 12) : 'melee', pi: opts.pierce === true ? 1 : +opts.pierce || 0, dt: opts.dot ? 1 : 0, ab: typeof opts.ability === 'string' ? opts.ability.slice(0, 16) : '', ar: typeof opts.arrow === 'string' ? opts.arrow.slice(0, 10) : '', el: opts.elem === 'fire' ? 'fire' : '', pet: src !== P ? 1 : 0 });
+  netEvent('hit', dst.netPeer, { a: Math.round(amount * 10) / 10, c: opts.crit ? 1 : 0, k: typeof opts.kind === 'string' ? opts.kind.slice(0, 12) : 'melee', pi: opts.pierce === true ? 1 : +opts.pierce || 0, dt: opts.dot ? 1 : 0, ab: typeof opts.ability === 'string' ? opts.ability.slice(0, 16) : '', ar: typeof opts.arrow === 'string' ? opts.arrow.slice(0, 10) : '', el: opts.elem === 'fire' ? 'fire' : '', pet: src !== P ? 1 : 0,
+    ...(Object.hasOwn(opts, 'area') ? { area: opts.area } : {}) });
   NET.stats.hitsOut++;
   src.combatUntil = GAME.t + 6;
   dst.anim.flash = 1;
@@ -579,7 +580,8 @@ function netOutBuff(e, kind, value, dur, src, extra) {
   const fake = { kind, value, until: GAME.t + dur, src, tick: GAME.t };
   if (!P || e.netCompanion || src !== P.id || !netOn()) return fake;
   if (!NET_BUFFS[kind]) return fake;
-  netEvent('buf', e.netPeer, [kind, netR3(+value || 0), netR2(+dur || 0)]);
+  netEvent('buf', e.netPeer, [kind, netR3(+value || 0), netR2(+dur || 0),
+    ...(Object.hasOwn(extra || {}, 'area') ? [extra.area] : [])]);
   NET.stats.buffsOut++;
   return fake;
 }
@@ -660,6 +662,7 @@ function netHandle(R, kind, d) {
   if (kind === 'hit') {
     NET.stats.hitsIn++;
     if (!src || !src.alive || !P.alive || !d || typeof d !== 'object' || !isEnemy(P, src)) { NET.stats.hitsRefused++; return; }
+    if (Object.hasOwn(d, 'area') && (typeof netEntityAreaAccept !== 'function' || !netEntityAreaAccept(d.area, P))) { NET.stats.hitsRefused++; return; }
     // plausible: from about where its body is, at a pace a body strikes, no harder than its level allows
     const now = performance.now();
     R.hits = R.hits.filter((t) => now - t < 1000);
@@ -672,6 +675,7 @@ function netHandle(R, kind, d) {
     if (d.ab && ABILITIES[d.ab]) opts.ability = d.ab;
     if (d.ar && /^[a-z]+$/.test(d.ar)) opts.arrow = d.ar;
     if (d.el === 'fire') opts.elem = 'fire';
+    if (Object.hasOwn(d, 'area')) opts.area = d.area;
     const hp0 = P.hp;
     const dealt = dealDamage(src, P, amt, opts);
     NET.stats.hitsLanded++;
@@ -687,6 +691,7 @@ function netHandle(R, kind, d) {
   }
   if (kind === 'buf') {
     if (!src || !Array.isArray(d) || !P.alive) return;
+    if (d.length > 3 && (typeof netEntityAreaAccept !== 'function' || !netEntityAreaAccept(d[3], P))) return;
     const B = NET_BUFFS[d[0]];
     if (!B) return;
     const friendly = !isEnemy(P, src);
@@ -696,7 +701,7 @@ function netHandle(R, kind, d) {
     if (B[0] > 0) v = clamp(v, 0, B[0]); else v = clamp(v, 0, baseDmg(src.level) * 3);
     const dur = clamp(+d[2] || 0, 0, B[1] || 20);
     if (!(dur > 0)) return;
-    addBuff(P, d[0], v, dur, src.id);
+    addBuff(P, d[0], v, dur, src.id, d.length > 3 ? { area: d[3] } : null);
     NET.stats.buffsIn++;
     return;
   }

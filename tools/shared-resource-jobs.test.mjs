@@ -118,7 +118,7 @@ test('concurrent follower mining consumes the final shared yield once and only r
   assert.equal(s.ctx.GAME.player, aliceCharacter); assert.equal(s.ctx.SAVE.ref, aliceProfile);
   s.ctx.api.netWorldPartsMessage(results[0]); await s.flushPrivate();
   assert.equal(alice.stone, 3); assert.equal(alice.iron_ore, 2); assert.equal(bob.stone, undefined);
-  assert.deepEqual(results[0].skills, [['craft', .3]]);
+  assert.deepEqual(results[0].skills, [['mining', .3]]);
 });
 
 test('a requested pick-assisted yield cannot use the host pick when the requester did not declare one', async () => {

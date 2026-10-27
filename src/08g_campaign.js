@@ -346,9 +346,6 @@ function planWar(C) {
     const wb = spawnWarband(r, size);
     loopsMustered(wb); // [loops]
     wbOrd(wb);
-    // the long war hardens the bands: late in a campaign they muster as veterans, up to four levels up
-    const vet = Math.round(cwWeary() * 4);
-    if (vet) for (const e of wbMembers(wb)) { e.wlOff = (e.wlOff || 0) + vet; e.level += vet; setupStats(e, true); }
     cwMergeRemnants(r, wb, mine); // [war2] the last of a broken band join the new one (08j_war2.js)
     mine.push(wb);
     C.nextSpawn = now + 26 + Math.random() * 18 - underdog * 8;
@@ -525,7 +522,7 @@ function updateCampaign(dt) {
   const el = campaignElapsed();
   if (!CAMPAIGN.longSaid && el > CW.LONG) {
     CAMPAIGN.longSaid = true;
-    news('The war drags on. Garrisons thin, broken gates mend slowly, the musters send out bigger bands of veterans, and the elders grow impatient: a hold on the March counts for more the longer the war lasts.', -1, 'big'); // [war2] the claims' pace (08j_war2.js)
+    news('The war drags on. Garrisons thin, broken gates mend slowly, the musters send out larger bands of recruits, and the elders grow impatient: a hold on the March counts for more the longer the war lasts.', -1, 'big'); // [war2] the claims' pace (08j_war2.js)
   }
   for (let r = 0; r < 3; r++) {
     const c = CAMPAIGN.claims[r], R = REALMS[r];

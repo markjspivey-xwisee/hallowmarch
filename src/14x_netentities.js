@@ -100,15 +100,20 @@ function netEntityWire(row) {
   if (row.ai && Object.values(row.ai).every(v => v == null || v === false)) row.ai = null;
   if (!row.buffs?.length) row.buffs = null;
   else row.buffs = row.buffs.map(b => ({ kind: b.kind, value: Math.round(b.value * 1000) / 1000,
-    left: Math.round(b.left * 10) / 10, ...(Number.isInteger(b.sourceFaction) && b.sourceFaction >= -2 && b.sourceFaction <= 31 ? { sourceFaction: b.sourceFaction } : {}) }));
+    left: Math.round(b.left * 10) / 10, ...(Number.isInteger(b.sourceFaction) && b.sourceFaction >= -2 && b.sourceFaction <= 31 ? { sourceFaction: b.sourceFaction } : {}),
+    ...(b.sourceActor && netEntitySourceRead(b.sourceActor) ? { sourceActor: netEntitySourceStamp(netEntitySourceRead(b.sourceActor)) } : {}) }));
   for (const [key, value] of Object.entries(NET_ENTITY_DEFAULTS)) if (row[key] === value) delete row[key];
   if (row.hp === row.maxHp) delete row.hp;
   return row;
 }
 function netEntityRow(e) {
   netEntityRegister(e);
+  const growth = typeof worldActorGrowthRead === 'function' && worldActorGrowthRead(e.growth);
   return netEntityWire({ id: e.netEntityId, key: e.netEntityKey, kind: e.kind, role: e.role, faction: e.faction,
     name: String(e.name || '').slice(0, 80), level: e.level, cls: e.cls, mobType: e.mobType,
+    ...(growth && (growth.xp || growth.kills || Object.values(growth.skills || {}).some(Boolean)) ? { growth } : {}),
+    ...(Number.isFinite(e.worldExperienceCredited) && e.worldExperienceCredited === e.deadAt ? { experienceCredited: 1 } : {}),
+    ...(Number.isInteger(e.realmHome) ? { realmHome: e.realmHome } : {}),
     p: [netEntityR(e.x), netEntityR(e.y), netEntityR(e.z)], yaw: netEntityR(e.yaw),
     hp: netEntityR(e.hp), maxHp: netEntityR(e.maxHp), alive: e.alive ? 1 : 0,
     a: netEntityR(animActValue(e)), ph: netEntityR(e.anim.phase % (Math.PI * 2)), am: netEntityR(e.anim.amt),
@@ -126,6 +131,7 @@ function netEntityRow(e) {
       ? netEntityPlain({ state: DRAGON.state, stateT: DRAGON.stateT, act: DRAGON.act, flap: DRAGON.flap,
         glide: DRAGON.glide, alt: DRAGON.alt, yaw: DRAGON.yaw, walking: DRAGON.walking, circ: DRAGON.circ, perch: DRAGON.perch }) : null,
     buffs: e.buffs.slice(0, 24).map(b => ({ kind: b.kind, value: b.value, left: Math.max(0, b.until - GAME.t),
+      ...(b.sourceActor && netEntitySourceRead(b.sourceActor) ? { sourceActor: netEntitySourceStamp(netEntitySourceRead(b.sourceActor)) } : {}),
       ...(Number.isInteger(b.sourceFaction) && b.sourceFaction >= -2 && b.sourceFaction <= 31 ? { sourceFaction: b.sourceFaction } : {}) })) });
 }
 function netEntityReadRow(value) {
@@ -137,6 +143,9 @@ function netEntityReadRow(value) {
   if (Array.isArray(value.look) && row.look === null) return null;
   if (row.mounted != null && row.mounted !== 0 && row.mounted !== 1) return null;
   const finite = (v, lo, hi) => typeof v === 'number' && Number.isFinite(v) && v >= lo && v <= hi;
+  if (row.growth != null && (typeof worldActorGrowthRead !== 'function' || !worldActorGrowthRead(row.growth))
+    || row.experienceCredited != null && row.experienceCredited !== 1
+    || row.realmHome != null && (!Number.isInteger(row.realmHome) || row.realmHome < 0 || row.realmHome > 2)) return null;
   if (!row || typeof row.id !== 'string' || !/^scene:[a-zA-Z0-9_-]{1,32}:\d{1,8}$/.test(row.id)
     || typeof row.key !== 'string' || row.key.length > 160 || typeof row.kind !== 'string' || row.kind.length > 24
     || typeof row.role !== 'string' || row.role.length > 24 || ['player', 'remote', 'villager', 'herald', 'merchant'].includes(row.role)
@@ -172,6 +181,8 @@ function netEntityApply(e, row, immediate = false) {
   if (row.owner === NET.self && netEntityOwnPet(e)) return;
   e.netEntityMissing = false; e.netEntityPose = row.a;
   e.name = row.name; e.faction = row.faction; e.cls = row.cls; e.mobType = row.mobType; e.level = row.level;
+  e.growth = typeof worldActorGrowthRead === 'function' ? worldActorGrowthRead(row.growth) : null;
+  e.realmHome = row.realmHome ?? null;
   e.look = netEntityPlain(row.look); e.scale = row.scale; e.radius = row.radius; e.speed = row.speed;
   if (e.kind === 'humanoid') {
     const paid = typeof loopsCanonicalManaged !== 'function' || !loopsCanonicalManaged()
@@ -205,8 +216,10 @@ function netEntityApply(e, row, immediate = false) {
   e.game = row.game; e.deep = row.deep; e.deepLord = row.deepLord; e.l2risen = row.l2risen; e.elite = row.elite; e.dunPack = row.dunPack;
   e.camp = row.camp;
   e.hp = row.hp; e.maxHp = row.maxHp;
+  if (typeof worldActorDevelop === 'function' && NET_ENTITIES.peer === NET.self && NET_ENTITIES.authority) worldActorDevelop(e);
   const wasAlive = e.alive;
   if (wasAlive && !row.alive) e.deadAt = GAME.t;
+  e.worldExperienceCredited = !row.alive && row.experienceCredited === 1 ? e.deadAt : null;
   e.alive = !!row.alive;
   // Replicas hold the corpse pose, but a later keeper must retire it normally.
   // Repeated death frames preserve the first bounded deadline instead of extending it.
@@ -217,6 +230,7 @@ function netEntityApply(e, row, immediate = false) {
   e.anim.death = e.alive ? 0 : Math.min(1, (GAME.t - e.deadAt) / 0.7);
   e.buffs = Array.isArray(row.buffs) ? row.buffs.slice(0, 24).filter(b => typeof b.kind === 'string' && Number.isFinite(b.value) && Number.isFinite(b.left))
     .map(b => ({ kind: b.kind, value: b.value, until: GAME.t + Math.min(600, b.left), tick: GAME.t, src: null,
+      ...(b.sourceActor && netEntitySourceRead(b.sourceActor) ? { sourceActor: netEntitySourceStamp(netEntitySourceRead(b.sourceActor)) } : {}),
       ...(Number.isInteger(b.sourceFaction) && b.sourceFaction >= -2 && b.sourceFaction <= 31 ? { sourceFaction: b.sourceFaction } : {}) })) : [];
   if (immediate) {
     e.x = e.prevX = row.p[0]; e.y = row.p[1]; e.z = e.prevZ = row.p[2]; e.yaw = row.yaw;
@@ -271,6 +285,30 @@ function netEntityReference(id) {
   if (typeof DEEP_FIRE_SRC !== 'undefined' && e === DEEP_FIRE_SRC) return 'hazard:deep-pitch';
   return !e ? null : e === GAME.player ? 'peer:' + NET.self : e.role === 'remote'
     ? 'peer:' + e.netPeer : e.netNpcId || e.netEntityId || null;
+}
+function netEntityAreaAccept(area, target) {
+  return !!area && area.v === 1 && area.shape === 'disc'
+    && Object.keys(area).every(key => ['v', 'shape', 'x', 'z', 'r'].includes(key))
+    && [area.x, area.z, area.r, target?.x, target?.z].every(Number.isFinite)
+    && Math.abs(area.x) <= 4000 && Math.abs(area.z) <= 4000 && area.r > 0 && area.r <= 65
+    && (target.x - area.x) ** 2 + (target.z - area.z) ** 2 <= area.r ** 2;
+}
+function netEntitySourceStamp(source) {
+  if (!source || !Number.isFinite(source.level) || source.level < 1 || source.level > 100
+    || !Number.isInteger(source.faction) || source.faction < 0 || source.faction > 4) return null;
+  return { name: String(source.name || 'An attacker').slice(0, 80), level: source.level, faction: source.faction,
+    kind: String(source.kind || 'humanoid').slice(0, 24), cls: typeof source.cls === 'string' ? source.cls.slice(0, 24) : null,
+    role: !source.bot && ['soldier', 'guard', 'player', 'remote', 'mob', 'guardian', 'lord', 'muster', 'pet', 'animal', 'hazard', 'none'].includes(source.role) ? source.role : 'none' };
+}
+function netEntitySourceRead(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)
+    || typeof value.name !== 'string' || value.name.length > 80 || typeof value.kind !== 'string' || value.kind.length > 24
+    || value.cls != null && (typeof value.cls !== 'string' || value.cls.length > 24)
+    || !['soldier', 'guard', 'player', 'remote', 'mob', 'guardian', 'lord', 'muster', 'pet', 'animal', 'hazard', 'none'].includes(value.role)
+    || !Number.isFinite(value.level) || value.level < 1 || value.level > 100
+    || !Number.isInteger(value.faction) || value.faction < 0 || value.faction > 4) return null;
+  return { id: null, name: value.name || 'An attacker', kind: value.kind, cls: value.cls || null,
+    level: value.level, faction: value.faction, role: value.role, alive: false, buffs: [], scale: 1, dmgMult: 1 };
 }
 function netEntityDungeonTimers(value, restore = false, depth = 0) {
   const copy = netEntityPlain(value);
@@ -657,7 +695,7 @@ function netEntityDamage(src, dst, amount, opts = {}) {
   const worldSrc = netEntityOwned(src) || netEntityTown(src), worldDst = netEntityOwned(dst) || netEntityTown(dst);
   if (worldDst && dst.netEntityOwner && dst.netEntityOwner !== NET.self && netEntityMine()) {
     netEntitySend('result', { to: dst.netEntityOwner, result: { id: NET_ENTITIES.authority + ':pet-hurt:' + (++NET_ENTITIES.commands),
-      kind: 'damage', source: netEntityReference(src),
+      kind: 'damage', source: netEntityReference(src), sourceActor: netEntitySourceStamp(src),
       target: dst.netEntityId, amount, opts: netEntityPlain(opts) } });
     return amount;
   }
@@ -670,7 +708,7 @@ function netEntityDamage(src, dst, amount, opts = {}) {
   }
   if (worldSrc && dst?.role === 'remote' && netEntityMine()) {
     netEntitySend('result', { to: dst.netPeer, result: { id: NET_ENTITIES.authority + ':hurt:' + (++NET_ENTITIES.commands), kind: 'damage',
-      source: netEntityReference(src), amount, opts: netEntityPlain(opts) } });
+      source: netEntityReference(src), sourceActor: netEntitySourceStamp(src), amount, opts: netEntityPlain(opts) } });
     return amount;
   }
   if (worldSrc && dst === GAME.player && !netEntityCanSimulateWorld()) return 0;
@@ -699,13 +737,13 @@ function netEntityBuff(dst, kind, value, dur, src, extra) {
   const source = getEnt(src);
   if (dst.netEntityOwner && dst.netEntityOwner !== NET.self && netEntityMine()) {
     netEntitySend('result', { to: dst.netEntityOwner, result: { id: NET_ENTITIES.authority + ':pet-buff:' + (++NET_ENTITIES.commands),
-      kind: 'buff', source: source?.netNpcId || source?.netEntityId || (source?.netPeer ? 'peer:' + source.netPeer : null),
+      kind: 'buff', source: source?.netNpcId || source?.netEntityId || (source?.netPeer ? 'peer:' + source.netPeer : null), sourceActor: netEntitySourceStamp(source),
       target: dst.netEntityId, buff: kind, amount: value, dur, extra: netEntityPlain(extra) } }); return true;
   }
   if (NET_ENTITIES.applying || netEntityOwnPet(dst)) return false;
   if (dst?.role === 'remote' && netEntityMine() && (netEntityOwned(source) || netEntityTown(source))) {
     netEntitySend('result', { to: dst.netPeer, result: { id: NET_ENTITIES.authority + ':buff:' + (++NET_ENTITIES.commands),
-      kind: 'buff', source: source.netNpcId || source.netEntityId, buff: kind, amount: value, dur, extra: netEntityPlain(extra) } });
+      kind: 'buff', source: source.netNpcId || source.netEntityId, sourceActor: netEntitySourceStamp(source), buff: kind, amount: value, dur, extra: netEntityPlain(extra) } });
     return true;
   }
   if (!netEntityOwned(dst) && !netEntityTown(dst)) return false;
@@ -816,7 +854,7 @@ function netEntityResult(result) {
   try {
     if (netEntityFallResult(result)) return;
     if (typeof netCombatFieldResult === 'function' && netCombatFieldResult(result)) return;
-    const P = GAME.player, src = netEntityFind(result.source), target = result.target ? netEntityFind(result.target) : P;
+    const P = GAME.player, src = netEntityFind(result.source) || netEntitySourceRead(result.sourceActor), target = result.target ? netEntityFind(result.target) : P;
     if (result.kind === 'realm-points' && P && result.amount === 500) {
       addRP(500); if (typeof uiToast === 'function') uiToast('Your realm receives the hallow. (+500 realm points)', 'relic');
     } else if (result.kind === 'reward') {
@@ -828,10 +866,13 @@ function netEntityResult(result) {
       }
     } else if (target?.alive && (!result.target || netEntityOwnPet(target)) && src && Number.isFinite(result.amount) && result.amount > 0) {
       const amount = Math.min(result.amount, baseDmg(src.level) * 40);
-      if (result.kind === 'damage' && isEnemy(src, target)) dealDamage(src, target, amount, result.opts || {});
+      if (result.kind === 'damage' && isEnemy(src, target)
+        && (!Object.hasOwn(result.opts || {}, 'area') || netEntityAreaAccept(result.opts.area, target))) dealDamage(src, target, amount, result.opts || {});
       else if (result.kind === 'heal' && !isEnemy(src, target)) healEnt(src, target, amount);
-      else if (result.kind === 'buff' && typeof result.buff === 'string' && typeof NET_BUFFS !== 'undefined' && NET_BUFFS[result.buff])
-        addBuff(target, result.buff, amount, Math.max(0, Math.min(30, +result.dur || 0)), src.id, result.extra);
+      else if (result.kind === 'buff' && typeof result.buff === 'string' && typeof NET_BUFFS !== 'undefined' && NET_BUFFS[result.buff]
+        && (!Object.hasOwn(result.extra || {}, 'area') || netEntityAreaAccept(result.extra.area, target)))
+        addBuff(target, result.buff, amount, Math.max(0, Math.min(30, +result.dur || 0)), src.id,
+          { ...(result.extra || {}), sourceActor: netEntitySourceStamp(src), sourceFaction: src.role === 'bot' || src.bot ? -2 : src.faction });
     }
   } finally { NET_ENTITIES.applying = false; }
 }
@@ -842,6 +883,8 @@ function netEntityMessage(m) {
     const current = typeof netCurrentWorldAdmission === 'function' ? netCurrentWorldAdmission() : m.worldAdmission;
     if (!current || !m.worldAdmission || current.origin !== m.worldAdmission.origin || current.epoch !== m.worldAdmission.epoch
       || typeof m.authority !== 'string' || !m.authority || typeof m.peer !== 'string') return false;
+    if (typeof netCombatFieldsReset === 'function' && (m.authority !== NET_ENTITIES.authority
+      || m.worldAdmission.origin !== NET_ENTITIES.admission?.origin || m.worldAdmission.epoch !== NET_ENTITIES.admission?.epoch)) netCombatFieldsReset();
     if (m.authority !== NET_ENTITIES.authority) {
       NET_ENTITIES.orderPatches.clear();
       NET_ENTITIES.sent.clear(); NET_ENTITIES.received = -1; NET_ENTITIES.seq = 0; NET_ENTITIES.assembly = null; NET_ENTITIES.published = false;
@@ -906,6 +949,7 @@ function netEntityPump(now) {
   NET_ENTITIES.at = now;
   const rows = [], current = new Set(), nextSent = new Map(NET_ENTITIES.sent);
   for (const e of ENT) if (netEntityOwned(e) && !e.removed && !e.netEntityMissing) {
+    if (typeof worldActorDevelop === 'function') worldActorDevelop(e);
     netEntityRegister(e); current.add(e.netEntityId);
     const row = netEntityRow(e), key = JSON.stringify(row), previous = NET_ENTITIES.sent.get(row.id);
     if (!NET_ENTITIES.published || previous !== key) {
@@ -935,6 +979,7 @@ function netEntityPump(now) {
   NET_ENTITIES.metaKey = metaKey;
 }
 function netEntityReset() {
+  if (typeof netCombatFieldsReset === 'function') netCombatFieldsReset();
   for (const e of ENT) if (e.netEntityLocalOwner) {
     if (e.netEntityId) NET_ENTITIES.bodies.delete(e.netEntityId);
     e.netEntityOwner = null; e.netEntityId = null;

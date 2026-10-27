@@ -1089,7 +1089,7 @@ function stepJob(dt) {
   const P = GAME.player, t = J.tree;
   if (!P || !P.alive || P.casting || P.mount || P.motion || dist(P.x, P.z, J.px, J.pz) > 0.3) { natureStopJob(P && P.alive ? 'You stop working.' : null); return; }
   if ((J.kind === 'chop' && t.felled) || (J.kind === 'split' && !t.log)) { natureStopJob(null); return; }
-  J.t += dt;
+  J.t += dt * (typeof skillWorkRate === 'function' ? skillWorkRate('woodcutting') : 1);
   P.yaw = J.yaw;
   if (J.t >= J.next && !J.hitAt) {
     J.next = J.t + 0.95;
@@ -1114,6 +1114,7 @@ function stepJob(dt) {
         // the last blow: it goes over away from the axe
         t.notch = 1;
         fellTree(t, t.x - P.x, t.z - P.z, 30, true);
+        if (t.felled && typeof skillGain === 'function') skillGain('woodcutting', 0.5);
         netLand('fell', [t.i, netR2(t.x - P.x), netR2(t.z - P.z)]); // [net] it falls on the others' pages too (14n_net.js)
         natureStopJob(null);
         P.yaw = J.yaw;

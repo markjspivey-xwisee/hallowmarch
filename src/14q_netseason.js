@@ -55,6 +55,7 @@ function netSeasonMsg(m) {
 function netsRead(o) {
   const s = { n: netNum(o.n, 1, 1e6), t: netNum(o.t, 0, 1e10), len: netNum(o.len, 600, 1e9), day: netNum(o.day, 1, 1e5), days: netNum(o.days, 1, 1e5), phase: NETS_PHASE[o.phase] ? o.phase : 'war', over: o.over ? 1 : 0, winner: NET_REALM_OK(o.winner) ? o.winner : -1 };
   s.pts = Array.isArray(o.pts) && o.pts.length === 3 ? o.pts.map((v) => netNum(v, 0, 1e12)) : [0, 0, 0];
+  s.development = netRealmDevelopmentRead(o.development);
   s.keeps = Array.isArray(o.keeps) ? o.keeps.slice(0, 16).map((K, i) => ({ i, r: NET_REALM_OK(K && K.r) ? K.r : -1, g: netNum(K && K.g, 0, 999), gate:netNum(K?.gate,0,1),tier:Math.floor(netNum(K?.tier,0,3)), siege: K && K.siege ? 1 : 0 })) : [];
   s.armies = Array.isArray(o.armies) ? o.armies.slice(0, 40).filter((A) => A && NET_REALM_OK(A.r)).map((A) => ({ id:Number.isSafeInteger(A.id)?A.id:null,kind:['raid','assault','offensive','hallow','company'].includes(A.kind)?A.kind:'assault',manual:A.manual===true,mission:['attack','defend'].includes(A.mission)?A.mission:'defend',k:netNum(A.k,-1,16),q:netNum(A.q,-1,3),fx:Number.isFinite(A.fx)?A.fx:null,fz:Number.isFinite(A.fz)?A.fz:null,arm:netNum(A.arm,0,10),eng:netNum(A.eng,0,10),r: A.r, n: netNum(A.n, 0, 9999), to: netNum(A.to, -1, 16), st: A.st === 'siege' ? 'siege' : 'march', x: netNum(A.x, -5000, 5000), z: netNum(A.z, -5000, 5000), f: A.f ? 1 : 0, off: A.off ? 1 : 0 })) : []; // [season2] f: on a page's field, off: an offensive's
   s.offs = Array.isArray(o.offs) ? o.offs.slice(0, 12).filter((O) => O && NET_REALM_OK(O.r)).map((O) => ({ r: O.r, k: netNum(O.k, -1, 16), state: O.state === 'planned' ? 'planned' : 'siege', inS: netNum(O.inS, 0, 1e9) })) : []; // [season2] the offensives announced
@@ -80,6 +81,7 @@ function netsRoster(o) {
 // follow it), the realm's stores into loops's when it is here; the first telling to a returning player
 function netsApply(first) {
   const s = NETS.s, P = GAME.player;
+  if (typeof rescaleWar === 'function' && typeof netEntityCanSimulateWorld === 'function' && netEntityCanSimulateWorld()) rescaleWar();
   const k = s.keeps.map((K) => K.r);
   if (k.length === WAR.keeps.length && WAR.keeps.some((K, i) => netKeepMine(i))) {
     NET.applyingWorld = true;
@@ -109,6 +111,18 @@ function netsApply(first) {
     for (const L of NETS.chat.slice(-4)) uiLog(`${L[1]} (earlier): ${L[2]}`, 'sys');
   }
   if (!NETS.noted && P) { NETS.noted = true; loreNote('netseason'); }
+}
+function netRealmDevelopmentRead(value) {
+  if (!value || value.v !== 1 || !Number.isSafeInteger(value.revision) || value.revision < 0 || value.revision > 1e12
+    || !Array.isArray(value.realms) || value.realms.length !== 3) return null;
+  const realms = value.realms.map((row, realm) => {
+    if (!row || row.realm !== realm || !Number.isInteger(row.level) || row.level < 1 || row.level > 50
+      || !Number.isFinite(row.xp) || row.xp < 0 || row.xp > 1e9) return null;
+    const sources = Object.fromEntries(['training', 'work', 'combat'].map(k => [k, row.sources?.[k]]));
+    if (Object.values(sources).some(n => !Number.isFinite(n) || n < 0 || n > 1e9)) return null;
+    return { realm, level: row.level, xp: row.xp, sources };
+  });
+  return realms.some(row => !row) ? null : { v: 1, revision: value.revision, realms };
 }
 // the season's armies on the map: a pennant in their realm's colour with their number, a siege ringed (your realm's
 // always; a foe's at a siege, as the news tells it)

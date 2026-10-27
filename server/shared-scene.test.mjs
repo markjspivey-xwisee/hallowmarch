@@ -13,7 +13,7 @@ function fixture(saved, options = {}) {
   const room = { clients: new Map(), name: 'march' }, state = saved || {}, out = new Map();
   const admission = () => ({ origin: 'https://game.test', epoch });
   const add = peer => {
-    const c = { peer, room, live: true, slow: { r: 0, realmManagement: 1, seasonField: 2 }, acct: { id: 'account-' + peer }, pos: { x: 0, z: 0 }, posT: time, worldAdmission: admission() };
+    const c = { peer, room, live: true, slow: { r: 0, realmManagement: 1, seasonField: 2, sharedCombat: 1, actorDevelopment: 1 }, acct: { id: 'account-' + peer }, pos: { x: 0, z: 0 }, posT: time, worldAdmission: admission() };
     room.clients.set(peer, c); out.set(peer, []); return c;
   };
   const a = add('a'), b = add('b');
@@ -354,8 +354,8 @@ test('actual keep reporting follows the shared host even when another player sta
   const cut=(a,b)=>{const i=source.indexOf(a),j=source.indexOf(b,i);assert.ok(i>=0&&j>i);return source.slice(i,j)};
   const room={name:'march',clients:new Map(),rep:[]}, calls=[], worlds={march:{k:[0],g:[1],td:0,tm:0,cn:1,cl:[[0,0],[0,0],[0,0]]}};
   const admission={origin:'https://game.test',epoch:1};
-  const a={peer:'a',room,live:true,since:1,region:'f0',slow:{on:1,realmManagement:1,seasonField:2},acct:{name:'A'},worldAdmission:admission};
-  const b={peer:'b',room,live:true,since:2,region:'f1',slow:{on:1,realmManagement:1,seasonField:2},acct:{name:'B'},worldAdmission:admission};
+  const a={peer:'a',room,live:true,since:1,region:'f0',slow:{on:1,realmManagement:1,seasonField:2, sharedCombat: 1, actorDevelopment: 1},acct:{name:'A'},worldAdmission:admission};
+  const b={peer:'b',room,live:true,since:2,region:'f1',slow:{on:1,realmManagement:1,seasonField:2, sharedCombat: 1, actorDevelopment: 1},acct:{name:'B'},worldAdmission:admission};
   room.clients.set('a',a);room.clients.set('b',b);
   let seasonal=[0];
   const context={isHumanPlaying:c=>c.live,Date,WORLD_STATE:null,WORLD:{keepCount:1},KEEP_REGION:['f1'],WORLDS:worlds,
@@ -413,7 +413,7 @@ test('verified old production pages receive a reload notice before a human lease
     const {onMsg}=await ingress(f,{nativePlayersRequired:true,PLAYER_ACCOUNTS:{humanPrincipalFor:()=>({subject:'owner'})},
       HUMAN_PLAY:{update(){leases++;return true}},send:(c,m)=>sent.push(m)});
     f.a.ws.close=(code,reason)=>closed.push({code,reason});
-    onMsg(f.a,JSON.stringify({t:'slow',d:{on:1,humanLive:1,humanActivity:1,sharedScene,realmManagement:1,seasonField:2}}));
+    onMsg(f.a,JSON.stringify({t:'slow',d:{on:1,humanLive:1,humanActivity:1,sharedScene,realmManagement:1,seasonField:2, sharedCombat: 1, actorDevelopment: 1}}));
     assert.equal(leases,0);assert.equal(closed[0].code,4006);
     assert.equal(sent[0].code,'shared_scene_upgrade_required');assert.match(sent[0].why,/saved character is preserved/);
     assert.equal(f.a.acct,account);
@@ -426,7 +426,7 @@ test('verified version-two scene pages acquire the ordinary human lease without 
     HUMAN_PLAY:{update(c,p){leases++;profile=p;return true}},send:(c,m)=>sent.push(m),clearTimeout(){},
     onSlow(c,p){slow=p}});
   f.a.ws.close=(code,reason)=>closed.push({code,reason});
-  onMsg(f.a,JSON.stringify({t:'slow',d:{on:1,humanLive:1,humanActivity:1,sharedScene:2,realmManagement:1,seasonField:2}}));
+  onMsg(f.a,JSON.stringify({t:'slow',d:{on:1,humanLive:1,humanActivity:1,sharedScene:2,realmManagement:1,seasonField:2, sharedCombat: 1, actorDevelopment: 1}}));
   assert.equal(leases,1);assert.equal(profile.sharedScene,2);assert.equal(slow.sharedScene,2);
   assert.equal(f.a.hasPlayedLive,true);assert.equal(sent.length,0);assert.equal(closed.length,0);
 });
@@ -451,8 +451,8 @@ test('realm and FIELD capability are required before a page can host the room', 
   for (const partial of [{realmManagement:1},{seasonField:2}]) {
     old.slow={on:1,...partial}; assert.equal(context.roomHost(room),null,'both exact capabilities are required');
   }
-  Object.assign(old.slow,{realmManagement:1,seasonField:2});
-  Object.assign(fresh.slow,{realmManagement:1,seasonField:2});
+  Object.assign(old.slow,{realmManagement:1,seasonField:2, sharedCombat: 1, actorDevelopment: 1});
+  Object.assign(fresh.slow,{realmManagement:1,seasonField:2, sharedCombat: 1, actorDevelopment: 1});
   old.slow.sharedScene=1;fresh.slow.sharedScene=2;
   assert.equal(context.roomHost(room).peer,'new','updated actor authority is never held by an earlier old page');
   fresh.live=false;assert.equal(context.roomHost(room).peer,'old');

@@ -472,12 +472,13 @@ function loopsCarSend(r, K, force = false, funding = null) {
   const at = (k) => ({ x: p0.x - Math.sin(yaw) * k + (Math.random() - 0.5) * 0.4, z: p0.z - Math.cos(yaw) * k + (Math.random() - 0.5) * 0.4 });
   // the horse ahead, the cart behind it, the carter at its head, the escort either side
   const hp = at(0);
-  const horse = makeEnt({ kind: 'horse', faction: FACTION_NEUTRAL, role: 'carthorse', name: `${R.name} cart horse`, level: 5, x: hp.x, z: hp.z, y: heightAt(hp.x, hp.z), yaw, radius: 0.8, speed: 6 });
+  const horse = makeEnt({ kind: 'horse', faction: FACTION_NEUTRAL, role: 'carthorse', name: `${R.name} cart horse`, level: 1, x: hp.x, z: hp.z, y: heightAt(hp.x, hp.z), yaw, radius: 0.8, speed: 6 });
   horse.maxHp = horse.hp = 520;
   loopsHorseLook(horse, r);
   const cp = { x: hp.x + Math.cos(yaw) * 1.2, z: hp.z - Math.sin(yaw) * 1.2 };
-  const carter = makeEnt({ kind: 'humanoid', faction: r, role: 'carter', level: Math.max(1, warLevel() - 4), name: `${pick(Math.random, VILLAGER_NAMES)} the carter`, x: cp.x, z: cp.z, y: heightAt(cp.x, cp.z), yaw, look: villagerLook(r), speed: 2.6, radius: 0.45 });
-  carter.maxHp = carter.hp = 260 + warLevel() * 24;
+  const carter = makeEnt({ kind: 'humanoid', faction: r, role: 'carter', level: 1, name: `${pick(Math.random, VILLAGER_NAMES)} the carter`, x: cp.x, z: cp.z, y: heightAt(cp.x, cp.z), yaw, look: villagerLook(r), speed: 2.6, radius: 0.45 });
+  if (typeof worldActorDevelop === 'function') worldActorDevelop(carter);
+  carter.maxHp = carter.hp = 284;
   carter.lCar = c; horse.lCar = c;
   c.horse = horse.id; c.carter = carter.id;
   for (let i = 0; i < (paid ? paid.escorts : 2); i++) {
@@ -851,7 +852,8 @@ function loopsSpawnWorkers() {
       if (!isWalkable(x, z)) continue;
       const look = villagerLook(R.id);
       look.fem = 0; look.mask = (look.mask & ~WB.robe) | WB.belt;
-      const v = makeEnt({ kind: 'humanoid', faction: FACTION_NEUTRAL, role: 'villager', level: 5, name: `${pick(Math.random, VILLAGER_NAMES)} the ${job === 'wood' ? 'woodcutter' : 'quarryman'}`, x, z, y: heightAt(x, z), look, home: { x: S.x, z: S.z, r: 20 }, speed: 2.2 });
+      const v = makeEnt({ kind: 'humanoid', faction: FACTION_NEUTRAL, role: 'villager', level: 1, name: `${pick(Math.random, VILLAGER_NAMES)} the ${job === 'wood' ? 'woodcutter' : 'quarryman'}`, x, z, y: heightAt(x, z), look, home: { x: S.x, z: S.z, r: 20 }, speed: 2.2 });
+      if (typeof worldActorDevelop === 'function') worldActorDevelop(v);
       v.maxHp = v.hp = 300;
       v.ai.lj = { job, realm: R.id, look: look.mask, next: GAME.t + 20 + Math.random() * 40 };
       if (typeof netNpcRegister === 'function') netNpcRegister(v, `town:${R.id}:villager:${6 + jobIndex}`);
@@ -913,6 +915,7 @@ function loopsRockFor(T, e) {
 // the steps of a worker's plan (lifeRun, 08f_townlife.js)
 function loopsLifeStep(e, st, plan, dt, next) {
   const J = e.ai.lj;
+  const rate = skill => typeof worldActorWorkRate === 'function' ? worldActorWorkRate(e, skill) : 1;
   if (st.k === 'lunload') {
     // Keep the load through the set-down animation, then leave empty.
     if (plan.t < 0.1 + dt) setAct(e, 5, 1.2);
@@ -936,9 +939,9 @@ function loopsLifeStep(e, st, plan, dt, next) {
       turnToward(e, st.mx, st.mz, dt * 8);
       loopsTool(e, true);
       if (plan.t >= st.next2) {
-        st.next2 = plan.t + 1.15;
+        st.next2 = plan.t + 1.15 / rate('woodcutting');
         setAct(e, 1, 0.62);
-        later(0.3, () => { if (!e.alive || !t.log) return; st.n2++; natChips(st.mx, heightAt(st.mx, st.mz) + 0.4, st.mz, Math.sin(e.yaw), Math.cos(e.yaw), 8); natSfx('split', st.mx, st.mz); if (st.n2 >= 4) { natRemoveLog(t); t.leaf = 0; } });
+        later(0.3, () => { if (!e.alive || !t.log) return; st.n2++; natChips(st.mx, heightAt(st.mx, st.mz) + 0.4, st.mz, Math.sin(e.yaw), Math.cos(e.yaw), 8); natSfx('split', st.mx, st.mz); if (st.n2 >= 4) { natRemoveLog(t); t.leaf = 0; if (typeof worldActorPractice === 'function') worldActorPractice(e, 'woodcutting', Math.max(1, st.timber || 1)); } });
       }
       if (plan.t > st.at2 + 30) { if (t.log) { natRemoveLog(t); t.leaf = 0; } }
       return true;
@@ -955,7 +958,7 @@ function loopsLifeStep(e, st, plan, dt, next) {
     loopsTool(e, true);
     if (!st.need) { st.need = 4 + Math.round(natS(t) * 2) + (t.kind === 'oak' ? 1 : 0); st.n = 0; st.at = plan.t + 0.4; natTake(t); t.notchYaw = Math.atan2(t.x - e.x, t.z - e.z) + Math.PI; }
     if (plan.t >= st.at) {
-      st.at = plan.t + 1.15;
+      st.at = plan.t + 1.15 / rate('woodcutting');
       setAct(e, 1, 0.62);
       later(0.3, () => {
         if (!e.alive || t.felled) return;
@@ -977,7 +980,7 @@ function loopsLifeStep(e, st, plan, dt, next) {
     loopsTool(e, true);
     if (st.n == null) { st.n = 0; st.at = plan.t + 0.4; }
     if (plan.t >= st.at && st.n < 6) {
-      st.at = plan.t + 1.2;
+      st.at = plan.t + 1.2 / rate('mining');
       setAct(e, 1, 0.62);
       later(0.3, () => {
         if (!e.alive) return;
@@ -988,6 +991,7 @@ function loopsLifeStep(e, st, plan, dt, next) {
       });
     }
     if (st.n >= 6) {
+      if (!st.practiced && typeof worldActorPractice === 'function') { worldActorPractice(e, 'mining', 1); st.practiced = true; }
       loopsBring(J.realm, 'stone');
       if (Math.random() < 0.35) loopsBring(J.realm, 'iron');
       LOOPS.stats.quarried++;
@@ -1254,7 +1258,8 @@ function loopsSpawnQuartermasters() {
     const look = villagerLook(R.id);
     look.mask = (look.mask & ~WB.robe) | WB.belt | WB.tabard;
     look.tabard = R.rgb.map((v) => v * 0.8 + 0.1);
-    const m = makeEnt({ kind: 'humanoid', faction: FACTION_NEUTRAL, role: 'merchant', level: 20, name: `Quartermaster ${pick(Math.random, NAMES[R.id])}`, x, z, y: heightAt(x, z), yaw, look, radius: 0.45 });
+    const m = makeEnt({ kind: 'humanoid', faction: FACTION_NEUTRAL, role: 'merchant', level: 1, name: `Quartermaster ${pick(Math.random, NAMES[R.id])}`, x, z, y: heightAt(x, z), yaw, look, radius: 0.45 });
+    if (typeof worldActorDevelop === 'function') worldActorDevelop(m);
     m.fixedY = heightAt(x, z);
     m.maxHp = m.hp = 500;
     m.ai.post = { x, z, yaw };

@@ -102,7 +102,7 @@ function late4WindBroken(e) {
 // (late2ChampThink: from the rally, on its own clock) true when it acted
 function late4Second(e, t, d) {
   const way = LATE4_SECOND[e.mobType];
-  if (!way || !t || !t.alive) return false;
+  if (!way || !t || !t.alive || !(e.level >= LATE4_HOST_AT)) return false;
   const now = GAME.t, y = e.y;
   if (way === 'maul') { // the bear rears and mauls what is before it: a heavy blow, the foe thrown back and torn
     if (d > 4.2) return false;
@@ -127,44 +127,59 @@ function late4Second(e, t, d) {
   } else if (way === 'pounce') { // the wolf crouches and springs at a foe some way off, bearing it down
     if (d < 6 || d > 16) return false;
     const tx = t.x, tz = t.z;
-    aoeMarker(tx, tz, 2.0, 0.75, e.faction);
-    Object.assign(AOE_MARKS[AOE_MARKS.length - 1], { stun: true, src: e.id });
-    spellDisc(tx, tz, 2.0, DISC_KIND.holy, 0.8, [1.9, 0.55, 0.16]);
+    const L = leapPlan(e, { x: tx, z: tz, radius: 0.4, scale: 1 });
+    if (L.d < 2) return false;
+    const warningLife = 0.7 + 0.35 + L.d * 0.035 + 0.1;
+    const warning = aoeMarker(L.x, L.z, 2.3, warningLife, e.faction);
+    Object.assign(warning, { stun: true, src: e.id });
+    spellDisc(L.x, L.z, 2.3, DISC_KIND.holy, warningLife + 0.05, [1.9, 0.55, 0.16]);
     turnToward(e, tx, tz, 20);
     setAct(e, 22, 0.75); e.swingAt = Math.max(e.swingAt || 0, now + 1.4);
     late2Snd('roarSmall', e, 0.8);
     later(0.7, () => {
       if (!e.alive || isStunned(e) || e.motion) return;
-      const L = leapPlan(e, { x: tx, z: tz, radius: 0.4, scale: 1 });
-      if (L.d < 2) return;
-      const dur = 0.35 + L.d * 0.035;
+      if (!isWalkable(L.x, L.z) || Math.abs(heightAt(L.x, L.z) - e.y) > 6 || !segmentClear(e.x, e.z, L.x, L.z, 0.3)) return;
+      const dur = 0.35 + dist(e.x, e.z, L.x, L.z) * 0.035;
+      warning.until = GAME.t + dur + 0.05;
       setAct(e, 6, dur);
-      e.motion = { kind: 'leap', t: 0, dur, x0: e.x, z0: e.z, y0: e.y, x1: L.x, z1: L.z, y1: heightAt(L.x, L.z), h: 0.6 + L.d * 0.05, yaw: L.yaw, onLand: () => {
+      e.motion = { kind: 'leap', t: 0, dur, x0: e.x, z0: e.z, y0: e.y, x1: L.x, z1: L.z, y1: heightAt(L.x, L.z), h: 0.6 + L.d * 0.05, yaw: Math.atan2(L.x - e.x, L.z - e.z), onLand: () => {
         FX.dust(e.x, e.y, e.z, 12);
         late2Snd('slam', e, 0.2);
         forNear(e.x, e.z, 2.6, (o) => {
           if (!o.alive || !isEnemy(e, o) || !isActor(o) || dist(o.x, o.z, e.x, e.z) > 2.3 || Math.abs(o.y - e.y) > 2) return;
           const r = computeDamage(e, o, 1.15);
-          dealDamage(e, o, r.d, { crit: r.crit, kind: 'melee', heavy: true });
-          addBuff(o, 'stun', 1, 0.8, e.id);
+          const area = { v: 1, shape: 'disc', x: L.x, z: L.z, r: 2.3 };
+          dealDamage(e, o, r.d, { crit: r.crit, kind: 'melee', heavy: true, area });
+          addBuff(o, 'stun', 1, 0.8, e.id, { area });
         });
       } };
     });
   } else if (way === 'gore') { // the boar lowers its tusks and charges down a line, tossing whatever stands in it
     if (d < 5 || d > 18) return false;
+    const startX = e.x, startZ = e.z;
     const ux = (t.x - e.x) / Math.max(0.1, d), uz = (t.z - e.z) / Math.max(0.1, d);
     const R = dashReach(e, e.x, e.z, ux, uz, Math.min(20, d + 4));
     if (R.d < 4) return false;
-    for (let i = 1; i <= 3; i++) { const s = (R.d * i) / 3.4, x = e.x + ux * s, z = e.z + uz * s; aoeMarker(x, z, 1.9, 0.85, e.faction); Object.assign(AOE_MARKS[AOE_MARKS.length - 1], { stun: true, src: e.id }); spellDisc(x, z, 1.9, DISC_KIND.holy, 0.9, [1.9, 0.55, 0.16]); }
+    const marks = [], count = Math.ceil(R.d / 3), radius = Math.hypot(Math.min(2.2, 1.8 * (e.scale || 1)), R.d / count / 2) + 0.25;
+    const warningLife = 0.82 + R.d / 15 + 0.15;
+    // Overlapping rings cover the whole swept body, including both ends and a small crowd push before launch.
+    for (let i = 0; i <= count; i++) { const s = R.d * i / count, x = startX + ux * s, z = startZ + uz * s; const mark = aoeMarker(x, z, radius, warningLife, e.faction); Object.assign(mark, { stun: true, src: e.id }); marks.push(mark); spellDisc(x, z, radius, DISC_KIND.holy, warningLife + 0.05, [1.9, 0.55, 0.16]); }
     turnToward(e, t.x, t.z, 20);
     setAct(e, 22, 0.85); e.swingAt = Math.max(e.swingAt || 0, now + 1.6);
+    const windup = { kind: 'windup', t: 0, dur: 1 };
+    e.motion = windup;
     late2Snd('roarSmall', e, 0.7);
     later(0.82, () => {
-      if (!e.alive || isStunned(e) || e.motion) return;
-      const R2 = dashReach(e, e.x, e.z, ux, uz, R.d);
+      if (e.motion !== windup) return;
+      e.motion = null;
+      if (!e.alive || isStunned(e)) return;
+      if (dist2(e.x, e.z, startX, startZ) > 0.25 * 0.25) return;
+      const length = dist(e.x, e.z, R.x, R.z), dx = (R.x - e.x) / Math.max(0.1, length), dz = (R.z - e.z) / Math.max(0.1, length);
+      const R2 = dashReach(e, e.x, e.z, dx, dz, length);
       if (R2.d < 2) return;
       const dur = R2.d / 15;
-      e.motion = { kind: 'leap', t: 0, dur, x0: e.x, z0: e.z, y0: e.y, x1: R2.x, z1: R2.z, y1: heightAt(R2.x, R2.z), h: 0.05, yaw: Math.atan2(ux, uz), onLand: () => { FX.dust(e.x, e.y, e.z, 10); } };
+      for (const mark of marks) mark.until = GAME.t + dur + 0.05;
+      e.motion = { kind: 'leap', t: 0, dur, x0: e.x, z0: e.z, y0: e.y, x1: R2.x, z1: R2.z, y1: heightAt(R2.x, R2.z), h: 0.05, yaw: Math.atan2(dx, dz), onLand: () => { FX.dust(e.x, e.y, e.z, 10); } };
       LATE4.rushes.push({ e, hit: new Set(), until: GAME.t + dur + 0.05 });
       late2Snd('stagger', e, 0.6);
     });
@@ -307,8 +322,9 @@ function late4RushStep() {
       if (R.hit.has(o.id) || !o.alive || !isEnemy(e, o) || !isActor(o) || dist(o.x, o.z, e.x, e.z) > 1.8 * (e.scale || 1) || Math.abs(o.y - e.y) > 2) return;
       R.hit.add(o.id);
       const r = computeDamage(e, o, 1.3);
-      dealDamage(e, o, r.d, { crit: r.crit, kind: 'melee', heavy: true });
-      addBuff(o, 'stun', 1, 0.6, e.id);
+      const area = { v: 1, shape: 'disc', x: e.x, z: e.z, r: Math.min(2.2, 1.8 * (e.scale || 1)) };
+      dealDamage(e, o, r.d, { crit: r.crit, kind: 'melee', heavy: true, area });
+      addBuff(o, 'stun', 1, 0.6, e.id, { area });
       const side = Math.sign((o.x - e.x) * Math.cos(e.yaw) - (o.z - e.z) * Math.sin(e.yaw)) || 1;
       late4Shove(o, Math.cos(e.yaw) * side, -Math.sin(e.yaw) * side, 2.5);
     });
@@ -378,7 +394,7 @@ function late4Measuring() {
   if (Math.abs(GAME.t - L4_MEASURE.t0) >= 2) { L4_MEASURE.t0 = GAME.t; L4_MEASURE.on = ENT.some((e) => e.balance && e.alive); }
   return L4_MEASURE.on;
 }
-const late4HostOn = () => GAME.started && !!GAME.prog && warLevel() >= LATE4_HOST_AT && GAME.prog.level >= LATE4_HOST_AT && !late4Measuring();
+const late4HostOn = () => GAME.started && !!GAME.prog && warLevel() >= LATE4_HOST_AT && !late4Measuring();
 function late4HostSpawn(H) {
   late4Route(H);
   if (!H.route.length || H.px == null) return false;
@@ -825,7 +841,7 @@ LATE2_DEEDS.roam = 'Roaming hosts of the risen brought down';
   if (typeof L3_DEVICE_OF === 'object' && L3_DEVICE_OF.roam == null) L3_DEVICE_OF.roam = 2; // (a tower: the roads kept)
 }
 function late4HostsHTML() {
-  if (!GAME.prog || GAME.prog.level < LATE4_HOST_AT) return `<p>From level ${LATE4_HOST_AT} the risen walk the borderlands too: a host in each homeland, going from camp to camp along the tracks, and fighting what it meets.</p>`;
+  if (!GAME.prog || warLevel() < LATE4_HOST_AT) return `<p>When the March reaches development ${LATE4_HOST_AT}, risen hosts can walk the borderlands of each homeland. Each creature starts at level 1 and grows through its own experience.</p>`;
   const P = GAME.player, rows = LATE4.hosts.map((H) => `<li><b>${esc(capFirst(H.D.name))}</b> and ${esc(H.D.host)} (${esc(REALMS[H.D.realm].homeName)}): ${H.up ? 'walking the borderlands' : H.down > 0 ? `brought down; walks again in about ${Math.max(1, Math.round(H.down / 60))} minutes` : 'gathering'}${P && H.up && H.D.realm === P.faction ? ', circled on your map' : ''}.</li>`).join('');
   return `<p>A host of the risen walks the borderlands of each homeland, from camp to camp, and falls on whatever it meets. Its leader is a risen champion: bringing it down is a deed (three earn the name Roadwarden), and pays as a risen champion does. It walks again a quarter of an hour later.</p><ul class="plain">${rows}</ul>`;
 }
@@ -850,7 +866,7 @@ CHRON_EXTRA.goals.push(() => (GAME.prog && GAME.prog.level >= 30 ? `<div class="
 function late4MantleCode(e) {
   if (!e.alive || e.kind !== 'humanoid') return 0;
   if (e.l2risen && !l4Cold(e)) return 8 * (6 + 1);
-  if (e.role === 'lord' && warLevel() >= LATE4_HOST_AT && GAME.prog && GAME.prog.level >= LATE4_HOST_AT) return 8 * (2 + 1);
+  if (e.role === 'lord' && e.level >= LATE4_HOST_AT) return 8 * (2 + 1);
   return 0;
 }
 // the name on your frame (updateHUD, 10_ui.js): on a touch screen a long one would be cut short at the deed ("Aldric,

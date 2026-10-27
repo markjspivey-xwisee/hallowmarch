@@ -29,7 +29,7 @@ function fixture() {
   }
   function add(id) {
     const c = { peer: id, room, live: true, acct: { id: 'owner-' + id }, since: peers.size + 1,
-      slow: { r: 0, on: 1, l: 20, rr: 1, warbandOrders: 1, sharedScene: 2, realmManagement: 1, seasonField: 2, n: id, dn: id },
+      slow: { r: 0, on: 1, l: 20, rr: 1, warbandOrders: 1, sharedScene: 2, realmManagement: 1, seasonField: 2, sharedCombat: 1, actorDevelopment: 1, n: id, dn: id },
       fast: { p: [3, 0, 0], d: 0, a: 0, fl: 0 }, pos: { x: 3, z: 0 }, posT: clock, worldAdmission: admission };
     room.clients.set(id, c);
     const player = { alive: true, faction: 0, name: id, level: 20, x: id === 'a' ? 1000 : 3, y: 0, z: 0 };

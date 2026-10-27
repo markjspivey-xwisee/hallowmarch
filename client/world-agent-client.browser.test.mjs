@@ -178,7 +178,7 @@ test('actual death UI closes the active Players and chat surfaces and makes reco
   const net = await readFile(new URL('../src/14o_netui.js', import.meta.url), 'utf8');
   const pageSource = await readFile(new URL('../src/page.html', import.meta.url), 'utf8');
   const styles = pageSource.match(/<style>([\s\S]*?)<\/style>/)[1];
-  const death = source.slice(source.indexOf('function uiDeath('), source.indexOf('/* herald */'));
+  const death = source.slice(source.indexOf('function uiDeathDamage('), source.indexOf('/* herald */'));
   const sheetToggle = net.slice(net.indexOf('function netSheetToggle('), net.indexOf('// your account on the March'));
   const chatClose = net.slice(net.indexOf('function netChatClose('), net.indexOf('function netChatGo('));
   const deathMarkup = pageSource.slice(pageSource.indexOf('<div class="overlay" id="death"'), pageSource.indexOf('<div class="overlay" id="dialog"'));
@@ -186,7 +186,7 @@ test('actual death UI closes the active Players and chat surfaces and makes reco
     <div id="netchat"><input id="netchat-in" aria-label="Chat"></div>
     <div id="netsheet" class="overlay"><div class="sheet"><button id="background-action">Player action</button></div></div><script>
     const $=id=>document.getElementById(id),UI={modal:'net'},NETUI={open:true,chatOpen:true};
-    const GAME={player:{x:0,z:0,faction:0}},R_RING=190,REALMS=[{name:'Logres',townName:'Home'}];
+    const GAME={t:1,player:{x:0,z:0,faction:0,hp:0}},R_RING=190,REALMS=[{name:'Logres',townName:'Home'}];
     const inDungeon=()=>false,buildBedSpot=()=>null;
     let released=0;function releasePlayer(){released++}
     ${sheetToggle}\n${chatClose}\n${death}
@@ -203,6 +203,7 @@ test('actual death UI closes the active Players and chat surfaces and makes reco
   await page.evaluate(() => fixture.die('a foe'));
   assert.equal(await page.locator('#netsheet').isVisible(), false); assert.equal(await page.locator('#netchat').isVisible(), false);
   assert.equal(await page.locator('#death').isVisible(), true);
+  assert.equal(await page.locator('#death-by').textContent(), 'Slain by a foe.');
   assert.equal(await page.locator('#btn-release').evaluate(el => el === document.activeElement), true);
   assert.equal(await page.locator('#btn-release').textContent(), 'Release to Logres Muster');
   assert.deepEqual(await page.evaluate(() => fixture.state()), { modal: 'death', players: false, chat: false, released: 0 });

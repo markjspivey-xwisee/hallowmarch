@@ -244,11 +244,10 @@ function late2RiseK(camp) {
 }
 // risen now (`l2on`: set when the camp is taken over, which waits while you stand in it: late2Rescale)
 const late2Risen = (camp) => late2RiseK(camp) >= 0 && !!camp.l2on;
-// a camp's band of levels: [lowest, highest, the champion's step above the highest] (spawnMob, 08_ai.js)
+// New creatures begin together; world development unlocks encounter types, not combat levels.
 function late2Band(camp) {
-  if (!late2Risen(camp)) return [camp.lmin, camp.lmax, 1];
-  const w = warLevel(), k = late2RiseK(camp);
-  return [w - 4 + k, w - 1 + k, 2];
+  void camp;
+  return [1, 1, 0];
 }
 function late2RisenName(camp) { const L = LATE2_RISEN_NAMES[camp.type] || ['the Risen']; return L[camp.id % L.length]; }
 // every body a camp spawns (spawnMob, 08_ai.js): its place in the band, and a risen champion's name and might
@@ -294,19 +293,17 @@ function late2Rescale() {
       c.l2on = on; late2Retake(c); if (on) rose++; continue;
     }
     if (!on) continue;
-    const B = late2Band(c);
     for (const id of c.members) {
       const e = getEnt(id);
       if (!e || !e.alive) continue;
-      const lv = e.elite ? B[1] + B[2] : clamp(B[0] + (e.l2off || 0), B[0], B[1]);
-      if (lv !== e.level) { e.level = lv; setupStats(e, true); }
+      if (typeof worldActorDevelop === 'function') worldActorDevelop(e);
     }
   }
   // told once, as it happens (a level gained, not a character loaded at 40 and more)
-  if (rose && P && GAME.started && GAME.prog && GAME.prog.level === LATE2_RISE_AT && !LATE2.toldRise) {
+  if (rose && P && GAME.started && GAME.prog && !LATE2.toldRise) {
     LATE2.toldRise = true;
     uiToast('The farthest borderland camps have risen to meet you.', 'quest');
-    uiLog(`Risen champions now hold the three farthest borderland camps of every homeland, and keep pace with you: the best spoils of the wilds. The Chronicle's Deeds page names them.`, 'level');
+    uiLog(`The March's development has opened risen encounters in the farthest borderland camps. Each creature grows through its own experience. The Chronicle's Deeds page names them.`, 'level');
   }
 }
 // a sound from where it happens: audio2's placed sound (11c_sound.js: it fades, pans and muffles by itself; `alt`, the
@@ -315,6 +312,7 @@ function late2Snd(name, e, h = null, o = null, alt = null) { void alt; sfxAtE(na
 function late2SndAt(name, x, y, z, alt = null) { void alt; sfxAt(name, x, y, z); }
 // a risen champion in a fight (thinkMob, 08_ai.js): true while it is busy with its own work
 function late2ChampThink(e, t, dt) {
+  if (!(e.level >= LATE2_RISE_AT)) return false;
   const ai = e.ai, now = GAME.t;
   let S = ai.l2;
   const gap = S ? now - S.last : 0;
@@ -350,7 +348,7 @@ function late2ChampThink(e, t, dt) {
   }
   const M = MOBS[e.mobType] || {}, ranged = !!M.ranged, d = dist(e.x, e.z, t.x, t.z);
   if (now > S.next2 && Math.abs((t.y || 0) - (e.y || 0)) < 3 && late2KindMove(e, t, d)) S.next2 = now + 13 + Math.random() * 4; // each kind its own way
-  if (S.next3 && now > S.next3 && now > S.next2 - 11 && Math.abs((t.y || 0) - (e.y || 0)) < 3 && !e.motion && late4Second(e, t, d)) { S.next3 = now + (S.enr ? 9 : 12) + Math.random() * 3; S.next = Math.max(S.next, now + 3); } // [late4] and from the rally a second way of its kind, on a clock of its own (10o_late4.js)
+  if (S.next3 && now > S.next3 && now > S.next2 - 11 && Math.abs((t.y || 0) - (e.y || 0)) < 3 && !e.motion && late4Second(e, t, d)) { S.next3 = now + (S.enr ? 9 : 12) + Math.random() * 3; S.next = Math.max(S.next, now + 3); return true; } // [late4] and from the rally a second way of its kind, on a clock of its own (10o_late4.js)
   if (now < S.next) return false;
   if (ranged ? d > 26 : d > 5.2) return false;
   if (Math.abs((t.y || 0) - (e.y || 0)) > 3) return false; // not at one up on a wall or a rock
@@ -711,7 +709,7 @@ function updateLate2(dt) {
   if ((W.camps = (W.camps || 0) - 0.25) <= 0) { W.camps = 5; if (CAMPS.some((c) => late2RiseK(c) >= 0 && !!c.l2on !== (warLevel() >= LATE2_RISE_AT))) late2Rescale(); }
   if ((L2STD.tick = (L2STD.tick || 0) - 0.25) <= 0) { L2STD.tick = 1; late2StdStep(); late2Hail(P); }
   // near a risen camp (the field note's watch)
-  W.near = prog.level >= LATE2_RISE_AT && CAMPS.some((c) => late2Risen(c) && dist2(P.x, P.z, c.x, c.z) < 110 * 110);
+  W.near = warLevel() >= LATE2_RISE_AT && CAMPS.some((c) => late2Risen(c) && dist2(P.x, P.z, c.x, c.z) < 110 * 110);
 }
 
 // the risen camps on the world map past 40, before the names are laid out round them (drawWorldMap, 10_ui.js)
@@ -723,7 +721,7 @@ function late2MapMarks(ctx, S, MK) {
     ctx.fillStyle = REALMS[P.faction].color; ctx.beginPath(); ctx.moveTo(x, y - h); ctx.lineTo(x + h * 0.75, y - h * 0.78); ctx.lineTo(x, y - h * 0.56); ctx.closePath(); ctx.fill(); ctx.stroke();
     MK.push([x + h * 0.3, y - h * 0.6, h * 0.7]);
   }
-  if (!GAME.prog || GAME.prog.level < LATE2_RISE_AT) return;
+  if (!GAME.prog || warLevel() < LATE2_RISE_AT) return;
   late4MapMarks(ctx, S, MK); // [late4] the roaming hosts where they walk (10o_late4.js)
   for (const c of CAMPS) {
     if (!late2Risen(c)) continue;
@@ -742,7 +740,7 @@ function late2MapMarks(ctx, S, MK) {
 /* ------------------------------------------------------------------ */
 // the nearest risen champion standing, your own homeland's first
 function late2RisenMark(P) {
-  if (!GAME.prog || GAME.prog.level < LATE2_RISE_AT) return null;
+  if (!GAME.prog || warLevel() < LATE2_RISE_AT) return null;
   const R = REALMS[P.faction];
   const list = CAMPS.filter((c) => late2Risen(c)).map((c) => getEnt(c.eliteId)).filter((e) => e && e.alive);
   const own = list.filter((e) => CAMPS[e.camp] && CAMPS[e.camp].realm === P.faction);
@@ -814,7 +812,7 @@ function chronDeeds() {
   const risen = CAMPS.filter((c) => late2RiseK(c) >= 0).sort((a, b) => a.realm - b.realm || a.lmin - b.lmin);
   const risenList = risen.map((c) => {
     const e = getEnt(c.eliteId), up = late2Risen(c);
-    const st = !up ? `<span class="gd-at">from level ${LATE2_RISE_AT}</span>` : e && e.alive ? `<span class="gd-ok">level ${e.level}</span>` : '<span class="gd-at">fallen: back in a few minutes</span>';
+    const st = !up ? `<span class="gd-at">world development ${LATE2_RISE_AT}</span>` : e && e.alive ? `<span class="gd-ok">level ${e.level}</span>` : '<span class="gd-at">fallen: back in a few minutes</span>';
     return `<li><b>${esc(capFirst(late2RisenName(c)))}</b> ${st}<small>The ${esc((MOB_PLURAL[c.type] || c.type).toLowerCase())} of the far borderlands of ${esc(REALMS[c.realm].name)}.</small></li>`;
   }).join('');
   const stdUp = late2StdOk(); // (one you can have made, plant or take up comes up under your names, open: what you can do first)
@@ -825,8 +823,8 @@ function chronDeeds() {
     <h3>Your deeds</h3><ul class="plain l2-tally">${tally}</ul>
     <h3${prog.level >= LEVEL_CAP && free ? ' data-cf-open' : ''}>Veterancy</h3>${vet}
     ${stdUp ? '' : `<h3>The standard of your name</h3>${late2StdHTML()}`}
-    <h3>The risen of the borderlands</h3><p>From level ${LATE2_RISE_AT} the three farthest borderland camps of every homeland are held by risen champions who keep pace with you: their camps a few levels round yours, the champion one to three above it. A risen champion breaks the ground about it after a moment's warning (a glowing ring: step out of it, or stun it as it rears and the blow is broken off; a troll's ring is wider), rallies its pack at half its strength and calls two more to it, and fights on in a fury at a quarter. Each kind has a way of its own besides: a beast howls, slowing its foes and stirring its pack; the dead call the dead up out of the ground about their foe; an outlaw hamstrings, slowing you and keeping your wounds from mending; a troll stamps and the ground bursts under a foe that keeps off (another glowing ring); a wisp slips away from a blade at its side. Each pays a third piece of the best gear, a second trophy, a share of a level in experience and realm points.</p>
-    <ul class="gd-aims">${risenList}</ul>${prog.level >= LATE2_RISE_AT ? '<p>On the map an ember diamond marks each risen camp, bright while its champion stands.</p>' : ''}
+    <h3>The risen of the borderlands</h3><p>At shared world development level ${LATE2_RISE_AT}, the three farthest borderland camps of every homeland can be held by risen champions. New creatures start at level 1 and grow through their own experience; the unlock does not raise their combat level. A risen champion breaks the ground about it after a moment's warning (a glowing ring: step out of it, or stun it as it rears and the blow is broken off; a troll's ring is wider), rallies its pack at half its strength and calls two more to it, and fights on in a fury at a quarter. Each kind has a way of its own besides: a beast howls, slowing its foes and stirring its pack; the dead call the dead up out of the ground about their foe; an outlaw hamstrings, slowing you and keeping your wounds from mending; a troll stamps and the ground bursts under a foe that keeps off (another glowing ring); a wisp slips away from a blade at its side. Each pays a third piece of the best gear, a second trophy, a share of a level in experience and realm points.</p>
+    <ul class="gd-aims">${risenList}</ul>${warLevel() >= LATE2_RISE_AT ? '<p>On the map an ember diamond marks each risen camp, bright while its champion stands.</p>' : ''}
     ${late4DeedsHTML() /* [late4] how the risen wind up, their second way, and the roaming hosts (10o_late4.js) */}
     <p class="now">Now: ${earned.length ? `${earned.length} name${earned.length === 1 ? '' : 's'} of ${LATE2_NAMES.length}${worn ? `, wearing <b>${esc(late2T(worn))}</b>` : ''}` : 'no name yet'}${prog.level >= LEVEL_CAP ? `, veterancy ${LATE2.vet}` : ''}, realm rank ${realmRank(prog.rp)} of ${R.name}.</p>
     <div class="acts">${chronLink('goals', 'Aims')}${chronLink('path', 'Your path')}</div>`;
@@ -850,7 +848,7 @@ $('menu-body').addEventListener('click', (ev) => {
 });
 // the Aims page: what opens past 40 and 50
 CHRON_EXTRA.goals.push(() => `<div class="gd-tier"><h4>Past 40 and past 50</h4><ul class="plain">
-  <li><b>The risen of the borderlands</b>: from level ${LATE2_RISE_AT} the farthest camps of every homeland rise with you, each led by a risen champion with its own name. The best spoils of the wilds.</li>
+  <li><b>The risen of the borderlands</b>: shared world development at level ${LATE2_RISE_AT} unlocks risen champions in the farthest camps of every homeland. Each creature earns its own levels. The best spoils of the wilds.</li>
   <li><b>Veterancy</b>: past level 50 your experience raises your veterancy, and every rank is a boon to learn (five steps each of six).</li>
   <li><b>Names</b>: the March names you for your deeds (${LATE2.names.length} of ${LATE2_NAMES.length} yours). Wear one and it gives you something of the deed.</li>
   <li><b>The standard of your name</b>: from level ${LATE2_STD.lv}, with a name, have one made and plant it where you fight: your realm strikes harder about it. ${chronLink('deeds', 'Deeds')}</li></ul></div>`);
@@ -860,7 +858,7 @@ CHRON_EXTRA.goals.push(() => `<div class="gd-tier"><h4>Past 40 and past 50</h4><
 /* ------------------------------------------------------------------ */
 for (const [id, note] of Object.entries({
   l2name: { t: 'A name of your own', x: () => `The March has named you for your deeds. The name shows with yours on your frame, and the one you wear gives you something of its deed: choose it on the Chronicle's Deeds page (${IS_TOUCH ? 'tap your path' : 'J'}).` },
-  l2risen: { t: 'The risen of the borderlands', x: () => 'Risen champions who keep pace with you hold the farthest borderland camps now. When the ground about one glows, step out of the ring, or stun it as it rears. At half its strength it calls its pack.' },
+  l2risen: { t: 'The risen of the borderlands', x: () => 'Shared world development has unlocked risen champions in the farthest borderland camps. Each grows through its own experience. When the ground about one glows, step out of the ring, or stun it as it rears. At half its strength it calls its pack.' },
   l2std: { t: 'The standard of your name', x: () => `A veteran with a name may have a standard made (the Chronicle's Deeds page) and plant it where it fights: your realm's soldiers, your companions and you strike harder about it. ${IS_TOUCH ? 'Use' : 'E'} beside it takes it up.` },
   l2vet: { t: 'Veterancy', x: () => `Past level 50 your experience raises your veterancy, and every rank is a boon to learn: health, harm, power, a steady eye, thick skin, realm points. ${IS_TOUCH ? 'Tap your path' : 'J'}, then Deeds.` },
 })) if (!FIELD_NOTES[id]) FIELD_NOTES[id] = note;
@@ -870,10 +868,10 @@ Object.assign(GUIDE_WATCH, {
   l2vet: () => LATE2.vet > 0 || (GAME.prog && GAME.prog.level >= LEVEL_CAP),
   l2std: () => late2StdOk() && !LATE2.std.made,
 });
-GUIDE_HELP.push(() => `<h3>Past 40 and past 50</h3><p>The March names you for your deeds: champions and lords brought down, keeps taken, hallows carried home, campaigns won, Cinderwing and the Hollow King. Wear a name and it gives you something of the deed (the Chronicle's Deeds page). From level 40 risen champions hold the farthest borderland camps of every homeland, and keep pace with you. Past level 50 your experience raises your veterancy: every rank is a boon to learn. From level 40, with a name, you may have a standard made and plant it where you fight (${IS_TOUCH ? 'Use' : 'E'} beside it takes it up).</p>`);
+GUIDE_HELP.push(() => `<h3>Past 40 and past 50</h3><p>The March names you for your deeds: champions and lords brought down, keeps taken, hallows carried home, campaigns won, Cinderwing and the Hollow King. Wear a name and it gives you something of the deed (the Chronicle's Deeds page). Shared world development at level 40 unlocks risen champions in the farthest borderland camps. Each starts at level 1 and grows through its own experience. Past level 50 your experience raises your veterancy: every rank is a boon to learn. From level 40, with a name, you may have a standard made and plant it where you fight (${IS_TOUCH ? 'Use' : 'E'} beside it takes it up).</p>`);
 LOADING_TIPS.push(
   'The March names you for your deeds. Wear a name and it gives you something of the deed: the Chronicle\'s Deeds page.',
-  'From level 40, risen champions hold the farthest borderland camps of every homeland. When the ground about one glows, step out of the ring.',
+  'Shared world development at level 40 unlocks risen champions in the farthest borderland camps. When the ground about one glows, step out of the ring.',
   'Past level 50 your experience raises your veterancy. Every rank is a boon to learn.',
 );
 

@@ -82,7 +82,7 @@ test('one server authority overrides skewed local clocks on every character page
   for(const [h,self,since,other,otherSince]of[[a,'a',100,'b',101],[b,'b',0,'a',100]]){
     Object.assign(h.context.GAME,{started:true,player:{id:self}});
     Object.assign(h.api.NET,{self,since,serverSceneHost:'a'});
-    h.api.NET.peers.set(other,{peer:other,slow:{on:1,sharedScene:2,realmManagement:1,seasonField:2,since:otherSince}});
+    h.api.NET.peers.set(other,{peer:other,slow:{on:1,sharedScene:2,realmManagement:1,seasonField:2, sharedCombat: 1, actorDevelopment: 1,since:otherSince}});
     h.api.NETWS.state='on';h.api.netHostElect();
   }
   assert.equal(a.api.NET.host,'a');assert.equal(a.api.NET.isHost,true);

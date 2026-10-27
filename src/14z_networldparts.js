@@ -470,6 +470,7 @@ queueMicrotask(() => {
       if (a.kind === 'chop') {
         if (t.felled) return false;
         fellTree(t, t.x - P.x, t.z - P.z, 30, true);
+        if (t.felled) skillGain('woodcutting', 0.5);
       } else {
         if (!t.log || !t.fall) return false;
         const len = TREE_DIM[t.kind].trunk * natS(t);

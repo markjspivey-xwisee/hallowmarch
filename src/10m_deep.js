@@ -1221,17 +1221,17 @@ function deepFloodStep(dt) {
 /* Vorlach the Ash-Crowned                                             */
 /* ------------------------------------------------------------------ */
 const DEEP_LORD_NAME = 'Vorlach the Ash-Crowned';
-const deepVetK = () => 1 + DEEP_LORD.vetK * Math.min(DEEP_LORD.vetMax, typeof LATE2 === 'object' ? LATE2.vet : 0);
 function deepSpawnLord() {
   const sp = DEEP.seat;
   const e = makeEnt({
-    kind: 'humanoid', faction: FACTION_MONSTER, role: 'dungeonBoss', mobType: 'skeleton', level: DEEP_LORD.base + barrowBoost(), baseLevel: DEEP_LORD.base, name: DEEP_LORD_NAME,
-    tweak: { hp: DEEP_LORD.hp * deepVetK(), dmg: DEEP_LORD.dmg, speed: DEEP_LORD.speed, swing: 2.4, meleeRange: 3.2 },
+    kind: 'humanoid', faction: FACTION_MONSTER, role: 'dungeonBoss', mobType: 'skeleton', level: 1, baseLevel: 1, name: DEEP_LORD_NAME,
+    tweak: { hp: DEEP_LORD.hp, dmg: DEEP_LORD.dmg, speed: DEEP_LORD.speed, swing: 2.4, meleeRange: 3.2 },
     x: sp.x, z: sp.z, y: -17.4, yaw: Math.PI / 2, scale: DEEP_LORD.scale, radius: 0.55,
     look: { tabard: [0.2, 0.05, 0.035], armor: [0.4, 0.28, 0.15], skin: 0.2, hair: 0.1, mask: WB.axe | WB.cape | WB.circlet | WB.pauldron | WB.tabard | WB.belt | WB.skirt, flags: 1 | (1 << 4) | (3 << 7), scale: DEEP_LORD.scale, outfit: OUTFIT.skeleton, emblem: 3, fem: 0, bulk: 0.15 },
     home: { x: sp.x, z: sp.z, r: 1 }, camp: null,
   });
   e.deepLord = true;
+  if (typeof worldActorDevelop === 'function') worldActorDevelop(e);
   setupStats(e);
   e.ai.awake = false;
   e.seat = { y: sp.y }; e.fixedY = -17.4;
@@ -1253,7 +1253,7 @@ function deepLordReset(e) {
   for (const id of DEEP.adds) { const o = getEnt(id); if (o && o.alive && late3Room(o.x, o.z) === DUN_ROOM.ashhall) removeEnt(o); }
   e.hp = e.maxHp; e.threat = null; e.damagers = null; e.target = null; e.casting = null; e.buffs.length = 0;
   e.ai = { think: 0, awake: false };
-  e.tweak.hp = DEEP_LORD.hp * deepVetK(); setupStats(e);
+  e.tweak.hp = DEEP_LORD.hp; setupStats(e);
   const sp = DEEP.seat;
   e.x = e.prevX = sp.x; e.z = e.prevZ = sp.z; e.y = -17.4; e.seat = { y: sp.y }; e.fixedY = -17.4; e.yaw = Math.PI / 2;
   for (const S of DEEP.slabs) if (S.hall === 'ash' && S.st !== 0) deepSlabMend(S);
@@ -1643,7 +1643,7 @@ function chronDeep() {
   <li><b>The Hall of Pyres</b>: pitch runs in channels across the floor. Fire spreads along it: a fire spell lights it under your foes as surely as the pyre-keeper's Kindle lights it under you. Break the Kindle, and step out of the flames.</li>
   <li><b>The Breaking Gallery</b>: the floor is slabs over a pit of embers. Stand on one too long and it cracks and falls; a meteor or a leap strike breaks one at once. Keep moving. A cracked wall there hides a tomb the barrow forgot.</li>
   <li><b>The Ash Throne</b>: ${esc(DEEP_LORD_NAME)}, first of the barrow-kings.</li></ul>
-  <h3>The Ash-Crowned</h3><p>He keeps pace with you to level 50 and past it (a veteran finds him the stronger). Parry, shield or step out of his cleave. When he speaks the Ember Word, break it: a stun or a shield bash, a priest's Holy Fire, a mage's storm, a blunt arrow, a mace; spoken, it lights the pitch about you, burns all near him and mends him.${lordHolyText()} From two thirds of his strength he stamps, and the slabs of his hall crack and fall; he calls his ash-wardens up out of the pits, and at a third he burns with fury.</p>
+  <h3>The Ash-Crowned</h3><p>He grows through his own experience, independently of your level or veterancy. Parry, shield or step out of his cleave. When he speaks the Ember Word, break it: a stun or a shield bash, a priest's Holy Fire, a mage's storm, a blunt arrow, a mace; spoken, it lights the pitch about you, burns all near him and mends him.${lordHolyText()} From two thirds of his strength he stamps, and the slabs of his hall crack and fall; he calls his ash-wardens up out of the pits, and at a third he burns with fury.</p>
   <h3>Spoils</h3><p>The deep's chests pay above the Barrow's, and his hoard is at the top of the gear curve (item level 50, epic and legendary). His fall is a deed: the March names you Ashbane.</p>
   <p class="now">${now}${lv < DEEP_LV ? ` You are level ${lv}.` : ''}</p>`;
 }

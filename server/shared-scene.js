@@ -43,9 +43,16 @@ export function activityNpc(r) {
   if (r.fm != null && (!Array.isArray(r.fm) || r.fm.length !== 3 || !Number.isInteger(r.fm[0]) || r.fm[0] < 0 || r.fm[0] > 2
     || ![0, 1].includes(r.fm[1]) || ![0, 1].includes(r.fm[2]))) return null;
   if (r.bt != null && !boatId(r.bt)) return null;
+  const growth = r.growth;
+  if (growth != null && (!growth || typeof growth !== 'object' || Array.isArray(growth) || growth.v !== 1 || growth.base !== 1
+    || !finite(growth.xp, 0, 1e9) || !Number.isSafeInteger(growth.kills) || !finite(growth.kills, 0, 1e6)
+    || Object.keys(growth).some(k => !['v', 'base', 'xp', 'kills', 'skills'].includes(k))
+    || growth.skills != null && (!growth.skills || typeof growth.skills !== 'object' || Array.isArray(growth.skills)
+      || Object.keys(growth.skills).some(k => !['woodcutting', 'mining', 'farming'].includes(k) || !finite(growth.skills[k], 0, 1e6))))) return null;
   return { id: r.id, role: r.role, n: r.n, r: r.r, c: typeof r.c === 'string' ? r.c.slice(0, 20) : null,
     l: r.l, p: r.p.slice(), y: r.y, a: r.a, ph: r.ph, am: r.am, h: r.h, m: r.m,
-    d: r.d, g: r.g, lk: r.lk.slice(), st: r.st?.slice() || null, fm: r.fm?.slice() || null, hm: r.hm, bt: r.bt ?? null };
+    d: r.d, g: r.g, lk: r.lk.slice(), st: r.st?.slice() || null, fm: r.fm?.slice() || null, hm: r.hm, bt: r.bt ?? null,
+    ...(growth ? { growth: { v: 1, base: 1, xp: growth.xp, kills: growth.kills, ...(growth.skills ? { skills: { ...growth.skills } } : {}) } } : {}) };
 }
 function rowsRead(rows, max, clean) {
   if (!Array.isArray(rows) || rows.length > max) return null;
@@ -129,6 +136,13 @@ const actorId = id => typeof id === 'string' && /^scene:[a-zA-Z0-9_-]{1,32}:\d{1
 function entityHasBaseline(row) {
   if (!row || !actorId(row.id) || typeof row.key !== 'string' || row.key.length > 160
     || !array(row.p, 3, -4000, 4000) || !finite(row.maxHp, 1, 1e8)) return false;
+  if (row.growth != null && (!row.growth || row.growth.v !== 1 || row.growth.base !== 1
+    || !finite(row.growth.xp, 0, 1e9) || !Number.isSafeInteger(row.growth.kills)
+    || !finite(row.growth.kills, 0, 1e6) || Object.keys(row.growth).some(k => !['v', 'base', 'xp', 'kills', 'skills'].includes(k))
+    || row.growth.skills != null && (!row.growth.skills || typeof row.growth.skills !== 'object' || Array.isArray(row.growth.skills)
+      || Object.keys(row.growth.skills).some(k => !['woodcutting', 'mining', 'farming'].includes(k) || !finite(row.growth.skills[k], 0, 1e6))))
+    || row.experienceCredited != null && row.experienceCredited !== 1
+    || row.realmHome != null && (!Number.isInteger(row.realmHome) || !finite(row.realmHome, 0, 2))) return false;
   const val = (key, fallback) => row[key] ?? fallback;
   const kind = val('kind', 'humanoid'), role = val('role', 'mob'), faction = val('faction', 3);
   if (typeof kind !== 'string' || kind.length > 24 || typeof role !== 'string' || role.length > 24

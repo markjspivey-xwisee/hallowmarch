@@ -36,7 +36,7 @@ function page(self = 'a', online = true) {
     function isEnemy(a,b){return a.faction!==b.faction}
     function dealDamage(src,dst,amount,opts={}){
       if(!dst?.alive)return 0;const diverted=netEntityDamage(src,dst,amount,opts);if(diverted!==null)return diverted;
-      dst.hp-=amount;dst.damagers??=new Set();dst.damagers.add(src.id);
+      dst.hp-=amount;dst.lastDamageSource=src;dst.damagers??=new Set();dst.damagers.add(src.id);
       if(dst.hp<=0){dst.hp=0;dst.alive=false;netEntityKilled(dst,src)}return amount;
     }
     function healEnt(src,dst,amount){const diverted=netEntityHeal(src,dst,amount);if(diverted!==null)return diverted;dst.hp=Math.min(dst.maxHp,dst.hp+amount)}
@@ -309,6 +309,55 @@ test('keeper world enemies recognize other players, forward damage, and private 
   assert.equal(b.run('privateRewards'), 1);
 });
 
+test('ordinary keeper ground damage and its buff receipt validate the current player disc', () => {
+  const a = page('a'); a.authority();
+  a.run('const caster=makeEnt({kind:"humanoid",role:"soldier",faction:2,level:20});const remote=makeEnt({role:"remote",faction:0,level:1,netPeer:"b"});NET.peers.set("b",{ghost:remote,slow:{on:1}});dealDamage(caster,remote,12,{kind:"aoe",area:{v:1,shape:"disc",x:0,z:0,r:6}});netEntityBuff(remote,"stun",1,2,caster.id,{blizzard:true,area:{v:1,shape:"disc",x:0,z:0,r:6}})');
+  const hits = a.json('packets.filter(p=>p.op==="result")'); assert.equal(hits.length, 2);
+  for (const state of ['inside', 'outside', 'malformed', 'direct-dot']) {
+    const b = page('b'); b.authority(); b.run('GAME.player.level=1');
+    const packets = structuredClone(hits);
+    if (state === 'outside' || state === 'direct-dot') b.run('GAME.player.x=40');
+    for (const hit of packets) {
+      const carrier = hit.result.kind === 'damage' ? 'opts' : 'extra';
+      if (state === 'malformed') hit.result[carrier].area.r = null;
+      if (state === 'direct-dot') { delete hit.result[carrier].area; hit.result[carrier].dot = true; }
+      b.message(hit); b.message(hit);
+    }
+    const accepted = state === 'inside' || state === 'direct-dot';
+    assert.equal(b.run('GAME.player.hp'), accepted ? 88 : 100, state);
+    assert.equal(b.run('GAME.player.buffs.length'), accepted ? 1 : 0, state);
+    if (accepted) {
+      assert.equal(b.run('GAME.player.lastDamageSource.role'), 'soldier');
+      assert.equal(b.run('GAME.player.lastDamageSource.level'), 20);
+      assert.equal(b.run('GAME.player.lastDamageSource===GAME.player'), false);
+    }
+  }
+});
+
+test('instant impact discs reject malformed present geometry and include their exact edge', () => {
+  const p = page();
+  for (const area of [null, {}, { v: 1, shape: 'disc', x: 0, z: 0, r: -1 },
+    { v: 1, shape: 'disc', x: 0, z: 0, r: 66 }, { v: 1, shape: 'disc', x: Infinity, z: 0, r: 5 },
+    { v: 1, shape: 'disc', x: 0, z: 0, r: 5, extra: true }, { v: 2, shape: 'disc', x: 0, z: 0, r: 5 }]) {
+    p.c.area = area; assert.equal(p.run('netEntityAreaAccept(area,GAME.player)'), false);
+  }
+  p.run('GAME.player.x=3;GAME.player.z=4');
+  assert.equal(p.run('netEntityAreaAccept({v:1,shape:"disc",x:0,z:0,r:5},GAME.player)'), true);
+  p.run('GAME.player.x+=0.001');
+  assert.equal(p.run('netEntityAreaAccept({v:1,shape:"disc",x:0,z:0,r:5},GAME.player)'), false);
+});
+
+test('detached source stamps preserve only bounded identity and exclude bot soldiers', () => {
+  const p = page();
+  p.run('const soldier=makeEnt({kind:"humanoid",role:"soldier",faction:2,level:20,power:123,cs:{dev:99},bot:true});');
+  const bot = p.json('netEntitySourceStamp(soldier)'); assert.equal(bot.role, 'none');
+  assert.deepEqual(Object.keys(bot).sort(), ['cls', 'faction', 'kind', 'level', 'name', 'role']);
+  p.run('soldier.bot=false'); const human = p.json('netEntitySourceStamp(soldier)'); assert.equal(human.role, 'soldier');
+  for (const patch of [{ role: 'arbitrary' }, { level: 9999 }, { faction: 1.2 }, { name: 'x'.repeat(81) }]) {
+    p.c.actor = { ...human, ...patch }; assert.equal(p.run('netEntitySourceRead(actor)'), null);
+  }
+});
+
 test('motion traffic is bounded to changed rows and stops without a live owner', () => {
   const a = page('a'); a.authority(); a.run('makeEnt({x:2});netEntityPump(clock)');
   const sent = a.json('packets').length;
@@ -463,12 +512,22 @@ test('dead inherited actors retire within the normal ten seconds after keeper ha
   assert.equal(b.run('ENT.some(e=>e.kind==="door")'), true);
 });
 
-test('a representative 523-actor scene leaves room for the rest of the bounded world checkpoint', () => {
+test('a representative 523-actor scene leaves room for the rest of the bounded world checkpoint', t => {
   const a = page('a'), b = page('b'); a.authority(); b.authority();
+  const data = readFileSync(new URL('../../src/06_data.js', import.meta.url), 'utf8');
+  const declarations = parse(data, { ecmaVersion: 'latest', sourceType: 'module' }).body;
+  const growthSource = ['worldActorGrowthRead', 'worldActorGrowthLevel', 'xpToNext', 'LEVEL_CAP'].map(name => {
+    const node = declarations.find(n => n.type === 'FunctionDeclaration' && n.id.name === name
+      || n.type === 'VariableDeclaration' && n.declarations.some(d => d.id.name === name));
+    assert.ok(node, name); return data.slice(node.start, node.end);
+  }).join('\n');
+  a.run(growthSource); b.run(growthSource);
   a.run(`for(let i=0;i<523;i++){
     const human=i%3===0;
+    const growth=i%3===2?null:{v:1,base:1,xp:i%4===0?0:250+i*71,kills:i%4===0?0:3+i};
     makeEnt({kind:human?'humanoid':i%3===1?'wolf':'deer',role:human?'guard':i%3===1?'mob':'critter',
-      faction:human?i%3:3,cls:human?'warrior':null,mobType:human?null:'wolf',level:20,
+      faction:human?i%3:3,cls:human?'warrior':null,mobType:human?null:'wolf',growth,
+      level:growth?worldActorGrowthLevel(growth):1,
       x:i%31,y:0,z:Math.floor(i/31),home:{x:i%31,z:Math.floor(i/31),r:12},
       hp:i===522?0:800,maxHp:800,alive:i!==522,
       look:human?{tabard:[0.4,0.3,0.2],armor:[0.5,0.5,0.5],skin:0.35,hair:0.4,mask:32,
@@ -476,13 +535,17 @@ test('a representative 523-actor scene leaves room for the rest of the bounded w
   }`);
   const wire = a.json('window.__hm.entities.wireRows()'), rich = a.json('window.__hm.entities.rows()');
   const bytes = Buffer.byteLength(JSON.stringify({ v: 1, full: true, rows: wire, remove: [] }));
+  const earned = wire.filter(row => row.growth).length;
+  t.diagnostic(`523 actors: ${bytes} bytes, ${earned} earned growth records, ${400 * 1024 - bytes} bytes remain for other world state`);
   assert.equal(wire.length, 523);
+  assert.equal(earned, 261, 'earned combat progress must actually be represented in the measured wire');
+  assert.equal(wire.filter(row => !row.growth).length, 262, 'default progress remains compact');
   assert.ok(bytes < 240 * 1024, `actor snapshot uses ${bytes} bytes`);
   assert.ok(bytes + 128 * 1024 < 400 * 1024, 'reserve at least 128 KiB for NPCs, boats and mutable world parts');
   snapshot(b, { v: 1, full: true, rows: wire, remove: [] });
   const roundTrip = b.json('window.__hm.entities.rows()');
   assert.equal(roundTrip.length, rich.length);
-  for (let i = 0; i < rich.length; i++) for (const key of ['id','kind','role','faction','name','cls','mobType','p','hp','maxHp','alive','look','home'])
+  for (let i = 0; i < rich.length; i++) for (const key of ['id','kind','role','faction','name','cls','mobType','p','hp','maxHp','alive','look','home','growth'])
     assert.deepEqual(roundTrip[i][key], rich[i][key], `actor ${i} preserves ${key}`);
   assert.equal(roundTrip[522].alive, 0); assert.equal(roundTrip[522].hp, 0, 'compaction must preserve a dead actor');
 });

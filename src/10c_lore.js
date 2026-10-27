@@ -322,10 +322,10 @@ const PATH_STEPS = [
     hint: () => 'Fight down through the barrow, slay the warden of the Well of Souls to open its gate, and face the king on his throne.',
     reward: { gold: (L) => 120 + L * 8 } },
   { id: 'lv20', lv: 20, level: 20, title: 'Reach level 20', short: 'Level 20',
-    hint: () => 'Level 20 brings your seventh ability. From then on the frontier, the Barrow and Cinderwing rise to meet you.',
+    hint: () => 'Level 20 brings your seventh ability. People and creatures grow through their own work and battles; the March\'s development opens new possibilities.',
     reward: { item: { slot: 'ring', q: 3 } } },
   { id: 'champion', lv: 20, title: 'Defeat a borderland champion', short: 'A champion',
-    hint: (R) => `Out toward the wild edges of ${homeIn(R)}, named champions lead the borderland camps, from level 20 to 40.`,
+    hint: (R) => `Out toward the wild edges of ${homeIn(R)}, named champions lead the borderland camps. They begin at level 1 and develop through their own experience.`,
     reward: { item: { slot: 'charm', q: 4 } } },
   // [guide] the late game's deeds (pv 2)
   { id: 'command', lv: 20, pv: 2, title: 'Command a warband', short: 'Command a band',
@@ -345,7 +345,7 @@ const PATH_STEPS = [
     hint: () => 'The great red dragon rests on high ground between its flights: the gold gem marks it while it is in the sky. A fight for the strong, or for many.',
     reward: { item: { slot: 'legs', q: 4 } } },
   { id: 'lv40', lv: 40, level: 40, title: 'Reach level 40', short: 'Level 40',
-    hint: () => 'Rank III at 40, and the three farthest borderland camps of every homeland rise with you, each led by a risen champion.', // [late2] (10l_late.js)
+    hint: () => 'Your abilities reach rank III at 40. Risen encounters become available as the March develops; each creature grows at its own pace.', // [late2] (10l_late.js)
     reward: { item: { slot: 'chest', q: 4 } } },
   { id: 'master', lv: 40, pv: 2, title: 'Make a named masterwork', short: 'A masterwork',
     hint: () => 'A master crafter (crafting 85 and up) of level 40 makes them at the forge, the workbench, the tanning rack or the loom, from dragon scales, grave-iron from the Barrow\'s dead and champions\' trophies.',
@@ -354,7 +354,7 @@ const PATH_STEPS = [
     hint: (R) => `${R.name} wins by holding four of the six keeps for five minutes, or both enemy hallows for four. Lead its warbands and carry the hallows home.`,
     reward: { item: { slot: 'cloak', q: 5 } } },
   { id: 'lv50', lv: 50, level: 50, title: 'Reach level 50', short: 'Level 50',
-    hint: () => 'The height of your powers: rank IV, and the whole war rises to meet you. Past 50 your experience raises your veterancy.', // [late2] (10l_late.js)
+    hint: () => 'The height of your powers: rank IV. Past 50 your own experience raises your veterancy.', // [late2] (10l_late.js)
     reward: { item: { slot: 'weapon', q: 5 } } },
 ];
 const PATH_BY_ID = Object.fromEntries(PATH_STEPS.map((S, i) => { S.idx = i; return [S.id, S]; }));
@@ -450,13 +450,13 @@ const LOADING_TIPS = [
   'Merchants buy what you do not need. Sell grey gear and trophies for coin.',
   'A healing draught gives back 40% of your health. It takes thirty seconds before you can drink another.',
   'A keep rebuilds a broken gate once it has been quiet for forty seconds. Take the lord before they mend it.',
-  'Past level 20 the frontier, the Barrow and Cinderwing rise to meet you.',
+  'People and creatures begin at level 1 and grow through their own work and battles. The March\'s development opens new possibilities.',
   'Every ten levels past 20 your abilities grow a rank stronger.',
   'Rain falls as snow in Thule and up on the high passes.',
   'The Hollow King\'s vault holds the best loot in the land.',
   'The warden of the Well of Souls holds the key to the Hollow King\'s gate.',
   'A realm down to its last keep musters bigger warbands, and faster.',
-  'Named champions lead the camps of the borderlands, from level 20 to 40.',
+  'Named champions lead the borderland camps. Their strength comes from their own experience.',
   'Realm points come from enemy soldiers, keeps and hallows. Each realm rank adds to your health and damage.',
   'Commanders send their warbands at near, weak keeps, and above all at keeps their own realm has lost. Every order is drawn on your map.',
   'A realm wins the campaign by holding four of the six keeps for five minutes, or both enemy hallows for four.',
@@ -1482,7 +1482,7 @@ function chronOrders() {
     <ol class="how"><li><b>Retrieve</b> a hallow lying in the field or being carried off: the nearest band on the march turns round for it.</li><li><b>Patrol</b> our own temple gate while raiders are at it.</li><li><b>Defend</b> a keep of ours whose gate is badly battered or broken. When a gate falls, the nearest band on the march turns back to save it.</li><li><b>Raid</b> an enemy temple left open, to bring our own hallow home, or to take the second hallow of a claim.</li><li><b>Attack</b> the best enemy keep: one our realm built and lost, one whose gate is already down, one that would give us a fourth keep, or one held by a realm close to winning. Nearer keeps and thinner garrisons count too, and a little chance decides between keeps that score about the same.</li><li><b>Patrol</b> our most battered keep when there is nothing else to do.</li></ol>
     <h3>Spreading out</h3>
     <p>Each band leans toward one of its realm's two fronts, so a realm fights in two places at once. Two bands of one realm go after the same keep only when it is decisive: its gate is down, it is ours by right, or it wins or saves the March. A commander also keeps out of a fight two other realms are already having, so all three armies rarely meet in one place.</p>
-    <p>On the way, a band is <b>on the march</b>; at an enemy gate it <b>lays siege</b> and strikes the gate whenever no defender is in reach; once the gate falls it <b>storms the court</b>; after a capture it <b>holds</b> the keep. New bands of seven to ten soldiers gather at the muster every half minute or so, two to four at a time depending on your graphics setting. A realm down to its last keep musters bigger bands, faster, and late in a long campaign every muster sends bigger bands of veterans.</p>
+    <p>On the way, a band is <b>on the march</b>; at an enemy gate it <b>lays siege</b> and strikes the gate whenever no defender is in reach; once the gate falls it <b>storms the court</b>; after a capture it <b>holds</b> the keep. New bands of seven to ten soldiers gather at the muster every half minute or so, two to four at a time depending on your graphics setting. A realm down to its last keep musters bigger bands, faster, and late in a long campaign every muster sends larger bands of recruits.</p>
     <h3>Your orders</h3>
     <p>${cwCanCommand() ? 'You have earned the right to command.' : 'From realm rank 3 or level 20 you may command too.'} Open the map (${LK().map}), choose one of ${R.name}'s warbands, then pick a keep to attack or defend or an open temple to raid, or tell it to rally to you. A band holds your order until the deed is done, a keep taken, a siege lifted, a hallow seized or the rally over, and then its commander takes it back. You can hand it back to the commander at any time.</p>
     <h3>The warbands of ${R.name} now</h3>
@@ -1492,7 +1492,11 @@ function chronOrders() {
 const MOB_PLURAL = { wolf: 'Wolves', boar: 'Boars', bear: 'Bears', bandit: 'Outlaws', skeleton: 'Barrow dead', draugr: 'Draugr', troll: 'Trolls', wisp: 'Wisps' };
 function campSummary(realm) {
   const by = new Map();
-  for (const c of CAMPS) if (c.realm === realm && !c.elite) { const o = by.get(c.type) || [99, 0]; by.set(c.type, [Math.min(o[0], c.lmin), Math.max(o[1], c.lmax)]); }
+  for (const c of CAMPS) if (c.realm === realm && !c.elite) {
+    const levels = [...(c.members || [])].map(getEnt).filter(e => e && e.alive && !e.removed).map(e => e.level);
+    const lo = levels.length ? Math.min(...levels) : 1, hi = levels.length ? Math.max(...levels) : 1;
+    const o = by.get(c.type) || [99, 0]; by.set(c.type, [Math.min(o[0], lo), Math.max(o[1], hi)]);
+  }
   return [...by].sort((a, b) => a[1][0] - b[1][0]).map(([t, [a, b]]) => `${MOB_PLURAL[t] || t} <span class="num">${a}–${b}</span>`).join(' · ');
 }
 function chronWilds() {
@@ -1501,26 +1505,26 @@ function chronWilds() {
   const realms = REALMS.map((R) => `<dt style="color:${R.light}">${R.name}</dt><dd>${campSummary(R.id)}</dd>`).join('');
   const champs = REALMS.map((R) => {
     const list = CAMPS.filter((c) => c.realm === R.id && c.elite).map((c) => {
-      const e = getEnt(c.eliteId), B = late2Band(c); // [late2] a risen camp's band (10l_late.js)
-      return `<li>${e && e.alive ? `<b>${esc(capFirst(e.name))}</b>` : '<b class="gone">fallen, for now</b>'}<small>${MOB_PLURAL[c.type] || c.type} · ${B[0]}–${B[1]}${late2Risen(c) ? ' · risen' : ''}</small></li>`;
+      const e = getEnt(c.eliteId);
+      return `<li>${e && e.alive ? `<b>${esc(capFirst(e.name))}</b>` : '<b class="gone">fallen, for now</b>'}<small>${MOB_PLURAL[c.type] || c.type} · ${e && e.alive ? `level ${e.level}` : 'new recruits: level 1'}${late2Risen(c) ? ' · risen' : ''}</small></li>`;
     }).join('');
     return `<div class="card rcard" style="--rc:${R.color}"><div class="rhead"><span class="em">${emblemSvg(R.id, 22)}</span><b style="font-size:20px">${R.homeName}</b></div><ul class="champs">${list}</ul></div>`;
   }).join('');
-  return `<p>Every realm's homeland is full of creatures, and the farther you go from town the stronger they get. Hunting them is how a recruit grows strong enough for the frontier.</p>
+  return `<p>Every realm's homeland is full of creatures. Each starts at level 1 and grows through its own experience. Check current levels before choosing a fight.</p>
     <h3>How dangerous is it?</h3>
     <p>The colour of a creature's name shows how it measures up to you. Grey creatures give no experience at all.</p>
     <div class="cons">${cons}</div>
     <h3>Creatures of the homelands</h3>
     <dl class="facts">${realms}</dl>
-    <p class="now">The numbers are levels. Your bounty from the herald is circled on your map, and the gold gem marks your path's next step.</p>
+    <p class="now">The numbers are the current levels of living creatures, or level 1 for an empty camp's next recruits. Your bounty from the herald is circled on your map, and the gold gem marks your path's next step.</p>
     <h3>Champions of the borderlands</h3>
-    <p>Past level 20 the wild edges of each realm hold harder camps, each led by a named champion. A champion hits hard and takes a lot of killing, drops two pieces of good gear, and comes back five to seven minutes after it falls. The borderlands are for levels 20 to 40; from 40 the three farthest camps of each homeland rise with you, held by risen champions (the Deeds page).</p>
+    <p>The wild edges of each realm hold camps led by named champions. A champion hits hard and takes a lot of killing, drops two pieces of good gear, and comes back five to seven minutes after it falls. Shared world development at level 40 unlocks risen champions in the three farthest camps of each homeland (the Deeds page). It does not raise anyone's combat level.</p>
     ${champs}
-    <p class="now">${P.level < 20 ? `You are level ${P.level}: come back at 20.` : 'Champions of your level are the best hunting in the land outside the Barrow.'}</p>`;
+    <p class="now">You are level ${P.level}. Compare each champion's current level and bring allies for a difficult fight.</p>`;
 }
 function chronDragon() {
   const P = GAME.player, D = DRAGON, e = D.e;
-  const lvl = Math.max(DRAGON_LEVEL, warLevel() + 4);
+  const lvl = e?.level || DRAGON_LEVEL;
   let now;
   if (!e || !e.alive || e.removed) now = 'Cinderwing has fallen. It will return.';
   else if (D.state === 'perch') now = `Cinderwing is resting on high ground in ${zoneAt(e.x, e.z).name}.`;
@@ -1530,7 +1534,7 @@ function chronDragon() {
     <h3>How it fights</h3>
     <p>It bites whatever is in front of it, sweeps its tail at anything behind, roars, and breathes fire. Badly hurt, it takes to the air and makes a low run over the field, breathing a long line of fire, before it lands again. If no one is left fighting it, it heals and flies away.</p>
     <h3>Who should fight it</h3>
-    <p>For you it is <b>level ${lvl}</b>${P.level < lvl - 3 ? ', far beyond you alone' : ''}: a fight for the strong, or for many. Keep out of the line of its fire, keep away from its tail and keep a healer close. Past level 20 it rises with you.</p>
+    <p>Cinderwing is <b>level ${lvl}</b>${P.level < lvl - 3 ? ', far beyond you alone' : ''}: a fight for the strong, or for many. Keep out of the line of its fire, keep away from its tail and keep a healer close. It grows through its own experience, independently of your level.</p>
     <h3>What it leaves</h3>
     <p>Three pieces of rare gear or better, a dragon scale and a heap of gold. It returns about fifteen minutes after it falls.</p>
     <p class="now">Now: ${now}</p>`;
@@ -1543,7 +1547,7 @@ function chronBarrow() {
     <h3>Its dangers</h3>
     <ul class="plain"><li><b>The dead wake together.</b> Pull one pack at a time, and fall back toward the stair if a fight goes wrong.</li><li><b>The Burning Gallery</b> breathes fire from its vents in bursts. Cross between them.</li><li><b>The gate past the Well of Souls</b> opens only when its keeper, the Barrow Warden, falls.</li><li><b>The Hollow King</b> raises the dead from their tombs as you fight him. Kill what rises, or it will bury you.</li></ul>
     <h3>Who it is for</h3>
-    <p>Strong characters, around level 18 and up; past 20 the barrow rises with you. The king's vault opens when he falls and holds the best loot in the land. The dead return after six minutes, the warden after ten and the king after twelve. The stair by the mouth always leads back to the daylight.</p>
+    <p>The dead grow through their own experience. Check their current levels, face one pack at a time and bring allies for the king. The king's vault opens when he falls and holds the best loot in the land. The dead return after six minutes, the warden after ten and the king after twelve. The stair by the mouth always leads back to the daylight.</p>
     <p class="now">Now: the Barrow Warden is ${S.wardenDead ? 'fallen, for now' : 'at his post'}; the Hollow King is ${S.kingDead ? 'dust, for now' : 'waiting on his throne'}.</p>`;
 }
 function chronPath() {

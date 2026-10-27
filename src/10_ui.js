@@ -2,7 +2,7 @@
 /* UI: title, HUD, map, menus, feedback                                */
 /* ================================================================== */
 const $ = (id) => document.getElementById(id);
-const UI = { modal: null, realm: 0, cls: 'warrior', start: 'recruit', frame: 0, npPool: [], flPool: [], floaters: [], mapImg: null, logOpen: true, errorT: 0 };
+const UI = { modal: null, realm: 0, cls: 'warrior', frame: 0, npPool: [], flPool: [], floaters: [], mapImg: null, logOpen: true, errorT: 0 };
 const REALM_BLURB = [
   'Stone keeps and slate roofs on rolling downs and wheat fields. Its knights guard the Grail.',
   'Green glens, standing stones and ringforts of mossy stone. Its people keep Lia Fáil, the stone that names kings.',
@@ -17,8 +17,6 @@ function syncTitle() {
   $('class-pick').querySelectorAll('.class-card').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.cls === UI.cls)));
   $('realm-blurb').textContent = REALM_BLURB[UI.realm];
   $('class-blurb').textContent = CLASSES[UI.cls].blurb;
-  $('opt-recruit').setAttribute('aria-checked', String(UI.start === 'recruit'));
-  $('opt-veteran').setAttribute('aria-checked', String(UI.start === 'veteran'));
 }
 function bindTitle() {
   const rp = $('realm-pick'), cp = $('class-pick');
@@ -26,8 +24,6 @@ function bindTitle() {
   cp.innerHTML = Object.entries(CLASSES).map(([k, C]) => `<button class="class-card" type="button" role="radio" data-cls="${k}" aria-checked="false"><span class="row">${iconSvg(C.icon, 20)}<b>${C.name}</b></span><span class="role">${C.role}</span></button>`).join('');
   rp.addEventListener('click', (e) => { const b = e.target.closest('.realm-card'); if (!b) return; audioUnlock(); UI.realm = +b.dataset.realm; if (!UI.nameTouched) $('name-input').value = randomName(UI.realm); syncTitle(); sfx('click'); });
   cp.addEventListener('click', (e) => { const b = e.target.closest('.class-card'); if (!b) return; audioUnlock(); UI.cls = b.dataset.cls; syncTitle(); sfx('click'); });
-  $('opt-recruit').onclick = () => { UI.start = 'recruit'; syncTitle(); };
-  $('opt-veteran').onclick = () => { UI.start = 'veteran'; syncTitle(); };
   $('btn-dice').onclick = () => { $('name-input').value = randomName(UI.realm); UI.nameTouched = false; };
   $('name-input').addEventListener('input', () => { UI.nameTouched = true; });
   $('name-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('btn-begin').click(); });
@@ -40,7 +36,7 @@ function bindTitle() {
     }
     const name = ($('name-input').value || '').trim().replace(/\s+/g, ' ').slice(0, 18) || randomName(UI.realm);
     audioUnlock();
-    void nativePlayerBegin({ v: 1, name, realm: UI.realm, cls: UI.cls, level: UI.start === 'veteran' ? 15 : 1, xp: 0, rp: 0, fresh: true });
+    void nativePlayerBegin({ v: 1, name, realm: UI.realm, cls: UI.cls, level: 1, xp: 0, rp: 0, fresh: true });
   };
   $('btn-continue').onclick = () => {
     const s = UI.titleSave;
@@ -643,7 +639,9 @@ function onDamageFeedback(src, dst, dmg, absorbed, opts) {
   const P = GAME.player;
   if (!P) return;
   const n = Math.round(dmg);
-  if (src === P) {
+  // One actual hit, consumed by the synchronous death callback; never saved with the character.
+  if (dst === P && Number.isFinite(dmg) && dmg > 0) UI.deathHit = { player: P, source: src, at: GAME.t, hp: P.hp, damage: dmg, kind: opts.elem || opts.kind, dot: !!opts.dot, crit: !!opts.crit };
+  if (src === P && dst !== P) {
     uiFloatAt(dst.x, dst.y + (dst.kind === 'door' ? 4 : 2.1 * (dst.scale || 1)), dst.z, (opts.crit ? 'Crit ' : '') + (n > 0 ? n : 'Absorbed'), opts.crit ? 'crit' : '');
     if (!opts.dot) uiLog(`You hit ${dst.siegeEngine ? `the ${dst.name}` : dst.kind === 'door' ? 'the gate' : theName(dst)} for ${n} damage${opts.crit ? ' (critical)' : ''}.`, 'dmg'); // [siege] engines by name
   } else if (dst === P) {
@@ -867,14 +865,21 @@ $('btn-newchar').onclick = () => {
 };
 bgClose('menu', () => closeMenu());
 
-function uiDeath(by) {
+function uiDeathDamage(killer) {
+  const hit = UI.deathHit, P = GAME.player;
+  UI.deathHit = null;
+  if (!hit || hit.player !== P || hit.source !== killer || hit.at !== GAME.t || !(hit.hp <= 0) || !(P.hp <= 0)) return '';
+  const kind = { melee: 'melee', arrow: 'arrow', fire: 'fire', ember: 'fire', frost: 'frost', ice: 'frost', rime: 'frost', holy: 'holy', arcane: 'arcane', shock: 'lightning', spark: 'lightning', aoe: 'area', slam: 'impact', crush: 'crushing' }[hit.kind];
+  return ` Final hit: ${Math.round(hit.damage)} ${typeof kind === 'string' ? kind + ' ' : ''}damage${hit.dot ? ' over time' : ''}${hit.crit ? ' (critical)' : ''}.`;
+}
+function uiDeath(by, killer = null) {
   // Players and chat can be open while the world continues. Their dynamically
   // appended overlays must not cover the recovery choice or retain its focus.
   if (typeof netSheetToggle === 'function') netSheetToggle(false);
   if (typeof netChatClose === 'function') netChatClose();
   UI.modal = 'death';
   $('death').hidden = false;
-  $('death-by').textContent = `Slain by ${by}.`;
+  $('death-by').textContent = `Slain by ${by}.` + uiDeathDamage(killer);
   const P = GAME.player;
   const inFrontier = Math.hypot(P.x, P.z) < R_RING;
   $('btn-release').textContent = inDungeon(P) ? 'Release to the barrow mouth' : buildBedSpot(inFrontier) ? 'Release to your bed' : `Release to ${inFrontier ? REALMS[P.faction].name + ' Muster' : REALMS[P.faction].townName}`; // [building]
@@ -889,7 +894,7 @@ function openHerald() {
   $('dialog').hidden = false;
   $('dlg-title').textContent = `${R.name} Herald`;
   const b = prog.bounty;
-  const frontierTip = prog.level >= 14 ? `You are ready for the frontier. Step through the stones in the square to reach the muster.` : `The frontier will eat you alive below level 14 or so. Grow stronger in the glens and fields first.`;
+  const frontierTip = `The stones in the square lead to the frontier muster. Check your opponents' levels, travel with allies and retreat from a stronger force.`;
   let body = `<p>Well met, ${P.name}. ${frontierTip}</p>`;
   const acts = [];
   const l2b = b ? null : late2HeraldBounty(); // [late2] past 40, a risen champion's bounty (10l_late.js)

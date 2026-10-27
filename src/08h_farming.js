@@ -481,6 +481,7 @@ function farmHarvest(P, quiet = false) {
     sfx('loot');
   }
   out.got = got;
+  if (typeof skillGain === 'function') skillGain('farming', Math.min(2, out.n * 0.2));
   activityRecord('resource.harvested', 'ripe-bed', out.n, { success: true });
   FARM.drawDirty = true;
   saveSoon();
@@ -511,6 +512,7 @@ function farmSaveSeed(P, s, quiet = false) {
   P.fert = clamp(P.fert - C.fert / P.plants.length, 0, 1);
   if (!quiet) { uiLog(`You keep ${n} ${C.herb ? 'roots' : 'seeds'} of this plant as a strain of its own: ${S.name}.`, 'loot'); sfx('loot'); }
   farmStrainsTidy();
+  if (typeof skillGain === 'function') skillGain('farming', 0.3);
   FARM.drawDirty = true;
   saveSoon();
   return S;
@@ -723,9 +725,14 @@ function farmLifeStep(e, st, plan, dt, next) {
     setAct(e, FARM_TASK_ACT[T.task] || 5, T.task === 'till' ? 0.95 : 0.75);
     const task = T.task;
     later(0.35, () => { if (e.alive) farmWorkFx(task, e.x + Math.sin(e.yaw) * 0.8, e.z + Math.cos(e.yaw) * 0.8, task === 'harvest' ? (FARM_CROPS[T.crop] || FARM_CROPS.grain) : null); });
-    T.p += 1 / farmTaskSwings(P);
+    T.p += (typeof worldActorWorkRate === 'function' ? worldActorWorkRate(e, 'farming') : 1) / farmTaskSwings(P);
     FARM.drawDirty = true;
-    if (T.p >= 1) { farmTownDone(P); next(); }
+    if (T.p >= 1) {
+      const useful = task === 'harvest' ? !T.dead && T.hp > 0 : task === 'weed' ? P.weeds > 0 : task === 'till' || task === 'sow';
+      farmTownDone(P);
+      if (useful && typeof worldActorPractice === 'function') worldActorPractice(e, 'farming', 1);
+      next();
+    }
   }
   return true;
 }
@@ -1012,7 +1019,8 @@ function farmStartJob(kind, o = {}) {
   let tx = o.x ?? P.x + Math.sin(P.yaw), tz = o.z ?? P.z + Math.cos(P.yaw);
   const yaw = Math.abs(tx - P.x) + Math.abs(tz - P.z) > 0.2 ? Math.atan2(tx - P.x, tz - P.z) : P.yaw;
   const need = o.need || { till: 6, tillHand: 14, sow: 3, weed: 4, harvest: 5, saveseed: 2, clear: 3, manure: 3, study: 2, gather: 2, dig: goodsHave('tool_knife') ? 3 : 6 }[kind] || 3;
-  FARM.job = { kind, ...o, px: P.x, pz: P.z, yaw, t: 0, next: 0.12, hitAt: 0, swings: 0, need, label: o.label || J.label };
+  FARM.job = { kind, ...o, px: P.x, pz: P.z, yaw, t: 0, next: 0.12, hitAt: 0, swings: 0, need, label: o.label || J.label,
+    workRate: typeof skillWorkRate === 'function' ? skillWorkRate('farming') : 1 };
   P.yaw = yaw; P.target = null;
 }
 function farmStopJob(msg) { FARM.job = null; if (msg) uiLog(msg, 'sys'); }
@@ -1022,7 +1030,7 @@ function stepFarmJob(dt) {
   const P = GAME.player;
   if (!P || !P.alive || P.casting || P.mount || P.motion || dist(P.x, P.z, J.px, J.pz) > 0.3) { farmStopJob(P && P.alive ? 'You stop working.' : null); return; }
   const D = FARM_JOBS[J.kind];
-  J.t += dt;
+  J.t += dt * (J.workRate || 1);
   P.yaw = J.yaw;
   if (J.t >= J.next && !J.hitAt) { J.next = J.t + D.gap; setAct(P, D.act, D.dur); J.hitAt = J.t + D.dur * 0.55; if (D.act !== 5) sfx('swing'); }
   if (J.hitAt && J.t >= J.hitAt) {
@@ -1044,17 +1052,20 @@ function farmFinishJob(kind, J) {
     const spot = farmTillSpot(GAME.player);
     if (spot.why) { uiError(spot.why); return; }
     const Q = farmAddPlot({ own: 'p', x: spot.x, z: spot.z, ang: spot.ang, cols: spot.cols, rows: spot.rows, fert: 0.8, moist: 0.4 + 0.3 * (WEATHER.wet || 0) });
+    if (typeof skillGain === 'function') skillGain('farming', 0.5);
     natureCut(Q.x, Q.z, Q.rad + 0.4, 1, true);
     uiLog('You till a bed. Sow it from your seed (E), or plant a herb root in it.', 'sys');
     saveSoon();
   } else if (kind === 'sow') {
     const n = farmSow(P, J.gid);
+    if (n > 0 && typeof skillGain === 'function') skillGain('farming', Math.min(1, n * 0.2));
     const S = farmStrainOfGood(J.gid);
     uiLog(n ? `You sow ${n} ${S && FARM_CROPS[S.crop].herb ? 'roots' : 'plants\' worth'} of ${GOODS[J.gid].name.toLowerCase()}.` : 'You have no seed of that kind left.', 'sys');
     saveSoon();
   } else if (kind === 'weed') {
     const w = P.weeds;
     P.weeds = 0;
+    if (w > 0 && typeof skillGain === 'function') skillGain('farming', 0.25);
     if (w > 0.5 && Math.random() < 0.7) goodsAdd('fibre', 1, true);
     uiLog('You pull the weeds and throw them on the path.', 'sys');
     FARM.drawDirty = true;

@@ -11,12 +11,14 @@ function siteWorld(S, lx, ly, lz) { const p = siteToWorld(S, lx, lz); return { x
 /* spawning helpers                                                    */
 /* ------------------------------------------------------------------ */
 function spawnRealmUnit(realm, cls, level, role, x, z, extra = {}) {
+  if (['soldier', 'guard', 'lord', 'guardian', 'muster', 'escort'].includes(role)) level = 1;
   const name = randomName(realm);
   const look = classLook(cls, realm, Math.random, name);
   if (role === 'lord') { look.outfit = OUTFIT.lord; look.mask = (look.mask & ~(WB.helmet | WB.hairShort | WB.hairLong)) | WB.circlet | WB.cape | WB.hairShort; }
   // on a low platform (the temple dais, a rune circle, a stair foot) a body stands on top of it, not inside it
   const e = makeEnt({ kind: 'humanoid', faction: realm, role, cls, level, name, x, z, y: floorAt(x, z, heightAt(x, z) + 0.9), yaw: Math.random() * TAU, look, radius: 0.45, scale: look.scale, ...extra });
   if (role in WAR_LEVEL_OFF) e.wlOff = level - warLevel();
+  if (typeof worldActorDevelop === 'function' && role !== 'companion') worldActorDevelop(e);
   setupStats(e);
   return e;
 }
@@ -24,31 +26,25 @@ function spawnRealmUnit(realm, cls, level, role, x, z, extra = {}) {
 /* ------------------------------------------------------------------ */
 /* the frontier keeps pace with you                                    */
 /* ------------------------------------------------------------------ */
-// past level 20 every realm's troops, gates and wardens rise with the strongest player,
-// keeping the same steps between them as at 20
-const WAR_LEVEL_OFF = { soldier: [-5, 0], guard: [0, 0], lord: [4, 4], guardian: [2, 2], muster: [10, 10] };
-function warUnitLevel(role) { const o = WAR_LEVEL_OFF[role] || [0, 0]; return warLevel() + o[0] + Math.floor(Math.random() * (o[1] - o[0] + 1)); }
+// A cohort's training and each actor's own experience are shared world state.
+const WAR_LEVEL_OFF = { soldier: [0, 0], guard: [0, 0], lord: [0, 0], guardian: [0, 0], muster: [0, 0] };
+function warUnitLevel() { return 1; }
 const DOOR_HP = { keep: 3600, temple: 2400 };
-const doorHpScale = () => baseDmg(warLevel() + 2) / baseDmg(22);
-const barrowBoost = () => Math.max(0, warLevel() - 20);
+const doorHpScale = () => 1;
+const barrowBoost = () => 0;
 function scaleDoor(door) {
   const f = door.maxHp > 0 ? door.hp / door.maxHp : 1;
-  door.level = warLevel() + 2;
+  door.level = 1;
   door.maxHp = (door.keepRef ? DOOR_HP.keep : DOOR_HP.temple) * doorHpScale();
   if (door.alive) door.hp = door.maxHp * f;
 }
 function rescaleWar() {
-  const w = warLevel(), boost = barrowBoost();
   for (const e of ENT) {
     if (e.kind === 'door') { if (e.keepRef || e.templeRef) scaleDoor(e); continue; }
-    if (!e.alive || e.role === 'player') continue;
-    let lv = e.level;
-    if (e.faction <= 2 && e.wlOff != null) lv = w + e.wlOff;
-    else if (e.baseLevel != null) lv = e.baseLevel + boost;
-    else if (e.role === 'boss' && e.mobType === 'dragon') lv = Math.max(DRAGON_LEVEL, w + 4);
-    if (lv !== e.level) { e.level = lv; setupStats(e, true); }
+    if (!e.alive || e.role === 'player' || e.role === 'remote') continue;
+    if (typeof worldActorDevelop === 'function') worldActorDevelop(e);
   }
-  VENT_SRC.level = 18 + boost;
+  VENT_SRC.level = 1;
   late2Rescale(); // [late2] the risen camps keep pace (10l_late.js)
 }
 function mobLook(M, type, lvl, sc, elite) {
@@ -72,8 +68,7 @@ function mobLook(M, type, lvl, sc, elite) {
 }
 function spawnMob(camp, elite = false) {
   const M = MOBS[camp.type];
-  const band = late2Band(camp); // [late2] past 40 the farthest borderland camps rise with you (10l_late.js)
-  const lvl = elite ? band[1] + band[2] : band[0] + Math.floor(Math.random() * (band[1] - band[0] + 1));
+  const lvl = 1;
   let a = Math.random() * TAU, r = Math.random() * camp.r * (elite ? 0.4 : 1);
   let x = camp.x + Math.cos(a) * r, z = camp.z + Math.sin(a) * r;
   // [look5] not inside what the camp stands round: its fire pit (at its middle, where a champion was most often set
@@ -95,6 +90,7 @@ function spawnMob(camp, elite = false) {
   });
   if (elite) { e.elite = true; e.properName = true; e.tweak = { hp: 2.8, dmg: 1.3 }; camp.eliteId = e.id; }
   late2OnSpawn(e, camp, elite); // [late2] a risen champion's name and might (10l_late.js)
+  worldActorDevelop(e);
   setupStats(e);
   camp.members.add(e.id);
   return e;
@@ -133,7 +129,7 @@ function initTowns() {
   for (const R of REALMS) {
     const S = R.town;
     const hp = siteWorld(S, 3.5, 0, 9);
-    const herald = makeEnt({ kind: 'humanoid', faction: FACTION_NEUTRAL, role: 'herald', cls: 'priest', level: 30, name: `${R.name} Herald`, x: hp.x, z: hp.z, y: heightAt(hp.x, hp.z), yaw: S.yaw + Math.PI, look: { ...classLook('priest', R.id, Math.random, 'herald'), mask: WB.cape | WB.staff | WB.robe | WB.tabard | WB.circlet | WB.belt | WB.hairShort | WB.beard, outfit: OUTFIT.herald }, radius: 0.5 });
+    const herald = makeEnt({ kind: 'humanoid', faction: FACTION_NEUTRAL, realmHome: R.id, role: 'herald', cls: 'priest', level: 1, name: `${R.name} Herald`, x: hp.x, z: hp.z, y: heightAt(hp.x, hp.z), yaw: S.yaw + Math.PI, look: { ...classLook('priest', R.id, Math.random, 'herald'), mask: WB.cape | WB.staff | WB.robe | WB.tabard | WB.circlet | WB.belt | WB.hairShort | WB.beard, outfit: OUTFIT.herald }, radius: 0.5 });
     setupStats(herald);
     herald.ai.post = { x: hp.x, z: hp.z };
     R.herald = herald;
@@ -146,7 +142,7 @@ function initTowns() {
       const p = townVillagerSpawn(S.x + Math.cos(a) * rr, S.z + Math.sin(a) * rr);
       if (!p) continue;
       const { x, z } = p;
-      const v = makeEnt({ kind: 'humanoid', faction: FACTION_NEUTRAL, role: 'villager', level: 5, name: pick(rng, VILLAGER_NAMES), x, z, y: heightAt(x, z), look: villagerLook(R.id, rng), home: { x: S.x, z: S.z, r: 20 }, speed: 2.2 });
+      const v = makeEnt({ kind: 'humanoid', faction: FACTION_NEUTRAL, realmHome: R.id, role: 'villager', level: 1, name: pick(rng, VILLAGER_NAMES), x, z, y: heightAt(x, z), look: villagerLook(R.id, rng), home: { x: S.x, z: S.z, r: 20 }, speed: 2.2 });
       v.maxHp = v.hp = 300;
       if (typeof netNpcRegister === 'function') netNpcRegister(v, `town:${R.id}:villager:${i}`);
     }
@@ -178,7 +174,7 @@ function initWar() {
   if (typeof realmPublicWorksReset === 'function') realmPublicWorksReset();
   for (const R of REALMS) {
     R.keepSites.forEach((S, k) => {
-      const door = makeEnt({ kind: 'door', faction: R.id, role: 'door', name: `${S.name} gate`, level: warLevel() + 2, x: 0, z: 0, radius: 3.2 });
+      const door = makeEnt({ kind: 'door', faction: R.id, role: 'door', name: `${S.name} gate`, level: 1, x: 0, z: 0, radius: 3.2 });
       const gp = siteWorld(S, 0, 0, S.gateLocal.z);
       door.x = gp.x; door.z = gp.z; door.y = S.y;
       door.maxHp = door.hp = DOOR_HP.keep * doorHpScale();
@@ -191,7 +187,7 @@ function initWar() {
       fillGarrison(K, true);
     });
     const S = R.templeSite;
-    const door = makeEnt({ kind: 'door', faction: R.id, role: 'door', name: `${S.name} gate`, level: warLevel() + 2, x: 0, z: 0, radius: 3.4 });
+    const door = makeEnt({ kind: 'door', faction: R.id, role: 'door', name: `${S.name} gate`, level: 1, x: 0, z: 0, radius: 3.4 });
     const gp = siteWorld(S, 0, 0, S.gateLocal.z);
     door.x = gp.x; door.z = gp.z; door.y = S.y;
     door.maxHp = door.hp = DOOR_HP.temple * doorHpScale();

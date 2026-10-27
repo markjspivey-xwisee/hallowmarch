@@ -152,7 +152,7 @@ function realmManageStep(RS, dt) {
       if (b.status !== 'built') {
         b.remaining = Math.max(0, b.remaining - dt * b.assigned / requested);
         b.working = b.remaining > 0; b.blocked = 'construction';
-        if (b.remaining === 0) { b.level = b.targetLevel; b.status = 'built'; b.blocked = ''; rmLog(RS, r, D.label + ' completed.'); }
+        if (b.remaining === 0) { b.level = b.targetLevel; b.status = 'built'; b.blocked = ''; if (typeof realmDevelopmentFed === 'function' && realmDevelopmentFed(RS, r)) realmDevelopmentEarn(RS, r, 'work', 40); rmLog(RS, r, D.label + ' completed.'); }
         continue;
       }
       if (!D.workers) continue;
@@ -169,7 +169,10 @@ function realmManageStep(RS, dt) {
       }
       fraction = Math.max(0, Math.min(1, fraction));
       for (const [g, n] of Object.entries(D.inputs)) rmTake(R, g, n * b.level * minutes * fraction);
-      for (const [g, n] of Object.entries(D.outputs)) rmAdd(R, g, n * b.level * minutes * fraction * (b.kind === 'stables' ? 1 + 0.6 * R.proj.yard : 1));
+      for (const [g, n] of Object.entries(D.outputs)) {
+        const made = rmAdd(R, g, n * b.level * minutes * fraction * (b.kind === 'stables' ? 1 + 0.6 * R.proj.yard : 1));
+        if (typeof realmDevelopmentFed === 'function' && realmDevelopmentFed(RS, r)) realmDevelopmentEarn(RS, r, 'work', made * 0.25);
+      }
       b.working = fraction > 0;
     }
     if (M.training) {
@@ -179,7 +182,9 @@ function realmManageStep(RS, dt) {
       job.blocked = !job.assigned ? 'workforce' : R.lev + field + job.units > capacity ? 'capacity' : '';
       if (job.blocked !== 'capacity') job.remaining = Math.max(0, job.remaining - dt * job.assigned / 2);
       if (job.remaining === 0 && R.lev + field + job.units <= capacity) {
-        R.lev += job.units; R.stats.trained += job.units; rmLog(RS, r, job.units + ' paid recruits joined the reserve.'); M.training = null;
+        R.lev += job.units; R.stats.trained += job.units;
+        if (typeof realmDevelopmentFed === 'function' && realmDevelopmentFed(RS, r)) realmDevelopmentEarn(RS, r, 'training', job.units * 8);
+        rmLog(RS, r, job.units + ' paid recruits joined the reserve.'); M.training = null;
       }
     }
     const needs = { bread: M.population * 0.012 * minutes, cloth: M.population * 0.001 * minutes, tools: M.population * 0.0003 * minutes };

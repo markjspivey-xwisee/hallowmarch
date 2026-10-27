@@ -455,7 +455,8 @@ function onPlayerDeath(killer) {
   INPUT.keys.clear();
   sfx('death');
   flashScreen([0.6, 0.05, 0.05], 0.6);
-  uiDeath(killer ? killer.name + (killer.faction <= 2 && killer.faction !== P.faction ? ` of ${REALMS[killer.faction].name}` : '') : 'the wilds');
+  const level = Number.isFinite(killer?.level) && killer.level > 0 ? ` (level ${Math.round(killer.level)})` : '';
+  uiDeath(killer ? killer.name + level + (killer.faction <= 2 && killer.faction !== P.faction ? ` of ${REALMS[killer.faction].name}` : '') : 'the wilds', killer);
 }
 function releasePlayer() {
   const P = GAME.player;
