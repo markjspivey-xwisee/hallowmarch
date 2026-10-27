@@ -857,7 +857,11 @@ function netEntityMessage(m) {
   if (m.ok === false) {
     NET_ENTITIES.stats.refused++;
     NET_ENTITIES.lastRefusal = String(m.error || m.reason || 'Shared actor state was refused.').slice(0, 120);
-    if (NET_ENTITIES.lastRefusal === 'scene_capacity') {
+    if (NET_ENTITIES.lastRefusal === 'entity_baseline_required' && m.op === 'snapshot' && netEntityMine()) {
+      // The server lost a delta's baseline. Republish the current keeper's complete
+      // roster without changing its admitted authority or replay readiness.
+      NET_ENTITIES.sent.clear(); NET_ENTITIES.published = false; NET_ENTITIES.metaKey = ''; NET_ENTITIES.at = -Infinity;
+    } else if (NET_ENTITIES.lastRefusal === 'scene_capacity') {
       NET_ENTITIES.waiting = true; NET_ENTITIES.published = false;
       if (typeof uiLog === 'function') uiLog('Shared world simulation paused: its actor checkpoint was refused.', 'warn');
     }

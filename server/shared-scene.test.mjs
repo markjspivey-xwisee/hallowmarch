@@ -6,6 +6,8 @@ import { realmManagementReloadRequired } from './realm-management.js';
 
 const boat = (id = 1) => ({ id, x: 0, z: 0, yaw: 0, vx: 0, vz: 0, wr: 0, st: 'free', ph: 0, eff: 0, grounded: 0.3, char: 0, rider: null, still: false, home: { j: 0, b: 0 }, launch: null });
 const npc = () => ({ id: 'town:0:villager:0', role: 'villager', n: 'Field worker', r: 0, c: null, l: 1, p: [0, 2, 0], y: 0, a: 21, ph: 2, am: 0, h: 10, m: 10, d: 0, g: 0, lk: [1,1,1,1,1,1,0,0,65536,0,1,0,0,0,0.2], st: null, fm: [0,1,0], hm: 0, bt: 1 });
+const actor = (id, extra = {}) => ({ id, key: 'humanoid:soldier:0:0:0', role: 'soldier', faction: 0,
+  p: [4, 0, 134], maxHp: 100, hp: 100, ...extra });
 function fixture(saved, options = {}) {
   let time = 100000, mutable = true, epoch = 1, host = 'a', changes = 0;
   const room = { clients: new Map(), name: 'march' }, state = saved || {}, out = new Map();
@@ -89,12 +91,12 @@ test('boarding out of reach and stale or cross-world write authority are rejecte
 
 test('partial chunks never publish; deltas are cached as a full late-join snapshot', () => {
   const f = fixture();
-  const full = { v: 1, full: true, rows: [{ id: 'wolf:1', x: 1, meta: 'x'.repeat(4000) }, { id: 'wolf:2', x: 2 }], remove: [] };
+  const full = { v: 1, full: true, rows: [actor('scene:wolf:1', { x: 1, meta: 'x'.repeat(4000) }), actor('scene:wolf:2', { x: 2 })], remove: [] };
   const text = JSON.stringify(full), total = Math.ceil(text.length / 3500), before = f.out.get('b').length;
   assert.equal(f.send(f.a, { kind: 'entities', op: 'snapshot', seq: 1, part: 1, total, data: text.slice(3500) }), true);
   assert.equal(f.out.get('b').length, before);
   assert.equal(f.send(f.a, { kind: 'entities', op: 'snapshot', seq: 1, part: 0, total, data: text.slice(0,3500) }), true);
-  assert.equal(f.publish(f.a, 'entities', { v: 1, full: false, rows: [{ id: 'wolf:1', x: 9 }], remove: ['wolf:2'] }, 2), true);
+  assert.equal(f.publish(f.a, 'entities', { v: 1, full: false, rows: [{ id: 'scene:wolf:1', x: 9 }], remove: ['scene:wolf:2'] }, 2), true);
   const c = f.add('c'); f.scene.sync(f.room, c);
   const value = reconstruct(f.out.get('c').filter(m => m.kind === 'entities'));
   assert.equal(value.full, true); assert.equal(value.rows.length,1); assert.equal(value.rows[0].x,9); assert.equal(value.rows[0].meta,'x'.repeat(4000));
@@ -186,8 +188,8 @@ test('ignition ejects a granted occupant and direct player restoration requires 
 test('canonical metadata and bounded receipts are retained in owned snapshots', () => {
   const f = fixture();
   const meta = { warbands: [{ id: 1, actors: ['guard:1'] }], caravans: [] };
-  f.publish(f.a, 'entities', { v: 1, full: true, rows: [{ id: 'guard:1', x: 0 }], remove: [], meta });
-  f.publish(f.a, 'entities', { v: 1, full: false, rows: [{ id: 'guard:1', x: 1 }], remove: [] }, 2);
+  f.publish(f.a, 'entities', { v: 1, full: true, rows: [actor('scene:guard:1', { x: 0 })], remove: [], meta });
+  f.publish(f.a, 'entities', { v: 1, full: false, rows: [{ id: 'scene:guard:1', x: 1 }], remove: [] }, 2);
   assert.deepEqual(f.state.activity.entities.meta, meta);
   assert.ok(checkedSharedScene(f.state.activity));
   assert.equal(checkedSharedScene({ ...f.state.activity, alien: true }), null);
@@ -209,7 +211,7 @@ test('global owned-snapshot budget refuses a candidate before any public change'
 
 test('combined scene budget rejects oversized streams and leaves last confirmed world intact', () => {
   const f = fixture();
-  const rows = [...Array(8)].map((_, i) => ({ id: 'wolf:'+i, text: 'w'.repeat(24000) }));
+  const rows = [...Array(8)].map((_, i) => actor('scene:wolf:'+i, { text: 'w'.repeat(24000) }));
   assert.equal(f.publish(f.a, 'entities', {v:1,full:true,rows,remove:[]}), true);
   const old = structuredClone(f.state.activity);
   const parts = Object.fromEntries([...Array(10)].map((_,i) => ['field'+i, 'c'.repeat(24000)]));
@@ -235,7 +237,7 @@ test('actual ingress accepts a complete 27-worker roster above the ordinary 8KiB
 
 test('actual ingress accepts more than 60 bounded snapshot fragments interleaved with player motion', async () => {
   const f = fixture(), { onMsg, stats, fast } = await ingress(f);
-  const payload = {v:1,full:true,rows:[...Array(100)].map((_,i)=>({id:'world:'+i,info:'x'.repeat(2500)})),remove:[]};
+  const payload = {v:1,full:true,rows:[...Array(100)].map((_,i)=>actor('scene:world:'+i,{info:'x'.repeat(2500)})),remove:[]};
   const text = JSON.stringify(payload), total=Math.ceil(text.length/3500);
   assert.ok(total>60);
   for(let part=0;part<total;part++) {
@@ -247,7 +249,7 @@ test('actual ingress accepts more than 60 bounded snapshot fragments interleaved
 });
 async function ingress(f, extra = {}) {
   const fs = await import('node:fs'), vm = await import('node:vm');
-  const source = fs.readFileSync(new URL('./server.js',import.meta.url),'utf8');
+  const source = fs.readFileSync(new URL('./server.js',import.meta.url),'utf8').replace(/\r\n/g, '\n');
   const start=source.indexOf('function onMsg(c, raw) {'), end=source.indexOf('\n/* ------------------------------------------------------------------ */\n/* HTTP:',start);
   assert.ok(start>=0 && end>start);
   const stats={msgs:0,bytesIn:0,badMsgs:0,rateDropped:0,kicked:0};let fastCount=0;
@@ -262,9 +264,9 @@ async function ingress(f, extra = {}) {
 
 test('compact entity deltas retain appearance while updating public pose and health', () => {
   const f=fixture();
-  f.publish(f.a,'entities',{v:1,full:true,rows:[{id:'guard:1',look:{hat:'red'},kind:'humanoid',hp:50,x:0}],remove:[]});
-  f.publish(f.a,'entities',{v:1,full:false,rows:[{id:'guard:1',hp:25,x:4}],remove:[]},2);
-  assert.deepEqual(f.state.activity.entities.rows,[{id:'guard:1',look:{hat:'red'},kind:'humanoid',hp:25,x:4}]);
+  f.publish(f.a,'entities',{v:1,full:true,rows:[actor('scene:guard:1',{look:{hat:'red'},kind:'humanoid',hp:50,x:0})],remove:[]});
+  f.publish(f.a,'entities',{v:1,full:false,rows:[{id:'scene:guard:1',hp:25,x:4}],remove:[]},2);
+  assert.deepEqual(f.state.activity.entities.rows,[actor('scene:guard:1',{look:{hat:'red'},kind:'humanoid',hp:25,x:4})]);
 });
 
 test('restoring the same world epoch invalidates unconfirmed scene authority and replays the restored cache', () => {
@@ -335,20 +337,20 @@ test('actual owned bridge recovery cannot republish unconfirmed shared scene wit
 
 test('owned animal bodies are live replicas, released on owner departure and never restored as orphan pets', () => {
   const f=fixture();
-  f.publish(f.a,'entities',{v:1,full:true,rows:[{id:'wolf:1',hp:10},{id:'scene:petb:0',owner:'b',hp:20}],remove:[]});
-  assert.deepEqual(f.state.activity.entities.rows,[{id:'wolf:1',hp:10}],'character-owned bodies do not enter game-owned durable state');
+  f.publish(f.a,'entities',{v:1,full:true,rows:[actor('scene:wolf:1',{hp:10}),actor('scene:petb:0',{owner:'b',hp:20})],remove:[]});
+  assert.deepEqual(f.state.activity.entities.rows,[actor('scene:wolf:1',{hp:10})],'character-owned bodies do not enter game-owned durable state');
   const c=f.add('c');f.scene.sync(f.room,c);
   assert.equal(reconstruct(f.out.get('c').filter(m=>m.kind==='entities')).rows.length,2,'live late-join still sees the owner pet');
   f.b.live=false;f.scene.leave(f.b);
   const departed=f.out.get('a').find(m=>m.op==='owner-left');
   assert.equal(departed.owner,'b');assert.deepEqual(departed.ids,['scene:petb:0']);
   const d=f.add('d');f.scene.sync(f.room,d);
-  assert.deepEqual(reconstruct(f.out.get('d').filter(m=>m.kind==='entities')).rows,[{id:'wolf:1',hp:10}]);
+  assert.deepEqual(reconstruct(f.out.get('d').filter(m=>m.kind==='entities')).rows,[actor('scene:wolf:1',{hp:10})]);
 });
 
 test('actual keep reporting follows the shared host even when another player stands in its region', async () => {
   const fs=await import('node:fs'),vm=await import('node:vm');
-  const source=fs.readFileSync(new URL('./server.js',import.meta.url),'utf8');
+  const source=fs.readFileSync(new URL('./server.js',import.meta.url),'utf8').replace(/\r\n/g, '\n');
   const cut=(a,b)=>{const i=source.indexOf(a),j=source.indexOf(b,i);assert.ok(i>=0&&j>i);return source.slice(i,j)};
   const room={name:'march',clients:new Map(),rep:[]}, calls=[], worlds={march:{k:[0],g:[1],td:0,tm:0,cn:1,cl:[[0,0],[0,0],[0,0]]}};
   const admission={origin:'https://game.test',epoch:1};
@@ -440,7 +442,7 @@ test('unauthenticated legacy identity refusal is preserved before a protocol-upg
 });
 
 test('realm and FIELD capability are required before a page can host the room', async () => {
-  const fs=await import('node:fs'),vm=await import('node:vm'),source=fs.readFileSync(new URL('./server.js',import.meta.url),'utf8');
+  const fs=await import('node:fs'),vm=await import('node:vm'),source=fs.readFileSync(new URL('./server.js',import.meta.url),'utf8').replace(/\r\n/g, '\n');
   const start=source.indexOf('function roomNeedsWarbandOrders(R) {'),end=source.indexOf('const send =',start);
   const context={WORLDS:{},isHumanPlaying:c=>c.live};vm.createContext(context);vm.runInContext(source.slice(start,end),context);
   const old={peer:'old',live:true,since:1,slow:{on:1}}, fresh={peer:'new',live:true,since:2,slow:{on:1}};
@@ -786,7 +788,7 @@ test('a stale pre-confirmation keeper snapshot cannot burn the newly rebuilt hul
 
 test('public stats keep bounded war metadata without exposing a staged checkpoint or character body', async () => {
   const fs = await import('node:fs'), vm = await import('node:vm');
-  const source = fs.readFileSync(new URL('./server.js', import.meta.url), 'utf8');
+  const source = fs.readFileSync(new URL('./server.js', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
   const route = source.split('\n').find(line => line.includes("if (u.pathname === '/stats')"));
   assert.ok(route);
   const from = route.indexOf('rooms: '), to = route.indexOf(', accounts:', from);
@@ -817,7 +819,7 @@ test('public stats keep bounded war metadata without exposing a staged checkpoin
 
 test('ordinary world broadcasts hide pending economic state until native confirmation', async () => {
   const fs = await import('node:fs'), vm = await import('node:vm');
-  const source = fs.readFileSync(new URL('./server.js', import.meta.url), 'utf8');
+  const source = fs.readFileSync(new URL('./server.js', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
   const section = (a, b) => {
     const start = source.indexOf(a), end = source.indexOf(b, start + a.length);
     assert.ok(start >= 0 && end > start); return source.slice(start, end);
@@ -922,4 +924,68 @@ test('stale request or connection admissions cannot manufacture current snapshot
     assert.deepEqual(f.state, state);
     assert.equal(f.changes, writes);
   }
+});
+
+test('an orphan actor delta requests its full baseline without changing the retained scene', () => {
+  const f = fixture(), first = actor('scene:baseline:1');
+  assert.equal(f.publish(f.a, 'entities', { v: 1, full: true, rows: [first], remove: [] }), true);
+  const before = structuredClone(f.state), writes = f.changes;
+  f.publish(f.a, 'entities', { v: 1, full: false, rows: [{ id: 'scene:baseline:2', a: 23.33 }], remove: [] }, 2);
+  assert.equal(f.out.get('a').at(-1).reason, 'entity_baseline_required');
+  assert.equal(f.out.get('a').at(-1).ok, false);
+  assert.deepEqual(f.state, before); assert.equal(f.changes, writes);
+  const next = actor('scene:baseline:2', { a: 23.33 });
+  assert.equal(f.publish(f.a, 'entities', { v: 1, full: false, rows: [next], remove: [] }, 3), true);
+  assert.deepEqual(f.state.activity.entities.rows, [first, next]);
+  assert.equal(f.publish(f.a, 'entities', { v: 1, full: false, rows: [{ id: first.id, a: 23.95 }], remove: [] }, 4), true);
+  assert.equal(f.state.activity.entities.rows[0].a, 23.95);
+  const accepted = structuredClone(f.state);
+  f.publish(f.a, 'entities', { v: 1, full: true, rows: [actor('scene:baseline:3', { maxHp: 0 })], remove: [] }, 5);
+  assert.equal(f.out.get('a').at(-1).reason, 'entity_baseline_required');
+  assert.deepEqual(f.state, accepted, 'a malformed full baseline cannot corrupt the next cold replay');
+  f.publish(f.a, 'entities', { v: 1, full: true, rows: [actor('not-a-scene-id')], remove: [] }, 6);
+  assert.equal(f.out.get('a').at(-1).reason, 'entity_baseline_required');
+  assert.deepEqual(f.state, accepted, 'invalid full actor IDs cannot poison the next cold replay');
+});
+
+test('cold hydration recovers only legacy animation orphans and the actual client accepts every intact actor', async () => {
+  const rows = Array.from({ length: 630 }, (_, i) => actor('scene:legacy:' + (i + 1), { p: [i % 100, 0, i % 120] }));
+  const orphans = Array.from({ length: 10 }, (_, i) => ({ id: 'scene:legacy:' + (772 + i), a: 23.1 + i / 100 }));
+  const meta = { camps: [], caravans: [], dungeon: {}, roam: [], thrones: [], warbands: [{ id: 1, members: [rows[0].id] }] };
+  const worldparts = { v: 1, full: true, parts: { resource: { grain: 42 }, construction: { completed: ['mill', 'bakery'] } }, remove: [], receipts: [] };
+  const saved = { activity: { v: 1, worldAdmission: { origin: 'https://game.test', epoch: 1 }, boats: [], npcs: [],
+    entities: { v: 1, full: true, rows: [...rows, ...orphans], remove: [], meta }, worldparts } };
+  const original = JSON.stringify(saved), f = fixture(saved);
+  assert.equal(JSON.stringify(saved), original, 'hydration never rewrites the original owned checkpoint or history');
+  assert.equal(f.changes, 0);
+  assert.equal(f.authority(f.a).entityRecovery.orphanAnimationDeltas, 10);
+  const packets = f.out.get('a').filter(m => m.kind === 'entities'), recovered = reconstruct(packets);
+  assert.deepEqual(recovered.rows, rows); assert.deepEqual(recovered.meta, meta);
+  assert.deepEqual(reconstruct(f.out.get('a').filter(m => m.kind === 'worldparts')), worldparts);
+
+  // Exercise production chunk assembly, strict row validation and readiness.
+  // Actor construction/physics and metadata application are fixture services.
+  const fs = await import('node:fs'), vm = await import('node:vm');
+  const source = fs.readFileSync(new URL('../src/14x_netentities.js', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+  const extract = name => { const at = source.indexOf('function ' + name + '('); assert.ok(at >= 0); return source.slice(at, source.indexOf('\n}', at) + 2); };
+  const state = { authority: '', peer: '', admission: null, complete: false, waiting: false, rows: new Map(), bodies: new Map(),
+    sent: new Map(), buffers: new Map(), orderPatches: new Map(), received: -1, seq: 0, stats: { frames: 0, refused: 0 } };
+  const context = vm.createContext({ NET_ENTITIES: state, NET: { self: 'a' }, performance: { now: () => 1000 },
+    netCurrentWorldAdmission: () => saved.activity.worldAdmission, netEntityOwned: () => true,
+    netEntityEnsure: row => { const e = { id: row.id }; state.bodies.set(row.id, e); return e; },
+    netEntityApply() {}, netEntityPrepareWarbands() {}, netEntityApplyMeta() {}, removeEnt() {} });
+  vm.runInContext(source.slice(source.indexOf('const NET_ENTITY_DEFAULTS ='), source.indexOf('function netEntityPackLook(')) + '\n'
+    + source.match(/const netEntityMine = [^\n]+/)[0] + '\n'
+    + ['netEntityPlain', 'netEntityUnpackLook', 'netEntityReadRow', 'netEntityReceive', 'netEntityMessage'].map(extract).join('\n'), context);
+  context.netEntityMessage(f.authority(f.a)); assert.equal(vm.runInContext('netEntityMine()', context), false);
+  for (const packet of packets) assert.equal(context.netEntityMessage(packet), true);
+  assert.equal(state.rows.size, 630); assert.equal(state.complete, true); assert.equal(state.waiting, false);
+  assert.equal(vm.runInContext('netEntityMine()', context), true); assert.equal(state.stats.frames, 1);
+
+  f.host('b'); f.scene.sync(f.room);
+  const handed = f.out.get('b').filter(m => m.kind === 'entities' && m.authority === f.authority(f.b).authority);
+  assert.deepEqual(reconstruct(handed), recovered, 'keeper handoff retains every recovered actor and all metadata');
+  const cold = fixture(structuredClone(saved));
+  assert.deepEqual(reconstruct(cold.out.get('a').filter(m => m.kind === 'entities')), recovered);
+  assert.equal(JSON.stringify(saved), original);
 });

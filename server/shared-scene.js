@@ -123,14 +123,46 @@ function keepCanonicalWarbandOrders(entities, prior) {
       ? { ...w, order: was.order, orderToken: was.orderToken || '', orderCampaign: oldCampaign, orderVersion: version } : w;
   }) } };
 }
-function sceneValue(kind, old, payload) {
+const actorId = id => typeof id === 'string' && /^scene:[a-zA-Z0-9_-]{1,32}:\d{1,8}$/.test(id);
+// Match the client's required wire baseline. A delta cannot introduce an actor
+// whose identity, position and health were never retained by this scene.
+function entityHasBaseline(row) {
+  if (!row || !actorId(row.id) || typeof row.key !== 'string' || row.key.length > 160
+    || !array(row.p, 3, -4000, 4000) || !finite(row.maxHp, 1, 1e8)) return false;
+  const val = (key, fallback) => row[key] ?? fallback;
+  const kind = val('kind', 'humanoid'), role = val('role', 'mob'), faction = val('faction', 3);
+  if (typeof kind !== 'string' || kind.length > 24 || typeof role !== 'string' || role.length > 24
+    || ['player', 'remote', 'villager', 'herald', 'merchant'].includes(role)
+    || !Number.isInteger(faction) || faction < 0 || faction > 4
+    || !finite(val('hp', row.maxHp), 0, 1e8) || !finite(val('yaw', 0), -1000, 1000)
+    || !finite(val('level', 1), 1, 100) || !finite(val('a', 0), 0, 128)
+    || !finite(val('ph', 0), -1000, 1000) || !finite(val('am', 0), 0, 20)
+    || !finite(val('scale', 1), 0.01, 50)
+    || row.owner != null && (typeof row.owner !== 'string' || !/^[a-zA-Z0-9_-]{1,24}$/.test(row.owner))
+    || row.mounted != null && row.mounted !== 0 && row.mounted !== 1) return false;
+  return !Array.isArray(row.look) || row.look.every(Number.isFinite)
+    && (row.look[0] === 1 && row.look.length === 16 || row.look[0] === 2 && row.look.length === 7);
+}
+const orphanAnimationDelta = row => row && actorId(row.id) && Object.keys(row).length === 2
+  && Object.hasOwn(row, 'a') && finite(row.a, 0, 128);
+function entityBaselineRequired(old, payload) {
+  if (payload?.full !== false || !Array.isArray(payload.rows)) return false;
+  const ids = new Set((old?.rows || []).map(row => row.id));
+  return payload.rows.some(row => !ids.has(row?.id) && !entityHasBaseline(row));
+}
+function sceneValue(kind, old, payload, hydrate = false) {
   if (!payload || payload.v !== 1 || typeof payload.full !== 'boolean' || !safeJson(payload)) return null;
   let value;
   if (kind === 'entities') {
     if (!Array.isArray(payload.rows) || payload.rows.length > 2048 || !Array.isArray(payload.remove)
       || payload.remove.length > 2048 || !payload.remove.every(keyOk)) return null;
+    if (entityBaselineRequired(old, payload)) return null;
     const rows = new Map(payload.full ? [] : (old?.rows || []).map(r => [r.id, r])), seen = new Set();
-    for (const row of payload.rows) {
+    // A released legacy baseline could leave animation-only deltas in a saved
+    // full cache. They cannot reconstruct a body. Hydrate only the intact rows;
+    // the original owned checkpoint and its rollback history stay untouched.
+    const incoming = hydrate && payload.full ? payload.rows.filter(row => !orphanAnimationDelta(row)) : payload.rows;
+    for (const row of incoming) {
       if (!row || !keyOk(row.id) || seen.has(row.id)) return null;
       seen.add(row.id); rows.set(row.id, payload.full ? row : { ...(rows.get(row.id) || {}), ...row });
     }
@@ -228,9 +260,10 @@ export function createSharedScene({ hostFor, live, admission, stateFor, send, ch
         boats: valid ? rowsRead(kept.boats, 128, activityBoat) || [] : [],
         npcs: valid ? rowsRead(kept.npcs, 64, activityNpc) || [] : [],
         seq: { boats: -1, npcs: -1 }, motion: new Map(), lastPersist: -Infinity, dirty: false,
-        streams: { entities: valid ? sceneValue('entities', null, kept.entities) : null,
+        streams: { entities: valid ? sceneValue('entities', null, kept.entities, true) : null,
           worldparts: valid ? sceneValue('worldparts', null, kept.worldparts) : null },
         streamSeq: { entities: 0, worldparts: 0 }, pending: {}, commands: new Map() };
+      s.entityRecovery = s.streams.entities ? (kept.entities?.rows || []).filter(orphanAnimationDelta).length : 0;
       s.burntSince = new Map(s.boats.filter(b => b.st === 'burnt').map(b => [b.id, now()])); s.rebuildAwaitSnapshot = new Set();
       s.thrones = createThrones({ now, live, sameAdmission });
       s.publicWorldparts = s.streams.worldparts; s.publicWorldSeq = 0; s.worldBarrier = null;
@@ -263,7 +296,8 @@ export function createSharedScene({ hostFor, live, admission, stateFor, send, ch
   }
   function authorityFrame(s) {
     return { t: 'activity', kind: 'authority', authority: s.authority, peer: s.host, worldAdmission: s.worldAdmission,
-      boats: s.boats, npcs: s.npcs, thrones: s.thrones.snapshot(), hasEntities: !!s.streams.entities, entitiesReady: !!s.streams.entities, worldpartsReady: !!(s.publicWorldparts || s.worldBarrier || s.needsReadback) };
+      boats: s.boats, npcs: s.npcs, thrones: s.thrones.snapshot(), hasEntities: !!s.streams.entities, entitiesReady: !!s.streams.entities, worldpartsReady: !!(s.publicWorldparts || s.worldBarrier || s.needsReadback),
+      ...(s.entityRecovery ? { entityRecovery: { orphanAnimationDeltas: s.entityRecovery } } : {}) };
   }
   function frame(s, kind, op, rows, extra = {}) {
     return { t: 'activity', kind, op, authority: s.authority, peer: s.host, worldAdmission: s.worldAdmission,
@@ -509,8 +543,12 @@ export function createSharedScene({ hostFor, live, admission, stateFor, send, ch
     let payload;
     try { payload = JSON.parse([...Array(pending.total)].map((_, i) => pending.parts.get(i)).join('')); }
     catch { delete s.pending[kind]; return false; }
-    delete s.pending[kind]; let merged = sceneValue(kind, s.streams[kind], payload);
+    delete s.pending[kind];
+    if (kind === 'entities' && entityBaselineRequired(s.streams.entities, payload)) return refuse(c, s, m, 'entity_baseline_required');
+    let merged = sceneValue(kind, s.streams[kind], payload);
     if (!merged) return false;
+    if (kind === 'entities' && merged.rows.some(row => !entityHasBaseline(row)))
+      return refuse(c, s, m, 'entity_baseline_required');
     let orderPatches = [];
     if (kind === 'entities') {
       merged = keepCanonicalWarbandOrders(merged, s.streams.entities);
