@@ -219,7 +219,8 @@ function initMerchants() {
     look.bulk = 0.3;
     look.mask = (look.mask & ~WB.robe) | WB.belt | WB.skirt;
     const nm = pick(Math.random, NAMES[R.id].filter((n) => FEMALE.has(n) === fem));
-    const m = makeEnt({ kind: 'humanoid', faction: FACTION_NEUTRAL, role: 'merchant', level: 20, name: nm, x, z, y: heightAt(x, z), yaw, look, radius: 0.45 });
+    const m = makeEnt({ kind: 'humanoid', faction: FACTION_NEUTRAL, role: 'merchant', level: 1, name: nm, x, z, y: heightAt(x, z), yaw, look, radius: 0.45 });
+    if (typeof worldActorDevelop === 'function') worldActorDevelop(m);
     m.fixedY = heightAt(x, z);
     m.maxHp = m.hp = 500;
     m.ai.post = { x, z, yaw };

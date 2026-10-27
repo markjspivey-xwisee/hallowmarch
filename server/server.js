@@ -239,7 +239,8 @@ function roomHost(R) {
   let best = null;
   const needsOrders = roomNeedsWarbandOrders(R);
   for (const c of R.clients.values()) {
-    if (!isHumanPlaying(c) || !c.slow || c.slow.on !== 1 || c.slow.realmManagement !== 1 || c.slow.seasonField !== 2) continue;
+    if (!isHumanPlaying(c) || !c.slow || c.slow.on !== 1 || c.slow.realmManagement !== 1 || c.slow.seasonField !== 2
+      || c.slow.sharedCombat !== 1 || c.slow.actorDevelopment !== 1) continue;
     if (needsOrders && c.slow.warbandOrders !== 1) continue;
     const capable = c.slow.sharedScene === 2, previous = best?.slow?.sharedScene === 2;
     if (!best || capable && !previous || capable === previous
@@ -1013,7 +1014,8 @@ function onMsg(c, raw) {
   if (!c.acct) return;
   if (m.t === 'slow') {
     const principalVerified = !nativePlayersRequired || !!PLAYER_ACCOUNTS.humanPrincipalFor(c);
-    if (principalVerified && m.d?.on === 1 && (nativePlayersRequired && m.d.sharedScene !== 2 || realmManagementReloadRequired(m.d,nativePlayersRequired)
+    if (principalVerified && m.d?.on === 1 && (m.d.sharedCombat !== 1 || m.d.actorDevelopment !== 1
+      || nativePlayersRequired && m.d.sharedScene !== 2 || realmManagementReloadRequired(m.d,nativePlayersRequired)
       || roomNeedsWarbandOrders(c.room) && m.d.warbandOrders !== 1)) {
       const why = 'Reload Hallowmarch to join the shared world. Your saved character is preserved.';
       send(c, { t: 'reload-required', code: 'shared_scene_upgrade_required', why });

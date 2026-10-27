@@ -1,7 +1,8 @@
 /* ================================================================== */
 /* Cinderwing's behaviour: circle, land, fight, strafe, fall, return      */
 /* ================================================================== */
-const DRAGON_LEVEL = 24;
+const DRAGON_LEVEL = 1;
+const DRAGON_SKILLS = { tail: 4, breath: 7, strafe: 15 };
 ROLE_MULT.boss = [20, 1.6];
 MOBS.dragon = { kind: 'dragon', names: [DRAGON_NAME], hp: 1, dmg: 1, speed: 3.2, swing: 2.5, range: 7, aggro: 26, scale: [1, 1], radius: 3.2 };
 const DRAGON_ACT = { bite: 0.95, tail: 1.05, breath: 2.4, roar: 1.7 };
@@ -34,11 +35,12 @@ function spawnDragon() {
   const a = Math.random() * TAU;
   D.circ.ang = a; D.circ.dir = Math.random() < 0.5 ? 1 : -1;
   const x = Math.sin(a) * D.circ.r, z = Math.cos(a) * D.circ.r;
-  const e = makeEnt({ kind: 'dragon', faction: FACTION_MONSTER, role: 'boss', mobType: 'dragon', level: Math.max(DRAGON_LEVEL, warLevel() + 4), name: DRAGON_NAME, x, z, y: heightAt(x, z) + 45, yaw: 0, radius: 3.2, scale: 1 });
+  const e = makeEnt({ kind: 'dragon', faction: FACTION_MONSTER, role: 'boss', mobType: 'dragon', level: DRAGON_LEVEL, name: DRAGON_NAME, x, z, y: heightAt(x, z) + 45, yaw: 0, radius: 3.2, scale: 1 });
+  if (typeof worldActorDevelop === 'function') worldActorDevelop(e);
   setupStats(e);
   e.flying = true;
   e.fixedY = e.y;
-  D.e = e; D.state = 'fly'; D.stateT = 0; D.flyFor = 150 + Math.random() * 120; D.halfDone = false; D.act = null; D.pose = dragonPoseZero();
+  D.e = e; D.state = 'fly'; D.stateT = 0; D.flyFor = 150 + Math.random() * 120; D.halfDone = false; D.strafeNext = false; D.act = null; D.pose = dragonPoseZero();
   D.alt = e.y;
   D.nextBreath = 0; D.nextTail = 0; D.nextBite = 0; D.lastFoe = GAME.t;
 }
@@ -64,7 +66,7 @@ function dragonFoes(e, r) {
   });
   return out;
 }
-function dragonBurn(e, x, z, dx, dz, range, half, mult) {
+function dragonBurn(e, x, z, dx, dz, range, half, mult, area = null) {
   fireConeAt(x, z, dx, dz, range, half);
   for (const o of dragonFoes(e, range + 3)) {
     const ox = o.x - x, oz = o.z - z, d = Math.hypot(ox, oz);
@@ -72,7 +74,7 @@ function dragonBurn(e, x, z, dx, dz, range, half, mult) {
     if (d > 1.2 && (ox * dx + oz * dz) / d < Math.cos(half)) continue;
     const r = computeDamage(e, o, mult);
     if (o.mount) dismount(o, 'The flames throw you from the saddle!');
-    dealDamage(e, o, r.d, { kind: 'fire', dot: true });
+    dealDamage(e, o, r.d, { kind: 'fire', dot: true, ...(area ? { area } : {}) });
     if (o === GAME.player) flashScreen([0.9, 0.35, 0.05], 0.25);
   }
 }
@@ -235,7 +237,7 @@ function thinkDragon(e, dt) {
   e.target = tgt ? tgt.id : null;
   if (tgt) { D.lastFoe = t; D.lastTarget = tgt.id; }
   // wounded: up into the air for a burning run, then back down
-  if (!D.halfDone && e.hp < e.maxHp * 0.5 && !D.act) {
+  if (e.level >= DRAGON_SKILLS.strafe && !D.halfDone && e.hp < e.maxHp * 0.5 && !D.act) {
     D.halfDone = true; D.strafeNext = true; D.liftFrom = e.y; setDragonState('takeoff'); sfxAtE('roar', e, null, 3); /* [audio2] placed */ return;
   }
   if (!tgt && t - D.lastFoe > 70 && !D.act) {
@@ -274,7 +276,7 @@ function thinkDragon(e, dt) {
         const sweep = 0.38 * Math.sin((at - 0.28) / 0.6 * Math.PI * 1.4 - 0.7);
         const yaw = e.yaw + sweep;
         const mx = e.x + Math.sin(e.yaw) * 5.2, mz = e.z + Math.cos(e.yaw) * 5.2;
-        dragonBurn(e, mx, mz, Math.sin(yaw), Math.cos(yaw), 17, 0.36, 0.5);
+        dragonBurn(e, mx, mz, Math.sin(yaw), Math.cos(yaw), 17, 0.36, 0.5, A.area);
         if (Math.random() < 0.6) { const rr = 5 + Math.random() * 11; const fx = mx + Math.sin(yaw) * rr, fz = mz + Math.cos(yaw) * rr; addFire(fx, heightAt(fx, fz) + 0.05, fz, 0.6 + Math.random() * 0.3, false, t + 7); }
       }
     }
@@ -288,9 +290,15 @@ function thinkDragon(e, dt) {
   e.yaw += clamp(off, -dt * 1.1, dt * 1.1);
   D.walking = Math.abs(off) > 0.15 ? 0.6 : 0;
   const behind = foes.some((o) => dist(o.x, o.z, e.x, e.z) < 9 && Math.abs(angDiff(e.yaw + Math.PI, Math.atan2(o.x - e.x, o.z - e.z))) < 1.2);
-  if (behind && t > D.nextTail) { D.nextTail = t + 7; D.act = { kind: 'tail', t: 0, dur: DRAGON_ACT.tail, side: Math.random() < 0.5 ? 1 : -1 }; return; }
+  if (e.level >= DRAGON_SKILLS.tail && behind && t > D.nextTail) { D.nextTail = t + 7; D.act = { kind: 'tail', t: 0, dur: DRAGON_ACT.tail, side: Math.random() < 0.5 ? 1 : -1 }; return; }
   if (Math.abs(off) > 0.5) return;
-  if (t > D.nextBreath && d < 17 && d > 4) { D.nextBreath = t + 11 + Math.random() * 5; D.act = { kind: 'breath', t: 0, dur: DRAGON_ACT.breath }; aoeMarker(e.x + fwdX * 13, e.z + fwdZ * 13, 7, 1.0); sfxAtE('breath', e, null, 3); /* [audio2] placed */ return; }
+  if (e.level >= DRAGON_SKILLS.breath && t > D.nextBreath && d < 17 && d > 4) {
+    D.nextBreath = t + 11 + Math.random() * 5;
+    const area = { v: 1, shape: 'disc', x: e.x + Math.sin(e.yaw) * 13, z: e.z + Math.cos(e.yaw) * 13, r: 14 };
+    D.act = { kind: 'breath', t: 0, dur: DRAGON_ACT.breath, area };
+    aoeMarker(area.x, area.z, area.r, DRAGON_ACT.breath + 0.05, e.faction);
+    sfxAtE('breath', e, null, 3); /* [audio2] placed */ return;
+  }
   if (d < 7.8 && t > D.nextBite) { D.nextBite = t + 2.4; D.act = { kind: 'bite', t: 0, dur: DRAGON_ACT.bite, tgt: tgt.id }; return; }
   if (d > 6.5 && dist(e.x + fwdX, e.z + fwdZ, D.perch.x, D.perch.z) < 26) {
     const sp = 3.2;

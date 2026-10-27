@@ -1252,7 +1252,7 @@ function natSplitGoods(t) {
   give('firewood', 2 + (axe ? 1 : 0) + (t.kind === 'oak' ? 1 : 0));
   give('log', 1);
   give('stick', 2);
-  if (got.length) uiLog(`You carry away ${got.join(', ')}; the rest is stacked by the stump.`, 'loot');
+  if (got.length) { skillGain('woodcutting', 0.6); uiLog(`You carry away ${got.join(', ')}; the rest is stacked by the stump.`, 'loot'); }
 }
 
 /* ------------------------------------------------------------------ */
@@ -1283,7 +1283,7 @@ function chronLiving() {
     <h3>Crafting</h3>
     <p>Every town has a <b>forge and anvil</b> (smelt ore into iron; tools, blades, mail and the mending of worn gear), a <b>workbench</b> (planks, sticks, rods, bows, staves, arrows), a <b>tanning rack</b> (leather and leather armour), a <b>loom</b> (cloth, cloaks, robes, hoods), a <b>bakehouse</b> and an <b>alchemy table</b> (healing draughts, the starflower tonic, wards against fire and frost, vigour). Every keep has a forge and a workbench.</p>
     <p>Materials come from the land: logs and firewood from felled trees, stone from rocks (a <b>pick</b> also breaks out flint and iron ore, most in the rocky hills), hides and bone from the hunt, fibre from nettles. Tools help: an <b>axe</b> fells and splits in fewer blows, a <b>pick</b> finds ore, a <b>knife</b> takes more from every kill and plant, a <b>hammer</b> mends gear good as new, a <b>pot</b> cooks stews anywhere, a <b>rod</b> fishes.</p>
-    <p>Each thing you make teaches you. A practised hand works faster, wastes less and turns out better gear: a novice's blade is usually common, a master's often rare and now and then epic. Some recipes wait for skill.</p>
+    <p>Each thing you make teaches you. A practised hand works faster, wastes less and turns out better gear: a novice's blade is usually common, a master's often rare and now and then epic. Some recipes wait for skill. Mining, woodcutting and farming improve when you complete that work; practice makes those jobs up to 25% faster. Cancelled jobs and empty attempts teach nothing.</p>
     ${depthChronLiving() /* [depth] woodcraft, game birds, rare materials and masterworks (09u_depth.js) */}
     <p class="now">Now: <b>${S.label.toLowerCase()}</b> (food ${pct(SURV.hunger)}%, water ${pct(SURV.thirst)}%).</p>
     <ul class="skills">${Object.keys(SKILL_NAMES).map(row).join('')}</ul>`;

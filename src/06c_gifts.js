@@ -535,6 +535,8 @@ function giftWinter(e, k, at = null) {
   cloud.renderOrder = 7; cloud.frustumCulled = false;
   scene.add(cloud);
   const S = { x, z, y, r: D.r, t0: GAME.t, until: GAME.t + D.dur, src: e.id, realm: e.faction, k, cloud, tick: 0.6, snowAcc: 0, shardAcc: 0, boltT: 1.5, bolt: 0 };
+  S.level = e.level; S.dmgMult = e.dmgMult;
+  S.sourceActor = typeof netEntitySourceStamp === 'function' ? netEntitySourceStamp(e) : null;
   GIFT.storms.push(S);
   setAct(e, 3, 0.9);
   spellDisc(x, z, D.r, DISC_KIND.frost, D.dur + 1.5, [0.55, 0.8, 1.2]);
@@ -555,12 +557,14 @@ function stepWinter(S, dt) {
   S.tick -= dt;
   if (S.tick > 0) return;
   S.tick = 1;
-  const src = getEnt(S.src) || { level: warLevel(), dmgMult: 1, faction: S.realm, buffs: [], role: 'none', scale: 1, alive: false, id: S.src };
+  const remembered = typeof netEntitySourceRead === 'function' ? netEntitySourceRead(S.sourceActor) : null;
+  const src = getEnt(S.src) || { ...(remembered || {}), level: S.level || remembered?.level || 1, dmgMult: S.dmgMult || 1, faction: S.realm, buffs: [], role: remembered?.role || 'none', scale: 1, alive: false, id: S.src };
+  const area = { v: 1, shape: 'disc', x: S.x, z: S.z, r: S.r };
   forNear(S.x, S.z, S.r, (o) => {
     if (!o.alive || !isEnemy(src, o) || !isActor(o) || o.flying || dist(o.x, o.z, S.x, S.z) > S.r) return;
     const r = computeDamage(src, o, 0.5 * S.k);
-    dealDamage(src, o, r.d, { crit: r.crit, kind: 'frost' });
-    addBuff(o, 'snare', 0.45, 1.6, S.src);
+    dealDamage(src, o, r.d, { crit: r.crit, kind: 'frost', area });
+    addBuff(o, 'snare', 0.45, 1.6, S.src, { area, ...(S.sourceActor ? { sourceActor: S.sourceActor } : {}) });
     if (o.wet !== undefined) o.snow = Math.min(1, (o.snow || 0) + 0.12); // the storm leaves its snow on those it catches (05h_wear.js)
   });
   // the storm smothers fire: grass, crowns and logs under it stop burning

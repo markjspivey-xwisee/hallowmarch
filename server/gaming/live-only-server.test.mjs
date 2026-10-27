@@ -56,7 +56,7 @@ test('real empty server performs no tick, outbound request or save across old ti
           if (message.t !== 'saved') return;
           try { assert.equal(message.ok,false); assert.equal(message.error,'human_play_required'); }
           catch(error) { reject(error); return; }
-          socket.send(JSON.stringify({t:'slow',d:{on:room==='march'?0:1,realmManagement:1,seasonField:2,sharedScene:2,humanLive:1,humanActivity:1}}));
+          socket.send(JSON.stringify({t:'slow',d:{on:room==='march'?0:1,realmManagement:1,seasonField:2, sharedCombat: 1, actorDevelopment: 1,sharedScene:2,humanLive:1,humanActivity:1}}));
           resolve();
         });
       });

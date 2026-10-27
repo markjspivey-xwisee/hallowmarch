@@ -989,7 +989,7 @@ function castleCutUpload(C) {
   });
   towerBreachUpload(C); // [walls] the stone towers (04g_breach.js)
 }
-const sectionMaxHp = () => 16 * baseDmg(warLevel());
+const sectionMaxHp = () => 16 * baseDmg(20);
 function castleBreach(W) {
   const C = W.C, S = C.S;
   W.state = 'breach'; W.hp = 0; W.quiet = 0; W.t = 0;
@@ -1034,7 +1034,7 @@ function castleSiegeHit(src, x, z, r, mult) {
       if (d > r + W.across) continue;
       if (!W.maxHp) W.hp = W.maxHp = sectionMaxHp() * (W.hpK || 1); // [walls] a tower stands a little longer than a curtain
       if (W.kind === 'tower') TBREACH.stats.hits++;
-      const dmg = baseDmg(src ? src.level : warLevel()) * (src ? src.dmgMult || 1 : 1) * mult * (W.kind === 'timber' ? 1.25 : 0.85) * (1 - 0.5 * clamp(d / (r + W.across), 0, 1)) * (K ? seasonGateK(K.door) : 1); // [loops] the walls' tier (08n_season.js)
+      const dmg = baseDmg(src ? src.level : 1) * (src ? src.dmgMult || 1 : 1) * mult * (W.kind === 'timber' ? 1.25 : 0.85) * (1 - 0.5 * clamp(d / (r + W.across), 0, 1)) * (K ? seasonGateK(K.door) : 1); // [loops] the walls' tier (08n_season.js)
       W.hp -= dmg; W.lastHit = GAME.t;
       W.wear = clamp(1 - W.hp / W.maxHp, 0, 1);
       FX.dust(W.wx + W.wax * al, C.S.y + 1 + Math.random() * W.top * 0.6, W.wz + W.waz * al, 10, wallLit([0.45, 0.42, 0.38])); // [walls] lit as the light is (07g_walls.js)

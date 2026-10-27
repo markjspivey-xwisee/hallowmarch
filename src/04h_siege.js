@@ -259,7 +259,7 @@ function siegeCreate(kind, realm, x, z, yaw, target, work) {
       E.sl = { x: tip.x, y: tip.y - TREB_SLING, z: tip.z, px: tip.x, py: tip.y - TREB_SLING, pz: tip.z };
     }
   }
-  const ent = makeEnt({ kind: 'door', faction: realm, role: 'engine', name: `${R.name} ${spec.label}`, level: warLevel() + 2, x, z, y: E.y, radius: spec.radius });
+  const ent = makeEnt({ kind: 'door', faction: realm, role: 'engine', name: `${R.name} ${spec.label}`, level: 1, x, z, y: E.y, radius: spec.radius });
   ent.maxHp = ent.hp = DOOR_HP.keep * doorHpScale() * spec.hp;
   ent.siegeEngine = E.id;
   E.ent = ent; E.lastHp = ent.hp;

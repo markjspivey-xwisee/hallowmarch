@@ -52,7 +52,7 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
   if (c.cmd === 'hello') {
     send({ t: 'hello', v: 1, token: c.token || token || undefined });
     S.me = { x: c.x || 0, z: c.z || 0 };
-    S.profile = { v: 1, on: 1, realmManagement: 1, seasonField: 2, sharedScene: 2, warbandOrders: 1, humanLive: c.human === true ? 1 : 0, humanActivity: c.human === true ? 1 : 0,
+    S.profile = { v: 1, on: 1, realmManagement: 1, seasonField: 2, sharedCombat: 1, actorDevelopment: 1, sharedScene: 2, warbandOrders: 1, humanLive: c.human === true ? 1 : 0, humanActivity: c.human === true ? 1 : 0,
       since: 0, n: c.name || 'Bot', dn: c.name || 'Bot', r: c.realm ?? 1, c: c.cls || 'warrior', l: c.level || 30, rr: 1 };
     setTimeout(() => {
       send({ t: 'slow', d: { ...S.profile } });

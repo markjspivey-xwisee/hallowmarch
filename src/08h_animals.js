@@ -131,10 +131,10 @@ function anSpawn(rec, x, z, yaw = Math.random() * TAU) {
   return e;
 }
 function anStats(e) {
-  const rec = e.tame, K = AKIND[rec.k], P = GAME.player;
+  const rec = e.tame, K = AKIND[rec.k];
   const g = anGrowth(rec);
   if (e.mobType) {
-    e.level = clamp((P ? P.level : 1) - 2 + Math.min(4, Math.floor((rec.lvl - 1) / 2)), 1, LEVEL_CAP);
+    e.level = clamp(rec.lvl, 1, LEVEL_CAP);
     // a hungry hound fights weaker
     e.tweak = { hp: (0.85 + 0.06 * (rec.lvl - 1)) * rec.tr.size * (0.4 + 0.6 * g), dmg: (0.8 + 0.05 * (rec.lvl - 1)) * rec.tr.strength * (0.3 + 0.7 * g) * (rec.hunger < 0.15 ? 0.7 : 1) };
     setupStats(e, true);
@@ -872,8 +872,8 @@ function anClock(e, dt) {
     if (!K.fights && rec.k !== 'hound' && sampleGrid(W.grass, e.x, e.z) > 0.4) rec.hunger = Math.min(1, rec.hunger + dt * 0.004);
   }
   if (rec.owner === 'town') { rec.hunger = Math.max(rec.hunger, 0.55); rec.thirst = Math.max(rec.thirst, 0.55); }
-  // a hound keeps pace with you as you level
-  if (K.fights && e.mobType && GAME.player && e.level !== clamp(GAME.player.level - 2 + Math.min(4, Math.floor((rec.lvl - 1) / 2)), 1, LEVEL_CAP)) anStats(e);
+  // A companion's own saved experience sets its combat level, independently of its owner.
+  if (K.fights && e.mobType && e.level !== clamp(rec.lvl, 1, LEVEL_CAP)) anStats(e);
   const hungry = rec.hunger < 0.15;
   if (hungry !== !!rec._hungry) {
     rec._hungry = hungry;

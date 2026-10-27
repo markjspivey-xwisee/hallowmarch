@@ -29,7 +29,7 @@ function routing() {
   vm.runInContext(roomNeedsWarbandOrders+'\n'+endSession+'\n'+onMsg+'\nglobalThis.H={onMsg,endHumanSession};',context);
   return {owner,room,sent,writes,sceneLeaves,gate,send:m=>context.H.onMsg(owner,JSON.stringify(m)),advance:ms=>{now+=ms;}};
 }
-const live=n=>({t:'slow',d:{on:1,humanLive:1,humanActivity:n,realmManagement:1,seasonField:2,r:0}});
+const live=n=>({t:'slow',d:{on:1,humanLive:1,humanActivity:n,realmManagement:1,seasonField:2, sharedCombat: 1, actorDevelopment: 1,r:0}});
 test('actual routing accepts one departing save after withdrawal without reopening its human lease',()=>{
   const f=routing();
   f.send({t:'save',final:1,d:{v:1,char:{xp:1}}});

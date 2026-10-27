@@ -31,7 +31,7 @@ test('canonical field armies ignore diagnostic keepers and refuse their reports'
   const rooms = new Map(), sent = [];
   function keeper(peer, diagnostic) {
     const room = { diagnostic, clients: new Map(), regions: { frontier: peer } };
-    const c = { peer, room, realm: 0, region: 'frontier', slow: { on: 1, realmManagement: 1, seasonField: 2 }, pos: { x: 0, z: 0 }, ws: { readyState: 1 } };
+    const c = { peer, room, realm: 0, region: 'frontier', slow: { on: 1, realmManagement: 1, seasonField: 2, sharedCombat: 1, actorDevelopment: 1 }, pos: { x: 0, z: 0 }, ws: { readyState: 1 } };
     room.clients.set(peer, c); rooms.set(peer, room); return c;
   }
   const diagnostic = keeper('diagnostic', true), ordinary = keeper('ordinary', false);
@@ -82,7 +82,7 @@ async function localServer(t) {
 
 test('real server separates QA presence, chat, season writes and captures without erasing historical records', async t => {
   const f = await localServer(t), ordinary = await f.connect('march'), welcome = await ordinary.receive('welcome');
-  const profile = (name, w) => ({ t: 'slow', d: { r: 0, on: 1, realmManagement: 1, seasonField: 2, n: name, dn: name, c: 'warrior', l: 3, rr: 0, ...(w ? { w } : {}) } });
+  const profile = (name, w) => ({ t: 'slow', d: { r: 0, on: 1, realmManagement: 1, seasonField: 2, sharedCombat: 1, actorDevelopment: 1, n: name, dn: name, c: 'warrior', l: 3, rr: 0, ...(w ? { w } : {}) } });
   ordinary.send({ ...profile('Native QA fan'), d: { ...profile('Native QA fan').d, humanLive: 1, humanActivity: 1 } });
   const first = await ordinary.receive('season'); assert(first.roster.list.some(x => x.n === 'Native QA fan'));
   assert(first.roster.list.some(x => x.n === f.historical.historical.name), 'Display names never classify diagnostic participation');

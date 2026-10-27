@@ -609,7 +609,7 @@ function drawTargetAndMarks() {
   }
   for (let i = AOE_MARKS.length - 1; i >= 0; i--) {
     const m = AOE_MARKS[i];
-    if (m.until < GAME.t) { AOE_MARKS.splice(i, 1); continue; }
+    if (!aoeMarkAlive(m)) { AOE_MARKS.splice(i, 1); continue; }
     decalAdd(m.x, m.z, m.r, 2);
   }
 }
@@ -861,7 +861,7 @@ window.__hm = {
     for (let i = 0; i < n; i++) {
       try { simStep(dt); } catch (err) { reportError(err); }
       U.uTime.value += dt;
-      for (let j = AOE_MARKS.length - 1; j >= 0; j--) if (AOE_MARKS[j].until < GAME.t) AOE_MARKS.splice(j, 1);
+      for (let j = AOE_MARKS.length - 1; j >= 0; j--) if (!aoeMarkAlive(AOE_MARKS[j])) AOE_MARKS.splice(j, 1);
     }
     return warSummary();
   },

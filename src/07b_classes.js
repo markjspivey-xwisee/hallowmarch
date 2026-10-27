@@ -368,7 +368,8 @@ function steamPuff(x, y, z, n = 6) {
 // a cloud of steam: blinds the foes in it, soaks everyone, scalds a little
 function steamAt(x, z, r, src, dur = 5) {
   if (CLS.steam.length >= 8) CLS.steam.shift();
-  CLS.steam.push({ x, z, r, until: GAME.t + dur, t0: GAME.t, src: src ? src.id : null, faction: src ? src.faction : 4, tick: 0 });
+  CLS.steam.push({ x, z, r, until: GAME.t + dur, t0: GAME.t, src: src ? src.id : null, faction: src ? src.faction : 4, tick: 0,
+    netFieldActor: typeof netEntitySourceStamp === 'function' ? netEntitySourceStamp(src) : null });
   CLS.stats.steam++;
   // the burst itself: a white bloom of steam rolling up and out
   steamPuff(x, heightAt(x, z) + 0.6, z, 26);
@@ -385,6 +386,14 @@ function steamAt(x, z, r, src, dur = 5) {
     lightFlash(x, y + 1.2, z, 9, [2.0, 2.1, 2.3], 0.32);
   }
   classSfx('steam', x, z);
+}
+function classFieldAreaRun(kind, field, radius, run) {
+  if (typeof netCombatFieldAreaRun === 'function') return netCombatFieldAreaRun(kind, field, radius, run);
+  return run();
+}
+function classFieldSource(field, fallback) {
+  const actor = typeof netEntitySourceRead === 'function' && netEntitySourceRead(field.netFieldActor);
+  return actor ? { ...fallback, name: actor.name, kind: actor.kind, cls: actor.cls, role: actor.role } : fallback;
 }
 
 /* ---- the shield: a raised guard and the parry ---- */
@@ -600,9 +609,9 @@ function mageView(e, cs, A, t, cast) {
   if (A.id === 'ward') { view().custom = elementWard; V.elem = el; }
   if (A.id === 'blink') { view().custom = elementBlink; V.elem = el; }
   if (A.id === 'chain') { view().custom = stormChain; V.extra = att >= 60 ? 1 : 0; }
-  if (A.id === 'frost' || A.id === 'blizzard') { const gx = t ? t.x : cast ? cast.gx : e.x, gz = t ? t.z : cast ? cast.gz : e.z; later(A.id === 'frost' ? 0.6 : 0.5, () => frostLands(gx, gz, A.id === 'frost' ? 3.5 : A.radius + 1, e)); }
-  if (A.id === 'blizzard' && realmFlavour(e) && e.faction === 2) { const gx = t ? t.x : cast ? cast.gx : e.x, gz = t ? t.z : cast ? cast.gz : e.z; later(A.ticks + 0.6, () => layRune(e, gx, gz, 'frost')); }
-  if (A.id === 'meteor' || A.id === 'firebolt') { const gx = t ? t.x : cast ? cast.gx : e.x, gz = t ? t.z : cast ? cast.gz : e.z; later(A.id === 'meteor' ? 1.0 : 0.6, () => fireMeetsIce(gx, gz, A.id === 'meteor' ? A.radius : 1.5, e)); }
+  if (A.id === 'frost' || A.id === 'blizzard') { const { x: gx, z: gz } = abilityGroundPoint(e, A, t, cast); later(A.id === 'frost' ? 0.6 : 0.5, () => frostLands(gx, gz, A.id === 'frost' ? 3.5 : A.radius + 1, e)); }
+  if (A.id === 'blizzard' && realmFlavour(e) && e.faction === 2) { const { x: gx, z: gz } = abilityGroundPoint(e, A, t, cast); later(A.ticks + 0.6, () => layRune(e, gx, gz, 'frost')); }
+  if (A.id === 'meteor' || A.id === 'firebolt') { const { x: gx, z: gz } = abilityGroundPoint(e, A, t, cast); later(A.id === 'meteor' ? 1.0 : 0.6, () => fireMeetsIce(gx, gz, A.id === 'meteor' ? A.radius : 1.5, e)); }
   attune(e, el, 22);
   if (e === GAME.player && att < 60 && cs.att[el] >= 60) classCue('attuned:' + el);
   return V || A;
@@ -803,6 +812,7 @@ function layRune(e, x, z, el) {
   const mine = CLS.runes.filter((q) => q.src === e.id);
   if (mine.length >= 3) runeEnd(mine[0]);
   const R = { x, z, el, src: e.id, faction: e.faction, level: e.level, t0: GAME.t, armAt: GAME.t + 0.8, until: GAME.t + 30, disc: null };
+  if (typeof netEntitySourceStamp === 'function') R.netFieldActor = netEntitySourceStamp(e);
   R.cut = spellDisc(x, z, 2.2, DISC_KIND.runecut, 30, [1, 1, 1], 0.04); // [balance] the dark cut of the strokes, under the glow
   R.disc = spellDisc(x, z, 2.2, DISC_KIND.rune, 30, ELEM_COL[el]);
   if (R.cut) R.cut.owner = R; if (R.disc) R.disc.owner = R; // [balance] (05j_classfx.js lays them again if they go)
@@ -813,17 +823,17 @@ function layRune(e, x, z, el) {
 }
 function runeEnd(R) { R.dead = true; for (const d of [R.disc, R.cut]) if (d && d.on && d.owner === R) d.age = Math.max(d.age, d.dur - 0.4); CLS.runes.splice(CLS.runes.indexOf(R), 1); }
 function runeBurst(R) {
-  const src = getEnt(R.src) || { id: R.src, level: R.level, dmgMult: 1, faction: R.faction, buffs: [], role: 'none', scale: 1, alive: false, cls: 'mage', x: R.x, z: R.z, y: heightAt(R.x, R.z) };
+  const src = getEnt(R.src) || classFieldSource(R, { id: R.src, level: R.level, dmgMult: 1, faction: R.faction, buffs: [], role: 'none', scale: 1, alive: false, cls: 'mage', x: R.x, z: R.z, y: heightAt(R.x, R.z) });
   const y = heightAt(R.x, R.z);
   spellDisc(R.x, R.z, 5, DISC_KIND.shock, 0.6, ELEM_COL[R.el]);
   FX.burst(R.x, y + 0.5, R.z, 50, ELEM_COL[R.el], 6, 0.6, 0.18, R.el === 'fire' ? -1 : 4);
   lightFlash(R.x, y + 1.5, R.z, 14, ELEM_COL[R.el], 0.4);
-  forNear(R.x, R.z, 5, (o) => {
+  classFieldAreaRun('runes', R, 5, () => forNear(R.x, R.z, 5, (o) => {
     if (!o.alive || !isActor(o) || !(o.faction !== R.faction && o.faction !== FACTION_NEUTRAL) || o.flying) return;
     const r = computeDamage(src, o, 1.3 * rankMult(R.level));
     dealDamage(src, o, r.d, { crit: r.crit, kind: R.el === 'fire' ? 'fire' : R.el === 'frost' ? 'frost' : 'shock', chill: R.el === 'frost' ? 1 : 0 });
     if (o.alive && R.el === 'frost') addBuff(o, 'root', 1, 2, R.src, frostRootExtra(src)); // [balance3] frost holds
-  });
+  }));
   if (R.el === 'fire') fireLandsAt(R.x, y, R.z, 2.5, src); // [depth] the caster
   if (R.el === 'frost') frostLands(R.x, R.z, 5, src);
   classSfx('runeburst', R.x, R.z);
@@ -1090,6 +1100,7 @@ function consecrate(e, A, t, cast, rk) {
   const x = e.x, z = e.z, r = 6.5;
   if (CLS.grounds.length >= 6) CLS.grounds.shift();
   const G = { x, z, r, src: e.id, faction: e.faction, realm: realmFlavour(e) ? e.faction : -1, level: e.level, t0: GAME.t, until: GAME.t + 12, tick: 0.3, rk, sanct: sanctified(e) };
+  if (typeof netEntitySourceStamp === 'function') G.netFieldActor = netEntitySourceStamp(e);
   CLS.grounds.push(G);
   CLS.stats.consecrated++;
   G.disc = spellDisc(x, z, r, DISC_KIND.consecrate, 12.3, G.realm === 2 ? [2.2, 1.3, 0.6] : G.realm === 1 ? [1.2, 1.9, 1.0] : [1.9, 1.6, 0.9]);
@@ -1134,8 +1145,8 @@ function stepGrounds(dt) {
     G.tick -= dt;
     if (G.tick > 0) continue;
     G.tick = 1;
-    const src = getEnt(G.src) || { id: G.src, level: G.level, dmgMult: 0.85, faction: G.faction, buffs: [], role: 'none', scale: 1, alive: false, cls: 'priest' };
-    forNear(G.x, G.z, G.r, (o) => {
+    const src = getEnt(G.src) || classFieldSource(G, { id: G.src, level: G.level, dmgMult: 0.85, faction: G.faction, buffs: [], role: 'none', scale: 1, alive: false, cls: 'priest' });
+    classFieldAreaRun('grounds', G, G.r, () => forNear(G.x, G.z, G.r, (o) => {
       if (!o.alive || !isActor(o) || dist2(o.x, o.z, G.x, G.z) > G.r * G.r || o.flying) return;
       if (o.faction === G.faction) {
         healEnt(src, o, o.maxHp * 0.03 * (G.realm === 1 ? 1.5 : 1) * (G.sanct ? 1.15 : 1), true);
@@ -1149,7 +1160,7 @@ function stepGrounds(dt) {
           if (dead && o.alive) addBuff(o, 'snare', 0.3, 1.2, G.src);
         }
       }
-    });
+    }));
     if (dist2(G.x, G.z, camera.position.x, camera.position.z) < 80 * 80) for (let k = 0; k < 12; k++) { const a = Math.random() * TAU, rr = Math.sqrt(Math.random()) * G.r, x = G.x + Math.cos(a) * rr, z = G.z + Math.sin(a) * rr; fxAdd.emit(x, heightAt(x, z) + 0.1, z, 0, 0.7 + Math.random() * 0.8, 0, 1.4 + Math.random(), 1.9, 1.6, 0.8, 0.1, -0.25, 0.3); }
   }
 }
@@ -1459,11 +1470,11 @@ function updateClasses(dt) {
     if (S.tick > 0) continue;
     S.tick = 0.5;
     const src = getEnt(S.src);
-    forNear(S.x, S.z, S.r, (o) => {
+    classFieldAreaRun('steam', S, S.r, () => forNear(S.x, S.z, S.r, (o) => {
       if (!o.alive || !isActor(o)) return;
       o.wet = Math.max(o.wet || 0, 0.65);
       if (o.faction !== S.faction && o.faction !== FACTION_NEUTRAL) { addBuff(o, 'blind', 1, 1.2, 'steam'); if (src) { const r = computeDamage(src, o, 0.08); dealDamage(src, o, r.d, { kind: 'aoe', dot: true }); } }
-    });
+    }));
   }
   // ice sheets melt (faster in the sun and near fire), and whoever stands on one at the end drops into the water
   for (let i = CLS.ice.length - 1; i >= 0; i--) {

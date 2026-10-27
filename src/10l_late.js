@@ -244,11 +244,10 @@ function late2RiseK(camp) {
 }
 // risen now (`l2on`: set when the camp is taken over, which waits while you stand in it: late2Rescale)
 const late2Risen = (camp) => late2RiseK(camp) >= 0 && !!camp.l2on;
-// a camp's band of levels: [lowest, highest, the champion's step above the highest] (spawnMob, 08_ai.js)
+// New creatures begin together; world development unlocks encounter types, not combat levels.
 function late2Band(camp) {
-  if (!late2Risen(camp)) return [camp.lmin, camp.lmax, 1];
-  const w = warLevel(), k = late2RiseK(camp);
-  return [w - 4 + k, w - 1 + k, 2];
+  void camp;
+  return [1, 1, 0];
 }
 function late2RisenName(camp) { const L = LATE2_RISEN_NAMES[camp.type] || ['the Risen']; return L[camp.id % L.length]; }
 // every body a camp spawns (spawnMob, 08_ai.js): its place in the band, and a risen champion's name and might
@@ -294,19 +293,17 @@ function late2Rescale() {
       c.l2on = on; late2Retake(c); if (on) rose++; continue;
     }
     if (!on) continue;
-    const B = late2Band(c);
     for (const id of c.members) {
       const e = getEnt(id);
       if (!e || !e.alive) continue;
-      const lv = e.elite ? B[1] + B[2] : clamp(B[0] + (e.l2off || 0), B[0], B[1]);
-      if (lv !== e.level) { e.level = lv; setupStats(e, true); }
+      if (typeof worldActorDevelop === 'function') worldActorDevelop(e);
     }
   }
   // told once, as it happens (a level gained, not a character loaded at 40 and more)
-  if (rose && P && GAME.started && GAME.prog && GAME.prog.level === LATE2_RISE_AT && !LATE2.toldRise) {
+  if (rose && P && GAME.started && GAME.prog && !LATE2.toldRise) {
     LATE2.toldRise = true;
     uiToast('The farthest borderland camps have risen to meet you.', 'quest');
-    uiLog(`Risen champions now hold the three farthest borderland camps of every homeland, and keep pace with you: the best spoils of the wilds. The Chronicle's Deeds page names them.`, 'level');
+    uiLog(`The March's development has opened risen encounters in the farthest borderland camps. Each creature grows through its own experience. The Chronicle's Deeds page names them.`, 'level');
   }
 }
 // a sound from where it happens: audio2's placed sound (11c_sound.js: it fades, pans and muffles by itself; `alt`, the
@@ -315,6 +312,7 @@ function late2Snd(name, e, h = null, o = null, alt = null) { void alt; sfxAtE(na
 function late2SndAt(name, x, y, z, alt = null) { void alt; sfxAt(name, x, y, z); }
 // a risen champion in a fight (thinkMob, 08_ai.js): true while it is busy with its own work
 function late2ChampThink(e, t, dt) {
+  if (!(e.level >= LATE2_RISE_AT)) return false;
   const ai = e.ai, now = GAME.t;
   let S = ai.l2;
   const gap = S ? now - S.last : 0;
@@ -350,7 +348,7 @@ function late2ChampThink(e, t, dt) {
   }
   const M = MOBS[e.mobType] || {}, ranged = !!M.ranged, d = dist(e.x, e.z, t.x, t.z);
   if (now > S.next2 && Math.abs((t.y || 0) - (e.y || 0)) < 3 && late2KindMove(e, t, d)) S.next2 = now + 13 + Math.random() * 4; // each kind its own way
-  if (S.next3 && now > S.next3 && now > S.next2 - 11 && Math.abs((t.y || 0) - (e.y || 0)) < 3 && !e.motion && late4Second(e, t, d)) { S.next3 = now + (S.enr ? 9 : 12) + Math.random() * 3; S.next = Math.max(S.next, now + 3); } // [late4] and from the rally a second way of its kind, on a clock of its own (10o_late4.js)
+  if (S.next3 && now > S.next3 && now > S.next2 - 11 && Math.abs((t.y || 0) - (e.y || 0)) < 3 && !e.motion && late4Second(e, t, d)) { S.next3 = now + (S.enr ? 9 : 12) + Math.random() * 3; S.next = Math.max(S.next, now + 3); return true; } // [late4] and from the rally a second way of its kind, on a clock of its own (10o_late4.js)
   if (now < S.next) return false;
   if (ranged ? d > 26 : d > 5.2) return false;
   if (Math.abs((t.y || 0) - (e.y || 0)) > 3) return false; // not at one up on a wall or a rock
@@ -711,7 +709,7 @@ function updateLate2(dt) {
   if ((W.camps = (W.camps || 0) - 0.25) <= 0) { W.camps = 5; if (CAMPS.some((c) => late2RiseK(c) >= 0 && !!c.l2on !== (warLevel() >= LATE2_RISE_AT))) late2Rescale(); }
   if ((L2STD.tick = (L2STD.tick || 0) - 0.25) <= 0) { L2STD.tick = 1; late2StdStep(); late2Hail(P); }
   // near a risen camp (the field note's watch)
-  W.near = prog.level >= LATE2_RISE_AT && CAMPS.some((c) => late2Risen(c) && dist2(P.x, P.z, c.x, c.z) < 110 * 110);
+  W.near = warLevel() >= LATE2_RISE_AT && CAMPS.some((c) => late2Risen(c) && dist2(P.x, P.z, c.x, c.z) < 110 * 110);
 }
 
 // the risen camps on the world map past 40, before the names are laid out round them (drawWorldMap, 10_ui.js)
@@ -723,7 +721,7 @@ function late2MapMarks(ctx, S, MK) {
     ctx.fillStyle = REALMS[P.faction].color; ctx.beginPath(); ctx.moveTo(x, y - h); ctx.lineTo(x + h * 0.75, y - h * 0.78); ctx.lineTo(x, y - h * 0.56); ctx.closePath(); ctx.fill(); ctx.stroke();
     MK.push([x + h * 0.3, y - h * 0.6, h * 0.7]);
   }
-  if (!GAME.prog || GAME.prog.level < LATE2_RISE_AT) return;
+  if (!GAME.prog || warLevel() < LATE2_RISE_AT) return;
   late4MapMarks(ctx, S, MK); // [late4] the roaming hosts where they walk (10o_late4.js)
   for (const c of CAMPS) {
     if (!late2Risen(c)) continue;
@@ -742,7 +740,7 @@ function late2MapMarks(ctx, S, MK) {
 /* ------------------------------------------------------------------ */
 // the nearest risen champion standing, your own homeland's first
 function late2RisenMark(P) {
-  if (!GAME.prog || GAME.prog.level < LATE2_RISE_AT) return null;
+  if (!GAME.prog || warLevel() < LATE2_RISE_AT) return null;
   const R = REALMS[P.faction];
   const list = CAMPS.filter((c) => late2Risen(c)).map((c) => getEnt(c.eliteId)).filter((e) => e && e.alive);
   const own = list.filter((e) => CAMPS[e.camp] && CAMPS[e.camp].realm === P.faction);

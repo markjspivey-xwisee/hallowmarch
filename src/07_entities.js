@@ -150,8 +150,17 @@ function setupStats(e, keepRatio = false) {
 /* buffs                                                               */
 /* ------------------------------------------------------------------ */
 function addBuff(e, kind, value, dur, src = null, extra = null) {
-  const hostile = typeof realmManualHostileBuff === 'function' && realmManualHostileBuff(kind), source = hostile ? getEnt(src) : null;
-  if (hostile && typeof realmManualCeasefire === 'function' && realmManualCeasefire(source, e))
+  const hostile = typeof realmManualHostileBuff === 'function' && realmManualHostileBuff(kind);
+  const liveSource = hostile ? getEnt(src) : null;
+  const remembered = hostile && typeof netEntitySourceRead === 'function' ? netEntitySourceRead(extra?.sourceActor) : null;
+  const source = liveSource || remembered;
+  if (hostile && (source || extra?.sourceActor != null)) {
+    extra = { ...(extra || {}) };
+    const actor = typeof netEntitySourceStamp === 'function' ? netEntitySourceStamp(source) : null;
+    if (actor) extra.sourceActor = actor; else delete extra.sourceActor;
+  }
+  const treatySource = !liveSource && extra?.sourceFaction === -2 ? { faction: -2, role: 'bot' } : source;
+  if (hostile && typeof realmManualCeasefire === 'function' && realmManualCeasefire(treatySource, e))
     return { kind, value: 0, until: GAME.t, src, tick: GAME.t };
   if (typeof netEntityBuff === 'function' && netEntityBuff(e, kind, value, dur, src, extra)) return { kind, value, until: GAME.t + dur, src, tick: GAME.t };
   if (e.role === 'remote') return netOutBuff(e, kind, value, dur, src, extra); // [net] told to its own page, which lays it (14n_net.js)
@@ -162,11 +171,13 @@ function addBuff(e, kind, value, dur, src = null, extra = null) {
   if (b) { b.value = kind === 'shield' ? value : Math.max(b.value, value); b.until = now + dur; if (extra) Object.assign(b, extra); }
   else { b = { kind, value, until: now + dur, src, tick: now, ...(extra || {}) }; e.buffs.push(b); }
   if (hostile) {
-    // A bounded faction survives source removal and keeper handoff without retaining an actor identity.
-    if (source?.role === 'bot') b.sourceFaction = -2;
+    // Keep bounded identity and faction after an accepted effect outlives its caster.
+    if (source?.role === 'bot' || source?.bot || !liveSource && extra?.sourceFaction === -2) b.sourceFaction = -2;
     else if (Number.isInteger(source?.faction) && source.faction >= 0 && source.faction <= 31) b.sourceFaction = source.faction;
+    else if (Number.isInteger(extra?.sourceFaction) && extra.sourceFaction >= -2 && extra.sourceFaction <= 31 && extra.sourceFaction !== -1) b.sourceFaction = extra.sourceFaction;
     else if (src == null || src === e.id) b.sourceFaction = e.faction;
-    else if (!Number.isInteger(b.sourceFaction)) b.sourceFaction = -1;
+    else if (!Number.isInteger(b.sourceFaction) || b.sourceFaction < -2 || b.sourceFaction > 31) b.sourceFaction = -1;
+    if (typeof netEntitySourceRead === 'function' && !netEntitySourceRead(b.sourceActor)) delete b.sourceActor;
   }
   if (kind === 'stun') ladderOnStun(e, src); // [keeps] a stun knocks a climber off its ladder (04m_ladders.js)
   return b;
@@ -196,13 +207,16 @@ function tickBuffs(e, dt) {
     if (b.kind === 'hot' || b.kind === 'dot' || b.kind === 'burn' || b.kind === 'bleed') { // [classes] bleeding wounds tick too
       while (b.tick + 1 <= now && b.tick + 1 <= b.until + 0.01) {
         b.tick += 1;
-        const liveSource = getEnt(b.src), src = liveSource || e;
+        const liveSource = getEnt(b.src);
+        const remembered = typeof netEntitySourceRead === 'function' ? netEntitySourceRead(b.sourceActor) : null;
+        const src = liveSource || (remembered && b.sourceFaction === -2 ? { ...remembered, role: 'bot' } : remembered) || e;
         if (b.kind === 'hot') healEnt(src, e, b.value, true);
         else if (e.alive) {
           const knownFaction = Number.isInteger(b.sourceFaction) && b.sourceFaction >= -2 && b.sourceFaction <= 31 && b.sourceFaction !== -1;
-          const treatySource = liveSource || (knownFaction ? { faction: b.sourceFaction, role: b.sourceFaction === -2 ? 'bot' : 'none' } : null);
+          const treatySource = liveSource || (b.sourceFaction === -2 ? { faction: -2, role: 'bot' } : remembered)
+            || (knownFaction ? { faction: b.sourceFaction, role: 'none' } : null);
           const stopped = typeof realmManualCeasefire === 'function' && realmManualCeasefire(treatySource, e)
-            || !liveSource && !knownFaction && typeof realmManualLegacyDotBlocked === 'function' && realmManualLegacyDotBlocked(e);
+            || !liveSource && !remembered && !knownFaction && typeof realmManualLegacyDotBlocked === 'function' && realmManualLegacyDotBlocked(e);
           // Legacy unattributed damage cannot be assigned an enemy realm. While a
           // recipient has a manual treaty, fail closed until that old effect expires.
           if (!stopped) dealDamage(src, e, b.value, { dot: true });
@@ -320,6 +334,7 @@ function killEnt(e, killer) {
   e.alive = false;
   e.hp = 0;
   e.deadAt = GAME.t;
+  if (typeof worldActorExperience === 'function') worldActorExperience(killer, e);
   e.casting = null;
   e.target = null;
   e.buffs.length = 0;
@@ -476,6 +491,11 @@ function updateMotion(e, dt) {
   if (m.kind === 'ladder') return towerLadderStep(e, m, dt); // [land] up or down a tower's ladder (04l_towers.js)
   if (m.rush) return chargeRushStep(e, m, dt); // [balance4] a Charge's rush along the ground (07c_balance4.js)
   m.t += dt;
+  if (m.kind === 'windup') {
+    e.y = groundY(e); e.onGround = true; e.vy = 0;
+    if (m.t >= m.dur) e.motion = null;
+    return true;
+  }
   const k = clamp(m.t / m.dur, 0, 1);
   if (m.kind === 'spin') {
     e.yaw += m.rate * dt;
@@ -522,6 +542,17 @@ function resolveTarget(e, A, target) {
   if (A.friendly) return target && target.alive && !isEnemy(e, target) && isActor(target) && target.faction === e.faction ? target : e;
   return target;
 }
+function abilityGroundPoint(e, A, target, cast) {
+  // A ground cast commits to the place it warned about, rather than following
+  // the target to a new place when its wind-up finishes.
+  if (A.ground && Number.isFinite(cast?.gx) && Number.isFinite(cast?.gz)) return { x: cast.gx, z: cast.gz };
+  return { x: target ? target.x : e.x, z: target ? target.z : e.z };
+}
+function abilityAreaMark(e, A, x, z, duration, cast = null) {
+  const mark = cast && AOE_MARKS.find(m => m.cast === cast && m.caster === e.id);
+  if (mark) { mark.x = x; mark.z = z; mark.r = A.radius; mark.until = GAME.t + duration; mark.cast = null; return mark; }
+  return aoeMarker(x, z, A.radius, duration, e.faction);
+}
 function canUse(e, id, target, ignoreCd = false) {
   const A = ABILITIES[id];
   if (!A) return 'unknown';
@@ -554,6 +585,10 @@ function useAbility(e, id, target) {
   if (t && t !== e) faceToward(e, t.x, t.z);
   if (A.cast > 0) {
     e.casting = { id, t: 0, total: A.cast, targetId: t ? t.id : null, gx: t ? t.x : e.x, gz: t ? t.z : e.z };
+    if (A.ground && A.radius > 0) {
+      const mark = aoeMarker(e.casting.gx, e.casting.gz, A.radius, A.cast + 0.05, e.faction);
+      mark.caster = e.id; mark.cast = e.casting;
+    }
     steadyCast(e); // [balance6] a priest's guard against breaking goes to the spell it begins next, only while STEADY_NEXT is on (tried and set aside: it does nothing now; 07c_balance6.js)
     sfxAtE('cast', e); // [audio2] placed (11c_sound.js)
     return true;
@@ -683,7 +718,7 @@ function executeAbility(e, A, t, cast = null) {
   }
   // ground-targeted
   if (A.ground) {
-    const gx = t ? t.x : cast ? cast.gx : e.x, gz = t ? t.z : cast ? cast.gz : e.z;
+    const point = abilityGroundPoint(e, A, t, cast), gx = point.x, gz = point.z;
     if (A.id === 'volley') {
       for (let w = 0; w < A.waves; w++) {
         later(0.35 + w * 0.55, () => {
@@ -694,11 +729,11 @@ function executeAbility(e, A, t, cast = null) {
           later(0.5, () => areaDamage(e, gx, gz, A.radius, A.dmg * rk, null));
         });
       }
-      aoeMarker(gx, gz, A.radius, 2.2, e.faction); // [balance7] whose volley it is (a skilled bot steps out of a foe's: 07c_balance7.js)
+      abilityAreaMark(e, A, gx, gz, 0.35 + Math.max(0, A.waves - 1) * 0.55 + 0.5 + 0.05, cast);
     } else if (A.id === 'meteor') {
       const gy = heightAt(gx, gz);
       spawnProjectile(e, null, 'meteor', null, { x: gx, y: gy, z: gz }, true, { x: gx - 8, y: gy + 26, z: gz - 6 });
-      aoeMarker(gx, gz, A.radius, 1.2);
+      abilityAreaMark(e, A, gx, gz, 1.2, cast);
       later(0.95, () => {
         FX.burst(gx, gy + 0.5, gz, 70, [2.4, 1.0, 0.3], 9, 0.8, 0.35, 6);
         FX.ring(gx, gy + 0.3, gz, A.radius, [2.0, 0.8, 0.3], 60, 9);
@@ -720,15 +755,15 @@ function executeAbility(e, A, t, cast = null) {
       // ice falls slanting on a bitter wind; the ground in the circle frosts over
       spellDisc(gx, gz, A.radius, DISC_KIND.frost, A.ticks + 1.2, [0.5, 0.75, 1.1]);
       spellEmitter({ kind: 'blizzard', x: gx, z: gz, r: A.radius, until: GAME.t + A.ticks + 0.3, src: e });
-      aoeMarker(gx, gz, A.radius, A.ticks + 0.4);
+      abilityAreaMark(e, A, gx, gz, A.ticks + 0.4, cast);
       for (let i = 0; i < A.ticks; i++) {
         later(0.5 + i, () => {
           if (!e.alive && e.role !== 'player') return;
           forNear(gx, gz, A.radius, (o) => {
             if (!o.alive || !isEnemy(e, o) || !isActor(o)) return;
             const r = computeDamage(e, o, A.dmg * rk);
-            dealDamage(e, o, r.d, { crit: r.crit, kind: 'frost' });
-            addBuff(o, 'snare', A.snare[0], A.snare[1], e.id, { blizzard: true }); // [balance3] no Charge or Leap out of a blizzard (07c_balance3.js)
+            dealDamage(e, o, r.d, { crit: r.crit, kind: 'frost', area: { v: 1, shape: 'disc', x: gx, z: gz, r: A.radius } });
+            addBuff(o, 'snare', A.snare[0], A.snare[1], e.id, { blizzard: true, area: { v: 1, shape: 'disc', x: gx, z: gz, r: A.radius } }); // [balance3] no Charge or Leap out of a blizzard (07c_balance3.js)
           });
         });
       }
@@ -736,16 +771,17 @@ function executeAbility(e, A, t, cast = null) {
     } else if (A.id === 'pillar') {
       // a column of dawn-light comes down: the foe inside burns, friends inside are mended
       const gy = heightAt(gx, gz);
+      abilityAreaMark(e, A, gx, gz, 0.25, cast);
       spellPillar(gx, gy, gz, A.radius * 0.72, 30, 1.6, [1.9, 1.5, 0.7]);
       spellDisc(gx, gz, A.radius, DISC_KIND.holy, 2.0, [1.7, 1.3, 0.55]);
       lightFlash(gx, gy + 3, gz, 18, [2.9, 2.4, 1.2], 1.0);
       later(0.2, () => {
         FX.burst(gx, gy + 0.4, gz, 46, [2.4, 2.0, 1.0], 5, 0.7, 0.18, -1);
-        forNear(gx, gz, A.radius + 0.6, (o) => {
-          if (!o.alive || !isActor(o) || dist(gx, gz, o.x, o.z) > A.radius + o.radius) return;
+        forNear(gx, gz, A.radius, (o) => {
+          if (!o.alive || !isActor(o)) return;
           if (isEnemy(e, o)) {
             const r = computeDamage(e, o, A.dmg * rk);
-            dealDamage(e, o, r.d, { crit: r.crit, kind: 'holy' });
+            dealDamage(e, o, r.d, { crit: r.crit, kind: 'holy', area: { v: 1, shape: 'disc', x: gx, z: gz, r: A.radius } });
           } else if (o.faction === e.faction) { healEnt(e, o, o.maxHp * A.healPct * rk * (o === e && e.cls === 'priest' ? priestSelf(e) : 1)); FX.heal(o.x, o.y, o.z); } // [balance4] a priest in its own column mends as its own wounds do (it mended in full)
         });
       });
@@ -886,7 +922,7 @@ function areaDamage(src, x, z, radius, mult, extra) {
   forNear(x, z, radius, (o) => {
     if (!o.alive || !isEnemy(src, o) || !isActor(o)) return;
     const r = computeDamage(src, o, mult);
-    dealDamage(src, o, r.d, { crit: r.crit, kind: (extra && extra.kind) || 'aoe' }); // [classes] an element can ride on an area blow
+    dealDamage(src, o, r.d, { crit: r.crit, kind: (extra && extra.kind) || 'aoe', area: { v: 1, shape: 'disc', x, z, r: radius } }); // [classes] an element can ride on an area blow
   });
 }
 /* delayed actions */
@@ -898,7 +934,11 @@ function runLater() {
   }
 }
 const AOE_MARKS = [];
-function aoeMarker(x, z, r, dur, faction = null) { AOE_MARKS.push({ x, z, r, until: GAME.t + dur, faction, t0: GAME.t }); } // [balance7] faction, t0
+function aoeMarker(x, z, r, dur, faction = null) { const mark = { x, z, r, until: GAME.t + dur, faction, t0: GAME.t }; AOE_MARKS.push(mark); return mark; }
+function aoeMarkAlive(mark) {
+  const caster = mark.cast && getEnt(mark.caster);
+  return mark.cast ? !!caster?.alive && caster.casting === mark.cast : mark.until >= GAME.t;
+}
 
 /* ------------------------------------------------------------------ */
 /* auto attack                                                         */
@@ -964,6 +1004,8 @@ function spawnProjectile(src, target, kind, payload, point = null, visualOnly = 
 function updateProjectiles(dt) {
   for (let i = PROJ.length - 1; i >= 0; i--) {
     const p = PROJ[i];
+    const remaining = p.life - p.age;
+    if (!(remaining > 0)) { PROJ.splice(i, 1); continue; }
     p.age += dt;
     const t = getEnt(p.tgt);
     let tx, ty, tz;
@@ -971,9 +1013,9 @@ function updateProjectiles(dt) {
     else if (t) { tx = t.x; ty = wallsAimY(t, p.oy); tz = t.z; } // [walls] a body up behind a parapet is aimed at where it shows (07g_walls.js)
     else { PROJ.splice(i, 1); continue; }
     const dx = tx - p.x, dy = ty - p.y, dz = tz - p.z, d = Math.hypot(dx, dy, dz);
-    const step = p.speed * dt;
+    const step = p.speed * Math.min(dt, remaining);
     if (wallsProj(p, tx, ty, tz, d, step)) { PROJ.splice(i, 1); continue; } // [walls] it strikes what stands in its way (07g_walls.js)
-    if (d <= step + 0.3 || p.age > p.life) {
+    if (d <= step + 0.3) {
       PROJ.splice(i, 1);
       if (!p.visualOnly && t && t.alive) {
         const src = getEnt(p.src) || { level: 1, dmgMult: 1, faction: p.srcFaction, buffs: [], role: 'none', scale: 1, alive: false };
@@ -998,6 +1040,7 @@ function updateProjectiles(dt) {
       else if (!p.visualOnly && t) FX.sparks(tx, ty, tz);
       continue;
     }
+    if (p.age >= p.life) { PROJ.splice(i, 1); continue; }
     p.dx = dx / d; p.dy = dy / d; p.dz = dz / d;
     // [v13] over the rise or the crater's rim in its way first (wallsProj sets p.via, 07g_walls.js), then on to the mark
     if (p.via) {
@@ -1109,7 +1152,6 @@ function onLevelUp() {
   uiLog(`You have reached level ${prog.level}.`, 'level');
   if (rankUp) uiLog(`Every ability you know grows stronger: rank ${RANK_NUMERAL[abilityRank(prog.level)]}.`, 'level');
   buildHotbar();
-  if (prog.level > 20) rescaleWar();
   saveSoon();
 }
 

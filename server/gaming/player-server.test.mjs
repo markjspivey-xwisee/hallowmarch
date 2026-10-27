@@ -66,7 +66,7 @@ async function fixture(t, enabled = false, required = false) {
     const reply = await receive(replyType);
     const send = message => ws.send(JSON.stringify(message)); let humanActivity = 0;
     return { ws, receive, messages, [replyType]: reply, send, async play(profile = {}) {
-      send({ t: 'slow', d: { r: 0, on: 1, realmManagement: 1, seasonField: 2, sharedScene: 2, humanLive: 1, humanActivity: ++humanActivity, ...profile } });
+      send({ t: 'slow', d: { r: 0, on: 1, realmManagement: 1, seasonField: 2, sharedCombat: 1, actorDevelopment: 1, sharedScene: 2, humanLive: 1, humanActivity: ++humanActivity, ...profile } });
       send({ t: 'ping', c: humanActivity }); await receive('pong');
     } };
   }

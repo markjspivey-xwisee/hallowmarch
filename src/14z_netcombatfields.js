@@ -1,7 +1,7 @@
 /* Public class effects belong to the shared scene. Caster resources and held
  * actions remain private; the keeper alone advances hazards and projectiles. */
-const NET_COMBAT_FIELDS = { next: 0, ticking: false, applying: false, cooldowns: new Map(),
-  stats: { created: 0, applied: 0, commands: 0, effects: 0 } };
+const NET_COMBAT_FIELDS = { next: 0, ticking: false, applying: false, area: null, actor: null, cooldowns: new Map(),
+  stats: { created: 0, applied: 0, commands: 0, effects: 0, refusedEffects: 0 } };
 const NET_FIELD_KEYS = { arrows: 128, stuck: 60, snares: 64, grounds: 6, runes: 96, ice: 7, steam: 8 };
 const NET_FIELD_SCALARS = ['x', 'y', 'z', 'px', 'py', 'pz', 'ox', 'oy', 'oz', 'vx', 'vy', 'vz',
   'dx', 'dy', 'dz', 'yaw', 'wy', 'r', 'faction', 'realm', 'level', 'type', 'el', 'tick', 'rk', 'sanct',
@@ -15,12 +15,38 @@ function netCombatFieldId(field, prefix = 'field') {
   if (!field.netFieldId) field.netFieldId = prefix + ':' + (NETPARTS.authority || 'local').slice(0, 12) + ':' + (++NET_COMBAT_FIELDS.next);
   return field.netFieldId;
 }
+function netCombatFieldAreaRun(kind, field, radius, run) {
+  const previous = NET_COMBAT_FIELDS.area, previousActor = NET_COMBAT_FIELDS.actor;
+  if (typeof netEntitySourceStamp === 'function') field.netFieldActor = netEntitySourceStamp(getEnt(field.src)) || field.netFieldActor;
+  NET_COMBAT_FIELDS.area = netCombatFieldsActive() && NET_COMBAT_FIELDS.ticking ? {
+    v: 1, kind, id: netCombatFieldId(field), x: field.x, z: field.z, r: radius,
+  } : null;
+  NET_COMBAT_FIELDS.actor = NET_COMBAT_FIELDS.area ? field.netFieldActor || null : null;
+  try { return run(); } finally { NET_COMBAT_FIELDS.area = previous; NET_COMBAT_FIELDS.actor = previousActor; }
+}
+function netCombatFieldAreaAccept(area, player) {
+  if (!area || area.v !== 1 || !['grounds', 'steam', 'runes'].includes(area.kind)
+    || Object.keys(area).some(key => !['v', 'kind', 'id', 'x', 'z', 'r'].includes(key))
+    || typeof area.id !== 'string' || !area.id || area.id.length > 100
+    || ![area.x, area.z, area.r].every(netCombatFieldFinite) || Math.abs(area.x) > 4000 || Math.abs(area.z) > 4000
+    || area.r <= 0 || area.r > 25 || !Number.isFinite(player?.x) || !Number.isFinite(player?.z)) return false;
+  const field = CLS[area.kind].find(f => f.netFieldId === area.id && !f.dead && !f.netFieldPending);
+  if (!field || !Number.isFinite(field.until) || GAME.t >= field.until
+    || !Number.isFinite(field.x) || !Number.isFinite(field.z)
+    || Math.abs(field.x - area.x) > 0.01 || Math.abs(field.z - area.z) > 0.01
+    || (area.kind === 'runes' ? area.r !== 5 : !Number.isFinite(field.r) || Math.abs(field.r - area.r) > 0.01)
+    || (area.kind !== 'steam' && player.flying)) return false;
+  return dist2(player.x, player.z, area.x, area.z) <= area.r * area.r;
+}
 function netCombatFieldPack(field) {
   const row = { id: netCombatFieldId(field) };
   for (const key of NET_FIELD_SCALARS) if (field[key] != null && ['number', 'string', 'boolean'].includes(typeof field[key]))
     row[key] = typeof field[key] === 'number' ? Math.round(field[key] * 1000) / 1000 : field[key];
   for (const key of ['src', 'owner', 'tgt', 'caught']) if (field[key] != null) row[key] = netCombatFieldRef(getEnt(field[key]));
+  if (!row.src && typeof field.netFieldSource === 'string') row.src = field.netFieldSource;
   const source = getEnt(field.src);
+  if (typeof netEntitySourceStamp === 'function') field.netFieldActor = netEntitySourceStamp(source) || field.netFieldActor;
+  if (field.netFieldActor) row.actor = { ...field.netFieldActor };
   if (source && !Number.isFinite(row.level)) row.level = source.level;
   if (source && !Number.isFinite(row.dmgMult)) row.dmgMult = Math.round((source.dmgMult || 1) * 1000) / 1000;
   if (Number.isFinite(field.until)) row.life = Math.max(0, Math.round((field.until - GAME.t) * 100) / 100);
@@ -46,6 +72,12 @@ function netCombatFieldRead(row) {
     f[key] = row[key];
   }
   for (const key of ['src', 'owner', 'tgt', 'caught']) f[key] = netCombatFieldEnt(row[key])?.id ?? null;
+  if (typeof row.src === 'string' && row.src.length <= 100) f.netFieldSource = row.src;
+  if (row.actor != null) {
+    const actor = typeof netEntitySourceRead === 'function' && netEntitySourceRead(row.actor);
+    if (!actor) return null;
+    f.netFieldActor = netEntitySourceStamp(actor);
+  }
   if (netCombatFieldFinite(row.life)) f.until = GAME.t + Math.max(0, Math.min(120, row.life));
   if (netCombatFieldFinite(row.since)) f.t0 = GAME.t - Math.max(0, Math.min(120, row.since));
   if (netCombatFieldFinite(row.arm)) f.armAt = GAME.t + Math.max(0, Math.min(30, row.arm));
@@ -140,12 +172,27 @@ function netCombatFieldsVisual(dt) {
 function netCombatFieldSend(dst, effect) {
   if (!netCombatFieldsActive() || !NET_COMBAT_FIELDS.ticking || dst?.role !== 'remote' || !dst.netPeer) return false;
   return netEntitySend('result', { to: dst.netPeer, result: { id: NETPARTS.authority + ':field:' + (++NET_COMBAT_FIELDS.next),
-    kind: 'class-effect', ...effect } }) !== false;
+    kind: 'class-effect', ...effect, ...(NET_COMBAT_FIELDS.area ? { area: { ...NET_COMBAT_FIELDS.area } } : {}),
+    ...(NET_COMBAT_FIELDS.actor ? { sourceActor: { ...NET_COMBAT_FIELDS.actor } } : {}) } }) !== false;
 }
 function netCombatFieldResult(result) {
   if (result.kind !== 'class-effect') return false;
   const P = GAME.player; if (!P?.alive) return true;
-  const source = netCombatFieldEnt(result.source) || P;
+  if (Object.hasOwn(result, 'area') && !netCombatFieldAreaAccept(result.area, P)) {
+    NET_COMBAT_FIELDS.stats.refusedEffects++; return true;
+  }
+  const instant = result.effect === 'buff' ? result.extra : result.opts;
+  if (Object.hasOwn(instant || {}, 'area')
+    && (typeof netEntityAreaAccept !== 'function' || !netEntityAreaAccept(instant.area, P))) {
+    NET_COMBAT_FIELDS.stats.refusedEffects++; return true;
+  }
+  const field = result.area ? CLS[result.area.kind].find(f => f.netFieldId === result.area.id) : null;
+  const source = netCombatFieldEnt(result.source)
+    || (typeof netEntitySourceRead === 'function' && (netEntitySourceRead(result.sourceActor)
+      || field && (netEntitySourceRead(field.netFieldActor)
+        || netEntitySourceRead({ name: result.area.kind === 'steam' ? 'Scalding steam' : result.area.kind === 'runes' ? 'A ground rune' : 'Holy ground',
+          level: field.level, faction: field.faction, kind: 'hazard', role: 'hazard', cls: null }))));
+  if (!source) { NET_COMBAT_FIELDS.stats.refusedEffects++; return true; }
   NET_COMBAT_FIELDS.applying = true;
   try {
     if (result.effect === 'damage' && Number.isFinite(result.amount) && result.amount > 0)
@@ -155,7 +202,8 @@ function netCombatFieldResult(result) {
     else if (result.effect === 'chill' && Number.isFinite(result.amount)) addChill(P, clamp(result.amount, 0, 3), source);
     else if (result.effect === 'buff' && typeof result.buff === 'string'
       && (Object.hasOwn(NET_BUFFS, result.buff) || ['blind', 'hallowed', 'frozen'].includes(result.buff)))
-      addBuff(P, result.buff, clamp(+result.value || 0, 0, Math.max(P.maxHp, 100)), clamp(+result.dur || 0, 0, 30), source.id);
+      addBuff(P, result.buff, clamp(+result.value || 0, 0, Math.max(P.maxHp, 100)), clamp(+result.dur || 0, 0, 30), source.id,
+        { ...(result.extra || {}), sourceActor: netEntitySourceStamp(source), sourceFaction: source.faction });
   } finally { NET_COMBAT_FIELDS.applying = false; }
   NET_COMBAT_FIELDS.stats.effects++; return true;
 }
@@ -245,6 +293,8 @@ queueMicrotask(() => {
     arrow.src = e.id; arrow.faction = e.faction; arrow.vis = false; arrow.netFieldPending = false;
     // Caster scaling comes from the admitted actor, not the requesting arrow row.
     arrow.level = clamp(+e.level || 1, 1, 50); arrow.dmgMult = clamp(+e.dmgMult || 1, 0, 10);
+    arrow.netFieldActor = typeof netEntitySourceStamp === 'function' ? netEntitySourceStamp(e) : null;
+    arrow.netFieldSource = netCombatFieldRef(e);
     arrow.age = 0; arrow.mult = clamp(+arrow.mult || 1, 0.1, 3); arrow.crit = clamp(+arrow.crit || 0, 0, 0.5);
     CLS.arrows.push(arrow); return { ok: true };
   } });
@@ -275,26 +325,33 @@ queueMicrotask(() => {
   };
   dealDamage = function(src, dst, amount, opts = {}) {
     if (!NET_COMBAT_FIELDS.applying && netCombatFieldSend(dst, { effect: 'damage', amount,
-      source: netCombatFieldRef(src), opts: typeof netEntityPlain === 'function' ? netEntityPlain(opts) : {} })) return amount;
+      source: netCombatFieldRef(src), sourceActor: typeof netEntitySourceStamp === 'function' ? netEntitySourceStamp(src) : null,
+      opts: typeof netEntityPlain === 'function' ? netEntityPlain(opts) : {} })) return amount;
     return raw.dealDamage(src, dst, amount, opts);
   };
   healEnt = function(src, dst, amount, quiet = false) {
-    if (!NET_COMBAT_FIELDS.applying && netCombatFieldSend(dst, { effect: 'heal', amount, source: netCombatFieldRef(src) })) return 0;
+    if (!NET_COMBAT_FIELDS.applying && netCombatFieldSend(dst, { effect: 'heal', amount, source: netCombatFieldRef(src),
+      sourceActor: typeof netEntitySourceStamp === 'function' ? netEntitySourceStamp(src) : null })) return 0;
     return raw.healEnt(src, dst, amount, quiet);
   };
   addBuff = function(e, kind, value, dur, src = null, extra = null) {
     if (!NET_COMBAT_FIELDS.applying && netCombatFieldSend(e, { effect: 'buff', buff: kind, value, dur,
-      source: netCombatFieldRef(getEnt(src)) })) return { kind, value, until: GAME.t + dur, src, tick: GAME.t };
+      source: netCombatFieldRef(getEnt(src)), sourceActor: typeof netEntitySourceStamp === 'function' ? netEntitySourceStamp(getEnt(src)) : null,
+      extra: typeof netEntityPlain === 'function' ? netEntityPlain(extra) : null })) return { kind, value, until: GAME.t + dur, src, tick: GAME.t };
     return raw.addBuff(e, kind, value, dur, src, extra);
   };
   addChill = function(e, amount, src) {
-    if (!NET_COMBAT_FIELDS.applying && netCombatFieldSend(e, { effect: 'chill', amount, source: netCombatFieldRef(src) })) return;
+    if (!NET_COMBAT_FIELDS.applying && netCombatFieldSend(e, { effect: 'chill', amount, source: netCombatFieldRef(src),
+      sourceActor: typeof netEntitySourceStamp === 'function' ? netEntitySourceStamp(src) : null })) return;
     return raw.addChill(e, amount, src);
   };
   arrowHits = function(A, target, src) {
-    if (!src && netCombatFieldsActive() && Number.isFinite(A.level)) src = { id: A.src, level: A.level,
-      dmgMult: clamp(+A.dmgMult || 1, 0, 10), faction: A.faction, buffs: [], role: 'none', scale: 1,
-      alive: false, x: A.x, y: A.y, z: A.z };
+    if (!src && netCombatFieldsActive() && Number.isFinite(A.level)) {
+      const remembered = typeof netEntitySourceRead === 'function' && netEntitySourceRead(A.netFieldActor);
+      src = { ...(remembered || {}), id: A.src, level: A.level,
+        dmgMult: clamp(+A.dmgMult || 1, 0, 10), faction: A.faction, buffs: [], role: remembered?.role || 'none', scale: 1,
+        alive: false, x: A.x, y: A.y, z: A.z };
+    }
     return raw.arrowHits(A, target, src);
   };
   if (window.__hm) window.__hm.combatfields = { save: netCombatFieldsSave, apply: netCombatFieldsApply,

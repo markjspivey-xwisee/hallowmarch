@@ -89,6 +89,43 @@ function rsmGeo() {
 const RSM_GEO = rsmGeo();
 const rsmDist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
 
+// Development is earned by completed work, paid training and resolved combat.
+// It is independent of the season clock and every player's private level.
+function realmDevelopmentLevel(xp) {
+  let level = 1, left = Math.max(0, Math.min(1e9, Number.isFinite(xp) ? xp : 0));
+  while (level < 50) { const need = Math.round(55 * Math.pow(level, 1.55) + 40); if (left < need) break; left -= need; level++; }
+  return level;
+}
+function realmDevelopmentInit(RS, saved) {
+  if (saved === undefined && RS.development?.v === 1) return RS.development;
+  const valid = saved?.v === 1 && Array.isArray(saved.realms) && saved.realms.length === 3;
+  RS.development = { v: 1, revision: valid ? Math.floor(rsmNum(saved.revision, 0, 0, 1e12)) : 0,
+    realms: [0, 1, 2].map(r => {
+      const row = valid ? saved.realms[r] : null;
+      const sources = Object.fromEntries(['training', 'work', 'combat'].map(k => [k, rsmNum(row?.sources?.[k], 0, 0, 1e9)]));
+      return { xp: Math.min(1e9, Object.values(sources).reduce((n, x) => n + x, 0)), sources };
+    }) };
+  return RS.development;
+}
+function realmDevelopmentEarn(RS, realm, source, points) {
+  if (!RS || !Number.isInteger(realm) || realm < 0 || realm > 2
+    || !['training', 'work', 'combat'].includes(source) || !Number.isFinite(points) || points <= 0 || points > 1e5) return false;
+  const development = realmDevelopmentInit(RS), row = development.realms[realm];
+  const earned = Math.min(points, 1e9 - row.xp, 1e9 - row.sources[source]);
+  if (!(earned > 0)) return false;
+  row.sources[source] += earned; row.xp += earned; development.revision = Math.min(1e12, development.revision + 1);
+  return true;
+}
+function realmDevelopmentFed(RS, realm) {
+  const R = RS.realms[realm], M = R?.management;
+  return !!R && R.hungry <= 2 && (!M || M.needs?.bread > 0 && M.stock?.bread > 0);
+}
+function realmDevelopmentView(RS) {
+  const development = RS.development || { v: 1, revision: 0, realms: [0, 1, 2].map(() => ({ xp: 0, sources: { training: 0, work: 0, combat: 0 } })) };
+  return { v: 1, revision: development.revision, realms: development.realms.map((row, realm) =>
+    ({ realm, level: realmDevelopmentLevel(row.xp), xp: Math.floor(row.xp), sources: { ...row.sources } })) };
+}
+
 function realmSimInit(seed, opts = {}) {
   const days = rsmNum(opts.days, RSM.days, 0.01, 400);
   const homes = Array.isArray(opts.keeps) && opts.keeps.length ? opts.keeps.map((h) => rsmClamp(h | 0, 0, 2)) : [0, 0, 1, 1, 2, 2];
@@ -109,6 +146,7 @@ function realmSimInit(seed, opts = {}) {
     log: [], past: [],
     stats: { captures: 0, sieges: 0, relief: 0, raids: 0, battles: 0 },
   };
+  realmDevelopmentInit(RS, null);
   if (opts.names && Array.isArray(opts.names.realms)) RS.names.realms = opts.names.realms.slice(0, 3).map(String);
   if (opts.names && Array.isArray(opts.names.keeps)) RS.names.keeps = opts.names.keeps.slice(0, homes.length).map(String);
   RS.names.realms = RS.names.realms.map((s) => s.slice(0, 40));
@@ -225,7 +263,7 @@ function rsmEconomy(RS, r, R, hr) {
   if (RS.t >= R.levyAt) {
     R.levyAt = RS.t + RSM.levyEvery * 3600;
     const fieldN = typeof rmFieldCount === 'function' ? rmFieldCount(RS, r) : RS.armies.filter((A) => A.r === r).reduce((a, A) => a + A.n, 0);
-    if (R.lev + fieldN + (R.management?.training?.units || 0) < RSM.levyMax * (1 + 0.15 * R.proj.smithy) && rsmPay(R, RSM.levyCost)) { R.lev++; R.stats.trained++; }
+    if (R.lev + fieldN + (R.management?.training?.units || 0) < RSM.levyMax * (1 + 0.15 * R.proj.smithy) && rsmPay(R, RSM.levyCost)) { R.lev++; R.stats.trained++; if (realmDevelopmentFed(RS, r)) realmDevelopmentEarn(RS, r, 'training', 8); }
   }
   // a keep short of its garrison is sent a soldier from the levy
   if (RS.t >= R.refillAt) {
@@ -275,6 +313,7 @@ function rsmProject(RS, r, R, hr) {
   R.work = Math.max(0, R.work - hr * 4);
   if (R.prog >= 1) {
     R.prog = 0; R.proj[id]++; R.stats.made++;
+    if (realmDevelopmentFed(RS, r)) realmDevelopmentEarn(RS, r, 'work', 40);
     R.sp += id === 'walls' ? RSM.sp.tier : id === 'engines' ? RSM.sp.project / 4 : RSM.sp.project;
     let what = P.name;
     if (id === 'walls') {
@@ -455,14 +494,18 @@ function rsmSiege(RS, A, R, hr) {
   // the gate gives way to the engines and the rams
   K.gate = Math.max(0, K.gate - hr * (0.03 + 0.07 * A.eng) * (1 - 0.15 * K.tier));
   const lossA = def * 0.07 * hr * (0.8 + 0.4 * rsmRand(RS)), lossD = att * 0.05 * hr * (K.gate > 0 ? 0.5 : 1) * (0.8 + 0.4 * rsmRand(RS));
+  const actualA = Math.min(A.n, lossA), actualD = Math.min(K.g, lossD);
   A.n = Math.max(0, A.n - lossA); K.g = Math.max(0, K.g - lossD);
   R.stats.lost += lossA; D.stats.lost += lossD;
+  realmDevelopmentEarn(RS, A.r, 'combat', Math.min(actualD, 1000) * 14);
+  realmDevelopmentEarn(RS, K.h, 'combat', Math.min(actualA, 1000) * 14);
   if (K.g < 0.5) {
     const old = K.h;
     K.h = A.r; K.g = Math.min(RSM.garrison, A.n); A.n -= K.g; K.gate = Math.max(K.gate, 0.3); K.siege = null;
     // the keep's stores go with it: a share of the loser's
     for (const g of [0, 1, 2, 3]) { const take = Math.min(RS.realms[old].s[g] * 0.08, RSM.target[g] * 0.5); RS.realms[old].s[g] -= take; rsmAdd(R, g, take); }
     RS.stats.captures++; R.stats.taken++;
+    realmDevelopmentEarn(RS, A.r, 'combat', 100);
     const O = RS.offs.find((q) => q.r === A.r && q.k === A.k && q.state === 'siege');
     if (O) { O.state = 'done'; O.res = 'taken'; R.sp += RSM.sp.offensive; R.stats.won++; }
     rsmLog(RS, A.r, `${rsmKN(RS, A.k)} has fallen to ${rsmRN(RS, A.r)}${O ? ' in its offensive' : ''}, taken from ${rsmRN(RS, old)}.`, 'big');
@@ -480,11 +523,12 @@ function rsmRaid(RS, A, field) {
   const V = RS.realms[A.q], R = RS.realms[A.r];
   // the victim's own levy may catch them: the raid's worth by the numbers ([season2] or as the field decided)
   const caught = field ? field === 'caught' : rsmRand(RS) < rsmClamp(V.lev / (V.lev + A.n * 3), 0.1, 0.7);
-  if (caught) { const lost = Math.ceil(A.n * 0.5); A.n -= lost; R.stats.lost += lost; rsmLog(RS, A.q, `${rsmRN(RS, A.q)} caught ${rsmRN(RS, A.r)}'s raiders in its fields: ${lost} fell.`); }
+  if (caught) { const lost = Math.ceil(A.n * 0.5), actual = Math.min(A.n, lost); A.n -= lost; R.stats.lost += lost; realmDevelopmentEarn(RS, A.q, 'combat', Math.min(actual, 1000) * 14); rsmLog(RS, A.q, `${rsmRN(RS, A.q)} caught ${rsmRN(RS, A.r)}'s raiders in its fields: ${lost} fell.`); }
   else {
     const loot = [];
     for (const g of [0, 1, 4]) { const take = Math.min(V.s[g] * 0.12, RSM.target[g] * 0.6); V.s[g] -= take; rsmAdd(R, g, take * 0.6); if (take >= 1) loot.push(`${Math.round(take)} ${RSM_GOODS[g]}`); }
     RS.stats.raids++; R.stats.raids++;
+    realmDevelopmentEarn(RS, A.r, 'combat', loot.length * 20);
     rsmLog(RS, A.r, `${rsmRN(RS, A.r)}'s raiders burnt and carried off ${loot.join(', ') || 'little'} from ${rsmRN(RS, A.q)}'s fields and yards.`);
   }
   rsmArmyHome(RS, A, '');
@@ -611,6 +655,7 @@ function realmSimLive(RS, ev) {
     for (const A of RS.armies) if (A.state !== 'gone' && A.r === ev.holder && A.k === ev.keep && !A.onField) { const n = Math.max(0, Math.min(A.n, RSM.garrison * 1.5 - K.g)); K.g += n; A.n -= n; rsmArmyHome(RS, A, ''); }
     RS.armies = RS.armies.filter((A) => A.state !== 'gone');
     RS.stats.captures++;
+    realmDevelopmentEarn(RS, ev.holder, 'combat', 100);
     rsmLog(RS, ev.holder, `${rsmKN(RS, ev.keep)} has fallen to ${rsmRN(RS, ev.holder)} in the field, taken from ${rsmRN(RS, old)}.`, 'big');
   } else if (ev.type === 'battle' && ev.winner >= 0 && ev.winner < 3) {
     if (RS.phase === 'reckon') return;
@@ -635,6 +680,7 @@ function realmSimSummary(RS, realm, since = -1) {
   for (const L of news.slice(-8)) lines.push(L.x);
   return {
     n: RS.n, phase: RS.phase, day: Math.floor(RS.t / rsmDay) + 1, days: Math.round(RS.len / rsmDay),
+    development: realmDevelopmentView(RS),
     clock: RS.phase === 'muster' ? `war in ${rsmDur(toWar)}` : RS.phase === 'war' ? `reckoning in ${rsmDur(toReckon)}` : `next season in ${rsmDur(RS.len - RS.t)}`,
     sp: RS.realms.map((q) => Math.round(q.sp)), place: order.indexOf(realm | 0) + 1, lead: order[0],
     stores: RSM_GOODS.map((g, i) => ({ g, v: Math.round(R.s[i]), fill: R.s[i] / RSM.target[i] })),
@@ -652,6 +698,8 @@ function realmSimSanitize(o, opts = {}) {
   base.log = [];
   const RS = base;
   RS.rs = (o.rs | 0) || 1; RS.n = rsmNum(o.n, 1, 1, 1e6) | 0; RS.t = rsmNum(o.t, 0, 0, RS.len); RS.t0 = rsmNum(o.t0, 0, 0, 1e14);
+  realmDevelopmentInit(RS, o.development || null);
+  if (!Object.hasOwn(o, 'development')) delete RS.development;
   RS.phase = rsmPhaseOf(RS); RS.winner = Number.isInteger(o.winner) && o.winner >= 0 && o.winner < 3 ? o.winner : null;
   o.realms.forEach((q, r) => {
     if (!q || typeof q !== 'object') return;
@@ -776,4 +824,4 @@ function realmSimFieldReport(RS, id, rep, who) {
 
 /* global module */
 // Node: export the contract (the page concatenates this file into one module; there `module` is undefined)
-if (typeof module !== 'undefined' && module && module.exports) module.exports = { RSM, RSM_V, RSM_GOODS, RSM_PROJ, RSM_GEO, realmSimFieldTake, realmSimFieldReport, realmSimFieldFold, realmSimInit, realmSimStep, realmSimContribute, realmSimOrder, realmSimSummary, realmSimSanitize, realmSimLive };
+if (typeof module !== 'undefined' && module && module.exports) module.exports = { RSM, RSM_V, RSM_GOODS, RSM_PROJ, RSM_GEO, realmDevelopmentLevel, realmDevelopmentInit, realmDevelopmentEarn, realmDevelopmentView, realmSimFieldTake, realmSimFieldReport, realmSimFieldFold, realmSimInit, realmSimStep, realmSimContribute, realmSimOrder, realmSimSummary, realmSimSanitize, realmSimLive };

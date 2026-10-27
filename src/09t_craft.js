@@ -290,7 +290,7 @@ function mineStart(i) {
   const need = pick ? 3 : 5;
   let swings = 0;
   setAct(P, 1, 0.62);
-  survStartJob({ kind: 'mine', label: pick ? 'Mining' : 'Breaking stone', dur: 0.95, n: need, i: 0, yaw, rock: i, tool: WB.axe, done: (J) => {
+  survStartJob({ kind: 'mine', label: pick ? 'Mining' : 'Breaking stone', dur: 0.95 / skillWorkRate('mining'), n: need, i: 0, yaw, rock: i, tool: WB.axe, done: (J) => {
     swings++;
     J.i = swings;
     const ux = Math.sin(yaw), uz = Math.cos(yaw);
@@ -326,7 +326,7 @@ function mineYield(i, pick) {
   R.n--;
   if (R.n <= 0) { R.until = GAME.t + 900; uiLog('This rock is worked out for now.', 'sys'); }
   CRAFT.rocks.set(i, R);
-  skillGain('craft', 0.3);
+  if (got.length) skillGain('mining', 0.3);
   sfx('loot');
   saveSoon();
   return true;

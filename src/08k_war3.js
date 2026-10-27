@@ -80,7 +80,8 @@ function war3MakeGuard(e, K, slot, wb) {
   e.warband = null; e.target = null; e.casting = null; e.siegeCrew = null; e.hallowRun = null; e.w3slot = null;
   if (e.ai) { e.ai.storm = null; e.ai.down = null; e.ai.chase = null; e.ai.trailAbs = undefined; e.ai.fire = null; e.ai.fireBack = null; }
   e.role = 'guard';
-  e.level = warUnitLevel('guard'); e.wlOff = e.level - warLevel();
+  if (typeof worldActorDevelop === 'function') worldActorDevelop(e);
+  e.wlOff = 0;
   const S = K.site, p = siteWorld(S, sp.pos[0], sp.pos[1], sp.pos[2]);
   if (sp.wall) {
     e.tweak = { ...(e.tweak || {}), rangedRange: 36, dmg: 0.55, swing: 3.0 }; e.ai.wall = true;

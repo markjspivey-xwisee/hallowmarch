@@ -346,9 +346,6 @@ function planWar(C) {
     const wb = spawnWarband(r, size);
     loopsMustered(wb); // [loops]
     wbOrd(wb);
-    // the long war hardens the bands: late in a campaign they muster as veterans, up to four levels up
-    const vet = Math.round(cwWeary() * 4);
-    if (vet) for (const e of wbMembers(wb)) { e.wlOff = (e.wlOff || 0) + vet; e.level += vet; setupStats(e, true); }
     cwMergeRemnants(r, wb, mine); // [war2] the last of a broken band join the new one (08j_war2.js)
     mine.push(wb);
     C.nextSpawn = now + 26 + Math.random() * 18 - underdog * 8;
