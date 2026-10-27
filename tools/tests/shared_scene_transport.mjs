@@ -101,7 +101,7 @@ try {
   a.send(workerEnvelope);
   const workerFrame=await b.wait(m=>m.kind==='npcs'&&m.op==='snapshot');
   assert.equal(workerFrame.npcs.length,27);assert.deepEqual(workerFrame.npcs.map(r=>r.id),workers.map(r=>r.id));
-  const fullEntities={v:1,full:true,rows:[...Array(100)].map((_,i)=>({id:'scene:fixture:'+i,p:[i,2,0],descriptor:'x'.repeat(2500)})),remove:[],meta:{warbands:[],caravans:[]}};
+  const fullEntities={v:1,full:true,rows:[...Array(100)].map((_,i)=>({id:'scene:fixture:'+i,key:'humanoid:soldier:0:'+i+':0',p:[i,2,0],maxHp:100,descriptor:'x'.repeat(2500)})),remove:[],meta:{warbands:[],caravans:[]}};
   fullEntities.meta.thrones=[{id:15,realm:0,x:0,y:0,z:0,ready:true}];
   const chunks=publish(a,'entities',fullEntities,1);assert.ok(chunks>60);
   assert.equal((await stream(b,'entities',0,1)).rows.length,100);
