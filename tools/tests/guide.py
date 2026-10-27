@@ -65,7 +65,7 @@ window.GD = {
   },
   // one look of the path's watch with no window open; what the path now has
   steps() { const L = this.H.LORE; for (let i = 0; i < 3; i++) L.check(); return L.progress(); },
-  overflow() { const s = document.querySelector('#menu .sheet'); return s ? s.scrollWidth - s.clientWidth : 0; },
+  overflow() { const s = document.querySelector('#menu-body'); return s ? s.scrollWidth - s.clientWidth : 0; },
 };
 0;
 """

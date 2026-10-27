@@ -783,6 +783,7 @@ function closeMenu() {
   focus?.focus({ preventScroll: true });
 }
 function renderMenu(tab) {
+  const tabChanged = UI.menuTab !== tab;
   UI.menuTab = tab;
   document.querySelectorAll('#menu-tabs button').forEach((b) => {
     const selected = b.dataset.tab === tab;
@@ -791,6 +792,7 @@ function renderMenu(tab) {
   });
   const P = GAME.player, prog = GAME.prog;
   const body = $('menu-body');
+  if (tabChanged) body.scrollTop = 0;
   if (tab === 'companion') {
     body.innerHTML = '<div id="world-agent-mount"></div>';
     queueMicrotask(() => { if (UI.modal === 'menu' && UI.menuTab === 'companion' && typeof mainWorldAgentRender === 'function') mainWorldAgentRender(); });

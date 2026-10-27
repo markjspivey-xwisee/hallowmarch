@@ -83,7 +83,7 @@ function chronFold(sec) {
   const body = $('menu-body'), el = body && body.querySelector('.chron-body');
   if (!el) return;
   chronSee(sec, el);
-  const sheet = body.closest('.sheet'), vh = Math.max(320, (sheet && sheet.clientHeight) || innerHeight);
+  const vh = Math.max(160, body.clientHeight || innerHeight);
   const h0 = el.offsetHeight;
   G2.stats.pages[sec] = { h0, h: h0, vh, folds: 0 };
   if (el.querySelector(':scope > details.cf') || h0 < vh * (g2Phone() ? 1.3 : 2.5)) return; // folded already (your path), or short enough
