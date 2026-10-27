@@ -38,11 +38,15 @@ window.G2T = {
   lay() { const L = this.H.hud.HUDL; L.k = 0; L.t = 0; this.H.guide2.G2.tap.until = 0; this.H.hud.hudLayout(1); return 0; },
   // every page of the Chronicle: its natural height, folded, the sheet's, and what runs past the sheet
   pages() {
-    const H = this.H, out = {}; H.LORE.openChronicle('march');
-    const keys = [...document.querySelectorAll('.chron-nav [data-sec]')].map((b) => b.dataset.sec);
+    const H = this.H, out = {};
+    H.LORE.openChronicle('coach');
+    if (H.UI.menuTab !== 'progress' || !document.querySelector('#march-coach-mount')) throw Error('Coach must redirect to the Progress tab');
+    H.LORE.openChronicle('march');
+    const keys = [...document.querySelectorAll('.chron-nav [data-sec]')].map((b) => b.dataset.sec).filter((k) => k !== 'coach');
     for (const k of keys) {
       H.LORE.openChronicle(k);
       const s = document.querySelector('#menu-body'), bd = document.querySelector('.chron-body'), st = H.guide2.G2.stats.pages[k] || {};
+      if (!bd) throw Error('Missing Chronicle body for ' + k);
       out[k] = { h0: st.h0 || 0, h: Math.round(bd.getBoundingClientRect().height), vh: s.clientHeight, ov: s.scrollWidth - s.clientWidth, folds: bd.querySelectorAll('details.cf').length };
     }
     return out;
