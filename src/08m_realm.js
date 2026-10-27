@@ -96,6 +96,9 @@ function realmDevelopmentLevel(xp) {
   while (level < 50) { const need = Math.round(55 * Math.pow(level, 1.55) + 40); if (left < need) break; left -= need; level++; }
   return level;
 }
+function realmDevelopmentTotal(sources) {
+  return Math.min(1e9, ['training', 'work', 'combat'].reduce((sum, key) => sum + sources[key], 0));
+}
 function realmDevelopmentInit(RS, saved) {
   if (saved === undefined && RS.development?.v === 1) return RS.development;
   const valid = saved?.v === 1 && Array.isArray(saved.realms) && saved.realms.length === 3;
@@ -103,7 +106,11 @@ function realmDevelopmentInit(RS, saved) {
     realms: [0, 1, 2].map(r => {
       const row = valid ? saved.realms[r] : null;
       const sources = Object.fromEntries(['training', 'work', 'combat'].map(k => [k, rsmNum(row?.sources?.[k], 0, 0, 1e9)]));
-      return { xp: Math.min(1e9, Object.values(sources).reduce((n, x) => n + x, 0)), sources };
+      const total = realmDevelopmentTotal(sources), prior = rsmNum(row?.xp, total, 0, 1e9);
+      // Retained records from earlier addition order remain byte-exact; large
+      // discrepancies are invalid totals and are rebuilt from earned sources.
+      const tolerance = Math.max(1e-8, total * Number.EPSILON * 1024);
+      return { xp: Math.abs(prior - total) <= tolerance ? prior : total, sources };
     }) };
   return RS.development;
 }
@@ -113,7 +120,9 @@ function realmDevelopmentEarn(RS, realm, source, points) {
   const development = realmDevelopmentInit(RS), row = development.realms[realm];
   const earned = Math.min(points, 1e9 - row.xp, 1e9 - row.sources[source]);
   if (!(earned > 0)) return false;
-  row.sources[source] += earned; row.xp += earned; development.revision = Math.min(1e12, development.revision + 1);
+  row.sources[source] += earned;
+  row.xp = Math.max(row.xp, realmDevelopmentTotal(row.sources));
+  development.revision = Math.min(1e12, development.revision + 1);
   return true;
 }
 function realmDevelopmentFed(RS, realm) {

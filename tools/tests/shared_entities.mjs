@@ -512,12 +512,22 @@ test('dead inherited actors retire within the normal ten seconds after keeper ha
   assert.equal(b.run('ENT.some(e=>e.kind==="door")'), true);
 });
 
-test('a representative 523-actor scene leaves room for the rest of the bounded world checkpoint', () => {
+test('a representative 523-actor scene leaves room for the rest of the bounded world checkpoint', t => {
   const a = page('a'), b = page('b'); a.authority(); b.authority();
+  const data = readFileSync(new URL('../../src/06_data.js', import.meta.url), 'utf8');
+  const declarations = parse(data, { ecmaVersion: 'latest', sourceType: 'module' }).body;
+  const growthSource = ['worldActorGrowthRead', 'worldActorGrowthLevel', 'xpToNext', 'LEVEL_CAP'].map(name => {
+    const node = declarations.find(n => n.type === 'FunctionDeclaration' && n.id.name === name
+      || n.type === 'VariableDeclaration' && n.declarations.some(d => d.id.name === name));
+    assert.ok(node, name); return data.slice(node.start, node.end);
+  }).join('\n');
+  a.run(growthSource); b.run(growthSource);
   a.run(`for(let i=0;i<523;i++){
     const human=i%3===0;
+    const growth=i%3===2?null:{v:1,base:1,xp:i%4===0?0:250+i*71,kills:i%4===0?0:3+i};
     makeEnt({kind:human?'humanoid':i%3===1?'wolf':'deer',role:human?'guard':i%3===1?'mob':'critter',
-      faction:human?i%3:3,cls:human?'warrior':null,mobType:human?null:'wolf',level:20,
+      faction:human?i%3:3,cls:human?'warrior':null,mobType:human?null:'wolf',growth,
+      level:growth?worldActorGrowthLevel(growth):1,
       x:i%31,y:0,z:Math.floor(i/31),home:{x:i%31,z:Math.floor(i/31),r:12},
       hp:i===522?0:800,maxHp:800,alive:i!==522,
       look:human?{tabard:[0.4,0.3,0.2],armor:[0.5,0.5,0.5],skin:0.35,hair:0.4,mask:32,
@@ -525,13 +535,17 @@ test('a representative 523-actor scene leaves room for the rest of the bounded w
   }`);
   const wire = a.json('window.__hm.entities.wireRows()'), rich = a.json('window.__hm.entities.rows()');
   const bytes = Buffer.byteLength(JSON.stringify({ v: 1, full: true, rows: wire, remove: [] }));
+  const earned = wire.filter(row => row.growth).length;
+  t.diagnostic(`523 actors: ${bytes} bytes, ${earned} earned growth records, ${400 * 1024 - bytes} bytes remain for other world state`);
   assert.equal(wire.length, 523);
+  assert.equal(earned, 261, 'earned combat progress must actually be represented in the measured wire');
+  assert.equal(wire.filter(row => !row.growth).length, 262, 'default progress remains compact');
   assert.ok(bytes < 240 * 1024, `actor snapshot uses ${bytes} bytes`);
   assert.ok(bytes + 128 * 1024 < 400 * 1024, 'reserve at least 128 KiB for NPCs, boats and mutable world parts');
   snapshot(b, { v: 1, full: true, rows: wire, remove: [] });
   const roundTrip = b.json('window.__hm.entities.rows()');
   assert.equal(roundTrip.length, rich.length);
-  for (let i = 0; i < rich.length; i++) for (const key of ['id','kind','role','faction','name','cls','mobType','p','hp','maxHp','alive','look','home'])
+  for (let i = 0; i < rich.length; i++) for (const key of ['id','kind','role','faction','name','cls','mobType','p','hp','maxHp','alive','look','home','growth'])
     assert.deepEqual(roundTrip[i][key], rich[i][key], `actor ${i} preserves ${key}`);
   assert.equal(roundTrip[522].alive, 0); assert.equal(roundTrip[522].hp, 0, 'compaction must preserve a dead actor');
 });

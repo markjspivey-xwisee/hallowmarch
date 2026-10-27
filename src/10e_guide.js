@@ -223,7 +223,7 @@ function guideAims() {
 // `fight`: may show in a fight (it is about the fight); `ok`: shows only while it still means something here
 Object.assign(FIELD_NOTES, {
   needs: { t: 'Food and water', x: () => `${IS_TOUCH ? 'Open More to find the food and water bars. Tap them' : 'The two bars under your health are food and water. Press V or click them'} to eat or drink the best thing in your packs. Drink at any well, trough, lake or river (${IS_TOUCH ? 'Use' : 'E'}), and cook meat at any fire. You never starve, but hungry or thirsty you heal slowly.` },
-  stones: { t: 'The portal stones', x: () => `The ring of stones in the square carries you to your realm's muster on the frontier, and back. Below level 14 the frontier will kill you quickly: grow strong at home first.`, ok: () => GAME.prog.level < 14 },
+  stones: { t: 'The portal stones', x: () => `The ring of stones in the square carries you to your realm's muster on the frontier, and back. Check opponents' levels and travel with allies: each soldier grows through its own experience.`, ok: () => GAME.prog.level < 14 },
   station: { t: 'A workstation', x: () => `${IS_TOUCH ? 'Use' : 'E'} opens its recipes. Each town has a forge, a workbench, a tanning rack, a loom, a bakehouse and an alchemy table: tan a hide into leather, or steep woundwort into a healing draught. ${IS_TOUCH ? 'Crafting in your Kit' : 'C'} shows what you can make by hand.` },
   ladder: { t: 'Ladders and hatches', x: () => `Walk into a ladder's foot to climb, or ${IS_TOUCH ? 'tap Use' : 'press E'}. A shut hatch is pushed open as you come up to it; ${IS_TOUCH ? 'Use' : 'E'} by a hatch opens or shuts it. On the rungs you fight one-handed: no shield, bow or long spell, and a heavy blow knocks you off.`, fight: true },
   tower: { t: 'Inside a tower', x: () => 'Store room, rooms above and a fighting top: ladders join them through hatches, and doors at the walls\' height open onto the walks. Shoot out through the slits; stand on a shut hatch and a foe below must heave at it.' },
@@ -394,22 +394,22 @@ function chronGoals() {
   const mw = RECIPES.filter((r) => r.mw && (!r.cls || r.cls.includes(P.cls))).length;
   const goods = (id) => (GOODS[id] ? goodsCount(id) : 0);
   const aims = guideAims().map((a) => `<li><b>${a.t}</b>${a.m ? `<span class="meter"><i><b style="width:${(clamp(a.m[0], 0, 1) * 100).toFixed(1)}%"></b></i>${a.m[1]}</span>` : ''}${a.x ? `<small>${a.x}</small>` : ''}</li>`).join('');
-  return `<p class="lead">The path takes a recruit to the frontier and through the first deeds of the war. Past level 20 the March rises to meet you: the frontier's soldiers, the Barrow, Cinderwing and the champions all keep pace with your level, and new things open every ten levels.</p>
+  return `<p class="lead">The path takes a recruit to the frontier and through the first deeds of the war. New characters and creatures begin at level 1 and grow through their own experience. Shared world development opens new possibilities; your abilities and ranks follow your personal level.</p>
     <h3 data-cf-open>Now</h3><ul class="gd-aims">${aims}</ul>
     <div class="gd-tier"${tierOpen(20)}><h4>Level 20 ${lvlOk(20)}</h4><ul class="plain">
-      <li><b>Your seventh ability</b>, and the frontier's soldiers, the Barrow and Cinderwing now rise with you.</li>
+      <li><b>Your seventh ability</b> opens.</li>
       <li><b>Command the warbands</b> of ${R.name} from the map (also from realm rank 3, or at the war table of a keep your realm holds).</li>
-      <li><b>Borderland champions</b>: ${champs.length} named camps on the wild edges of the homelands, for levels 20 to 40. Each drops two pieces of good gear and a trophy.</li>
-      <li><b>The Hollow King</b> rises with you: his hoard is two levels above yours, the best gear in the land.</li></ul></div>
+      <li><b>Borderland champions</b>: ${champs.length} named camps on the wild edges of the homelands. Check each champion's current level. Each drops two pieces of good gear and a trophy.</li>
+      <li><b>The Hollow King</b> guards a hoard two levels above yours, among the best gear in the land.</li></ul></div>
     <div class="gd-tier"${tierOpen(30)}><h4>Level 30 ${lvlOk(30)}</h4><ul class="plain">
       <li><b>Your eighth ability</b>, and every ability reaches rank II.</li>
       <li><b>Your realm's great gift</b>${gift ? `, ${esc(gift.ult.name)},` : ''} on ${IS_TOUCH ? 'the gift button' : 'key 9'} (or at realm rank 5): it turns a big fight. You are realm rank ${rr} now.</li>
       <li><b>Cinderwing</b> is a fight for a seasoned band: three pieces of rare gear or better and a dragon scale.</li></ul></div>
     <div class="gd-tier"${tierOpen(40)}><h4>Level 40 ${lvlOk(40)}</h4><ul class="plain">
-      <li><b>Rank III.</b> The risen of the borderlands: the three farthest camps of every homeland rise with you, each led by a risen champion with its own name (the Deeds page).${'' /* [late2] 10l_late.js */}</li>
+      <li><b>Rank III.</b> Separately, shared world development at level 40 unlocks risen champions in the three farthest camps of every homeland. Each starts at level 1 and earns its own experience (the Deeds page).${'' /* [late2] 10l_late.js */}</li>
       <li><b>Named masterworks</b> (${mw} for your calling): item level 50, made at the forge, the workbench, the tanning rack or the loom by a master's hand (crafting 85 and up) from dragon scales, grave-iron from the Barrow's dead and champions' trophies. You carry ${goods('dragon_scale')} scale${goods('dragon_scale') === 1 ? '' : 's'}, ${goods('grave_iron')} grave-iron and ${goods('trophy')} troph${goods('trophy') === 1 ? 'y' : 'ies'}.</li></ul></div>
     <div class="gd-tier"${tierOpen(50)}><h4>Level 50 ${lvlOk(50)}</h4><ul class="plain">
-      <li><b>Rank IV</b>, the height of your powers. Gear drops and is made to item level 50; the whole war rises to meet you. Your experience goes on into <b>veterancy</b>, and every rank of it is a boon to learn.${'' /* [late2] 10l_late.js */}</li>
+      <li><b>Rank IV</b>, the height of your powers. Gear drops and is made to item level 50; your own experience goes on into <b>veterancy</b>, and every rank of it is a boon to learn.${'' /* [late2] 10l_late.js */}</li>
       <li><b>Win campaigns</b> for ${R.name}: lead its warbands, take keeps, carry hallows home. Each victory pays you a share of the spoils (gold, realm points and an epic piece), and the Chronicle keeps the record.</li></ul></div>
     ${chronExtra('goals')}`;
 }
@@ -479,7 +479,7 @@ LOADING_TIPS.push(
   'Frost kills tender crops. Sow hardier strains, or wait for spring.',
   'In deep water, dive (U or Dive) and look along the bed: lost arrows, old blades, purses and now and then a sunken chest.',
   'Every town keeps rowing boats at a jetty on its lake. Step in and row; the river carries you downstream.',
-  'Past level 20 the frontier, the Barrow, Cinderwing and the champions all rise with you. The Chronicle\'s Aims page says what opens at 30, 40 and 50.',
+  'Every new character and creature starts at level 1. Each earns its own experience, while shared world development opens new possibilities. The Chronicle\'s Aims page explains your personal milestones.',
   'Named masterworks of item level 50 need a master crafter, dragon scales, grave-iron from the Barrow and champions\' trophies.',
   'Your realm\'s great gift opens at realm rank 5 or level 30: it turns a big fight, then waits a long while.',
   'A bed you build is where you wake when you fall at home.',

@@ -894,7 +894,7 @@ function openHerald() {
   $('dialog').hidden = false;
   $('dlg-title').textContent = `${R.name} Herald`;
   const b = prog.bounty;
-  const frontierTip = prog.level >= 14 ? `You are ready for the frontier. Step through the stones in the square to reach the muster.` : `The frontier will eat you alive below level 14 or so. Grow stronger in the glens and fields first.`;
+  const frontierTip = `The stones in the square lead to the frontier muster. Check your opponents' levels, travel with allies and retreat from a stronger force.`;
   let body = `<p>Well met, ${P.name}. ${frontierTip}</p>`;
   const acts = [];
   const l2b = b ? null : late2HeraldBounty(); // [late2] past 40, a risen champion's bounty (10l_late.js)

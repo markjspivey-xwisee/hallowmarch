@@ -111,6 +111,24 @@ test('development survives sanitizer, server summary and season rollover without
   assert.equal(Object.hasOwn(upgraded, 'development'), false, 'a public view cannot migrate retained state');
 });
 
+test('long fractional development survives exact readback and continues deterministically', () => {
+  const f = realms(), sources = ['training', 'work', 'combat'];
+  for (let i = 1; i <= 20000; i++) f.a.realmDevelopmentEarn(f.state, i % 3, sources[Math.floor(i / 3) % 3], (i % 101 + 1) / 7);
+  const kept = plain(f.state), round = f.a.realmSimSanitize(kept);
+  assert.deepEqual(plain(round.development), kept.development);
+  for (let i = 1; i <= 2000; i++) {
+    f.a.realmDevelopmentEarn(f.state, i % 3, sources[Math.floor(i / 5) % 3], (i % 67 + 1) / 11);
+    f.a.realmDevelopmentEarn(round, i % 3, sources[Math.floor(i / 5) % 3], (i % 67 + 1) / 11);
+  }
+  assert.deepEqual(plain(round.development), plain(f.state.development));
+  const earlier = plain(f.state); earlier.development.realms[0].xp += 1e-9;
+  const retained = f.a.realmSimSanitize(earlier);
+  assert.deepEqual(plain(retained.development), earlier.development, 'roundoff in an already-retained total must not rewrite its checkpoint');
+  const corrupt = plain(f.state); corrupt.development.realms[0].xp += 10;
+  const repaired = f.a.realmSimSanitize(corrupt);
+  assert.equal(repaired.development.realms[0].xp, f.state.development.realms[0].xp, 'a mismatched unearned total is not trusted');
+});
+
 test('an NPC earns its own combat levels and duplicate corpses or follower claims grant nothing', () => {
   const p = actors(); p.run('const soldier=actor(),victim=actor("mob",3);victim.alive=false;victim.level=1');
   assert.equal(p.run('worldActorExperience(soldier,victim)'), true);
