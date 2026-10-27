@@ -128,9 +128,8 @@ const LORE_CSS = `
 #loading .lore-ltip b { display: block; margin-bottom: 5px; font: 500 11px/1 var(--caps); letter-spacing: 0.18em; text-transform: uppercase; color: var(--bronze); }
 
 /* the Chronicle tab of the menu */
-#menu .sheet:has(.chron) { width: min(840px, 100%); }
 .chron { display: grid; gap: 14px; }
-.chron-nav { position: sticky; top: -20px; z-index: 3; display: grid; gap: 7px; margin: -4px -22px 0; padding: 6px 22px 10px; background: #1a1c21; border-bottom: 1px solid var(--line); }
+.chron-nav { position: sticky; top: 0; z-index: 3; display: grid; gap: 7px; margin: -20px 0 0; padding: 12px 0 10px; background: #1a1c21; border-bottom: 1px solid var(--line); }
 .chron-grps, .chron-secs { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
 .chron-grps { gap: 2px 14px; border-bottom: 1px solid var(--line); }
 .chron-nav button { flex: none; border: 1px solid var(--line); background: rgba(255, 255, 255, 0.03); color: var(--ink-dim); border-radius: 999px; padding: 5px 11px; font: 500 13.5px var(--ui); cursor: pointer; white-space: nowrap; }
@@ -225,9 +224,8 @@ const LORE_CSS = `
   .chron .steps li { grid-template-columns: 24px minmax(0, 1fr); }
   .chron .steps .rw { grid-column: 2; }
 }
-@media (max-width: 520px) {
-  #menu-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border-radius: 14px; }
-  #menu-tabs button { padding: 7px 6px; }
+@media (max-width: 620px) {
+  .chron-nav { margin-top: -16px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .la-tw, .la-pulse, .la-flag, .la-rain, .la-snow, .la-bolt, .la-fire, .la-drift, .la-rise, #lore-pro .art svg, #lore-pro .head, #lore-pro h2, #lore-pro .text, .chron-body, #lore-path.ring { animation: none !important; }
@@ -1229,12 +1227,11 @@ function renderChronicle(body, fromNav = false) {
   const secs = CHRON_GROUPS.flatMap(([gk, , ks]) => ks.filter((k) => label[k]).map((k) => `<button type="button" data-sec="${k}" aria-current="${k === sec}"${gk === G[0] ? '' : ' hidden'}>${label[k]}</button>`)).join('');
   body.innerHTML = `<div class="chron"><nav class="chron-nav" aria-label="Chronicle"><div class="chron-grps">${grps}</div><div class="chron-secs">${secs}</div></nav><div class="chron-body">${fn()}</div></div>`;
   chronFold(sec); // [guide2] a long page folds into its summaries on a phone (10f_guide2.js)
-  const sheet = body.closest('.sheet');
   const nav = body.querySelector('.chron-nav'), row = nav.querySelector('.chron-secs'), cur = row.querySelector('[aria-current="true"]');
-  if (sheet && !fromNav) sheet.scrollTop = 0;
-  else if (sheet) {
-    const d = body.querySelector('.chron-body').getBoundingClientRect().top - sheet.getBoundingClientRect().top - nav.offsetHeight - 6;
-    if (d < 0) sheet.scrollTop += d;
+  if (!fromNav) body.scrollTop = 0;
+  else {
+    const d = body.querySelector('.chron-body').getBoundingClientRect().top - body.getBoundingClientRect().top - nav.offsetHeight - 6;
+    if (d < 0) body.scrollTop += d;
   }
   if (cur && row.scrollWidth > row.clientWidth) row.scrollLeft = cur.offsetLeft - row.clientWidth / 2 + cur.offsetWidth / 2;
   const grow = nav.querySelector('.chron-grps'), gcur = grow.querySelector('[aria-current="true"]');

@@ -42,7 +42,7 @@ window.G2T = {
     const keys = [...document.querySelectorAll('.chron-nav [data-sec]')].map((b) => b.dataset.sec);
     for (const k of keys) {
       H.LORE.openChronicle(k);
-      const s = document.querySelector('#menu .sheet'), bd = document.querySelector('.chron-body'), st = H.guide2.G2.stats.pages[k] || {};
+      const s = document.querySelector('#menu-body'), bd = document.querySelector('.chron-body'), st = H.guide2.G2.stats.pages[k] || {};
       out[k] = { h0: st.h0 || 0, h: Math.round(bd.getBoundingClientRect().height), vh: s.clientHeight, ov: s.scrollWidth - s.clientWidth, folds: bd.querySelectorAll('details.cf').length };
     }
     return out;
