@@ -104,11 +104,18 @@ function seasonHallowsIn(RS) {
 }
 // the peace of a battle in the war: a keep the season holds for its taker stays its (08g_campaign.js restoreKeep, 08l_war4.js war4HandBack)
 function seasonKeepStays(K) {
+  if (typeof realmPublicWorksHosted === 'function' && realmPublicWorksHosted()) return realmPublicWorksKeepStays(K);
   const RS = SEASONP.rs;
   return !!RS && RS.phase === 'war' && !!RS.keeps[K.id] && RS.keeps[K.id].h === K.realm && K.realm !== K.orig;
 }
-function seasonAfterReset() { seasonApplyKeeps(); }
-function seasonKeepsHeld() { const RS = SEASONP.rs; return !!RS && RS.phase === 'war'; }
+function seasonAfterReset() {
+  if (typeof realmPublicWorksHosted === 'function' && realmPublicWorksHosted()) { realmPublicWorksAfterReset(); return; }
+  seasonApplyKeeps();
+}
+function seasonKeepsHeld() {
+  if (typeof realmPublicWorksHosted === 'function' && realmPublicWorksHosted()) return realmPublicWorksKeepsHeld();
+  const RS = SEASONP.rs; return !!RS && RS.phase === 'war';
+}
 // the live war's news into the season
 function seasonOnCapture(K, realm) {
   const RS = SEASONP.rs;
@@ -162,6 +169,7 @@ function seasonReckoned(n, w, quiet) {
 // a keep's walls raised a tier in the season: its gate and walls take a fifth less from each tier (07_entities.js
 // dealDamage, 04g_castles.js castleSiegeHit)
 function seasonGateK(door) {
+  if (typeof realmPublicWorksHosted === 'function' && realmPublicWorksHosted()) return realmPublicWorksGateK(door);
   const RS = SEASONP.rs, K = door && door.keepRef;
   if (!RS || !K || !RS.keeps[K.id]) return 1;
   return 1 / (1 + 0.25 * RS.keeps[K.id].tier);

@@ -340,7 +340,8 @@ function planWar(C) {
   // the muster: a realm down to its last keep musters bigger bands, faster; so does a long war
   const keepsOwned = WAR.keeps.filter((K) => K.realm === r).length;
   const underdog = keepsOwned <= 1 ? 1 : 0;
-  if (cwBandsCounted(mine) < MAX_WARBANDS() + underdog + war3Levy(r) && now > C.nextSpawn) { // [war3] a realm with three keeps or more musters one band more (08k_war3.js) // [war2] a band's last two or three do not hold its place at the muster (08j_war2.js)
+  if (!(typeof season2CanonicalWar === 'function' && season2CanonicalWar())
+    && cwBandsCounted(mine) < MAX_WARBANDS() + underdog + war3Levy(r) && now > C.nextSpawn) { // [war3] a realm with three keeps or more musters one band more (08k_war3.js) // [war2] a band's last two or three do not hold its place at the muster (08j_war2.js)
     const size = loopsMuster(r, 7 + Math.floor(Math.random() * 4) + underdog * 2 + Math.round(cwWeary() * 3)); // [loops] as many as the realm's stores feed and arm (08m_loops.js)
     const wb = spawnWarband(r, size);
     loopsMustered(wb); // [loops]
@@ -386,9 +387,9 @@ function cwCommandTable(P, id) {
 // what the player may order a band to do, as [cmd, target, label]
 function cwChoices(wb) {
   const r = wb.realm, out = [];
-  for (const K of WAR.keeps) if (K.realm !== r) out.push(['attack', K.id, `Attack ${K.site.name}`]);
+  for (const K of WAR.keeps) if (K.realm !== r && !war4Allied(r, K.realm)) out.push(['attack', K.id, `Attack ${K.site.name}`]);
   for (const K of WAR.keeps) if (K.realm === r) out.push(['defend', K.id, `Defend ${K.site.name}`]);
-  for (const T of WAR.temples) if (T.realm !== r) out.push(['raid', T.id, `Raid the ${T.site.name}`, !templeExposed(T)]);
+  for (const T of WAR.temples) if (T.realm !== r && !war4Allied(r, T.realm)) out.push(['raid', T.id, `Raid the ${T.site.name}`, !templeExposed(T)]);
   out.push(['rally', -1, 'Rally to me']);
   return out;
 }
@@ -404,6 +405,8 @@ function cwPlayerOrder(wbId, cmd, target) {
   if (!cwCanCommand()) return no('You may command warbands from realm rank 3 or level 20.');
   if (CAMPAIGN.state !== 'war') return no('The campaign is over: the armies are going home.');
   if (!['attack', 'defend', 'raid', 'rally', 'release'].includes(cmd) || !Number.isSafeInteger(target)) return no('Choose an available warband order.');
+  const objective = cmd === 'attack' ? WAR.keeps[target] : cmd === 'raid' ? WAR.temples[target] : null;
+  if (objective && war4Allied(P.faction, objective.realm)) return no('That realm is an ally. Its keeps and temples are protected by the current treaty.');
   if (typeof netWorldPartsActive === 'function' && netWorldPartsActive() && !NETPARTS.replay) {
     if (NETPARTS.peer && NETPARTS.peer !== NET.self && !NET.peers.get(NETPARTS.peer)?.slow?.warbandOrders)
       return no('The shared keeper needs an updated game to accept warband orders.');
@@ -597,6 +600,7 @@ function cwFanfare(win) {
 }
 // after the peace every keep and hallow goes home and a new campaign begins
 function restoreKeep(K) {
+  if (typeof realmPublicWorksHosted === 'function' && realmPublicWorksHosted()) return;
   if (seasonKeepStays(K)) { fillGarrison(K, true); K.underSiegeUntil = -99; setDoorState(K.door, true, 1); return; } // [loops] in the season's war a keep taken stays its taker's (08n_season.js)
   if (K.realm !== K.orig) {
     for (const id of K.guards) { const g = getEnt(id); if (g) { FX.burst(g.x, g.y + 1.2, g.z, 14, [0.5, 1.1, 1.8], 2.5, 0.8, 0.16, 0.5); removeEnt(g); } }
@@ -907,7 +911,7 @@ function campaignSideHTML() {
     : `<p class="cw-rules">Hold <b>${CW.KEEPS} of the 6 keeps</b> for ${CW.KEEP_HOLD / 60} minutes, or <b>both enemy hallows</b> for ${CW.HALLOW_HOLD / 60}, and your realm wins the March (three keeps, more than any other realm, build the claim at two fifths of the pace). At one hour the realm with the most renown wins.</p>`;
   let cmd = '';
   const throne = typeof hallThroneGrant === 'function' && hallThroneGrant()
-    ? `<div class="cw-throne"><b>High seat of ${esc(HALL.sit.H.S.name)}</b><p>The March stays live while you command.</p><button type="button" class="btn cw-leave">Leave throne</button></div>` : '';
+    ? `<div class="cw-throne"><b>High seat of ${esc(HALL.sit.H.S.name)}</b><p>The March stays live while you command.</p><button type="button" class="btn cw-rts">3D realm strategy</button><button type="button" class="btn cw-leave">Leave throne</button></div>` : '';
   const bands = cwBandsOf(P.faction);
   const can = cwCanCommand();
   const rows = bands.map((wb) => {
@@ -943,6 +947,7 @@ function cwBindMap() {
   CWUI.bound = true;
   const ov = $('mapov');
   ov.addEventListener('click', (ev) => {
+    if (ev.target.closest('.cw-rts')) { if (typeof openThroneRTS === 'function') openThroneRTS(); return; }
     if (ev.target.closest('.cw-leave')) { hallLeave(); return; }
     const b = ev.target.closest('.cw-band');
     if (b && !b.disabled) { const id = +b.dataset.wb; CWUI.sel = CWUI.sel === id ? null : id; CWUI.msg = ''; sfx('click'); cwRefreshSide(true); drawWorldMap(true); return; }

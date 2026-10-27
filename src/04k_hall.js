@@ -338,6 +338,7 @@ function hallLeave(release = true) {
   const St = HALL.sit, P = GAME.player;
   if (!St) return;
   HALL.sit = null;
+  if (typeof closeThroneRTS === 'function') closeThroneRTS(false);
   if (P) { P.seat = null; if (P.alive) { P.x = P.prevX = St.front.x; P.z = P.prevZ = St.front.z; } }
   if (release && typeof netThroneSend === 'function') netThroneSend('release', St.H.num);
   if (UI.modal === 'map') toggleMap(false);
@@ -354,7 +355,7 @@ function hallSitConfirmed(H) {
   HALL.sit = { H, x: w.x, z: w.z, yaw: H.yaw + it.yaw, front: f, t: 0 };
   P.x = P.prevX = w.x; P.z = P.prevZ = w.z; P.yaw = H.yaw + it.yaw; P.seat = { y: H.y + 0.53 };
   uiLog(hallHolder(H) === P.faction ? `You take the high seat of ${H.S.name}.` : 'You sit in the enemy lord\'s high seat. It is not very comfortable.', 'sys');
-  toggleMap(true);
+  if (typeof openThroneRTS !== 'function' || !openThroneRTS()) toggleMap(true);
 }
 // may the player command from here: standing at the war table of a keep their realm holds
 function hallCommandGrant() {

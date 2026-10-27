@@ -71,6 +71,8 @@ function nearestWhere(x, z, r, pred) {
 function isEnemy(a, b) {
   if (!a || !b || a === b) return false;
   if (typeof netEntityVisible === 'function' && (!netEntityVisible(a) || !netEntityVisible(b))) return false;
+  // A manual ceasefire also governs remote players and the keeper's remote-first path.
+  if (typeof realmManualCeasefire === 'function' && realmManualCeasefire(a, b)) return false;
   if (typeof netEntityRemoteEnemy === 'function') { const shared = netEntityRemoteEnemy(a, b); if (shared !== null) return shared; }
   if (a.capHide || b.capHide) return false; // [capture] the player out of the frame is no one's foe (14_capture.js)
   if (a.role === 'remote' || b.role === 'remote') return netIsEnemy(a, b); // [net] another page's player: a foe only to you, of another realm (14n_net.js)
@@ -148,6 +150,9 @@ function setupStats(e, keepRatio = false) {
 /* buffs                                                               */
 /* ------------------------------------------------------------------ */
 function addBuff(e, kind, value, dur, src = null, extra = null) {
+  const hostile = typeof realmManualHostileBuff === 'function' && realmManualHostileBuff(kind), source = hostile ? getEnt(src) : null;
+  if (hostile && typeof realmManualCeasefire === 'function' && realmManualCeasefire(source, e))
+    return { kind, value: 0, until: GAME.t, src, tick: GAME.t };
   if (typeof netEntityBuff === 'function' && netEntityBuff(e, kind, value, dur, src, extra)) return { kind, value, until: GAME.t + dur, src, tick: GAME.t };
   if (e.role === 'remote') return netOutBuff(e, kind, value, dur, src, extra); // [net] told to its own page, which lays it (14n_net.js)
   const now = GAME.t;
@@ -156,6 +161,13 @@ function addBuff(e, kind, value, dur, src = null, extra = null) {
   let b = e.buffs.find((x) => x.kind === kind && x.src === src);
   if (b) { b.value = kind === 'shield' ? value : Math.max(b.value, value); b.until = now + dur; if (extra) Object.assign(b, extra); }
   else { b = { kind, value, until: now + dur, src, tick: now, ...(extra || {}) }; e.buffs.push(b); }
+  if (hostile) {
+    // A bounded faction survives source removal and keeper handoff without retaining an actor identity.
+    if (source?.role === 'bot') b.sourceFaction = -2;
+    else if (Number.isInteger(source?.faction) && source.faction >= 0 && source.faction <= 31) b.sourceFaction = source.faction;
+    else if (src == null || src === e.id) b.sourceFaction = e.faction;
+    else if (!Number.isInteger(b.sourceFaction)) b.sourceFaction = -1;
+  }
   if (kind === 'stun') ladderOnStun(e, src); // [keeps] a stun knocks a climber off its ladder (04m_ladders.js)
   return b;
 }
@@ -184,9 +196,17 @@ function tickBuffs(e, dt) {
     if (b.kind === 'hot' || b.kind === 'dot' || b.kind === 'burn' || b.kind === 'bleed') { // [classes] bleeding wounds tick too
       while (b.tick + 1 <= now && b.tick + 1 <= b.until + 0.01) {
         b.tick += 1;
-        const src = getEnt(b.src) || e;
+        const liveSource = getEnt(b.src), src = liveSource || e;
         if (b.kind === 'hot') healEnt(src, e, b.value, true);
-        else if (e.alive) dealDamage(src, e, b.value, { dot: true });
+        else if (e.alive) {
+          const knownFaction = Number.isInteger(b.sourceFaction) && b.sourceFaction >= -2 && b.sourceFaction <= 31 && b.sourceFaction !== -1;
+          const treatySource = liveSource || (knownFaction ? { faction: b.sourceFaction, role: b.sourceFaction === -2 ? 'bot' : 'none' } : null);
+          const stopped = typeof realmManualCeasefire === 'function' && realmManualCeasefire(treatySource, e)
+            || !liveSource && !knownFaction && typeof realmManualLegacyDotBlocked === 'function' && realmManualLegacyDotBlocked(e);
+          // Legacy unattributed damage cannot be assigned an enemy realm. While a
+          // recipient has a manual treaty, fail closed until that old effect expires.
+          if (!stopped) dealDamage(src, e, b.value, { dot: true });
+        }
         if (!e.alive) return;
       }
     }
@@ -215,6 +235,7 @@ function computeDamage(src, dst, mult) {
   if (src.faction <= 2 && src.role !== 'bot') d *= REALM_BONUS[src.faction]; // [balance9] not the measures' bots: the war run on beside the duels, and a hallow its realm took made one side of a duel strike 10% harder (07c_balance9.js)
   if (src.role === 'player' && GAME.prog) d *= 1 + 0.015 * (realmRank(GAME.prog.rp) - 1);
   d *= 1 + buffSum(src, 'dmg');
+  if (typeof realmPublicWorksAttackK === 'function') d *= realmPublicWorksAttackK(src);
   const crit = Math.random() < 0.08 + (src.critBonus || 0);
   if (crit) d *= 1.5;
   if (src.motion) d *= ladderWeak(src); // [keeps] one hand on the rungs: a weaker blow (04m_ladders.js)
@@ -222,6 +243,8 @@ function computeDamage(src, dst, mult) {
 }
 function dealDamage(src, dst, amount, opts = {}) {
   if (!dst || !dst.alive || !(amount > 0)) return 0;
+  // Shots and damage-over-time already in flight cannot break a newly accepted treaty.
+  if (typeof realmManualCeasefire === 'function' && realmManualCeasefire(src, dst)) return 0;
   if (typeof netEntityDamage === 'function') { const shared = netEntityDamage(src, dst, amount, opts); if (shared !== null) return shared; }
   if (dst.role === 'remote') return netOutHit(src, dst, amount, opts); // [net] a blow on another page's player is settled by that page (14n_net.js)
   if (dst.kind === 'door') {
@@ -954,6 +977,7 @@ function updateProjectiles(dt) {
       PROJ.splice(i, 1);
       if (!p.visualOnly && t && t.alive) {
         const src = getEnt(p.src) || { level: 1, dmgMult: 1, faction: p.srcFaction, buffs: [], role: 'none', scale: 1, alive: false };
+        if (typeof realmManualCeasefire === 'function' && realmManualCeasefire(src, t)) continue;
         const pl = p.payload || {};
         const r = computeDamage(src, t, pl.mult || 1);
         dealDamage(src, t, r.d, { crit: r.crit, kind: ARROWLIKE[p.kind] ? 'arrow' : p.kind, pierce: pl.pierce || pl.arrow === 'bodkin' ? BODKIN_PIERCE : false /* [balance3] Deadeye and bodkins go through half the armour */, arrow: pl.arrow, elem: pl.arrow === 'fire' || p.kind === 'firearrow' ? 'fire' : undefined, auto: !!pl.auto, ability: pl.ability }); // [classes] arrow heads and elements [balance9] ability: the shot that loosed it (a blunt head's break, 07c_balance9.js)

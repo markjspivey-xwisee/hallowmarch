@@ -46,7 +46,7 @@ async function connect(url,room,name,sharedScene=2) {
   client.activity=m=>client.send({t:'activity',authority:client.authority,worldAdmission:client.admission,...m});
   await new Promise((resolve,reject)=>{ws.addEventListener('open',resolve,{once:true});ws.addEventListener('error',reject,{once:true})});
   client.send({t:'hello',room});await client.wait(m=>m.t==='welcome');
-  client.send({t:'slow',d:{on:1,humanLive:1,humanActivity:1,sharedScene,r:0,c:'warrior',l:20,n:name,dn:name}});
+  client.send({t:'slow',d:{on:1,humanLive:1,humanActivity:1,sharedScene,realmManagement:1,seasonField:2,r:0,c:'warrior',l:20,n:name,dn:name}});
   await client.wait(m=>m.t==='activity'&&m.kind==='authority');
   client.send({t:'fast',d:{s:1,p:[0,0,0],y:0,v:[0,0],a:0,h:1,m:100,d:0,ev:[]}});
   return client;
@@ -101,7 +101,7 @@ try {
   a.send(workerEnvelope);
   const workerFrame=await b.wait(m=>m.kind==='npcs'&&m.op==='snapshot');
   assert.equal(workerFrame.npcs.length,27);assert.deepEqual(workerFrame.npcs.map(r=>r.id),workers.map(r=>r.id));
-  const fullEntities={v:1,full:true,rows:[...Array(100)].map((_,i)=>({id:'scene:fixture:'+i,p:[i,2,0],descriptor:'x'.repeat(2500)})),remove:[],meta:{warbands:[],caravans:[]}};
+  const fullEntities={v:1,full:true,rows:[...Array(100)].map((_,i)=>({id:'scene:fixture:'+i,key:'humanoid:soldier:0:'+i+':0',p:[i,2,0],maxHp:100,descriptor:'x'.repeat(2500)})),remove:[],meta:{warbands:[],caravans:[]}};
   fullEntities.meta.thrones=[{id:15,realm:0,x:0,y:0,z:0,ready:true}];
   const chunks=publish(a,'entities',fullEntities,1);assert.ok(chunks>60);
   assert.equal((await stream(b,'entities',0,1)).rows.length,100);

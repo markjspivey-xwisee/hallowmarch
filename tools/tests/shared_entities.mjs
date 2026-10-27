@@ -15,7 +15,8 @@ function page(self = 'a', online = true) {
     const NETWS={url:${JSON.stringify(online ? 'wss://march.test' : '')},state:'on'}, NET={self:${JSON.stringify(self)},peers:new Map()};
     const NET_BUFFS={stun:[1,5],shield:[100,20]}, W3={pact:false};
     const performance={now:()=>clock};
-    const netOn=()=>true, netHumanLive=()=>true, netSharedWorldReady=()=>true;
+    let humanLive=true;
+    const netOn=()=>true, netHumanLive=()=>humanLive, netSharedWorldReady=()=>true;
     const netCurrentWorldAdmission=()=>(${JSON.stringify(admission)});
     const netWsSend=m=>{if(packets.length>=failAfter)return false;packets.push(JSON.parse(JSON.stringify(m)));return true};
     const dist2=(x,z,a,b)=>(x-a)**2+(z-b)**2;
@@ -359,6 +360,55 @@ test('partial entity frames preserve the existing descriptor and health remains 
   assert.equal(b.run('ENT[1].hp'), 20);
   assert.equal(b.run('ENT[1].name'), 'Wolf');
   assert.equal(b.run('ENT.length'), 2);
+});
+
+test('a missing server baseline makes the admitted keeper republish complete actors for replica replay', () => {
+  const a = page('a'), b = page('b'); a.authority(); b.authority();
+  a.run('for(let i=0;i<20;i++)makeEnt({x:2+i,hp:72});netEntityPump(clock);packets.length=0;ENT[1].anim.act=4;clock+=600;netEntityPump(clock)');
+  const delta=JSON.parse(a.json('packets').map(p=>p.data).join(''));
+  assert.equal(delta.full,false);assert.deepEqual(Object.keys(delta.rows[0]).sort(),['a','id']);
+  const before=a.json('({authority:NET_ENTITIES.authority,peer:NET_ENTITIES.peer,seq:NET_ENTITIES.seq,complete:NET_ENTITIES.complete})');
+  assert.equal(a.message({t:'activity',kind:'entities',op:'snapshot',authority:'token-one',worldAdmission:admission,
+    ok:false,reason:'entity_baseline_required'}),false);
+  assert.equal(a.run('NET_ENTITIES.published'),false);assert.equal(a.run('NET_ENTITIES.sent.size'),0);
+  assert.equal(a.run('NET_ENTITIES.waiting'),false);assert.equal(a.run('netEntityCanSimulateWorld()'),true);
+  assert.deepEqual(a.json('({authority:NET_ENTITIES.authority,peer:NET_ENTITIES.peer,seq:NET_ENTITIES.seq,complete:NET_ENTITIES.complete})'),before);
+  assert.equal(a.run('netEntityVisible(ENT[1])'),true);assert.equal(a.run('ENT[1].hp'),72);
+  a.run('packets.length=0;netEntityPump(clock)');
+  const chunks=a.json('packets'), full=JSON.parse(chunks.map(p=>p.data).join(''));
+  assert.equal(full.full,true);assert.equal(full.rows.length,20);assert.deepEqual(full.remove,[]);
+  a.c.repairRows=full.rows;assert.equal(a.run('repairRows.every(row=>!!netEntityReadRow(row))'),true,'each resent row includes its complete descriptor');
+  assert.equal(chunks[0].seq,before.seq+1);assert.ok(full.meta);
+  snapshot(b,full,chunks[0].seq);
+  assert.equal(b.run('NET_ENTITIES.rows.size'),20);assert.equal(b.run('NET_ENTITIES.complete'),true);
+  assert.equal(b.run('ENT[1].hp'),72);assert.equal(b.run('ENT[1].netEntityPose'),4);
+});
+
+test('baseline recovery cannot grant replica authority, bypass replay or resume a capacity pause', () => {
+  const refusal={t:'activity',kind:'entities',op:'snapshot',authority:'token-one',worldAdmission:admission,
+    ok:false,reason:'entity_baseline_required'};
+  for(const mode of ['replica','waiting','unadmitted']){
+    const p=page('b');
+    if(mode==='replica')p.authority('a');
+    if(mode==='waiting')p.authority('b','token-one',true);
+    p.run('makeEnt({x:5});NET_ENTITIES.sent.set("unchanged","baseline");NET_ENTITIES.published=true');
+    assert.equal(p.message(refusal),false);assert.equal(p.run('NET_ENTITIES.sent.size'),1);assert.equal(p.run('NET_ENTITIES.published'),true);
+    assert.equal(p.run('netEntityCanSimulateWorld()'),false);
+    p.run('netEntityPump(clock)');assert.equal(p.json('packets').filter(m=>m.op==='snapshot').length,0);
+  }
+  const idle=page('a');idle.authority();idle.run('makeEnt({x:5});netEntityPump(clock);humanLive=false');
+  idle.message(refusal);idle.run('packets.length=0;clock+=600;netEntityPump(clock)');
+  assert.equal(idle.run('NET_ENTITIES.published'),false);assert.equal(idle.json('packets').length,0,'recovery cannot renew human activity');
+  idle.run('humanLive=true;netEntityPump(clock)');
+  assert.equal(JSON.parse(idle.json('packets').map(m=>m.data).join('')).full,true);
+  const keeper=page('a');keeper.authority();keeper.run('makeEnt({x:5});netEntityPump(clock)');
+  for(const stale of [{authority:'retired-token'},{worldAdmission:{...admission,epoch:1}}]){
+    assert.equal(keeper.message({...refusal,...stale}),false);assert.equal(keeper.run('NET_ENTITIES.published'),true);
+  }
+  keeper.message({...refusal,reason:'scene_capacity'});
+  assert.equal(keeper.run('NET_ENTITIES.waiting'),true);assert.equal(keeper.run('netEntityCanSimulateWorld()'),false);
+  keeper.message(refusal);keeper.run('packets.length=0;clock+=600;netEntityPump(clock)');
+  assert.equal(keeper.run('NET_ENTITIES.waiting'),true);assert.equal(keeper.json('packets').filter(m=>m.op==='snapshot').length,0);
 });
 
 test('independent owned companions with the same bootstrap key retain both private owners', () => {

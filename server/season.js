@@ -3,6 +3,7 @@
 // persisted so a restart loses nothing, fed by the players' contributions and orders (checked here) and told to them.
 import fs from 'node:fs';
 import path from 'node:path';
+import { realmLogisticsView, realmLogisticsRestore } from './realm-logistics.js';
 
 // These room namespaces are reserved for the explicit manual QA runners. Room
 // provenance is server metadata; a player's display name never classifies it.
@@ -15,12 +16,13 @@ export function seasonRoomPolicy(want) {
 
 const FNS = ['realmSimInit', 'realmSimStep', 'realmSimContribute', 'realmSimOrder', 'realmSimSummary', 'realmSimSanitize'];
 export function loadRealmModule(srcDir, hereDir) {
+  let management = ''; try { management = fs.readFileSync(path.join(srcDir, '08p_realm_management.js'), 'utf8'); } catch {}
   for (const f of [path.join(srcDir, '08m_realm.js'), path.join(hereDir, 'realm_stub.js')]) {
     let code;
     try { code = fs.readFileSync(f, 'utf8'); } catch (e) { continue; }
     try {
-      const M = new Function(code + '\nreturn {' + FNS.join(',') + ', realmSimCapture: typeof realmSimCapture === "function" ? realmSimCapture : null, realmSimLive: typeof realmSimLive === "function" ? realmSimLive : null, /* [season2] */ realmSimFieldTake: typeof realmSimFieldTake === "function" ? realmSimFieldTake : null, realmSimFieldReport: typeof realmSimFieldReport === "function" ? realmSimFieldReport : null, realmSimFieldFold: typeof realmSimFieldFold === "function" ? realmSimFieldFold : null, RSM: typeof RSM === "object" ? RSM : null, RSM_GOODS: typeof RSM_GOODS !== "undefined" ? RSM_GOODS : null, RSM_GEO: typeof RSM_GEO !== "undefined" ? RSM_GEO : null};')();
-      if (FNS.every((k) => typeof M[k] === 'function')) { M.file = path.basename(f); return M.RSM && M.RSM_GOODS ? loopsAdapt(M) : M; }
+      const M = new Function(code + '\n' + management + '\nreturn {' + FNS.join(',') + ', realmSimCapture: typeof realmSimCapture === "function" ? realmSimCapture : null, realmSimLive: typeof realmSimLive === "function" ? realmSimLive : null, /* [season2] */ realmSimFieldTake: typeof realmSimFieldTake === "function" ? realmSimFieldTake : null, realmSimFieldReport: typeof realmSimFieldReport === "function" ? realmSimFieldReport : null, realmSimFieldFold: typeof realmSimFieldFold === "function" ? realmSimFieldFold : null, realmManageInit: typeof realmManageInit === "function" ? realmManageInit : null, realmManageAction: typeof realmManageAction === "function" ? realmManageAction : null, realmManageView: typeof realmManageView === "function" ? realmManageView : null, realmManageAllied: typeof realmManageAllied === "function" ? realmManageAllied : null, RSM: typeof RSM === "object" ? RSM : null, RSM_GOODS: typeof RSM_GOODS !== "undefined" ? RSM_GOODS : null, RSM_GEO: typeof RSM_GEO !== "undefined" ? RSM_GEO : null};')();
+      if (FNS.every((k) => typeof M[k] === 'function')) { const sanitize=M.realmSimSanitize;M.realmSimSanitize=input=>{const state=sanitize(input);if(state)realmLogisticsRestore(state,input);return state;}; M.file = path.basename(f); return M.RSM && M.RSM_GOODS ? loopsAdapt(M) : M; }
       console.warn('season: ' + f + ' lacks the contract\'s functions');
     } catch (e) { console.warn('season: ' + f + ' did not load: ' + e.message); }
   }
@@ -39,7 +41,7 @@ function loopsAdapt(L) {
     engines: ['Siege engines', 'stockpiled for the offensive'],
   };
   const PHASE = { muster: 'build', war: 'war', reckon: 'over' };
-  const pos = (A) => { const from = GEO.muster[A.r], to = A.k >= 0 ? GEO.keep[A.k] : A.q >= 0 ? (A.kind === 'hallow' ? GEO.temple[A.q] : GEO.muster[A.q]) : from; const p = A.state === 'siege' ? 1 : Math.max(0, Math.min(1, A.p || 0)); return [from[0] + (to[0] - from[0]) * p, from[1] + (to[1] - from[1]) * p]; };
+  const pos = (A) => { if(A.manual&&[A.fx,A.fz].every(Number.isFinite))return[A.fx,A.fz]; const from = GEO.muster[A.r], to = A.k >= 0 ? GEO.keep[A.k] : A.q >= 0 ? (A.kind === 'hallow' ? GEO.temple[A.q] : GEO.muster[A.q]) : from; const p = A.state === 'siege' ? 1 : Math.max(0, Math.min(1, A.p || 0)); return [from[0] + (to[0] - from[0]) * p, from[1] + (to[1] - from[1]) * p]; };
   return {
     ...L, loops: true,
     realmSimInit: (seed, o = {}) => L.realmSimInit(seed, { days: (o.len || 28 * day) / day, n: o.season || 1, t0: Date.now(), keeps: Array.isArray(o.keeps) ? o.keeps.map((k) => (typeof k === 'object' ? k.home | 0 : k | 0)) : undefined, names: Array.isArray(o.keeps) ? { realms: ['Logres', 'Ériu', 'Thule'], keeps: o.keeps.map((k, i) => (k && k.name) || 'keep ' + (i + 1)) } : undefined }),
@@ -60,17 +62,21 @@ function loopsAdapt(L) {
       return ok ? { ok: true } : { ok: false, why: 'Not now' };
     },
     realmSimCapture: (RS, keep, realm) => L.realmSimLive(RS, { type: 'keep', keep, holder: realm }),
-    realmSimSummary: (RS, realm, since) => {
+    realmSimSummary: (RS, realm, since, owner) => {
       const R = realm >= 0 ? RS.realms[realm] : null, ph = PHASE[RS.phase] || 'war';
       const s = {
         n: RS.n, t: RS.t, len: RS.len, day: Math.floor(RS.t / day) + 1, days: Math.round(RS.len / day), phase: ph, over: ph === 'over' ? 1 : 0, winner: RS.winner == null ? -1 : RS.winner,
         pts: RS.realms.map((q) => Math.round(q.sp)),
-        keeps: RS.keeps.map((K, i) => ({ i, r: K.h, g: Math.round(K.g), gate: K.gate > 0.5 ? 1 : 0, siege: K.siege ? 1 : 0, tier: K.tier })),
-        armies: RS.armies.filter((A) => A.state !== 'gone').slice(0, 24).map((A) => { const [x, z] = pos(A); return { r: A.r, n: Math.round(A.n), to: A.k, st: A.state === 'siege' ? 'siege' : 'march', x: Math.round(x), z: Math.round(z), f: A.onField ? 1 : 0, off: RS.offs.some((O) => O.army === A.id && O.state === 'siege') ? 1 : 0 }; }), // [season2] f: on a page's field, off: an offensive's
+        keeps: RS.keeps.map((K, i) => ({ i, r: K.h, g: Math.round(K.g), gate: Math.max(0,Math.min(1,K.gate)), siege: K.siege ? 1 : 0, tier: K.tier })),
+        armies: RS.armies.filter((A) => A.state !== 'gone').slice(0, 40).map((A) => { const [x, z] = pos(A); return { id: A.id, r: A.r, n: Math.round(A.n), to: A.k, k: A.k, q: A.q, kind: A.kind, manual: A.manual === true, mission: A.mission, fx: A.fx, fz: A.fz, arm: A.arm, eng: A.eng, st: A.state === 'siege' ? 'siege' : 'march', x: Math.round(x), z: Math.round(z), f: A.onField ? 1 : 0, off: RS.offs.some((O) => O.army === A.id && O.state === 'siege') ? 1 : 0 }; }), // [season2] f: on a page's field, off: an offensive's
         offs: RS.offs.filter((O) => O.state === 'planned' || O.state === 'siege').slice(-12).map((O) => ({ r: O.r, k: O.k, state: O.state, inS: Math.max(0, Math.round(O.at - RS.t)) })), // [season2] the offensives announced
         news: RS.log.filter((L2) => L2.t > since && (realm < 0 || L2.r === realm || L2.r === -1 || L2.k === 'big')).slice(-12).map((L2) => [Math.round(L2.t), L2.r, L2.x]),
         target: R ? R.aim : -1, st: null, levyIn: R ? Math.max(0, Math.round(R.levyAt - RS.t)) : 0,
       };
+      s.armyIds=RS.armies.filter(a=>a.state!=='gone').map(a=>a.id);s.armyIdsComplete=s.armyIds.length<=40&&s.armyIds.every(Number.isSafeInteger);
+      s.works = RS.realms.map((q,r)=>({r,hungry:Math.max(0,Math.min(48,Number(q.hungry)||0)),...Object.fromEntries(['walls','granary','yard','smithy','engines'].map(k=>[k,Math.max(0,Math.min(4,Math.floor(q.proj?.[k]||0)))]))}));
+      s.logistics = realmLogisticsView(RS,owner);s.repairs=s.logistics?.repairs||[];
+      s.management = typeof L.realmManageView === 'function' && realm >= 0 ? L.realmManageView(RS,realm) : null;
       if (R) {
         s.st = Object.fromEntries(G.slice(0, 7).map((g, i) => [g, Math.round(R.s[i])]));
         s.built = Object.keys(R.proj).filter((id) => R.proj[id] > 0);
@@ -125,6 +131,7 @@ export function makeSeason(cfg, store, stats) {
     S.lastStep = now;
     if (!(dt > 0)) return;
     const t0 = performance.now();
+    const previousSeason=S.RS.n,previousLogistics=S.RS.management?.logistics;
     S.M.realmSimStep(S.RS, dt);
     // a new season once one has been over for a day (its winner told in the log first)
     if (S.RS.over && S.RS.t > S.RS.len + 86400) {
@@ -132,6 +139,7 @@ export function makeSeason(cfg, store, stats) {
       S.RS = S.M.realmSimInit(cfg.seasonSeed + n, { keeps: cfg.keeps, len: cfg.seasonLen, season: n });
       S.RS.lastWinner = w; stats.seasons++;
     }
+    if(S.RS.n!==previousSeason&&previousLogistics) realmLogisticsRestore(S.RS,{n:previousSeason,management:{logistics:previousLogistics}});
     const ms = performance.now() - t0;
     S.stepMs.push(ms); if (S.stepMs.length > 120) S.stepMs.shift();
     stats.seasonSteps++; S.dirty = true;
@@ -172,9 +180,9 @@ export function makeSeason(cfg, store, stats) {
     stats.liveCaptures++; S.dirty = true;
   };
   S.keepsOf = () => (S.RS && Array.isArray(S.RS.keeps) ? S.RS.keeps.map((K) => (K && (K.r ?? K.h ?? K.holder ?? K.owner))) : null);
-  S.summary = (realm, since) => {
+  S.summary = (realm, since, owner) => {
     if (!S.RS) return null;
-    const s = S.M.realmSimSummary(S.RS, realm, since);
+    const s = S.M.realmSimSummary(S.RS, realm, since, owner);
     return s && typeof s === 'object' ? s : null;
   };
   S.seen = (acct, p) => {

@@ -44,7 +44,7 @@ class Player {
         this.msgs.push(m);
         if (m.t === 'welcome') {
           this.acct = m.acct; this.token = m.token;
-          ws.send(JSON.stringify({ t: 'slow', d: { v: 1, on: 1, humanLive: 1, humanActivity: 1, n: name, dn: name, r: realm, c: 'warrior', l: 30, rr: 2, co: ['Forged Company', 1, 0, 1] } }));
+          ws.send(JSON.stringify({ t: 'slow', d: { v: 1, on: 1, realmManagement: 1, seasonField: 2, sharedScene: 2, warbandOrders: 1, humanLive: 1, humanActivity: 1, n: name, dn: name, r: realm, c: 'warrior', l: 30, rr: 2, co: ['Forged Company', 1, 0, 1] } }));
           ws.send(JSON.stringify({ t: 'fast', d: { s: 1, t: 1, p: [x, 30, z], y: 0, v: [0, 0], a: 0, h: 1, m: 2000, d: 0, ev: [] } }));
           res(this);
         } else if (m.t === 'denied') rej(new Error(m.why));

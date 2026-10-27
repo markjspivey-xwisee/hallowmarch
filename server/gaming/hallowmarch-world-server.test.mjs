@@ -96,7 +96,7 @@ async function fixture(t, { worlds = { march: world }, season = seedSeason(), co
             ws.send(JSON.stringify({ t: 'hello' })); const welcome = await receive('welcome');
             const send = value => ws.send(JSON.stringify(value)); let humanActivity = 0;
             const actor = { ws, welcome, receive, send, async play() {
-              send({ t: 'slow', d: { r: 0, on: 1, humanLive: 1, humanActivity: ++humanActivity,
+              send({ t: 'slow', d: { r: 0, on: 1, realmManagement: 1, seasonField: 2, sharedScene: 2, humanLive: 1, humanActivity: ++humanActivity,
                 n: 'Live world fixture', c: 'warrior', l: 3 } });
               send({ t: 'ping', c: humanActivity }); await receive('pong');
             } };
@@ -270,7 +270,7 @@ test('cold world admission rejects retained private worlds and accepts only init
   let activity = 1;
   for (const binding of [undefined, { ...admission, epoch: 6 }, { ...admission, origin: 'https://other.example' }]) {
     const label = 'admission-' + ++activity;
-    actor.send({ t: 'slow', d: { r: 0, on: 1, humanLive: 1, humanActivity: activity, n: label, c: 'warrior', l: 3,
+    actor.send({ t: 'slow', d: { r: 0, on: 1, realmManagement: 1, seasonField: 2, sharedScene: 2, humanLive: 1, humanActivity: activity, n: label, c: 'warrior', l: 3,
       w: stale, worldAdmission: binding, wx: { v: 1, c: [] } } });
     const forwarded = await observer.receive('peer', m => m.slow?.n === label);
     assert.equal(forwarded.slow.w, undefined, 'rejected private world is not forwarded to current peers');
@@ -280,7 +280,7 @@ test('cold world admission rejects retained private worlds and accepts only init
     assert.deepEqual((await (await fetch(server.base + '/season')).json()).keeps.map(k => k.r), initialKeeps);
   }
   const legitimate = { ...stale, k: initialKeeps, cn: 1, cl: [[2, 3], [4, 5], [6, 7]] };
-  actor.send({ t: 'slow', d: { r: 0, on: 1, humanLive: 1, humanActivity: ++activity, n: 'current-host', c: 'warrior', l: 3,
+  actor.send({ t: 'slow', d: { r: 0, on: 1, realmManagement: 1, seasonField: 2, sharedScene: 2, humanLive: 1, humanActivity: ++activity, n: 'current-host', c: 'warrior', l: 3,
     w: legitimate, worldAdmission: admission } });
   const accepted = await observer.receive('peer', m => m.slow?.n === 'current-host');
   assert.deepEqual(accepted.slow.w, legitimate, 'same-epoch initialized host keeps legitimate elected authority');
@@ -289,7 +289,7 @@ test('cold world admission rejects retained private worlds and accepts only init
   assert.deepEqual(persisted.k, initialKeeps); assert.equal(persisted.cn, 1); assert.deepEqual(persisted.cl, legitimate.cl);
   assert.deepEqual(persisted.g, legitimate.g);
   await server.admin('reset');
-  actor.send({ t: 'slow', d: { r: 0, on: 1, humanLive: 1, humanActivity: ++activity, n: 'old-season', c: 'warrior', l: 3,
+  actor.send({ t: 'slow', d: { r: 0, on: 1, realmManagement: 1, seasonField: 2, sharedScene: 2, humanLive: 1, humanActivity: ++activity, n: 'old-season', c: 'warrior', l: 3,
     w: stale, worldAdmission: admission } });
   const rejected = await observer.receive('peer', m => m.slow?.n === 'old-season');
   assert.equal(rejected.slow.w, undefined, 'a previously initialized old epoch is fenced after reset');

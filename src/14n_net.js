@@ -175,6 +175,8 @@ function netSlowRead(o) {
   const s = { on: o.on === 1 ? 1 : 0, since: netNum(o.since, 0, 1e15, Date.now()), n: netStr(o.n, 24) || 'Stranger', r: NET_REALM_OK(o.r) ? o.r : 0, c: CLASSES[o.c] ? o.c : 'warrior', l: Math.round(netNum(o.l, 1, LEVEL_CAP, 1)), rr: Math.round(netNum(o.rr, 1, 20, 1)) };
   s.sharedScene = o.sharedScene === 2 ? 2 : 0;
   s.warbandOrders = o.warbandOrders === 1 ? 1 : 0;
+  s.seasonField = o.seasonField === 2 ? 2 : 0;
+  s.realmManagement = o.realmManagement === 1 ? 1 : 0;
   s.dn = netStr(o.dn, 56) || s.n;
   const lk = Array.isArray(o.lk) && o.lk.length === 15 ? o.lk : null;
   if (lk) s.lk = { tabard: [netNum(lk[0], 0, 2), netNum(lk[1], 0, 2), netNum(lk[2], 0, 2)], armor: [netNum(lk[3], 0, 2), netNum(lk[4], 0, 2), netNum(lk[5], 0, 2)], skin: netNum(lk[6], 0, 1), hair: netNum(lk[7], 0, 1), mask: Math.round(netNum(lk[8], 0, (1 << 24) - 1)) & ~(WB.torch | WB.beater | WB.hammer), flags: Math.round(netNum(lk[9], 0, 1023)), scale: netNum(lk[10], 0.85, 1.12, 1), outfit: Math.round(netNum(lk[11], 0, 3)), emblem: Math.round(netNum(lk[12], 0, 3)), fem: lk[13] === 1 ? 1 : 0, bulk: netNum(lk[14], 0, 0.5) };
@@ -346,7 +348,7 @@ const stepOkForGhost = (x, z) => inDungeon({ x }) || isWalkable(x, z) || !!water
 function netSlowObj() {
   const P = GAME.player, prog = GAME.prog, live = netHumanLive();
   const o = { v: 1, sharedScene: typeof NETWS !== 'undefined' && NETWS.url ? 2 : 0, on: live ? 1 : 0, since: NET.since,
-    warbandOrders: 1,
+    warbandOrders: 1, seasonField: 2, realmManagement: 1,
     humanLive: live ? 1 : 0, humanActivity: NET_HUMAN_PLAY.activity };
   if (P && prog) {
     const L = P.look;
@@ -549,6 +551,7 @@ function netGhosts() {
 function netIsEnemy(a, b) {
   const P = GAME.player;
   if (!P || a.netCompanion || b.netCompanion) return false;
+  if (typeof realmManualCeasefire === 'function' && realmManualCeasefire(a, b)) return false;
   if (a.role === 'remote' && b.role === 'remote') return false;
   const me = a.role === 'remote' ? b : a, o = a.role === 'remote' ? a : b;
   if (me !== P && !(me.tame && me.tame.owner === 'player')) return false;

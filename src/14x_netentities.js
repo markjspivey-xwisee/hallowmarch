@@ -19,7 +19,8 @@ const netEntityLive = () => typeof netOn === 'function' && netOn() && NETWS.stat
 const netEntityMine = () => !!NET_ENTITIES.authority && NET_ENTITIES.peer === NET.self && !NET_ENTITIES.waiting;
 function netEntityCanSimulateWorld() {
   return !netEntityShared() || (netEntityLive() && netEntityMine()
-    && (typeof netWorldPartsCanSimulate !== 'function' || netWorldPartsCanSimulate()));
+    && (typeof netWorldPartsCanSimulate !== 'function' || netWorldPartsCanSimulate())
+    && (typeof season2InventoryReady !== 'function' || season2InventoryReady()));
 }
 function netEntityRegister(e) {
   if (!netEntityOwned(e)) return;
@@ -99,7 +100,7 @@ function netEntityWire(row) {
   if (row.ai && Object.values(row.ai).every(v => v == null || v === false)) row.ai = null;
   if (!row.buffs?.length) row.buffs = null;
   else row.buffs = row.buffs.map(b => ({ kind: b.kind, value: Math.round(b.value * 1000) / 1000,
-    left: Math.round(b.left * 10) / 10 }));
+    left: Math.round(b.left * 10) / 10, ...(Number.isInteger(b.sourceFaction) && b.sourceFaction >= -2 && b.sourceFaction <= 31 ? { sourceFaction: b.sourceFaction } : {}) }));
   for (const [key, value] of Object.entries(NET_ENTITY_DEFAULTS)) if (row[key] === value) delete row[key];
   if (row.hp === row.maxHp) delete row.hp;
   return row;
@@ -111,6 +112,7 @@ function netEntityRow(e) {
     p: [netEntityR(e.x), netEntityR(e.y), netEntityR(e.z)], yaw: netEntityR(e.yaw),
     hp: netEntityR(e.hp), maxHp: netEntityR(e.maxHp), alive: e.alive ? 1 : 0,
     a: netEntityR(animActValue(e)), ph: netEntityR(e.anim.phase % (Math.PI * 2)), am: netEntityR(e.anim.amt),
+    ...(e.kind === 'humanoid' && e.mount ? { mounted: 1 } : {}),
     scale: netEntityR(e.scale || 1), radius: netEntityR(e.radius || 0.45), speed: netEntityR(e.speed || 0),
     fixedY: Number.isFinite(e.fixedY) ? e.fixedY : null, hover: netEntityR(e.hover || 0),
     look: netEntityPlain(e.look), home: e.home ? { x: e.home.x, z: e.home.z, r: e.home.r || 0 } : null,
@@ -123,7 +125,8 @@ function netEntityRow(e) {
     flying: !!e.flying, dragon: e.kind === 'dragon' && typeof DRAGON !== 'undefined'
       ? netEntityPlain({ state: DRAGON.state, stateT: DRAGON.stateT, act: DRAGON.act, flap: DRAGON.flap,
         glide: DRAGON.glide, alt: DRAGON.alt, yaw: DRAGON.yaw, walking: DRAGON.walking, circ: DRAGON.circ, perch: DRAGON.perch }) : null,
-    buffs: e.buffs.slice(0, 24).map(b => ({ kind: b.kind, value: b.value, left: Math.max(0, b.until - GAME.t) })) });
+    buffs: e.buffs.slice(0, 24).map(b => ({ kind: b.kind, value: b.value, left: Math.max(0, b.until - GAME.t),
+      ...(Number.isInteger(b.sourceFaction) && b.sourceFaction >= -2 && b.sourceFaction <= 31 ? { sourceFaction: b.sourceFaction } : {}) })) });
 }
 function netEntityReadRow(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
@@ -132,6 +135,7 @@ function netEntityReadRow(value) {
   if (row.hp == null) row.hp = row.maxHp;
   row.look = netEntityUnpackLook(row.look);
   if (Array.isArray(value.look) && row.look === null) return null;
+  if (row.mounted != null && row.mounted !== 0 && row.mounted !== 1) return null;
   const finite = (v, lo, hi) => typeof v === 'number' && Number.isFinite(v) && v >= lo && v <= hi;
   if (!row || typeof row.id !== 'string' || !/^scene:[a-zA-Z0-9_-]{1,32}:\d{1,8}$/.test(row.id)
     || typeof row.key !== 'string' || row.key.length > 160 || typeof row.kind !== 'string' || row.kind.length > 24
@@ -169,6 +173,14 @@ function netEntityApply(e, row, immediate = false) {
   e.netEntityMissing = false; e.netEntityPose = row.a;
   e.name = row.name; e.faction = row.faction; e.cls = row.cls; e.mobType = row.mobType; e.level = row.level;
   e.look = netEntityPlain(row.look); e.scale = row.scale; e.radius = row.radius; e.speed = row.speed;
+  if (e.kind === 'humanoid') {
+    const paid = typeof loopsCanonicalManaged !== 'function' || !loopsCanonicalManaged()
+      || typeof realmLogisticsMountGranted === 'function' && realmLogisticsMountGranted(row.id, row.faction);
+    if (row.mounted === 1 && paid) {
+      if (!e.mount) e.mount = horseLook(e);
+      e.mountAnim = e.mountAnim || { phase: row.ph || 0, amt: row.am || 0, q: 0 };
+    } else { e.mount = null; e.mountAnim = null; }
+  }
   e.fixedY = row.fixedY; e.hover = row.hover; e.home = row.home ? netEntityPlain(row.home) : e.home;
   e.netEntityOwner = row.owner || null;
   e.tame = row.tame ? netEntityPlain(row.tame) : null;
@@ -204,7 +216,8 @@ function netEntityApply(e, row, immediate = false) {
   e.anim.act = Math.floor(row.a); e.anim.actT = row.a % 1; e.anim.actDur = row.a ? 1 : 0;
   e.anim.death = e.alive ? 0 : Math.min(1, (GAME.t - e.deadAt) / 0.7);
   e.buffs = Array.isArray(row.buffs) ? row.buffs.slice(0, 24).filter(b => typeof b.kind === 'string' && Number.isFinite(b.value) && Number.isFinite(b.left))
-    .map(b => ({ kind: b.kind, value: b.value, until: GAME.t + Math.min(600, b.left), tick: GAME.t, src: null })) : [];
+    .map(b => ({ kind: b.kind, value: b.value, until: GAME.t + Math.min(600, b.left), tick: GAME.t, src: null,
+      ...(Number.isInteger(b.sourceFaction) && b.sourceFaction >= -2 && b.sourceFaction <= 31 ? { sourceFaction: b.sourceFaction } : {}) })) : [];
   if (immediate) {
     e.x = e.prevX = row.p[0]; e.y = row.p[1]; e.z = e.prevZ = row.p[2]; e.yaw = row.yaw;
     e.anim.phase = row.ph; e.anim.amt = row.am;
@@ -485,6 +498,7 @@ function netEntityPrepareWarbands() {
     }
     cwPrepareReplicaBand(w);
   }
+  if (typeof s2Reconcile === 'function') s2Reconcile();
 }
 const netEntityBandMember = (e, realm) => netEntityOwned(e) && !netEntityPersonal(e)
   && e.role === 'soldier' && e.faction === realm;
@@ -511,8 +525,13 @@ function netEntityMeta() {
   if (typeof LOOPS !== 'undefined') meta.caravans = LOOPS.caravans.slice(0, 64).map(c => ({
     id: c.id, realm: c.realm, keep: c.keep, route: netEntityPlain(c.route), i: c.i, state: c.state,
     load: netEntityPlain(c.load), back: c.back, horse: ref(c.horse), carter: ref(c.carter), esc: c.esc.map(ref).filter(Boolean),
+    ...(c.logisticsId ? { logisticsId: c.logisticsId, logisticsLease: c.logisticsLease, logisticsSeason: c.logisticsSeason, logisticsSettled: !!c.logisticsSettled } : {}),
     ax: c.ax, az: c.az, y: c.y, yaw: c.yaw, roll: c.roll, pitch: c.pitch, wheel: c.wheel,
     wreckT: c.wreckT, parked: c.parkT || 0, age: Math.max(0, GAME.t - c.t0) }));
+  if (typeof LOOPS !== 'undefined') meta.logistics = { jobs: LOOPS.caravans.filter(c => c.logisticsId && !c.logisticsSettled).slice(0, 6).map(c => ({
+    jobId: c.logisticsId, lease: c.logisticsLease, season: c.logisticsSeason, horseId: ref(c.horse),
+    escortIds: c.esc.slice(0, 2).map(ref).filter(Boolean) })) };
+  if (typeof realmPublicWorksMeta === 'function') meta.publicWorks = realmPublicWorksMeta();
   return meta;
 }
 function netEntityApplyMeta(meta) {
@@ -838,7 +857,11 @@ function netEntityMessage(m) {
   if (m.ok === false) {
     NET_ENTITIES.stats.refused++;
     NET_ENTITIES.lastRefusal = String(m.error || m.reason || 'Shared actor state was refused.').slice(0, 120);
-    if (NET_ENTITIES.lastRefusal === 'scene_capacity') {
+    if (NET_ENTITIES.lastRefusal === 'entity_baseline_required' && m.op === 'snapshot' && netEntityMine()) {
+      // The server lost a delta's baseline. Republish the current keeper's complete
+      // roster without changing its admitted authority or replay readiness.
+      NET_ENTITIES.sent.clear(); NET_ENTITIES.published = false; NET_ENTITIES.metaKey = ''; NET_ENTITIES.at = -Infinity;
+    } else if (NET_ENTITIES.lastRefusal === 'scene_capacity') {
       NET_ENTITIES.waiting = true; NET_ENTITIES.published = false;
       if (typeof uiLog === 'function') uiLog('Shared world simulation paused: its actor checkpoint was refused.', 'warn');
     }

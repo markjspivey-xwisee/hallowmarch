@@ -24,22 +24,24 @@ test('reserved diagnostic namespace is bounded and invalid requests cannot becom
 test('canonical field armies ignore diagnostic keepers and refuse their reports', () => {
   let takes = 0, reports = 0;
   const army = { id: 1, r: 0, k: 0, n: 10, p: 0, kind: 'keep', state: 'march' };
-  const season = { RS: { phase: 'war', armies: [army] }, M: {
+  const season = { fieldGrantConfirmed: () => true, RS: { n: 1, phase: 'war', armies: [army] }, M: {
     realmSimFieldTake(_state, _id, who) { takes++; army.onField = { who }; return { id: 1 }; },
     realmSimFieldReport() { reports++; return true; },
   } };
   const rooms = new Map(), sent = [];
   function keeper(peer, diagnostic) {
     const room = { diagnostic, clients: new Map(), regions: { frontier: peer } };
-    const c = { peer, room, realm: 0, region: 'frontier', pos: { x: 0, z: 0 }, ws: { readyState: 1 } };
+    const c = { peer, room, realm: 0, region: 'frontier', slow: { on: 1, realmManagement: 1, seasonField: 2 }, pos: { x: 0, z: 0 }, ws: { readyState: 1 } };
     room.clients.set(peer, c); rooms.set(peer, room); return c;
   }
   const diagnostic = keeper('diagnostic', true), ordinary = keeper('ordinary', false);
   const field = makeField(season, rooms, (c, value) => sent.push({ peer: c.peer, value }), () => 'frontier',
     { keeps: [{ x: 0, z: 0 }] }, {});
   field.step(); assert.equal(takes, 1); assert.equal(sent[0].peer, ordinary.peer);
-  field.report(diagnostic, { id: 1, rep: { n: 1 } }); assert.equal(reports, 0);
-  field.report(ordinary, { id: 1, rep: { n: 1 } }); assert.equal(reports, 1);
+  const report = { id: 1, season: season.RS.n, fieldLease: sent[0].value.a.fieldLease, rep: { n: 1 } };
+  assert.ok(report.fieldLease, 'the ordinary handoff carries an exact page lease');
+  field.report(diagnostic, report); assert.equal(reports, 0);
+  field.report(ordinary, report); assert.equal(reports, 1);
   field.left(ordinary); rooms.delete('ordinary'); field.step(); assert.equal(takes, 1);
 });
 
@@ -80,7 +82,7 @@ async function localServer(t) {
 
 test('real server separates QA presence, chat, season writes and captures without erasing historical records', async t => {
   const f = await localServer(t), ordinary = await f.connect('march'), welcome = await ordinary.receive('welcome');
-  const profile = (name, w) => ({ t: 'slow', d: { r: 0, on: 1, n: name, dn: name, c: 'warrior', l: 3, rr: 0, ...(w ? { w } : {}) } });
+  const profile = (name, w) => ({ t: 'slow', d: { r: 0, on: 1, realmManagement: 1, seasonField: 2, n: name, dn: name, c: 'warrior', l: 3, rr: 0, ...(w ? { w } : {}) } });
   ordinary.send({ ...profile('Native QA fan'), d: { ...profile('Native QA fan').d, humanLive: 1, humanActivity: 1 } });
   const first = await ordinary.receive('season'); assert(first.roster.list.some(x => x.n === 'Native QA fan'));
   assert(first.roster.list.some(x => x.n === f.historical.historical.name), 'Display names never classify diagnostic participation');
