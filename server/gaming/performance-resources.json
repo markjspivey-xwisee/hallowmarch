@@ -36,7 +36,7 @@
     },
     {
       "path": "src/08o_season2.js",
-      "digest": "sha256:142df5e92123aeb894b0eb74f50c252cf429cd9b14b9b7e6a9bb35f0d968212e"
+      "digest": "sha256:4ad4cc4145bfe95303605ac5357cac4e5fe14e3418d5fd9cc24798a9b5bbf864"
     },
     {
       "path": "src/10_ui.js",
@@ -2344,11 +2344,11 @@
       ],
       "source": {
         "path": "src/08o_season2.js",
-        "digest": "sha256:142df5e92123aeb894b0eb74f50c252cf429cd9b14b9b7e6a9bb35f0d968212e",
+        "digest": "sha256:4ad4cc4145bfe95303605ac5357cac4e5fe14e3418d5fd9cc24798a9b5bbf864",
         "selector": "FIELD_NOTES.s2battle",
         "lines": {
-          "start": 396,
-          "end": 396
+          "start": 402,
+          "end": 402
         }
       },
       "requiresContext": false,
@@ -2361,7 +2361,7 @@
         "note": "s2battle",
         "availability": "Collected in the game when relevant"
       },
-      "revisionDigest": "sha256:14186532b39770283fae15b1918fb7fb1f26669ea9f5270b1e5506c6698bee5b"
+      "revisionDigest": "sha256:84e99aef77ed7c2926757048474669549be9e77200600a1e8e52f3c97ae3bf2b"
     },
     {
       "id": "field-note:s2field",
@@ -2374,11 +2374,11 @@
       ],
       "source": {
         "path": "src/08o_season2.js",
-        "digest": "sha256:142df5e92123aeb894b0eb74f50c252cf429cd9b14b9b7e6a9bb35f0d968212e",
+        "digest": "sha256:4ad4cc4145bfe95303605ac5357cac4e5fe14e3418d5fd9cc24798a9b5bbf864",
         "selector": "FIELD_NOTES.s2field",
         "lines": {
-          "start": 395,
-          "end": 395
+          "start": 401,
+          "end": 401
         }
       },
       "requiresContext": true,
@@ -2391,7 +2391,7 @@
         "note": "s2field",
         "availability": "Collected in the game when relevant"
       },
-      "revisionDigest": "sha256:bcddf86757626514789ba37b58134082b61ab6d3665550f46dece6d61bf68f6d"
+      "revisionDigest": "sha256:f604aab82f7c0baf7ef7c0ca601842c9e390e94657889cfc44782dba7b4caf0f"
     },
     {
       "id": "field-note:scaffold",
@@ -3093,5 +3093,5 @@
       "assessment": null
     }
   ],
-  "revisionDigest": "sha256:b378248f4e41b3495d6044ca4cb7a62ba3804075d75a7c6be5d30c682880da60"
+  "revisionDigest": "sha256:0d88ed64b661b3766261426aba326f7ab569396f50a069bdceb68f912bc707f6"
 }

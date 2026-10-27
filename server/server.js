@@ -274,7 +274,12 @@ function regionOf(x, z) {
   return (Math.hypot(x, z) < 190 ? 'f' : 'h') + best;
 }
 const KEEP_REGION = (WORLD.keeps || []).map((k) => regionOf(k.x, k.z));
-const FIELD = makeField(SEASON, ROOMS, (c, o) => send(c, o), regionOf, WORLD, STATS, realmViewFor,
+function sendSeasonField(c,o) {
+  // Keep the complete confirmed army inventory ahead of its physical grant.
+  if(o?.t==='sarmy')seasonTell(c,-1,false);
+  send(c,o);
+}
+const FIELD = makeField(SEASON, ROOMS, sendSeasonField, regionOf, WORLD, STATS, realmViewFor,
   c => SHARED_SCENE.acceptsChunk(c,{authority:c.sceneAuthority,worldAdmission:c.worldAdmission})); // [season2] (server/fieldarmies.js)
 WORLD_STATE?.attach({ worlds: WORLDS, season: SEASON, field: FIELD, rooms: ROOMS });
 // This is a Hallowmarch-owned participation ledger, not a copy of a player's

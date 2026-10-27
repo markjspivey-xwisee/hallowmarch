@@ -29,7 +29,10 @@ export function createRealmManagementProtocol({season,commanderFor,confirm,publi
       return refuse(c,m,delegate?'The current battlefield keeper is required.':'Take a high seat of your realm before managing it.',delegate?'keeper_required':'throne_required');
     if(!canMutate())return refuse(c,m,'The world is waiting for its owned save. Retry after recovery.','world_paused');
     if(!prior&&reserved.size>=24)return refuse(c,m,'Waiting for accepted realm orders to save.','queue_full');
-    if(!prior&&(delegate?o.revision>(RS.management?.revision??0):o.revision!==RS.management?.revision))
+    // Only operations with durable domain IDs may batch from an older view.
+    // Unknown dispatch/repair nonces must not replay once their bounded receipt expires.
+    const batchable=delegate&&['convoy.adopt','convoy.settle','mount.issue','horse.donate'].includes(o.args.op);
+    if(!prior&&(batchable?o.revision>(RS.management?.revision??0):o.revision!==RS.management?.revision))
       return reply(c,m,{ok:false,code:'stale_revision',why:'The realm changed. Review its current state before trying again.',management:season.M.realmManageView(RS,actor.realm)});
     let receipt=prior,saveFailed=false;
     if(!receipt){

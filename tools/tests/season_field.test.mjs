@@ -386,3 +386,35 @@ test('native cohort handout waits for a literal confirmed grant while reports ca
     assert.equal(f.army().onField, null);
   }
 });
+
+
+test('fresh canonical inventory retires an old cohort before a new grant spawns', () => {
+  const f=bridgeFixture({initialPhase:'muster'});success(f.model.action(0,{type:'muster'}));
+  const grant=f.grant(), old=f.context.makeEnt({kind:'humanoid',role:'soldier',faction:0,x:0,y:0,z:0});
+  const stale={id:900,realm:0,members:[old.id],dead:false,season:{id:900,season:f.RS.n},order:null};
+  f.context.WAR.warbands.push(stale);
+  f.context.NETS.s={...f.context.NETS.s,armyIds:[grant.a.id],armyIdsComplete:true};
+  assert.equal(f.client.season2InventoryReady(),true);
+  // Model a late restored actor frame after the cached readiness check.
+  const late=f.context.makeEnt({kind:'humanoid',role:'soldier',faction:0,x:0,y:0,z:0});
+  const retired={id:901,realm:0,members:[late.id],dead:false,season:{id:901,season:f.RS.n},order:null};
+  f.context.WAR.warbands.push(retired);
+  const make=f.context.makeEnt;
+  f.context.makeEnt=values=>{assert.equal(late.alive,false,'retired actor must be removed before the new body');return make(values);};
+  f.deliver(grant);
+  assert.equal(retired.dead,true);assert.equal(f.client.S2.bands.has(grant.a.id),true);
+});
+test('grant reconciliation preserves an incoming cohort whose id is not yet listed', () => {
+  const f=bridgeFixture({initialPhase:'muster'});success(f.model.action(0,{type:'muster'}));
+  const grant=f.grant(), actor=f.context.makeEnt({kind:'humanoid',role:'soldier',faction:0,x:0,y:0,z:0});
+  actor.hp=19;
+  const existing={id:800,realm:0,members:[actor.id],dead:false,order:null,
+    season:{id:grant.a.id,season:f.RS.n,per:grant.a.n,renderN:1}};
+  f.context.WAR.warbands.push(existing);
+  f.context.NETS.s={...f.context.NETS.s,armyIds:[],armyIdsComplete:true};
+  f.context.netEntityCanSimulateWorld=()=>f.state.keeper && f.client.season2InventoryReady();
+  const before=f.costs.spawns;f.deliver(grant);
+  const adopted=f.client.S2.bands.get(grant.a.id);
+  assert.ok(adopted);assert.equal(adopted.wb,existing);assert.equal(f.costs.spawns,before);
+  assert.equal(actor.hp,19);assert.equal(actor.alive,true);
+});

@@ -136,11 +136,11 @@ test('actual WORLD keeper election refuses older economy or FIELD capabilities',
   const room={clients:new Map([['old',old],['new',modern]])};
   assert.equal(elect(room),modern);modern.slow.realmManagement=0;assert.equal(elect(room),null);
 });
-test('multiple fixed logistics jobs can share one native checkpoint without weakening human revisions',async()=>{
+test('multiple stable-ID logistics jobs can share one native checkpoint without weakening human revisions',async()=>{
   let release;const wait=new Promise(r=>{release=r;});
   const delegate={deferred:true,actorFor:c=>({realm:c.realm}),apply(RS){RS.realms[0].s[0]-=1;RS.management.revision++;return{ok:true,revision:RS.management.revision,data:{jobId:'paid'}};}};
   const f=fixture({confirm:()=>wait,delegates:{logistics:delegate}}),c=client();
-  const requests=[1,2,3,4].map(n=>({q:n,o:{kind:'logistics',nonce:'logistics-'+n,season:1,revision:0,args:{op:'convoy.dispatch',keep:n}}}));
+  const requests=[1,2,3,4].map(n=>({q:n,o:{kind:'logistics',nonce:'logistics-'+n,season:1,revision:0,args:{op:'mount.issue',actorId:'scene:actor:'+n}}}));
   const runs=requests.map(m=>f.protocol.handle(c,m));
   for(let i=0;i<64&&f.season.RS.management.revision<4;i++)await Promise.resolve();
   assert.equal(f.season.RS.management.revision,4);assert.equal(f.season.RS.realms[0].s[0],96);
@@ -203,10 +203,42 @@ test('confirmed receipt replies use the confirmed projection while later accepte
   const delegate={deferred:true,actorFor:c=>({realm:c.realm}),apply(RS){RS.management.revision++;return{ok:true,revision:RS.management.revision};}};
   const f=fixture({delegates:{logistics:delegate},viewFor:()=>({v:1,revision}),
     confirm:r=>r.id==='first-paid'?one:two}),c=client();
-  const message=nonce=>({q:1,o:{kind:'logistics',nonce,season:1,revision:0,args:{op:'convoy.dispatch',keep:0}}});
+  const message=nonce=>({q:1,o:{kind:'logistics',nonce,season:1,revision:0,args:{op:'mount.issue',actorId:'scene:actor:'+nonce}}});
   const first=f.protocol.handle(c,message('first-paid')),second=f.protocol.handle(c,message('second-paid'));
   for(let i=0;i<64&&f.season.RS.management.revision<2;i++)await Promise.resolve();
   assert.equal(f.season.RS.management.revision,2);
   revision=1;releaseOne();await first;assert.equal(f.sent.at(-1).confirmed,true);assert.equal(f.sent.at(-1).management.revision,1);
   revision=2;releaseTwo();await second;assert.equal(f.sent.at(-1).management.revision,2);
+});
+
+for(const op of ['convoy.dispatch','repair.issue'])test(op+' lost-ACK retry cannot spend again after its receipt is pruned',async()=>{
+  const delegate={deferred:true,actorFor:c=>({realm:c.realm}),apply(RS){RS.realms[0].s[0]-=1;RS.management.revision++;return{ok:true,revision:RS.management.revision};}};
+  let f=fixture({delegates:{logistics:delegate}});const c=client();
+  const message=(nonce,revision,args)=>({q:1,o:{kind:'logistics',nonce,season:1,revision,args}});
+  const old=message('old-lost-ack',0,{op,keep:0,...(op==='repair.issue'?{kind:'gate'}:{})});
+  await f.protocol.handle(c,old);
+  for(let i=0;i<3;i++)await f.protocol.handle(c,message('stable-id-'+i,0,{op:'mount.issue',actorId:'scene:actor:'+i}));
+  await f.protocol.handle(c,old);assert.equal(f.sent.at(-1).confirmed,true);assert.equal(f.season.RS.realms[0].s[0],96);
+  for(let i=3;i<33;i++)await f.protocol.handle(c,message('stable-id-'+i,0,{op:'mount.issue',actorId:'scene:actor:'+i}));
+  assert.equal(f.season.RS.managementReceipts.length,32);assert.equal(f.season.RS.managementReceipts.some(r=>r.id===old.o.nonce),false);
+  f=fixture({state:JSON.parse(JSON.stringify(f.season.RS)),delegates:{logistics:delegate}});
+  const balance=f.season.RS.realms[0].s[0],revision=f.season.RS.management.revision;
+  await f.protocol.handle(c,old);assert.equal(f.sent.at(-1).code,'stale_revision');assert.equal(f.applied,0);
+  assert.equal(f.season.RS.realms[0].s[0],balance);assert.equal(f.season.RS.management.revision,revision);
+  await f.protocol.handle(c,message('fresh-current-a',revision,old.o.args));assert.equal(f.sent.at(-1).confirmed,true);
+  await f.protocol.handle(c,message('fresh-stale-b',revision,old.o.args));assert.equal(f.sent.at(-1).code,'stale_revision');
+  const current=f.sent.at(-1).management.revision;
+  await f.protocol.handle(c,message('fresh-requeued-b',current,old.o.args));assert.equal(f.sent.at(-1).confirmed,true);
+  assert.equal(f.season.RS.realms[0].s[0],balance-2);
+});
+
+test('FIELD delivers the confirmed complete inventory before each physical army grant',()=>{
+  const source=fs.readFileSync(new URL('../../server/server.js',import.meta.url),'utf8'),start=source.indexOf('function sendSeasonField('),end=source.indexOf('const FIELD =',start);
+  const out=[],c={peer:'keeper'};
+  const deliver=new Function('seasonTell','send',source.slice(start,end)+';return sendSeasonField;')
+    ((target,away,first)=>{assert.equal(target,c);assert.equal(away,-1);assert.equal(first,false);out.push({t:'season',armyIds:[7],armyIdsComplete:true});},
+      (target,message)=>{assert.equal(target,c);out.push(message);});
+  const grant={t:'sarmy',a:{id:7,season:1,fieldLease:'paid-lease'}};
+  deliver(c,grant);assert.deepEqual(out.map(m=>m.t),['season','sarmy']);assert.equal(out[0].armyIds.includes(out[1].a.id),true);
+  const fold={t:'sarmyfold',id:7,season:1,fieldLease:'paid-lease'};deliver(c,fold);assert.equal(out.length,3);assert.equal(out.at(-1),fold);
 });
