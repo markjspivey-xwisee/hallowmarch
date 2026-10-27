@@ -1,9 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { createSharedScene } from '../../server/shared-scene.js';
 import { isDeepStrictEqual } from 'node:util';
 import { createRealmManagementProtocol, realmManagementReloadRequired } from '../../server/realm-management.js';
+import { realmLogisticsApply, realmLogisticsGateReport } from '../../server/realm-logistics.js';
 const client=()=>({realm:0,acct:{id:'account-one'},room:{diagnostic:false},seated:true});
 const request=(nonce='nonce-one',revision=0,args={type:'build',cost:10})=>({q:1,o:{kind:'manage',nonce,season:1,revision,hall:15,args}});
 function fixture(options={}){
@@ -171,14 +174,56 @@ test('battle loss reports are keeper fenced, replay safe across refill, and gate
   let keeper=true,paid=false;
   const scene={acceptsChunk:()=>keeper,proofFor:()=>({worldparts:{}})};
   const gateReport=(RS,o)=>paid?(RS.keeps[o.keep].gate=o.gate,{ok:true}):{ok:false,why:'Wait for paid proof'};
-  const report=new Function('SEASON','SHARED_SCENE','send','sameWorldAdmission','worldAdmission','realmLogisticsGateReport','realmConfirmedSource',source.slice(start,end)+';return onRealmBattle;')
-    (season,scene,(_,m)=>sent.push(m),(a,b)=>a?.origin===b?.origin&&a?.epoch===b?.epoch,()=>admission,gateReport,null);
+  const report=new Function('SEASON','SHARED_SCENE','send','sameWorldAdmission','worldAdmission','realmLogisticsGateReport','realmConfirmedSource','WORLD_STATE','fileStore',source.slice(start,end)+';return onRealmBattle;')
+    (season,scene,(_,m)=>sent.push(m),(a,b)=>a?.origin===b?.origin&&a?.epoch===b?.epoch,()=>admission,gateReport,null,{},null);
   const c={room:{diagnostic:false},sceneAuthority:'lease',worldAdmission:admission},message=(seq,g,gate)=>({q:seq,o:{n:1,keep:0,owner:0,g,gate,seq,authority:'lease',worldAdmission:admission}});
   keeper=false;report(c,message(1,2,0.2));assert.equal(season.RS.keeps[0].g,8);
   keeper=true;report(c,message(1,2,0.2));assert.equal(season.RS.keeps[0].g,2);assert.equal(sent.at(-1).g,2);
   season.RS.keeps[0].g=5;report(c,message(1,2,0.2));assert.equal(season.RS.keeps[0].g,5);assert.equal(sent.at(-1).duplicate,true);
   report(c,message(2,5,0.8));assert.equal(sent.at(-1).pending,true);assert.equal(season.RS.keeps[0].gate,0.2);
   paid=true;report(c,message(2,5,0.8));assert.equal(sent.at(-1).ok,true);assert.equal(season.RS.keeps[0].gate,0.8);
+});
+
+test('file-backed gate reports read newly saved credit and refuse volatile or failed-save credit',t=>{
+  const directory=fs.mkdtempSync(path.join(os.tmpdir(),'hallowmarch-gate-proof-'));
+  t.after(()=>{fs.rmSync(path.join(directory,'season.json'),{force:true});fs.rmdirSync(directory);});
+  const file=path.join(directory,'season.json'),read=name=>fs.readFileSync(new URL('../../src/'+name,import.meta.url),'utf8');
+  const model=new Function(read('08m_realm.js')+'\n'+read('08p_realm_management.js')+'\nreturn {realmSimInit,realmManageInit};')();
+  const RS=model.realmSimInit(12345,{days:28,season:2});model.realmManageInit(RS);RS.keeps[0].h=0;RS.keeps[0].g=6;RS.keeps[0].gate=0.5;
+  const startup=structuredClone(RS);fs.writeFileSync(file,JSON.stringify(startup));
+  const admission={origin:'https://game.test',epoch:1},worldparts={parts:{publicworks:{v:1,scope:{...admission,n:RS.n},spent:[{keep:0,owner:0,kind:'gate',units:1}]}}};
+  const actor={realm:0,actualKeeper:true,peer:'keeper',authority:'lease',worldAdmission:admission};
+  const funded=realmLogisticsApply(RS,actor,{op:'repair.issue',keep:0,kind:'gate'},
+    {actualKeeper:true,peer:'keeper',authority:'lease',worldAdmission:admission,owner:'account-one'});
+  assert.equal(funded.ok,true,funded.why);assert.equal(RS.management.logistics.repairs[0].totalUnits,1);
+  const fundedState=structuredClone(RS);
+  const source=fs.readFileSync(new URL('../../server/server.js',import.meta.url),'utf8'),start=source.indexOf('function onRealmBattle('),end=source.indexOf('function sendWorldInit(',start);
+  const create=new Function('SEASON','SHARED_SCENE','send','sameWorldAdmission','worldAdmission','realmLogisticsGateReport','realmConfirmedSource','WORLD_STATE','fileStore',source.slice(start,end)+';return onRealmBattle;');
+  const sent=[],season={RS},scene={acceptsChunk:()=>true,proofFor:()=>({worldparts})},same=(a,b)=>a?.origin===b?.origin&&a?.epoch===b?.epoch;
+  const report=create(season,scene,(_,m)=>sent.push(m),same,()=>admission,realmLogisticsGateReport,startup,null,
+    {read:()=>{try{return JSON.parse(fs.readFileSync(file,'utf8'));}catch{return null;}}});
+  const commander={room:{diagnostic:false},sceneAuthority:'lease',worldAdmission:admission};
+  const message={q:1,o:{n:RS.n,keep:0,owner:0,g:6,gate:1,seq:1,authority:'lease',worldAdmission:admission}};
+  report(commander,message);assert.equal(sent.at(-1).pending,true);assert.equal(RS.keeps[0].gate,0.5);
+  assert.throws(()=>fs.writeFileSync(path.join(directory,'missing','season.json'),JSON.stringify(RS)));
+  report(commander,message);assert.equal(sent.at(-1).pending,true);assert.equal(RS.keeps[0].gate,0.5);
+  assert.deepEqual(RS.management.logistics.appliedGateSpent,[],'unconfirmed funding cannot consume physical repair credit');
+  const retired=structuredClone(RS);retired.management.logistics.season=RS.n-1;fs.writeFileSync(file,JSON.stringify(retired));
+  report(commander,message);assert.equal(sent.at(-1).pending,true);assert.equal(RS.keeps[0].gate,0.5,'retained earlier-season ledger cannot confirm current funding');
+  const wrongScope=structuredClone(RS);wrongScope.management.logistics.scope.epoch++;fs.writeFileSync(file,JSON.stringify(wrongScope));
+  report(commander,message);assert.equal(sent.at(-1).pending,true);assert.equal(RS.keeps[0].gate,0.5,'saved credit from another admission cannot confirm current funding');
+  fs.writeFileSync(file,JSON.stringify(RS));
+  report(commander,message);assert.equal(sent.at(-1).ok,true);assert.equal(RS.keeps[0].gate,1);
+  assert.equal(RS.management.logistics.appliedGateSpent[0].units,1);
+  for(const [name,confirmed,ok] of [['current native checkpoint',fundedState,true],['unconfirmed native credit',startup,false],
+    ['old native ledger season',retired,false],['old native admission scope',wrongScope,false]]) {
+    const nativeSeason={RS:structuredClone(fundedState)};
+    const native=create(nativeSeason,scene,(_,m)=>sent.push(m),same,()=>admission,realmLogisticsGateReport,confirmed,{},
+      {read:()=>assert.fail('native repair proof must not consult legacy files')});
+    native({...commander,realmBattleHeads:new Map()},message);
+    assert.equal(sent.at(-1).ok,ok,name);assert.equal(nativeSeason.RS.keeps[0].gate,ok?1:0.5,name);
+    if(!ok)assert.equal(sent.at(-1).pending,true,name);
+  }
 });
 
 test('paid public logistics and FIELD handouts remain hidden until exact native readback',()=>{

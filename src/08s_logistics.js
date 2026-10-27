@@ -16,6 +16,17 @@ function realmLogisticsGrantView() {
       && scope.origin===admission?.origin && scope.epoch===admission?.epoch ? view : null;
   } catch(err) { return null; }
 }
+function realmLogisticsRequestView() {
+  const view=realmLogisticsView();
+  try {
+    const admission=netCurrentWorldAdmission();
+    // The first accepted mutation creates the ledger's scope. Its absence (or
+    // a retired scope) cannot prevent the current keeper from requesting it.
+    return view && view.season===NETS.s?.n && typeof admission?.origin==='string' && admission.origin.length>0
+      && Number.isSafeInteger(admission.epoch) && admission.epoch>=1
+      && typeof NET_ENTITIES.authority==='string' && NET_ENTITIES.authority.length>0 ? view : null;
+  } catch(err) { return null; }
+}
 function realmLogisticsKeeper() {
   return loopsCanonicalManaged() && (typeof netHumanLive!=='function'||netHumanLive())
     && typeof netEntityCanSimulateWorld==='function' && netEntityCanSimulateWorld()
@@ -28,7 +39,7 @@ function realmLogisticsScope() {
 function realmLogisticsNow() { return typeof GAME==='undefined'?0:GAME.t; }
 function realmLogisticsRequest(key,args,priority=2,done=null) {
   const state=REALM_LOGISTICS,now=realmLogisticsNow();
-  if(!realmLogisticsKeeper()||!realmLogisticsGrantView()||typeof netRealmLogisticsCommand!=='function')return false;
+  if(!realmLogisticsKeeper()||!realmLogisticsRequestView()||typeof netRealmLogisticsCommand!=='function')return false;
   const scope=realmLogisticsScope();
   if(state.scope!==scope){state.requests.clear();state.cooldown.clear();state.scope=scope;}
   if(state.requests.has(key))return true;
@@ -38,7 +49,7 @@ function realmLogisticsRequest(key,args,priority=2,done=null) {
 }
 function realmLogisticsPump() {
   const state=REALM_LOGISTICS,now=realmLogisticsNow();
-  if(!realmLogisticsKeeper()||!realmLogisticsGrantView())return;
+  if(!realmLogisticsKeeper()||!realmLogisticsRequestView())return;
   const current=realmLogisticsScope();
   if(state.scope!==current){state.requests.clear();state.cooldown.clear();state.scope=current;}
   let active=[...state.requests.values()].filter(r=>r.pending).length;
@@ -49,7 +60,7 @@ function realmLogisticsPump() {
     Promise.resolve(netRealmLogisticsCommand(request.args,request.nonce)).then(result=>{
       if(state.requests.get(request.key)!==request)return;
       request.pending=false;
-      if(request.scope!==realmLogisticsScope()||!realmLogisticsKeeper()){state.requests.delete(request.key);return;}
+      if(request.scope!==realmLogisticsScope()||!realmLogisticsKeeper()||!realmLogisticsRequestView()){state.requests.delete(request.key);return;}
       if(result?.pending||result?.uncertain||result?.ok&&result.confirmed!==true){request.retryAt=realmLogisticsNow()+5;return;}
       state.requests.delete(request.key);state.cooldown.set(request.key,realmLogisticsNow()+(result?.ok?2:10));
       if(result?.ok&&result.confirmed===true&&request.done)request.done(result);
@@ -123,8 +134,7 @@ function realmLogisticsApplyProjection() {
 }
 function realmLogisticsMountGranted(id,realm) { return !!realmLogisticsGrantView()?.mounts?.some(m=>m.actorId===id&&m.realm===realm); }
 function realmLogisticsHorse(e) {
-  if(!e||!e.alive||!realmLogisticsKeeper()||!realmLogisticsGrantView())return false;
-  if(e.lHorse)return true;
+  if(!e||!e.alive||!realmLogisticsKeeper()||!realmLogisticsRequestView())return false;
   const id=e.netEntityId;
   if(!id){if(typeof netEntityRegister==='function')netEntityRegister(e);return false;}
   const grant=realmLogisticsGrantView()?.mounts?.find(m=>m.actorId===id&&m.realm===e.faction);
@@ -148,18 +158,19 @@ function realmLogisticsHouseRepair(H) {
 }
 function realmLogisticsStep(dt) {
   if(!realmLogisticsKeeper())return;
-  const state=REALM_LOGISTICS,view=realmLogisticsGrantView();if(!view)return;
+  const state=REALM_LOGISTICS,view=realmLogisticsRequestView();if(!view)return;
+  const grants=realmLogisticsGrantView(),jobs=grants?.jobs||[];
   realmLogisticsApplyProjection();
   const step=Number.isFinite(dt)?Math.max(0,Math.min(dt,0.1)):0;
   for(let r=0;r<3;r++){
     state.carClock[r]-=step;if(state.carClock[r]>0)continue;state.carClock[r]=70+Math.random()*40;
-    if(view.jobs.filter(j=>j.state==='active'&&j.realm===r).length>=2)continue;
+    if(jobs.filter(j=>j.state==='active'&&j.realm===r).length>=2)continue;
     const keeps=(typeof NETS!=='undefined'?NETS.s?.keeps:[])||[];
-    const targets=keeps.filter(k=>k.r===r&&(k.g<8||!k.gate)&&!view.jobs.some(j=>j.state==='active'&&j.keep===k.i))
+    const targets=keeps.filter(k=>k.r===r&&(k.g<8||!k.gate)&&!jobs.some(j=>j.state==='active'&&j.keep===k.i))
       .sort((a,b)=>a.g-b.g);
     if(targets[0]&&WAR.keeps[targets[0].i])realmLogisticsDispatch(WAR.keeps[targets[0].i]);
   }
-  for(const c of LOOPS.caravans){
+  for(const c of grants?LOOPS.caravans:[]){
     if(c.logisticsId&&!c.logisticsSettled&&c.logisticsPending&&c.logisticsPending!=='adopt')
       realmLogisticsSettle(c,c.logisticsPending);
     loopsCarStep(c,step);

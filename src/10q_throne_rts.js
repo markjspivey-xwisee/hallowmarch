@@ -250,7 +250,10 @@ function throneRtsClick(e) {
   if (b.dataset.buildingFocus) { const item = v?.buildings?.find(x => String(x.id) === b.dataset.buildingFocus), plot = v?.plots?.find(p => p.id === item?.plotId); if (plot) throneRtsFocus(plot.x,plot.z); return; }
   if (b.dataset.upgrade) throneRtsManage({type:'upgrade',buildingId:b.dataset.upgrade});
   else if (b.dataset.pause) throneRtsManage({type:'pause',buildingId:b.dataset.pause,paused:b.dataset.paused === '1'});
-  else if (b.dataset.workforce) throneRtsManage({type:'workforce',buildingId:b.dataset.workforce,workers:num('workers-'+b.dataset.workforce),priority:num('priority-'+b.dataset.workforce,1)});
+  else if (b.dataset.workforce) {
+    const id=b.dataset.workforce, building=v?.buildings?.find(row => String(row.id) === id);
+    throneRtsManage({type:'workforce',buildingId:id,workers:num('workers-'+id,building?.workers ?? 0),priority:num('priority-'+id,building?.priority ?? 1)});
+  }
   else if (b.dataset.offer) throneRtsManage({type:'reply',offerId:Number(b.dataset.offer),accept:b.dataset.accept === '1'});
   else if (b.dataset.treaty) throneRtsManage({type:'treaty',targetRealm:num('targetRealm',[0,1,2].find(r => r !== GAME.player.faction)),kind:b.dataset.treaty});
   else if (b.dataset.action === 'build') { const choice=throneRtsConstructionChoice(v); throneRtsManage({type:'build',plotId:choice.chosen,kind:choice.kind}); }

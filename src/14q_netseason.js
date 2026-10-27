@@ -356,6 +356,21 @@ Object.assign(window.__hm.netseason,{realmView:netRealmManagementView,realmComma
   realmStatus:netRealmManagementStatus,realmRetry:netRealmManagementRetry,viewInterest:netRealmViewInterest});
 
 const NETR_LOGISTICS=new Map();
+function netRealmLogisticsScope(){
+  const a=typeof netCurrentWorldAdmission==='function'?netCurrentWorldAdmission():null,p=typeof NETPARTS!=='undefined'?NETPARTS:null;
+  const owner=typeof NETWS!=='undefined'?NETWS.acct?.id:null,realm=GAME.player?.faction,n=NETS.s?.n;
+  if(typeof owner!=='string'||!owner||!Number.isInteger(realm)||realm<0||realm>2||!Number.isSafeInteger(n)||n<1
+    ||typeof a?.origin!=='string'||!a.origin||!Number.isSafeInteger(a.epoch)||a.epoch<1
+    ||p?.admission?.origin!==a.origin||p.admission.epoch!==a.epoch)return '';
+  // Native identity survives an ordinary socket or keeper handoff. Its uncertain
+  // transactions retain their exact nonce until a genuinely different world.
+  return JSON.stringify([owner,realm,n,a.origin,a.epoch]);
+}
+function netRealmLogisticsPrune(){
+  const scope=netRealmLogisticsScope();
+  if(scope)for(const[id,p]of NETR_LOGISTICS)if(p.scope!==scope)NETR_LOGISTICS.delete(id);
+  return scope;
+}
 function netRealmLogisticsRead(value){
   if(!value||value.v!==1)return null;
   try{
@@ -375,7 +390,8 @@ function netRealmLogisticsRead(value){
 }
 function netRealmLogisticsView(){return netsOn()&&netHumanLive()?NETS.s?.logistics||null:null;}
 function netRealmLogisticsReceive(m){
-  const pending=NETR_LOGISTICS.get(m.nonce);if(!pending)return;
+  const scope=netRealmLogisticsPrune(),pending=NETR_LOGISTICS.get(m.nonce);
+  if(!scope||!pending||pending.scope!==scope||pending.q!==m.q)return;
   const v=netRealmLogisticsRead(m.logistics);if(v&&NETS.s){NETS.s.logistics=v;NETS.s.repairs=v.repairs||[];}
   const management=netRealmManagementRead(m.management);if(management&&NETS.s&&management.realm===GAME.player?.faction)NETS.s.management=management;
   if(v&&m.confirmed===true&&typeof realmLogisticsApplyProjection==='function')realmLogisticsApplyProjection();
@@ -385,12 +401,14 @@ function netRealmLogisticsReceive(m){
 async function netRealmLogisticsCommand(args,nonce){
   const keeper=typeof netEntityCanSimulateWorld==='function'&&netEntityCanSimulateWorld(),ruler=['repair.issue','convoy.dispatch'].includes(args?.op)&&hallThroneGrant(),donor=args?.op==='horse.donate';
   if(!netsOn()||!netHumanLive()||!NETS.s?.management||!keeper&&!ruler&&!donor||typeof NETPARTS==='undefined')return{ok:false,why:'The battlefield keeper or ruler changed.'};
+  const scope=netRealmLogisticsPrune();
+  if(!scope)return{ok:false,pending:true,why:'Waiting for the current native world admission.'};
   let clean,key;try{clean=JSON.parse(JSON.stringify(args));key=JSON.stringify(clean);}catch{return{ok:false,why:'Invalid logistics order.'};}
   let p=typeof nonce==='string'?NETR_LOGISTICS.get(nonce):[...NETR_LOGISTICS.values()].find(p=>p.key===key);
   if(!p){
     if(NETR_LOGISTICS.size>=8)return{ok:false,pending:true,why:'Logistics orders are waiting for native confirmation.'};
     const id=typeof nonce==='string'?nonce:NET.self+':'+crypto.randomUUID();
-    p={key,request:{kind:'logistics',nonce:id,season:NETS.s.n,revision:NETS.s.management.revision,args:clean,hall:HALL.sit?.H.num??-1},sending:false};
+    p={key,scope,request:{kind:'logistics',nonce:id,season:NETS.s.n,revision:NETS.s.management.revision,args:clean,hall:HALL.sit?.H.num??-1},sending:false};
     NETR_LOGISTICS.set(id,p);
   }
   if(p.key!==key)return{ok:false,why:'This logistics reference belongs to a different action.'};
@@ -398,7 +416,9 @@ async function netRealmLogisticsCommand(args,nonce){
   p.request.authority=NETPARTS.authority;p.request.worldAdmission=NETPARTS.admission;
   p.sending=true;
   try{
-    const r=await netsAsk({t:'order',o:p.request});
+    const envelope={t:'order',o:p.request},reply=netsAsk(envelope);p.q=envelope.q;
+    const r=await reply,current=netRealmLogisticsPrune(),active=NETR_LOGISTICS.get(p.request.nonce);
+    if(current!==p.scope||active&&active!==p)return{ok:false,pending:!current,nonce:p.request.nonce,code:'stale_context',why:'The logistics request belongs to an earlier native world or identity.'};
     return r.kind==='logistics'?r:{...r,pending:true,nonce:p.request.nonce};
   }finally{p.sending=false;}
 }

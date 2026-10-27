@@ -510,8 +510,11 @@ function onRealmBattle(c,m) {
   if(prior&&o.seq<=prior.seq) return answer(o.seq===prior.seq&&digest===prior.digest?{ok:true,duplicate:true,seq:o.seq}:{ok:false,why:'Stale battlefield report.'});
   if(heads.size>12)heads.clear();
   if(o.gate>K.gate+1e-9) {
-    const proof=SHARED_SCENE.proofFor(c),repair=realmLogisticsGateReport(SEASON.RS,{keep:o.keep,owner:o.owner,gate:o.gate},
-      {actualKeeper:true,worldparts:proof?.worldparts,worldAdmission:c.worldAdmission,confirmedRepairs:realmConfirmedSource?.n===SEASON.RS.n?realmConfirmedSource?.management?.logistics?.repairs||[]:[]});
+    const proof=SHARED_SCENE.proofFor(c),confirmed=WORLD_STATE?realmConfirmedSource:fileStore.read('season.json',null);
+    const repairs=confirmed?.n===SEASON.RS.n&&confirmed?.management?.logistics?.season===SEASON.RS.n&&sameWorldAdmission(confirmed?.management?.logistics?.scope,c.worldAdmission)
+      ?confirmed?.management?.logistics?.repairs||[]:[];
+    const repair=realmLogisticsGateReport(SEASON.RS,{keep:o.keep,owner:o.owner,gate:o.gate},
+      {actualKeeper:true,worldparts:proof?.worldparts,worldAdmission:c.worldAdmission,confirmedRepairs:repairs});
     if(!repair.ok)return answer({ok:false,pending:true,why:repair.why||'Waiting for accepted paid repair progress.'});
   }
   K.g=Math.min(K.g,o.g);K.gate=Math.min(K.gate,o.gate);SEASON.dirty=true;heads.set(key,{seq:o.seq,digest});

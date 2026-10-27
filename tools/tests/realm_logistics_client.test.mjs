@@ -2,12 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import {readFileSync} from 'node:fs';
+import {realmLogisticsApply as serverLogisticsApply,realmLogisticsView as serverLogisticsView} from '../../server/realm-logistics.js';
 const read=p=>readFileSync(new URL('../../'+p,import.meta.url),'utf8');
 const helper=read('src/08s_logistics.js'),loops=read('src/08m_loops.js'),worldparts=read('src/14z_networldparts.js');
 function extract(s,n){const a=s.indexOf('function '+n+'(');assert.ok(a>=0,n);const line=s.indexOf('\n',a);if(s.slice(a,line).trimEnd().endsWith('}'))return s.slice(a,line);const b=s.indexOf('\n}',a);assert.ok(b>a,n);return s.slice(a,b+2);}
 const copy=v=>JSON.parse(JSON.stringify(v));
 function fixture(){
- const state={managed:true,keeper:true,live:true,privateConfirm:true,responses:[],calls:[],spawned:0,removed:0,saves:0,fires:0,rp:0,news:[],errors:[],owned:[],recruiting:false,work:0,houseWork:0};
+ const state={managed:true,keeper:true,live:true,privateConfirm:true,responses:[],calls:[],spawned:0,removed:0,saves:0,fires:0,rp:0,news:[],errors:[],owned:[],recruiting:false,work:0,houseWork:0,carSteps:0,admission:{origin:'world',epoch:1}};
  const stock=()=>({food:100,timber:100,stone:100,iron:50,hides:10,wool:10,horses:10});
  const view={v:1,scope:{origin:'world',epoch:1},season:1,revision:0,time:100,jobs:[],mounts:[],repairs:[],donations:[]};
  const L={on:true,inited:true,seeded:true,r:[stock(),stock(),stock()],k:[],caravans:[],nextCar:1,pend:[{},{},{}],
@@ -21,7 +22,7 @@ function fixture(){
   REALMS:[0,1,2].map(r=>({id:r,name:'Realm'+r,townName:'Town'+r,rgb:[1,0,0]})),CAMPAIGN:{n:1,state:'war'},
   SAVE:{native:true,ref:{},lastBody:'',pending:null,nativePaused:false},ANIMALS:{uiDirty:false},HOUSE_TIME:{scaffold:100},
   season2CanonicalWar:()=>state.managed,netHumanLive:()=>state.live,netEntityCanSimulateWorld:()=>state.keeper,netWorldPartsCanSimulate:()=>state.keeper,
-  netCurrentWorldAdmission:()=>({origin:'world',epoch:1}),netRealmLogisticsView:()=>context.NETS.s.logistics,
+  netCurrentWorldAdmission:()=>state.admission,netRealmLogisticsView:()=>context.NETS.s.logistics,
   crypto:{randomUUID:()=> 'nonce-'+(++nonce)},netRealmLogisticsCommand:async(args,n)=>{state.calls.push({args:copy(args),nonce:n});const r=state.responses.shift();return typeof r==='function'?r(args):r||{ok:false,pending:true};},
   clamp:(v,a,b)=>Math.max(a,Math.min(b,v)),lsBump:(o,k,n)=>{o[k]=(o[k]||0)+n;},loopsKeep:()=>({food:50,timber:40,stone:40,iron:10}),
   realmPublicWorksRecruiting:()=>state.recruiting,realmPublicWorksRepairWork:()=>state.work,realmPublicWorksHouseWork:()=>state.houseWork,
@@ -32,13 +33,13 @@ function fixture(){
   getEnt:id=>context.ENT.find(e=>e.id===id),netEntityFind:id=>context.ENT.find(e=>e.netEntityId===id),
   netEntityRegister(e){e.netEntityId=e.netEntityId||'scene:test:'+e.id;},removeEnt(e){e.removed=true;state.removed++;},
   loopsTownSeen:()=>false,loopsLoadText:()=>'',uiLog(){},uiToast(){},uiError:e=>state.errors.push(e),
-  loopsCarTurn(c){c.back=true;c.i=1;},loopsCarGone(c){c.state='gone';},loopsCartFollow(){},
+  loopsCarTurn(c){c.back=true;c.i=1;},loopsCarGone(c){c.state='gone';},loopsCartFollow(){},loopsCarStep(){state.carSteps++;},
   anMine:()=>state.owned.filter(e=>!e.removed&&e.tame.owner==='player'),anAdult:r=>r.age>=900,saveSoon(){state.saves++;},
   saveNow:async()=>{context.SAVE.lastBody=JSON.stringify({char:{x:{animals:{list:state.privateConfirm?state.owned.map(e=>({k:e.tame.k,sc:e.tame.sharedClaim})):[]}}}});},
   SAVE_PARTS:{world:{loops:{save:()=>({v:1,r:[[999]],k:[[999]],c:[[0,10]]})}}},LOOPS_R:['food','timber','stone','iron','hides','wool','horses'],LOOPS_K:['food','timber','stone','iron'],
  });
  const names=['loopsYardIgnite','loopsCanonicalManaged','loopsAdd','loopsTake','loopsKeepTake','loopsKeepAdd','loopsProduce','loopsTradeStep','loopsTrickleOk','loopsLord','loopsWork','loopsHouseWork','loopsHorseOk','loopsCarSend','loopsCarArrive','loopsCarHome','loopsCarLost'];
- const api=names.concat(['realmLogisticsApplyProjection','realmLogisticsRequest','realmLogisticsPump','realmLogisticsFunding','realmLogisticsSettle','realmLogisticsDonateHorse','realmLogisticsOwnerFrame','realmLogisticsHorse','realmLogisticsMountGranted']);
+ const api=names.concat(['realmLogisticsApplyProjection','realmLogisticsRequest','realmLogisticsPump','realmLogisticsStep','realmLogisticsFunding','realmLogisticsSettle','realmLogisticsDonateHorse','realmLogisticsOwnerFrame','realmLogisticsHorse','realmLogisticsMountGranted']);
  vm.runInContext(helper+'\n'+names.map(n=>extract(loops,n)).join('\n')+'\n'+['netWorldPartsLoopsSave','netWorldPartsLoopsApply'].map(n=>extract(worldparts,n)).join('\n')
   +'\nthis.api={'+api.join(',')+',netWorldPartsLoopsSave,netWorldPartsLoopsApply,internal:REALM_LOGISTICS};',context);
  return {state,context,api:context.api,view,L,K};
@@ -124,10 +125,78 @@ test('paid grants reject absent or stale native world scope while owner donation
  delete f.view.scope;f.api.realmLogisticsApplyProjection();
  assert.equal(f.state.spawned,0);assert.equal(f.api.realmLogisticsFunding('job'),null);
  assert.equal(f.api.realmLogisticsMountGranted('scene:test:80',0),false);
- assert.equal(f.api.realmLogisticsRequest('mount',{op:'mount.issue',actorId:'scene:test:80'}),false);
+ assert.equal(f.api.realmLogisticsRequest('mount',{op:'mount.issue',actorId:'scene:test:80'}),true,'an admitted keeper may request a new grant without consuming the absent scope');
  assert.equal(horse.removed,true);assert.equal(f.state.removed,1);
  f.view.scope={origin:'old-world',epoch:1};f.api.realmLogisticsApplyProjection();assert.equal(f.state.spawned,0);
  f.view.scope={origin:'world',epoch:0};f.api.realmLogisticsApplyProjection();assert.equal(f.state.spawned,0);
  f.view.scope={origin:'world',epoch:1};f.api.realmLogisticsApplyProjection();assert.equal(f.state.spawned,4);
  assert.equal(f.api.realmLogisticsMountGranted('scene:test:80',0),true);
+});
+
+test('a fresh keeper initializes the actual unscoped ledger without spawning before native confirmation',async()=>{
+ const model=new Function(read('src/08m_realm.js')+'\n'+read('src/08p_realm_management.js')+'\nreturn {realmSimInit,realmManageInit};')();
+ const RS=model.realmSimInit(12345,{days:28});model.realmManageInit(RS);RS.keeps[0].g=4;RS.keeps[0].gate=0;
+ const f=fixture(),admission=f.state.admission;
+ f.context.NETS.s.n=RS.n;f.context.NETS.s.logistics=serverLogisticsView(RS);
+ assert.equal(f.context.NETS.s.logistics.scope,null);
+ const horses=RS.realms[0].s[6],reserves=RS.realms[0].lev;
+ const actor={actualKeeper:true,peer:'keeper',realm:0,authority:'authority',worldAdmission:admission};
+ const ctx={actualKeeper:true,peer:'keeper',authority:'authority',worldAdmission:admission};
+ let accepted,applied=0;
+ f.state.responses.push(args=>{accepted=serverLogisticsApply(RS,actor,copy(args),ctx);applied++;return {...accepted,pending:true,confirmed:false};});
+ f.api.realmLogisticsStep(.05);await new Promise(setImmediate);
+ assert.equal(f.state.calls.length,1);assert.equal(f.state.calls[0].args.op,'convoy.dispatch');
+ assert.equal(accepted.ok,true,accepted.why);
+ assert.equal(f.state.spawned,0);assert.equal(f.api.realmLogisticsFunding(accepted.data.jobId),null);
+ const nonce=f.state.calls[0].nonce;
+ f.state.responses.push(()=>{f.context.NETS.s.logistics=serverLogisticsView(RS);return {...accepted,confirmed:true};});
+ f.context.GAME.t+=6;f.api.realmLogisticsStep(.05);await new Promise(setImmediate);
+ assert.equal(f.state.calls.length,2);assert.equal(f.state.calls[1].nonce,nonce);assert.equal(applied,1);
+ f.api.realmLogisticsApplyProjection();assert.equal(f.state.spawned,4);assert.equal(f.L.caravans.length,1);
+ assert.equal(RS.realms[0].s[6],horses-1);assert.equal(RS.realms[0].lev,reserves-2);
+ f.api.realmLogisticsApplyProjection();assert.equal(f.state.spawned,4,'the confirmed initial job is materialized once');
+});
+
+test('first mount and repair requests do not require an existing logistics grant',async()=>{
+ const f=fixture();f.view.scope=null;
+ const e={id:80,netEntityId:'scene:test:80',alive:true,faction:0};
+ assert.equal(f.api.realmLogisticsHorse(e),false);assert.equal(e.lHorse,undefined);
+ assert.equal(f.api.loopsWork(f.K,'gate',1,100),0);
+ assert.equal(f.api.internal.requests.size,2);
+ f.api.realmLogisticsPump();await new Promise(setImmediate);
+ assert.deepEqual(f.state.calls.map(c=>c.args.op).sort(),['mount.issue','repair.issue']);
+ assert.equal(e.lHorse,undefined);assert.equal(f.state.spawned,0);
+ assert.equal(f.api.realmLogisticsMountGranted(e.netEntityId,0),false);
+});
+
+test('an epoch reset cancels old queued work and ignores stale grants when scheduling initialization',async()=>{
+ const f=fixture();f.view.jobs=[paid()];f.view.mounts=[{actorId:'scene:test:80',realm:0}];
+ let resolveOld,oldDone=0;
+ f.state.responses.push(()=>new Promise(resolve=>{resolveOld=resolve;}));
+ assert.equal(f.api.realmLogisticsRequest('old',{op:'mount.issue',actorId:'scene:test:80'},2,()=>oldDone++),true);
+ f.api.realmLogisticsPump();await Promise.resolve();const oldNonce=f.state.calls[0].nonce;
+ f.L.caravans.push({logisticsId:'job',state:'road'});
+ f.state.admission={origin:'world',epoch:2};
+ f.api.realmLogisticsApplyProjection();assert.equal(f.state.spawned,0);
+ assert.equal(f.api.realmLogisticsFunding('job'),null);assert.equal(f.api.realmLogisticsMountGranted('scene:test:80',0),false);
+ f.api.realmLogisticsStep(.05);await new Promise(setImmediate);
+ assert.equal(f.api.internal.requests.has('old'),false);
+ assert.equal(f.state.calls.length,2);assert.equal(f.state.calls[1].args.op,'convoy.dispatch');
+ assert.notEqual(f.state.calls[1].nonce,oldNonce);
+ assert.equal(f.state.carSteps,0,'old-scope physical carts cannot advance or spend grants');
+ resolveOld({ok:true,confirmed:true,data:{actorId:'scene:test:80'}});await new Promise(setImmediate);
+ assert.equal(oldDone,0);assert.equal(f.state.spawned,0);
+});
+
+test('unscoped requests still require a current admitted live keeper and season',()=>{
+ for(const revoke of [f=>f.state.live=false,f=>f.state.keeper=false,f=>f.state.admission=null,
+   f=>f.state.admission={origin:'world',epoch:0},f=>f.context.NET_ENTITIES.authority='',f=>f.context.NETS.s.n++]){
+  const f=fixture();f.view.scope=null;
+  assert.equal(f.api.realmLogisticsRequest('queued',{op:'repair.issue',keep:0,kind:'gate'}),true);
+  revoke(f);
+  assert.equal(f.api.realmLogisticsRequest('new',{op:'mount.issue',actorId:'scene:test:80'}),false);
+  f.api.realmLogisticsPump();f.api.realmLogisticsStep(.05);
+  assert.equal(f.state.calls.length,0);assert.equal(f.state.spawned,0);
+  assert.equal(f.api.realmLogisticsHorse({alive:true,netEntityId:'scene:test:80',faction:0}),false);
+ }
 });
