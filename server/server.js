@@ -40,6 +40,8 @@ import { makeCompanies, reservedNames, coPledgeApply, coText } from './companies
 import { makeField } from './fieldarmies.js'; // [season2] the season's armies on the pages' fields
 import { createHumanPlayGate } from './human-play.js';
 import { createSharedScene, checkedSharedScene } from './shared-scene.js';
+import { realmManagementReloadRequired, createRealmManagementProtocol } from './realm-management.js';
+import { realmLogisticsApply, realmLogisticsView } from './realm-logistics.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '..');
@@ -272,7 +274,8 @@ function regionOf(x, z) {
   return (Math.hypot(x, z) < 190 ? 'f' : 'h') + best;
 }
 const KEEP_REGION = (WORLD.keeps || []).map((k) => regionOf(k.x, k.z));
-const FIELD = makeField(SEASON, ROOMS, (c, o) => send(c, o), regionOf, WORLD, STATS); // [season2] (server/fieldarmies.js)
+const FIELD = makeField(SEASON, ROOMS, (c, o) => send(c, o), regionOf, WORLD, STATS, realmViewFor,
+  c => SHARED_SCENE.acceptsChunk(c,{authority:c.sceneAuthority,worldAdmission:c.worldAdmission})); // [season2] (server/fieldarmies.js)
 WORLD_STATE?.attach({ worlds: WORLDS, season: SEASON, field: FIELD, rooms: ROOMS });
 // This is a Hallowmarch-owned participation ledger, not a copy of a player's
 // character. Personal saves remain in their owner's client-sealed pod record.
@@ -369,6 +372,98 @@ const SHARED_SCENE = createSharedScene({ hostFor: roomHost, live: isHumanPlaying
     const worlds = R.diagnostic ? WORLDS : { ...WORLDS, [R.name]: { ...(WORLDS[R.name] || {}), activity: candidate } };
     return Buffer.byteLength(JSON.stringify({ worlds, season: SEASON.RS || null })) <= 440 * 1024;
   } });
+
+function realmCommander(c,hall) {
+  const actor=SHARED_SCENE.commander(c,hall);
+  if(!actor) return null;
+  const keep=WORLD.keeps?.findIndex(k=>Math.hypot(k.x-actor.x,k.z-actor.z)<50);
+  if(keep>=0 && SEASON.keepsOf()?.[keep]!==actor.realm) return null;
+  return actor;
+}
+function realmViewFor(c) {
+  const v=c?.realmView;
+  if(!v||Date.now()-v.at>15000||v.n!==SEASON.RS?.n||!realmCommander(c,v.hall)) return null;
+  return {realm:c.realm,x:v.x,z:v.z,radius:v.radius};
+}
+const realmConfirmationWaiters=new Map();let realmConfirmationRead=null;
+async function confirmRealmOutcome(receipt,{deferred=false,prior=false}={}) {
+  if(!WORLD_STATE) {
+    const actual=fileStore.read('season.json',null)?.managementReceipts?.find(r=>r.id===receipt.id&&r.owner===receipt.owner);
+    if(!isDeepStrictEqual(actual,receipt)) throw new Error('Realm outcome was not read back.');
+    return;
+  }
+  WORLD_STATE.assertMutable();
+  if(prior){const old=await gamingStore.load('hallowmarch-world-season-v1'),e=old?.state;
+    if(e?.owner===gamingStore.owner&&isDeepStrictEqual(e.value?.season?.managementReceipts?.find(r=>r.id===receipt.id&&r.owner===receipt.owner),receipt))return;}
+  const target=WORLD_STATE.capture().liveVersion;
+  if(deferred&&WORLD_STATE.status().confirmedLiveVersion<target){
+    const key=receipt.owner+':'+receipt.id;
+    if(realmConfirmationWaiters.has(key))return realmConfirmationWaiters.get(key).promise;
+    if(realmConfirmationWaiters.size>=24)throw Error('Realm confirmations are busy');
+    let resolve,reject;const promise=new Promise((a,b)=>{resolve=a;reject=b;});realmConfirmationWaiters.set(key,{receipt,target,promise,resolve,reject});return promise;
+  }
+  for(let i=0;i<3&&WORLD_STATE.status().confirmedLiveVersion<target;i++) await WORLD_STATE.checkpoint({allowInactive:true});
+  const status=WORLD_STATE.status();
+  if(!WORLD_STATE.canMutate()||status.confirmedLiveVersion<target) throw new Error('Realm checkpoint is not confirmed.');
+  const loaded=await gamingStore.load('hallowmarch-world-season-v1'), e=loaded?.state;
+  const actual=e?.value?.season?.managementReceipts?.find(r=>r.id===receipt.id&&r.owner===receipt.owner);
+  if(e?.schema!=='urn:bridge:owned-state-checkpoint:v1'||e.owner!==gamingStore.owner||e.liveVersion<target
+    ||!Number.isSafeInteger(loaded.version)||loaded.version<status.confirmedVersion||!isDeepStrictEqual(actual,receipt))
+    throw new Error('Realm outcome was not read back from its owned checkpoint.');
+}
+
+function checkRealmConfirmations(){
+  if(!realmConfirmationWaiters.size||realmConfirmationRead||!WORLD_STATE)return;
+  const status=WORLD_STATE.status();
+  if(status.error||status.fenced){for(const w of realmConfirmationWaiters.values())w.reject(Error('Realm checkpoint delayed'));realmConfirmationWaiters.clear();return;}
+  const eligible=[...realmConfirmationWaiters.entries()].filter(([,w])=>status.confirmedLiveVersion>=w.target);
+  if(!eligible.length)return;
+  realmConfirmationRead=gamingStore.load('hallowmarch-world-season-v1').then(loaded=>{
+    const e=loaded?.state;
+    for(const[key,w]of eligible){
+      if(realmConfirmationWaiters.get(key)!==w)continue;
+      realmConfirmationWaiters.delete(key);
+      const actual=e?.value?.season?.managementReceipts?.find(r=>r.owner===w.receipt.owner&&r.id===w.receipt.id);
+      if(e?.schema==='urn:bridge:owned-state-checkpoint:v1'&&e.owner===gamingStore.owner&&e.liveVersion>=w.target
+        &&Number.isSafeInteger(loaded.version)&&isDeepStrictEqual(actual,w.receipt))w.resolve();
+      else w.reject(Error('Realm outcome was not read back'));
+    }
+  },()=>{for(const[key,w]of eligible){realmConfirmationWaiters.delete(key);w.reject(Error('Realm readback delayed'));}}).finally(()=>{realmConfirmationRead=null;});
+}
+
+const REALM_MANAGEMENT=createRealmManagementProtocol({season:SEASON,commanderFor:realmCommander,confirm:confirmRealmOutcome,send,
+  delegates:{logistics:{deferred:true,actorFor:(c,o)=>{const keeper=SHARED_SCENE.acceptsChunk(c,{authority:o.authority,worldAdmission:o.worldAdmission}),ruler=o.args?.op==='repair.issue'?realmCommander(c,o.hall):null;return keeper||ruler?{realm:c.realm,peer:c.peer,authority:c.sceneAuthority,worldAdmission:c.worldAdmission,actualKeeper:keeper,ruler:!!ruler}:null;},apply:realmLogisticsApply,view:realmLogisticsView}},
+  canMutate:()=>!WORLD_STATE||WORLD_STATE.canMutate(),
+  contextFor:c=>{const humanRealms=[...new Set([...ROOMS.values()].filter(r=>!r.diagnostic).flatMap(r=>[...r.clients.values()]
+    .filter(isHumanPlaying).map(c=>c.realm)).filter(r=>[0,1,2].includes(r)))];return{humanRealms,aiRealms:[0,1,2].filter(r=>!humanRealms.includes(r)),actualKeeper:SHARED_SCENE.acceptsChunk(c,{authority:c.sceneAuthority,worldAdmission:c.worldAdmission}),entities:SHARED_SCENE.publicActivity(c.room)?.entities,worldparts:SHARED_SCENE.publicActivity(c.room)?.worldparts,peer:c.peer,authority:c.sceneAuthority,worldAdmission:c.worldAdmission};},
+  publish:()=>{for(const R of ROOMS.values())for(const c of R.clients.values())if(isHumanPlaying(c)&&!R.diagnostic)seasonTell(c,-1,false);}
+});
+function onRealmView(c,m) {
+  const o=m.o,now=Date.now(),actor=realmCommander(c,o?.hall);
+  const answer=value=>send(c,{t:'order',kind:'view',q:m.q,seq:o?.seq,...value});
+  if(!actor||c.room.diagnostic||o.n!==SEASON.RS?.n||!Number.isSafeInteger(o.seq)||o.seq<1
+    ||![o.x,o.z,o.radius].every(Number.isFinite)||Math.abs(o.x)>WORLD.HALF||Math.abs(o.z)>WORLD.HALF||o.radius<30||o.radius>220)
+    return answer({ok:false,view:null});
+  if(now-(c.realmViewAt||0)<500) return answer({ok:false,view:null});
+  c.realmViewAt=now;c.realmView={n:o.n,hall:o.hall,x:o.x,z:o.z,radius:o.radius,at:now};
+  answer({ok:true,view:{n:o.n,hall:o.hall,realm:actor.realm,x:o.x,z:o.z,radius:o.radius,ttl:15000}});
+}
+function onRealmBattle(c,m) {
+  const o=m.o,answer=value=>send(c,{t:'order',kind:'battle',q:m.q,...value,...(value.ok?{n:SEASON.RS.n,keep:o.keep,owner:o.owner,g:K.g,gate:K.gate,t:SEASON.RS.t}:{})});
+  const K=SEASON.RS?.keeps?.[o?.keep];
+  if(!K||c.room.diagnostic||o.n!==SEASON.RS.n||!sameWorldAdmission(o.worldAdmission,worldAdmission())
+    ||!SHARED_SCENE.acceptsChunk(c,{authority:o.authority,worldAdmission:o.worldAdmission})
+    ||!Number.isSafeInteger(o.keep)||!Number.isSafeInteger(o.seq)||o.seq<1
+    ||![0,1,2].includes(o.owner)||(K.h??K.r)!==o.owner||![o.g,o.gate].every(Number.isFinite)
+    ||o.g<0||o.g>40||o.gate<0||o.gate>1) return answer({ok:false,why:'The battlefield report is no longer current.'});
+  const key=[o.n,o.authority,o.keep].join(':'),heads=(c.realmBattleHeads||=new Map()),prior=heads.get(key);
+  const digest=JSON.stringify([o.owner,o.g,o.gate]);
+  if(prior&&o.seq<=prior.seq) return answer(o.seq===prior.seq&&digest===prior.digest?{ok:true,duplicate:true,seq:o.seq}:{ok:false,why:'Stale battlefield report.'});
+  if(heads.size>12)heads.clear();
+  K.g=Math.min(K.g,o.g);K.gate=Math.min(K.gate,o.gate);SEASON.dirty=true;heads.set(key,{seq:o.seq,digest});
+  answer({ok:true,progressive:true,seq:o.seq});
+}
+
 function sendWorldInit(c) {
   const w = worldNow(c.room); if (!w) return;
   c.worldAdmission = worldAdmission();
@@ -566,6 +661,7 @@ const legitJump = (p) => p.x > 1000 || WORLD.ports.some(([x, z]) => Math.hypot(p
 // a moment for this reader? (a blow, an invite, a party's chat to whom it concerns; a realm's chat to its realm)
 function evFor(c, o, ev) {
   const [, kind, to, data] = ev;
+  if(kind==='hit' && to===o.peer && c!==o && SEASON.M?.realmManageAllied?.(SEASON.RS,c.realm,o.realm)) return false;
   if (to) return to === o.peer;
   if (kind === 'say') { const ch = Array.isArray(data) ? data[0] : ''; if (ch === 'p') return !!(c.party && o.party === c.party); return c.realm === o.realm; }
   return true;
@@ -721,6 +817,9 @@ function onContrib(c, m) {
   send(c, { t: 'contrib', q: m.q, k: m.k, ...r });
 }
 function onOrder(c, m) {
+  if(['manage','logistics'].includes(m.o?.kind)){void REALM_MANAGEMENT.handle(c,m);return;}
+  if(m.o?.kind==='view'){onRealmView(c,m);return;}
+  if(m.o?.kind==='battle'){onRealmBattle(c,m);return;}
   if (c.room.diagnostic) { send(c, { t: 'order', q: m.q, ok: false, why: 'No shared season in this room' }); return; }
   const now = Date.now();
   if (now - (c.orderAt || 0) < 2500) { STATS.ordersRefused++; send(c, { t: 'order', ok: false, why: 'One order at a time', q: m.q }); return; }
@@ -857,7 +956,7 @@ function onMsg(c, raw) {
   if (!c.acct) return;
   if (m.t === 'slow') {
     const principalVerified = !nativePlayersRequired || !!PLAYER_ACCOUNTS.humanPrincipalFor(c);
-    if (principalVerified && m.d?.on === 1 && (nativePlayersRequired && m.d.sharedScene !== 2
+    if (principalVerified && m.d?.on === 1 && (nativePlayersRequired && m.d.sharedScene !== 2 || realmManagementReloadRequired(m.d,nativePlayersRequired)
       || roomNeedsWarbandOrders(c.room) && m.d.warbandOrders !== 1)) {
       const why = 'Reload Hallowmarch to join the shared world. Your saved character is preserved.';
       send(c, { t: 'reload-required', code: 'shared_scene_upgrade_required', why });
@@ -1129,6 +1228,7 @@ function setHumanWorkActive(active) {
       ]).then(results => {
         for (const result of results) if (result.status === 'rejected')
           console.warn('idle checkpoint', result.reason?.message || 'Checkpoint is not confirmed.');
+        checkRealmConfirmations();
       });
     }
     for (const c of LIVE_CONNECTIONS) if (!c.hasPlayedLive || c.humanAgentMode || c.room?.diagnostic)
@@ -1147,7 +1247,7 @@ function setHumanWorkActive(active) {
     }
   }, 15000);
   if (SEASON.RS) {
-    liveTask(() => { if (!WORLD_STATE || WORLD_STATE.canMutate()) SEASON.step(); }, CFG.seasonStep);
+    liveTask(() => { if (!WORLD_STATE || WORLD_STATE.canMutate()) SEASON.step(); checkRealmConfirmations(); }, CFG.seasonStep);
     liveTask(() => { for (const R of ROOMS.values()) for (const c of R.clients.values())
       if (isHumanPlaying(c) && c.realm >= 0) seasonTell(c, -1, false); }, CFG.seasonPush);
     liveTask(() => { if ((!WORLD_STATE || WORLD_STATE.canMutate()) && SEASON.dirty) SEASON.save({ background: true }); }, 30000);

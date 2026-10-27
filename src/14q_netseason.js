@@ -33,12 +33,15 @@ function netsAgo(s) {
 }
 // a message of the season's kinds (14p_netws.js hands them here)
 function netSeasonMsg(m) {
+  if(m.t==='order'&&m.kind==='manage')netRealmManagementReceive(m);
+  if(m.t==='order'&&m.kind==='logistics')netRealmLogisticsReceive(m);
+  if(m.t==='order'&&m.kind==='view'){netRealmViewReceive(m);return;}
   if (m.t === 'contrib' || m.t === 'order') { const w = NETS.waits.get(m.q); if (w) { NETS.waits.delete(m.q); w(m); } return; }
   if (m.t !== 'season' || !m.s || typeof m.s !== 'object') return;
   NETS.stats.msgs++;
   const s = netsRead(m.s);
   if (!s) return;
-  NETS.s = s; NETS.at = performance.now();
+  NETS.s = s; NETS.at = performance.now(); NETS.projectionKey=netRealmSeasonProjectionKey();
   NETS.roster = netsRoster(m.roster);
   if (m.wx && typeof m.wx === 'object' && JSON.stringify(m.wx).length < 4000) NETS.wx = m.wx; // weather2's systems from the server (kept, not read yet: for the integrator)
   if (m.first) { NETS.first = true; NETS.away = netNum(m.away, -1, 1e9); }
@@ -51,12 +54,17 @@ function netSeasonMsg(m) {
 function netsRead(o) {
   const s = { n: netNum(o.n, 1, 1e6), t: netNum(o.t, 0, 1e10), len: netNum(o.len, 600, 1e9), day: netNum(o.day, 1, 1e5), days: netNum(o.days, 1, 1e5), phase: NETS_PHASE[o.phase] ? o.phase : 'war', over: o.over ? 1 : 0, winner: NET_REALM_OK(o.winner) ? o.winner : -1 };
   s.pts = Array.isArray(o.pts) && o.pts.length === 3 ? o.pts.map((v) => netNum(v, 0, 1e12)) : [0, 0, 0];
-  s.keeps = Array.isArray(o.keeps) ? o.keeps.slice(0, 16).map((K, i) => ({ i, r: NET_REALM_OK(K && K.r) ? K.r : -1, g: netNum(K && K.g, 0, 999), gate: K && K.gate ? 1 : 0, siege: K && K.siege ? 1 : 0 })) : [];
-  s.armies = Array.isArray(o.armies) ? o.armies.slice(0, 24).filter((A) => A && NET_REALM_OK(A.r)).map((A) => ({ r: A.r, n: netNum(A.n, 0, 9999), to: netNum(A.to, -1, 16), st: A.st === 'siege' ? 'siege' : 'march', x: netNum(A.x, -5000, 5000), z: netNum(A.z, -5000, 5000), f: A.f ? 1 : 0, off: A.off ? 1 : 0 })) : []; // [season2] f: on a page's field, off: an offensive's
+  s.keeps = Array.isArray(o.keeps) ? o.keeps.slice(0, 16).map((K, i) => ({ i, r: NET_REALM_OK(K && K.r) ? K.r : -1, g: netNum(K && K.g, 0, 999), gate:netNum(K?.gate,0,1),tier:Math.floor(netNum(K?.tier,0,3)), siege: K && K.siege ? 1 : 0 })) : [];
+  s.armies = Array.isArray(o.armies) ? o.armies.slice(0, 40).filter((A) => A && NET_REALM_OK(A.r)).map((A) => ({ id:Number.isSafeInteger(A.id)?A.id:null,kind:['raid','assault','offensive','hallow','company'].includes(A.kind)?A.kind:'assault',manual:A.manual===true,mission:['attack','defend'].includes(A.mission)?A.mission:'defend',k:netNum(A.k,-1,16),q:netNum(A.q,-1,3),fx:Number.isFinite(A.fx)?A.fx:null,fz:Number.isFinite(A.fz)?A.fz:null,arm:netNum(A.arm,0,10),eng:netNum(A.eng,0,10),r: A.r, n: netNum(A.n, 0, 9999), to: netNum(A.to, -1, 16), st: A.st === 'siege' ? 'siege' : 'march', x: netNum(A.x, -5000, 5000), z: netNum(A.z, -5000, 5000), f: A.f ? 1 : 0, off: A.off ? 1 : 0 })) : []; // [season2] f: on a page's field, off: an offensive's
   s.offs = Array.isArray(o.offs) ? o.offs.slice(0, 12).filter((O) => O && NET_REALM_OK(O.r)).map((O) => ({ r: O.r, k: netNum(O.k, -1, 16), state: O.state === 'planned' ? 'planned' : 'siege', inS: netNum(O.inS, 0, 1e9) })) : []; // [season2] the offensives announced
   s.st = o.st && typeof o.st === 'object' ? Object.fromEntries(['food', 'timber', 'stone', 'iron', 'hides', 'wool', 'horses'].map((g) => [g, netNum(o.st[g], 0, 1e9)])) : null;
   s.built = Array.isArray(o.built) ? o.built.slice(0, 12).map((x) => netStr(x, 24)) : [];
   s.proj = Array.isArray(o.proj) ? o.proj.slice(0, 12).filter((p) => p && typeof p.id === 'string').map((p) => ({ id: netStr(p.id, 24), label: netStr(p.label, 60), did: netStr(p.did, 80), built: !!p.built, votes: netNum(p.votes, 0, 1e9), need: netsGoods(p.need), have: netsGoods(p.have) })) : [];
+  s.armyIds=Array.isArray(o.armyIds)&&o.armyIds.length<=40&&o.armyIds.every(Number.isSafeInteger)?[...new Set(o.armyIds)]:[];
+  s.armyIdsComplete=o.armyIdsComplete===true&&Array.isArray(o.armyIds)&&s.armyIds.length===o.armyIds.length;
+  s.works=Array.isArray(o.works)&&o.works.length===3?o.works.map((q,r)=>({r,...Object.fromEntries(['walls','granary','yard','smithy','engines'].map(k=>[k,Math.floor(netNum(q?.[k],0,4))]))})):null;
+  s.management=netRealmManagementRead(o.management);
+  s.logistics=netRealmLogisticsRead(o.logistics);s.repairs=s.logistics?.repairs||[];
   s.target = netNum(o.target, -1, 16);
   s.levyIn = netNum(o.levyIn, 0, 1e9);
   s.news = Array.isArray(o.news) ? o.news.slice(-12).filter((L) => Array.isArray(L)).map((L) => [netNum(L[0], 0, 1e10), NET_REALM_OK(L[1]) ? L[1] : -1, netStr(L[2], 160)]) : [];
@@ -89,6 +97,7 @@ function netsApply(first) {
     for (const g in s.st) if (g in LOOPS.r[P.faction]) LOOPS.r[P.faction][g] = s.st[g];
     NETS.stats.stores++;
   }
+  if(typeof realmPublicWorksApply==='function')realmPublicWorksApply(s);
   if (first && P && !NETS.told) {
     NETS.told = true;
     const R = netsRealmName(P.faction);
@@ -256,3 +265,149 @@ Object.assign(FIELD_NOTES, {
 GUIDE_HELP.push(() => `<h3>The shared season</h3><p>On the March's server, the three realms share a ${NETS.s?.days || 28}-day season measured in active play time. Stores fill, works are built, armies march and the season clock advances while human players are active. The world pauses when empty, so time away does not automatically move the season forward. Other players can keep it moving while you are away. Bring goods to your realm's stores (Chronicle → Season → Bring), vote for its next work and target, and fight beside your realm. Keeps held earn season points while the world is active, twice in the final seven active days. The realm with the most points at the season's end holds the March. The Season page has recent news when you return.</p>`);
 LOADING_TIPS.push('The shared season counts active play time. The world advances while human players are active and pauses when empty.');
 window.__hm.netseason = { NETS, msg: netSeasonMsg, give: netsGive, giveAll: netsGiveAll, vote: netsVote, hud: netSeasonHudHTML, carried: netsCarried, render: netsRender };
+
+/* The king's realm controls spend authoritative season stock, never personal bags. */
+const NETR_MANAGE={pending:null,result:null,message:'',focus:null,viewAt:0,viewKey:'',viewSeq:0,viewAck:0};
+function netRealmManagementRead(value) {
+  if(!value||value.v!==1||![0,1,2].includes(value.realm)||!Number.isSafeInteger(value.revision)||value.revision<0
+    ||!Number.isFinite(value.time)||value.time<0)return null;
+  const bounds={stocks:20,plots:72,buildings:72,publicPlots:72,publicBuildings:72,catalog:20,recipes:20,offers:24,relations:2,allRelations:3,log:12};
+  for(const[key,max]of Object.entries(bounds))if(!Array.isArray(value[key])||value[key].length>max)return null;
+  let serial;try{serial=JSON.stringify(value);}catch{return null;}if(serial.length>65536)return null;
+  let nodes=0;
+  function walk(x,depth=0){
+    if(++nodes>18000||depth>10)throw Error('view');
+    if(x===null||typeof x==='boolean')return x;
+    if(typeof x==='number'){if(!Number.isFinite(x)||Math.abs(x)>1e12)throw Error('number');return x;}
+    if(typeof x==='string'){if(x.length>240)throw Error('string');return x;}
+    if(Array.isArray(x)){if(x.length>100)throw Error('array');return x.map(q=>walk(q,depth+1));}
+    if(typeof x!=='object')throw Error('json');
+    const out={};if(Object.keys(x).length>48)throw Error('fields');
+    for(const key of Object.keys(x)){if(['__proto__','constructor','prototype'].includes(key)||key.length>60)throw Error('key');out[key]=walk(x[key],depth+1);}return out;
+  }
+  try{return walk(JSON.parse(serial));}catch{return null;}
+}
+function netRealmManagementView(){
+  const p=GAME.player,s=NETS.s;
+  return netsOn()&&netHumanLive()&&p?.alive&&s?.management?.realm===p.faction?s.management:null;
+}
+function netRealmManagementStatus(){return{pending:!!NETR_MANAGE.pending,result:NETR_MANAGE.result,message:NETR_MANAGE.message};}
+function netRealmManagementReceive(m){
+  const p=NETR_MANAGE.pending;if(!p||m.nonce!==p.request.nonce)return;
+  const view=netRealmManagementRead(m.management);
+  if(view&&NETS.s&&view.realm===GAME.player?.faction)NETS.s.management=view;
+  NETR_MANAGE.result={ok:m.ok===true,confirmed:m.confirmed===true,pending:m.pending===true,revision:m.revision};
+  NETR_MANAGE.message=String(m.message||m.why||(m.ok?'Realm order confirmed.':'Realm order refused.')).slice(0,200);
+  if(m.pending!==true)NETR_MANAGE.pending=null;
+}
+async function netRealmManagementSend(p){
+  if(p.sending)return{ok:false,pending:true,why:'The same order is already being sent.'};
+  if(!netHumanLive()||!netsOn()||!hallThroneGrant())return{ok:false,pending:true,why:'Return to a high seat and reconnect before retrying.'};
+  p.sending=true;NETR_MANAGE.message='Waiting for the native realm save…';
+  try{
+    const r=await netsAsk({t:'order',o:p.request});
+    if(r.kind!=='manage'&&NETR_MANAGE.pending===p){
+      NETR_MANAGE.message='The order has not been confirmed. Retry this same order after reconnecting.';
+      NETR_MANAGE.result={ok:false,pending:true,confirmed:false};return{...r,pending:true};
+    }return r;
+  }finally{p.sending=false;}
+}
+function netRealmManagementCommand(args){
+  if(NETR_MANAGE.pending)return Promise.resolve({ok:false,pending:true,why:'Confirm or retry the pending realm order first.'});
+  const view=netRealmManagementView();
+  if(!view||!hallThroneGrant()){NETR_MANAGE.message='Take a high seat of your realm to manage it.';return Promise.resolve({ok:false,why:NETR_MANAGE.message});}
+  let clean;try{clean=JSON.parse(JSON.stringify(args));}catch{return Promise.resolve({ok:false,why:'Invalid realm order.'});}
+  if(typeof netSendSlow==='function')netSendSlow(performance.now(),true);
+  if(typeof netSendFast==='function'){NET.fastKey='';NET.fastAt=-Infinity;netSendFast(performance.now());}
+  const p={request:{kind:'manage',nonce:NET.self+':'+crypto.randomUUID(),season:NETS.s.n,revision:view.revision,hall:HALL.sit.H.num,args:clean},sending:false};
+  NETR_MANAGE.pending=p;NETR_MANAGE.result=null;return netRealmManagementSend(p);
+}
+function netRealmManagementRetry(){return NETR_MANAGE.pending?netRealmManagementSend(NETR_MANAGE.pending):Promise.resolve({ok:false,why:'No pending realm order.'});}
+function netRealmViewInterest(){
+  const f=NETR_MANAGE.focus;
+  return f&&netHumanLive()&&netsOn()&&hallThroneGrant()&&NETS.s?.n===f.n&&HALL.sit.H.num===f.hall&&performance.now()<f.expires
+    ?{realm:f.realm,x:f.x,z:f.z,radius:f.radius}:null;
+}
+function netRealmViewUpdate(){
+  netRealmSeasonProjectionFresh();
+  if(!netHumanLive()||!netsOn()||!hallThroneGrant()||typeof THRONE_RTS==='undefined'||!THRONE_RTS.active){NETR_MANAGE.focus=null;NETR_MANAGE.viewKey='';return;}
+  const now=performance.now(),x=THRONE_RTS.x,z=THRONE_RTS.z,radius=clamp(THRONE_RTS.distance*1.5,45,220);
+  if(![x,z,radius].every(Number.isFinite))return;
+  const key=[NETS.s.n,HALL.sit.H.num,Math.round(x/4),Math.round(z/4),Math.round(radius/5)].join(':');
+  if(now-NETR_MANAGE.viewAt<3000||key===NETR_MANAGE.viewKey&&now-NETR_MANAGE.viewAt<10000)return;
+  NETR_MANAGE.viewAt=now;NETR_MANAGE.viewKey=key;
+  netWsSend({t:'order',q:++NETS.q,o:{kind:'view',seq:++NETR_MANAGE.viewSeq,n:NETS.s.n,hall:HALL.sit.H.num,x,z,radius}});
+}
+function netRealmViewReceive(m){
+  if(!Number.isSafeInteger(m.seq)||m.seq<NETR_MANAGE.viewAck)return;NETR_MANAGE.viewAck=m.seq;
+  const v=m.view;
+  if(!m.ok||!v||![v.x,v.z,v.radius].every(Number.isFinite)||v.n!==NETS.s?.n||v.hall!==HALL.sit?.H.num||v.realm!==GAME.player?.faction
+    ||v.radius<30||v.radius>220||!Number.isFinite(v.ttl)||v.ttl<=0||v.ttl>15000){NETR_MANAGE.focus=null;return;}
+  NETR_MANAGE.focus={n:v.n,hall:v.hall,realm:v.realm,x:v.x,z:v.z,radius:v.radius,expires:performance.now()+v.ttl};
+}
+function netRealmBattleReport(report){
+  if(!netsOn()||!netHumanLive()||typeof netEntityCanSimulateWorld!=='function'||!netEntityCanSimulateWorld()
+    ||typeof NETPARTS==='undefined')return Promise.resolve({ok:false,why:'The battlefield keeper changed.'});
+  return netsAsk({t:'order',o:{kind:'battle',n:report.n,keep:report.keep,owner:report.owner,g:report.g,gate:report.gate,seq:report.seq,
+    authority:NETPARTS.authority,worldAdmission:NETPARTS.admission}});
+}
+Object.assign(window.__hm.netseason,{realmView:netRealmManagementView,realmCommand:netRealmManagementCommand,
+  realmStatus:netRealmManagementStatus,realmRetry:netRealmManagementRetry,viewInterest:netRealmViewInterest});
+
+const NETR_LOGISTICS=new Map();
+function netRealmLogisticsRead(value){
+  if(!value||value.v!==1)return null;
+  try{
+    const text=JSON.stringify(value);if(text.length>16384)return null;
+    if(value.jobs&&(!Array.isArray(value.jobs)||value.jobs.length>12)||value.repairs&&(!Array.isArray(value.repairs)||value.repairs.length>36))return null;
+    const clean=JSON.parse(text);let nodes=0;
+    function valid(x,d=0){
+      if(++nodes>2500||d>8)return false;
+      if(x===null||typeof x==='boolean')return true;
+      if(typeof x==='number')return Number.isFinite(x)&&Math.abs(x)<=1e12;
+      if(typeof x==='string')return x.length<=200;
+      if(Array.isArray(x))return x.length<=64&&x.every(y=>valid(y,d+1));
+      return typeof x==='object'&&Object.keys(x).length<=40&&Object.entries(x).every(([k,v])=>!['__proto__','constructor','prototype'].includes(k)&&valid(v,d+1));
+    }
+    return valid(clean)?clean:null;
+  }catch{return null;}
+}
+function netRealmLogisticsView(){return netsOn()&&netHumanLive()?NETS.s?.logistics||null:null;}
+function netRealmLogisticsReceive(m){
+  const pending=NETR_LOGISTICS.get(m.nonce);if(!pending)return;
+  const v=netRealmLogisticsRead(m.logistics);if(v&&NETS.s)NETS.s.logistics=v;
+  const management=netRealmManagementRead(m.management);if(management&&NETS.s&&management.realm===GAME.player?.faction)NETS.s.management=management;
+  pending.result=m;
+  if(m.pending!==true)NETR_LOGISTICS.delete(m.nonce);
+}
+async function netRealmLogisticsCommand(args,nonce){
+  const keeper=typeof netEntityCanSimulateWorld==='function'&&netEntityCanSimulateWorld(),ruler=args?.op==='repair.issue'&&hallThroneGrant();
+  if(!netsOn()||!netHumanLive()||!NETS.s?.management||!keeper&&!ruler||typeof NETPARTS==='undefined')return{ok:false,why:'The battlefield keeper or ruler changed.'};
+  let clean,key;try{clean=JSON.parse(JSON.stringify(args));key=JSON.stringify(clean);}catch{return{ok:false,why:'Invalid logistics order.'};}
+  let p=typeof nonce==='string'?NETR_LOGISTICS.get(nonce):[...NETR_LOGISTICS.values()].find(p=>p.key===key);
+  if(!p){
+    if(NETR_LOGISTICS.size>=8)return{ok:false,pending:true,why:'Logistics orders are waiting for native confirmation.'};
+    const id=typeof nonce==='string'?nonce:NET.self+':'+crypto.randomUUID();
+    p={key,request:{kind:'logistics',nonce:id,season:NETS.s.n,revision:NETS.s.management.revision,args:clean,hall:HALL.sit?.H.num??-1},sending:false};
+    NETR_LOGISTICS.set(id,p);
+  }
+  if(p.key!==key)return{ok:false,why:'This logistics reference belongs to a different action.'};
+  if(p.sending)return{ok:false,pending:true,nonce:p.request.nonce};
+  p.request.authority=NETPARTS.authority;p.request.worldAdmission=NETPARTS.admission;
+  p.sending=true;
+  try{
+    const r=await netsAsk({t:'order',o:p.request});
+    return r.kind==='logistics'?r:{...r,pending:true,nonce:p.request.nonce};
+  }finally{p.sending=false;}
+}
+Object.assign(window.__hm.netseason,{logisticsView:netRealmLogisticsView,logisticsCommand:netRealmLogisticsCommand});
+
+function netRealmSeasonProjectionKey(){
+  const p=typeof NETPARTS!=='undefined'?NETPARTS:null;
+  return JSON.stringify([p?.admission?.origin||'',p?.admission?.epoch||0,p?.authority||'']);
+}
+function netRealmSeasonProjectionFresh(){
+  const fresh=netsOn()&&netHumanLive()&&NETS.projectionKey===netRealmSeasonProjectionKey();
+  if(!fresh&&NETS.s)NETS.s.armyIdsComplete=false;
+  return fresh;
+}

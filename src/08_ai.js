@@ -1035,7 +1035,7 @@ function updateWar(dt) {
   for (const T of WAR.temples) {
     const D = T.door;
     let hostile = 0;
-    forNear(T.site.x, T.site.z, 30, (o) => { if (o.alive && isActor(o) && o.faction <= 2 && o.faction !== T.realm) hostile++; });
+    forNear(T.site.x, T.site.z, 30, (o) => { if (o.alive && isActor(o) && o.faction <= 2 && o.faction !== T.realm && !war4Allied(o.faction, T.realm)) hostile++; });
     if (hostile) { T.lastEnemyNear = now; if (hostile >= 2 || D.hp < D.maxHp * 0.98) T.underSiegeUntil = now + 20; }
     if (WAR.keeps.some((K) => K.orig === T.realm && K.realm !== T.realm)) T.exposedUntil = now + 180;
     if (D.alive && now - D.lastHitAt > 25 && D.hp < D.maxHp) D.hp = Math.min(D.maxHp, D.hp + D.maxHp * 0.015 * dt);

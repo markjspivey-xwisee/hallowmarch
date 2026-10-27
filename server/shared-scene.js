@@ -662,5 +662,14 @@ export function createSharedScene({ hostFor, live, admission, stateFor, send, ch
     return typeof confirmPersist === 'function' && kept.worldparts?.receipts?.some(receiptNeedsCommit)
       ? { ...kept, worldparts: null } : kept;
   }
-  return { handle, sync, leave, acceptsChunk, publicActivity };
+  function commander(c,id) {
+    if(!c?.room||!live(c)||!canMutate()||!Number.isSafeInteger(id)) return null;
+    const s=sync(c.room);
+    if(!s||!sameAdmission(c.worldAdmission,s.worldAdmission)||!sameAdmission(s.worldAdmission,admission())) return null;
+    if(!s.thrones.held(c.peer,id)) return null;
+    const h=s.streams.entities?.meta?.thrones?.find(h=>h.id===id);
+    if(!h||h.realm!==c.slow?.r||![0,1,2].includes(h.realm)) return null;
+    return {realm:h.realm,hall:id,x:h.x,z:h.z};
+  }
+  return { handle, sync, leave, acceptsChunk, publicActivity, commander };
 }

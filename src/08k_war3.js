@@ -135,6 +135,7 @@ function war3OnCapture(K, realm, old, gateDown) {
 }
 // a column of soldiers for the posts still empty, marching from the muster (a band whose order is the keep's garrison)
 function war3Column(K, realm, slots, o = null) {
+  if (typeof season2CanonicalWar === 'function' && season2CanonicalWar()) return null;
   const src = war4ColumnFrom(K, realm); // [war4] from the realm's nearest keep (out of its hall) or its muster (08l_war4.js)
   slots = loopsColumn(K, realm, slots, src); // [loops] as many as its stores can feed (08m_loops.js)
   const wb = { id: WAR.nextWb++, realm, members: [], order: null, path: null, pathIdx: 0, created: GAME.t, engagedUntil: -99, lastProgress: GAME.t, progX: src.x, progZ: src.z, w3col: { keep: K.id, from: src.name, src: src.from, peace: !!(o && o.peace) } };
@@ -291,6 +292,7 @@ function w3BestTarget(r, ownFirst) {
   for (const K of WAR.keeps) {
     if (K.realm === r) continue;
     if (W3.pact && W3.pact.members.includes(r) && W3.pact.members.includes(K.realm)) continue; // (the ally's)
+    if (typeof realmManualAllied === 'function' && realmManualAllied(r, K.realm)) continue;
     let s = 50 - liveGuards(K) * 2 - (K.door.alive ? (K.door.hp / K.door.maxHp) * 12 : 0) + siegeDanger(K) * 8;
     if (K.orig === r) s += ownFirst ? 40 : 10;
     if (W3.pact && W3.pact.against === K.realm) s += 12;
@@ -309,6 +311,7 @@ function w3AimStep() {
     const mine = WAR.warbands.filter((w) => !w.dead && w.realm === r);
     // pressing for the fourth keep
     let P = W3.press[r];
+    if (P && typeof realmManualAllied === 'function' && realmManualAllied(r, WAR.keeps[P.keep].realm)) W3.press[r] = P = null;
     if (n === CW.KEEPS - 1) {
       if (!P || WAR.keeps[P.keep].realm === r || now - P.t > W3.PRESS_RE) {
         const K = w3BestTarget(r, false);
@@ -323,6 +326,7 @@ function w3AimStep() {
     } else if (P) W3.press[r] = null;
     // down to its last keep: every band to win one of its own back
     let Q = W3.rally[r];
+    if (Q && typeof realmManualAllied === 'function' && realmManualAllied(r, WAR.keeps[Q.keep].realm)) W3.rally[r] = Q = null;
     if (n <= 1) {
       if (!Q || WAR.keeps[Q.keep].realm === r || now - Q.t > W3.PRESS_RE * 1.5) {
         const K = w3BestTarget(r, true);

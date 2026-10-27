@@ -19,7 +19,8 @@ const netEntityLive = () => typeof netOn === 'function' && netOn() && NETWS.stat
 const netEntityMine = () => !!NET_ENTITIES.authority && NET_ENTITIES.peer === NET.self && !NET_ENTITIES.waiting;
 function netEntityCanSimulateWorld() {
   return !netEntityShared() || (netEntityLive() && netEntityMine()
-    && (typeof netWorldPartsCanSimulate !== 'function' || netWorldPartsCanSimulate()));
+    && (typeof netWorldPartsCanSimulate !== 'function' || netWorldPartsCanSimulate())
+    && (typeof season2InventoryReady !== 'function' || season2InventoryReady()));
 }
 function netEntityRegister(e) {
   if (!netEntityOwned(e)) return;
@@ -99,7 +100,7 @@ function netEntityWire(row) {
   if (row.ai && Object.values(row.ai).every(v => v == null || v === false)) row.ai = null;
   if (!row.buffs?.length) row.buffs = null;
   else row.buffs = row.buffs.map(b => ({ kind: b.kind, value: Math.round(b.value * 1000) / 1000,
-    left: Math.round(b.left * 10) / 10 }));
+    left: Math.round(b.left * 10) / 10, ...(Number.isInteger(b.sourceFaction) && b.sourceFaction >= -2 && b.sourceFaction <= 31 ? { sourceFaction: b.sourceFaction } : {}) }));
   for (const [key, value] of Object.entries(NET_ENTITY_DEFAULTS)) if (row[key] === value) delete row[key];
   if (row.hp === row.maxHp) delete row.hp;
   return row;
@@ -123,7 +124,8 @@ function netEntityRow(e) {
     flying: !!e.flying, dragon: e.kind === 'dragon' && typeof DRAGON !== 'undefined'
       ? netEntityPlain({ state: DRAGON.state, stateT: DRAGON.stateT, act: DRAGON.act, flap: DRAGON.flap,
         glide: DRAGON.glide, alt: DRAGON.alt, yaw: DRAGON.yaw, walking: DRAGON.walking, circ: DRAGON.circ, perch: DRAGON.perch }) : null,
-    buffs: e.buffs.slice(0, 24).map(b => ({ kind: b.kind, value: b.value, left: Math.max(0, b.until - GAME.t) })) });
+    buffs: e.buffs.slice(0, 24).map(b => ({ kind: b.kind, value: b.value, left: Math.max(0, b.until - GAME.t),
+      ...(Number.isInteger(b.sourceFaction) && b.sourceFaction >= -2 && b.sourceFaction <= 31 ? { sourceFaction: b.sourceFaction } : {}) })) });
 }
 function netEntityReadRow(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
@@ -204,7 +206,8 @@ function netEntityApply(e, row, immediate = false) {
   e.anim.act = Math.floor(row.a); e.anim.actT = row.a % 1; e.anim.actDur = row.a ? 1 : 0;
   e.anim.death = e.alive ? 0 : Math.min(1, (GAME.t - e.deadAt) / 0.7);
   e.buffs = Array.isArray(row.buffs) ? row.buffs.slice(0, 24).filter(b => typeof b.kind === 'string' && Number.isFinite(b.value) && Number.isFinite(b.left))
-    .map(b => ({ kind: b.kind, value: b.value, until: GAME.t + Math.min(600, b.left), tick: GAME.t, src: null })) : [];
+    .map(b => ({ kind: b.kind, value: b.value, until: GAME.t + Math.min(600, b.left), tick: GAME.t, src: null,
+      ...(Number.isInteger(b.sourceFaction) && b.sourceFaction >= -2 && b.sourceFaction <= 31 ? { sourceFaction: b.sourceFaction } : {}) })) : [];
   if (immediate) {
     e.x = e.prevX = row.p[0]; e.y = row.p[1]; e.z = e.prevZ = row.p[2]; e.yaw = row.yaw;
     e.anim.phase = row.ph; e.anim.amt = row.am;
@@ -485,6 +488,7 @@ function netEntityPrepareWarbands() {
     }
     cwPrepareReplicaBand(w);
   }
+  if (typeof s2Reconcile === 'function') s2Reconcile();
 }
 const netEntityBandMember = (e, realm) => netEntityOwned(e) && !netEntityPersonal(e)
   && e.role === 'soldier' && e.faction === realm;
@@ -511,8 +515,12 @@ function netEntityMeta() {
   if (typeof LOOPS !== 'undefined') meta.caravans = LOOPS.caravans.slice(0, 64).map(c => ({
     id: c.id, realm: c.realm, keep: c.keep, route: netEntityPlain(c.route), i: c.i, state: c.state,
     load: netEntityPlain(c.load), back: c.back, horse: ref(c.horse), carter: ref(c.carter), esc: c.esc.map(ref).filter(Boolean),
+    ...(c.logisticsId ? { logisticsId: c.logisticsId, logisticsLease: c.logisticsLease, logisticsSeason: c.logisticsSeason } : {}),
     ax: c.ax, az: c.az, y: c.y, yaw: c.yaw, roll: c.roll, pitch: c.pitch, wheel: c.wheel,
     wreckT: c.wreckT, parked: c.parkT || 0, age: Math.max(0, GAME.t - c.t0) }));
+  if (typeof LOOPS !== 'undefined') meta.logistics = { jobs: LOOPS.caravans.filter(c => c.logisticsId).slice(0, 6).map(c => ({
+    jobId: c.logisticsId, lease: c.logisticsLease, season: c.logisticsSeason, horseId: ref(c.horse),
+    escortIds: c.esc.slice(0, 2).map(ref).filter(Boolean) })) };
   return meta;
 }
 function netEntityApplyMeta(meta) {

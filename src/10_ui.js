@@ -540,6 +540,7 @@ function bgClose(id, fn) {
   ov.addEventListener('click', (e) => { if (e.target === ov && ov._bg) fn(); ov._bg = false; });
 }
 function toggleMap(force) {
+  if (typeof THRONE_RTS !== 'undefined' && THRONE_RTS.active && force !== false) closeThroneRTS(false);
   const ov = $('mapov');
   const open = force === undefined ? ov.hidden : force;
   if (!open && HALL.sit) hallLeave();

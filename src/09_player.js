@@ -394,6 +394,7 @@ function cameraRoom(px, py, pz, cp, sp, dist) {
   return dist;
 }
 function updateCamera(dt) {
+  if (typeof throneRtsUpdateCamera === 'function' && throneRtsUpdateCamera(dt)) return;
   if (CAM.mode === 'fixed') return; // test and photo views place the camera themselves
   if (CAM.mode === 'title') {
     CAM.orbitT += dt * 0.035;

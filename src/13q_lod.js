@@ -271,12 +271,17 @@ function updateLod() {
     if (T.split && T.split.on) ver += T.gs[0].attributes.iPos.version * 7 + T.gs[0].instanceCount + T.x * 1e-3;
     st.trees[l]++;
   }
-  // [motion] the bands: sorted again when the camera moves 3 m or turns 5 degrees, or the split trees change
-  const L = LOD.bandAt || (LOD.bandAt = { x: 1e9, z: 1e9, f: new THREE.Vector3(), ver: -1, q: '' });
+  // [motion] the bands: sorted again after 3 m of panning, 1 m of height, a 5-degree turn,
+  // a projection change, or a change to the split trees. Vertical command-camera zoom changes the frustum too.
+  const L = LOD.bandAt || (LOD.bandAt = { x: 1e9, y: 1e9, z: 1e9, fov: -1, aspect: -1, viewX: 1e9, viewY: 1e9, f: new THREE.Vector3(), ver: -1, q: '' });
+  const viewX = camera.projectionMatrix?.elements?.[8] ?? 0, viewY = camera.projectionMatrix?.elements?.[9] ?? 0;
   const NT = U.uNearTree.value; ver += NT.x * 0.37 + NT.y * 0.61 + NT.z * 0.83; // the near-tree set moved
   _tbF.set(-camera.matrixWorld.elements[8], -camera.matrixWorld.elements[9], -camera.matrixWorld.elements[10]);
-  if (resort || ver !== L.ver || q !== L.q || Math.hypot(cx - L.x, cz - L.z) > 3 || _tbF.dot(L.f) < 0.996) {
-    L.x = cx; L.z = cz; L.ver = ver; L.q = q; L.f.copy(_tbF);
+  if (resort || ver !== L.ver || q !== L.q || Math.hypot(cx - L.x, cz - L.z) > 3
+    || Math.abs(camera.position.y - L.y) > 1 || camera.fov !== L.fov || camera.aspect !== L.aspect
+    || viewX !== L.viewX || viewY !== L.viewY || _tbF.dot(L.f) < 0.996) {
+    L.x = cx; L.y = camera.position.y; L.z = cz; L.fov = camera.fov; L.aspect = camera.aspect;
+    L.viewX = viewX; L.viewY = viewY; L.ver = ver; L.q = q; L.f.copy(_tbF);
     treeBandsFill(cx, cz, SD, RD2, !!SHADOW.rt);
   }
 }

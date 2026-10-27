@@ -486,9 +486,15 @@ function drawActors(fx, fz) {
   const lodD2 = (HUMAN_LOD[quality.level] || 22) ** 2, farD2 = (HUMAN_FAR[quality.level] || 90) ** 2; // [phones] the farthest crowd (13q_lod.js)
   TRAIL_CAND.length = 0;
   const camX = camera.position.x, camZ = camera.position.z;
-  const maxD2 = 175 * 175;
+  const rts = typeof THRONE_RTS !== 'undefined' && THRONE_RTS.active;
+  const viewer = rts ? GAME.player : null;
+  // An overhead view reaches beyond the play camera's local disk. The existing
+  // frustum still bounds visible geometry; no actor beyond the camera's far plane draws.
+  const maxD2 = rts ? camera.far * camera.far : 175 * 175;
   for (const e of ENT) {
     if (typeof netNpcVisible === 'function' && !netNpcVisible(e) || typeof netEntityVisible === 'function' && !netEntityVisible(e)) continue;
+    // The command camera shares the map's scouting: panning cannot reveal an unseen enemy band.
+    if (viewer && e.warband && e.warband.realm !== viewer.faction && !cwSpotted(e.warband, viewer)) continue;
     if (e.removed || e.kind === 'door' || e.kind === 'dragon' || e.capHide) continue; // [capture] the player kept out of the frame (14_capture.js)
     const dx = e.x - camX, dz = e.z - camZ;
     if (dx * dx + dz * dz > maxD2) continue;
@@ -497,6 +503,9 @@ function drawActors(fx, fz) {
     if (!e.alive && e.removeAt < Infinity) y -= Math.max(0, GAME.t - (e.removeAt - 2.5)) * 0.7; // sink before vanishing
     _sph.center.set(e.x, y + 1.0 * sc, e.z); _sph.radius = 2.4 * sc;
     const visible = frustum.intersectsSphere(_sph);
+    // Altitude reduces model detail too: units directly below the command camera
+    // must not retain the close play model merely because their XZ coordinates match.
+    const detailD2 = dx * dx + dz * dz + (rts ? (camera.position.y - _sph.center.y) ** 2 : 0);
     // ground shadows (the decal window is 96 m around the player)
     if (Math.abs(e.x - fx) < 46 && Math.abs(e.z - fz) < 46 && (e.alive || e.anim.death < 1)) decalAdd(e.x, e.z, (e.mount ? SHADOW_R.horse : SHADOW_R[e.kind]) * sc * (e.kind === 'wisp' ? 1.2 : SHADOW.rt ? 0.72 : 1), 0);
     // grass parting
@@ -536,16 +545,25 @@ function drawActors(fx, fz) {
         _hc[0] = e.mount.coat[0]; _hc[1] = e.mount.coat[1]; _hc[2] = e.mount.coat[2]; _hc[3] = 1 + (e.mount.crowd ? e.mount.visCode || 0 : 0);
         _p4[3] = beastLeanYaw(e); // [motion] the horse leans into the turn with its rider (13r_motion.js); [motion3] before its hooves' row (the tilt it takes off)
         _hb[0] = e.mount.cloth[0] + late3BardCode(e); _hb[1] = e.mount.cloth[1]; /* [late3] a veteran's barding (10n_veteran.js) */ _hb[2] = e.mount.cloth[2]; _hb[3] = beastWx(e, e.anim.flash) + 256 * footLockSlot(e, true); // the horse is as wet as its rider; [polish] its planted hooves (13s_footlock.js)
-        (dx * dx + dz * dz < lodD2 && H[0].n < H[0].max ? H[0] : H[1]).push(_p4, _ma, _hc, _hb);
+        let horses = detailD2 < lodD2 && H[0].n < H[0].max ? H[0] : H[1];
+        if (rts && horses.n >= horses.max && H[0].n < H[0].max) horses = H[0];
+        horses.push(_p4, _ma, _hc, _hb);
         _p4[1] = y + HORSE_SEAT - 0.86 * sc;
         _a4[0] = MA.phase; _a4[1] = MA.amt;
         _cb[3] = (L.flags || 0) | 8;
       }
       // seated: on a throne the body takes the rider's pose, hips on the seat
       if (e.seat && e.alive) { _p4[1] = e.seat.y - 0.86 * sc; _a4[0] = 0; _a4[1] = 0; _cb[3] = (L.flags || 0) | 8; }
-      wearVisual(e, _we); // feature/weather: wet, snow, dirt, blood and damage for the actor shader (05h_wear.js)
-      _p4[3] = humanSlopeYaw(e, y, dx * dx + dz * dz < lodD2 * 2.5); // [motion] the floor's slope rides on the yaw (13r_motion.js)
-      (dx * dx + dz * dz < lodD2 && crowdHuman.n < crowdHuman.max ? crowdHuman : dx * dx + dz * dz > farD2 && crowdHumanFar && crowdHumanFar.n < crowdHumanFar.max ? crowdHumanFar : crowdHumanLo).push(_p4, _a4, _ca, _cb, _mi, _st, _we); // [phones] far: crowdHumanFar
+      wearVisual(e, _we);
+      if (typeof realmPublicWorksVisual === 'function') realmPublicWorksVisual(e, _mi, _cb); // feature/weather: wet, snow, dirt, blood and damage for the actor shader (05h_wear.js)
+      _p4[3] = humanSlopeYaw(e, y, detailD2 < lodD2 * 2.5); // [motion] the floor's slope rides on the yaw (13r_motion.js)
+      let people = detailD2 < lodD2 && crowdHuman.n < crowdHuman.max ? crowdHuman
+        : detailD2 > farD2 && crowdHumanFar && crowdHumanFar.n < crowdHumanFar.max ? crowdHumanFar : crowdHumanLo;
+      // A broad command view may fill the far pool. Spill through the existing
+      // pools before dropping a body; their fixed allocation remains unchanged.
+      if (rts && people.n >= people.max) people = crowdHumanFar && crowdHumanFar.n < crowdHumanFar.max ? crowdHumanFar
+        : crowdHumanLo.n < crowdHumanLo.max ? crowdHumanLo : crowdHuman;
+      people.push(_p4, _a4, _ca, _cb, _mi, _st, _we); // [phones] far: crowdHumanFar
       // a gem of light on casters' hands while a spell builds
       if (e.casting && e.alive && e.casting.id !== 'summon') {
         const A = ABILITIES[e.casting.id];
@@ -558,7 +576,11 @@ function drawActors(fx, fz) {
       const C = crowdBeast[e.crowd || e.kind]; // [animals] shorn sheep, bulls, tacked horses
       if (C && e.role !== 'bird' && e.kind !== 'hen') _p4[3] = beastLeanYaw(e); // [motion] a beast leans into its turns (beastVS); [motion3] before its feet's row, which takes off the tilt the shader will get (a step of the tilt a frame late moved the feet 3 cm)
       _cb[0] = L.colB[0] + (e.tame && e.tame.k === 'horse' && e.tame.owner === 'player' ? late3BardCode(GAME.player) : 0); _cb[1] = L.colB[1]; _cb[2] = L.colB[2]; _cb[3] = beastWx(e, e.anim.flash) + 256 * footLockSlot(e, false); // [late3] your horse's barding (10n_veteran.js) // visual pass: its own wet and snow; [polish] its planted feet (13s_footlock.js)
-      if (C) (dx * dx + dz * dz < lodD2 && C[0].n < C[0].max ? C[0] : C[1]).push(_p4, _a4, _ca, _cb);
+      if (C) {
+        let beasts = detailD2 < lodD2 && C[0].n < C[0].max ? C[0] : C[1];
+        if (rts && beasts.n >= beasts.max && C[0].n < C[0].max) beasts = C[0];
+        beasts.push(_p4, _a4, _ca, _cb);
+      }
     }
   }
   crowdHuman.end(); crowdHumanLo.end(); if (crowdHumanFar) crowdHumanFar.end(); // [phones]
@@ -681,6 +703,7 @@ function simStep(dt) {
   netPump(dt); // [net] the others in the March: heard, told (14n_net.js)
 }
 function tick(dt) {
+  if (typeof throneRtsGuard === 'function') throneRtsGuard();
   if (GRAPHICS_CONTEXT_LOST || GRAPHICS_STARTUP.stopped) return;
   if (typeof netHumanSync === 'function') netHumanSync();
   if (typeof netHumanLive === 'function' && !netHumanLive()) return;
@@ -730,6 +753,8 @@ function tick(dt) {
   drawRelicsAndPortals();
   drawTownLife(dt);
   drawHouses(dt);
+  if (typeof realmRtsModelsFrame === 'function') realmRtsModelsFrame(dt);
+  if (typeof realmPublicWorksFrame === 'function') realmPublicWorksFrame(dt);
   drawFires(dt);
   drawNature(dt); // nature (05h_nature.js): tree and wood instances, flames, the nature map upload
   drawGifts(dt); // [gifts] the standard, the hunt, the winter storm and the gift button (06c_gifts.js)
@@ -786,6 +811,7 @@ function tick(dt) {
   if (GAME.started && GAME.player) classHUD(dt); // [classes] momentum, stance, the draw, attunement, devotion and the combo cue (10d_classes_ui.js)
   netUiFrame(); // [net] the Players button, the party's frames, speech over heads (14o_netui.js)
   hudLayout(dt); // [phones] keep the panels apart on every screen (10p_hud.js)
+  if (typeof updateThroneRTS === 'function') updateThroneRTS(dt);
   updateAudio(dt);
   adaptQuality(dt);
 }
@@ -821,6 +847,7 @@ function warSummary() {
 window.__hm = {
   ready: false, GAME, WAR, ENT, CAMPS, REALMS, CAM, INPUT, UI, tod, quality, SAVE, errors: HM_ERRORS, camera, MOBS, FACTION_MONSTER, FACTION_NEUTRAL,
   DUN, INDOOR, BARROW, BARROW_STATE,
+  rts: { state: THRONE_RTS, ui: THRONE_RTS_UI, open: openThroneRTS, close: closeThroneRTS, focus: throneRtsFocus, zoom: throneRtsZoom, realm: throneRtsView },
   dbg: { grassMeshes, scene, SHADOW, U, renderer, DBG, LAKES, skyU, FIRES, CAMPS, WEATHER, strikeLightning, spawnSlash, slashGeo, slashMesh, DRAGON, setDragonState, COVER, addFire, BRAND },
   start(o = {}) {
     const realm = o.realm ?? 0, cls = o.cls ?? 'warrior';
