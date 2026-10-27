@@ -46,7 +46,7 @@ async function connect(url,room,name,sharedScene=2) {
   client.activity=m=>client.send({t:'activity',authority:client.authority,worldAdmission:client.admission,...m});
   await new Promise((resolve,reject)=>{ws.addEventListener('open',resolve,{once:true});ws.addEventListener('error',reject,{once:true})});
   client.send({t:'hello',room});await client.wait(m=>m.t==='welcome');
-  client.send({t:'slow',d:{on:1,humanLive:1,humanActivity:1,sharedScene,r:0,c:'warrior',l:20,n:name,dn:name}});
+  client.send({t:'slow',d:{on:1,humanLive:1,humanActivity:1,sharedScene,realmManagement:1,seasonField:2,r:0,c:'warrior',l:20,n:name,dn:name}});
   await client.wait(m=>m.t==='activity'&&m.kind==='authority');
   client.send({t:'fast',d:{s:1,p:[0,0,0],y:0,v:[0,0],a:0,h:1,m:100,d:0,ev:[]}});
   return client;

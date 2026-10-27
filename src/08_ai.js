@@ -175,6 +175,7 @@ function keepSlots(K) {
   return { walls: castlePostSlots(K) || walls, court, lord }; // castles: posts up on the walks and tower tops (04g_castles.js)
 }
 function initWar() {
+  if (typeof realmPublicWorksReset === 'function') realmPublicWorksReset();
   for (const R of REALMS) {
     R.keepSites.forEach((S, k) => {
       const door = makeEnt({ kind: 'door', faction: R.id, role: 'door', name: `${S.name} gate`, level: warLevel() + 2, x: 0, z: 0, radius: 3.2 });
@@ -208,6 +209,8 @@ function initWar() {
   updateRelicBonuses();
 }
 function fillGarrison(K, all) {
+  if (typeof realmPublicWorksHosted === 'function' && realmPublicWorksHosted()
+    && !(typeof realmPublicWorksRecruiting === 'function' && realmPublicWorksRecruiting(K))) return;
   const R = K.realm, S = K.site;
   const lvl = warUnitLevel('guard');
   if (!K.lord || !getEnt(K.lord) || !getEnt(K.lord).alive) {
@@ -1025,17 +1028,19 @@ function updateWar(dt) {
     let hostile = 0;
     forNear(K.site.x, K.site.z, 34, (o) => { if (o.alive && isActor(o) && o.faction <= 2 && o.faction !== K.realm && !war4Allied(o.faction, K.realm)) hostile++; }); // [war4] an ally of the pact is no foe at the walls (08l_war4.js)
     if (hostile > 0) { K.lastEnemyNear = now; if (hostile >= 2 || K.door.hp < K.door.maxHp * 0.98) { if (now > K.underSiegeUntil && K.realm === (GAME.player && GAME.player.faction)) { news(`${K.site.name} is under attack!`, K.realm, 'alarm'); sndKeepAlarm(K); /* [audio2] its bell rings (11c_sound.js) */ } K.underSiegeUntil = now + 20; } }
-    // door repair or rebuild
-    const D = K.door;
-    if (D.alive && now - D.lastHitAt > 25 && D.hp < D.maxHp) D.hp = Math.min(D.maxHp, D.hp + D.maxHp * 0.015 * dt);
-    if (!D.alive && now - K.lastEnemyNear > 40 && now - D.deadAt > 40 && !war4GateMends(K)) { setDoorState(D, true, 0.35); news(`${K.site.name} has rebuilt its gate.`, K.realm, 'normal'); } // [war4] mended behind a scaffold instead (08l_war4.js)
-    // reinforcements trickle in when the keep is quiet
-    if (now > K.nextGuardAt && now - K.lastEnemyNear > 12) { K.nextGuardAt = now + 14; if (loopsTrickleOk(K)) war4Trickle(K); } // [loops] a guard comes only if the keep's stores can feed him (08m_loops.js) // [war4] out of the hall's door to their posts (08l_war4.js)
+    if (typeof realmPublicWorksKeepTick !== 'function' || !realmPublicWorksKeepTick(K, dt)) {
+      // door repair or rebuild
+      const D = K.door;
+      if (D.alive && now - D.lastHitAt > 25 && D.hp < D.maxHp) D.hp = Math.min(D.maxHp, D.hp + D.maxHp * 0.015 * dt);
+      if (!D.alive && now - K.lastEnemyNear > 40 && now - D.deadAt > 40 && !war4GateMends(K)) { setDoorState(D, true, 0.35); news(`${K.site.name} has rebuilt its gate.`, K.realm, 'normal'); } // [war4] mended behind a scaffold instead (08l_war4.js)
+      // reinforcements trickle in when the keep is quiet
+      if (now > K.nextGuardAt && now - K.lastEnemyNear > 12) { K.nextGuardAt = now + 14; if (loopsTrickleOk(K)) war4Trickle(K); } // [loops] a guard comes only if the keep's stores can feed him (08m_loops.js) // [war4] out of the hall's door to their posts (08l_war4.js)
+    }
   }
   for (const T of WAR.temples) {
     const D = T.door;
     let hostile = 0;
-    forNear(T.site.x, T.site.z, 30, (o) => { if (o.alive && isActor(o) && o.faction <= 2 && o.faction !== T.realm && !war4Allied(o.faction, T.realm)) hostile++; });
+    forNear(T.site.x, T.site.z, 30, (o) => { if (o.alive && isActor(o) && o.faction <= 2 && o.faction !== T.realm) hostile++; });
     if (hostile) { T.lastEnemyNear = now; if (hostile >= 2 || D.hp < D.maxHp * 0.98) T.underSiegeUntil = now + 20; }
     if (WAR.keeps.some((K) => K.orig === T.realm && K.realm !== T.realm)) T.exposedUntil = now + 180;
     if (D.alive && now - D.lastHitAt > 25 && D.hp < D.maxHp) D.hp = Math.min(D.maxHp, D.hp + D.maxHp * 0.015 * dt);
@@ -1077,6 +1082,7 @@ function news(text, realm, kind = 'normal') {
 /* simulation step for every NPC                                       */
 /* ------------------------------------------------------------------ */
 function updateNPCs(dt0) {
+  if (typeof realmPublicWorksFrame === 'function') realmPublicWorksFrame(0);
   const P = GAME.player;
   for (let i = ENT.length - 1; i >= 0; i--) {
     const e = ENT[i];

@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import { readFileSync } from 'node:fs';
+import { realmManagementReloadRequired } from '../../server/realm-management.js';
 import { createHumanPlayGate } from '../../server/human-play.js';
 const server = readFileSync(new URL('../../server/server.js', import.meta.url), 'utf8');
 const client = readFileSync(new URL('../../src/12_save.js', import.meta.url), 'utf8');
@@ -18,7 +19,7 @@ function routing() {
   context=vm.createContext({
     Date:{now:()=>now}, JSON, Map, console, STATS:{msgs:0,bytesIn:0,badMsgs:0,saves:0},
     CFG:{maxMsg:65536,maxSave:1048576}, HUMAN_PLAY:gate,isHumanPlaying:gate.isPlaying,
-    nativePlayersRequired:false,PLAYER_ACCOUNTS:{principalFor:()=>null,isBound:()=>false,status:()=>({enabled:true})},
+    realmManagementReloadRequired, nativePlayersRequired:false,PLAYER_ACCOUNTS:{principalFor:()=>null,isBound:()=>false,status:()=>({enabled:true})},
     WORLD_STATE:null,WORLDS:{},SHARED_SCENE:{leave:c=>sceneLeaves.push(c)},FIELD:{left(){}},worldAgentTransport:{close(){}},regionsTell(){},
     clearTimeout(){},resumeHumanSession(){},accountsSave(){},onSlow(c,d){c.slow=d;},
     send:(c,m)=>sent.push(m),store:{write:(p,d)=>writes.push({p,d})},path:{join:(...p)=>p.join('/')},
@@ -27,7 +28,7 @@ function routing() {
   vm.runInContext(roomNeedsWarbandOrders+'\n'+endSession+'\n'+onMsg+'\nglobalThis.H={onMsg,endHumanSession};',context);
   return {owner,room,sent,writes,sceneLeaves,gate,send:m=>context.H.onMsg(owner,JSON.stringify(m)),advance:ms=>{now+=ms;}};
 }
-const live=n=>({t:'slow',d:{on:1,humanLive:1,humanActivity:n,r:0}});
+const live=n=>({t:'slow',d:{on:1,humanLive:1,humanActivity:n,realmManagement:1,seasonField:2,r:0}});
 test('actual routing accepts one departing save after withdrawal without reopening its human lease',()=>{
   const f=routing();
   f.send({t:'save',final:1,d:{v:1,char:{xp:1}}});

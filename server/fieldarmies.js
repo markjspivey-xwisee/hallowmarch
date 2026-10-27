@@ -58,6 +58,7 @@ export function makeField(SEASON, ROOMS, send, regionOf, WORLD, STATS, realmView
     if (RS.phase === 'reckon') return;
     for (const A of RS.armies) {
       if ((RS.phase !== 'war' && !A.manual) || (F.cooldown.get(A.id) || 0) > Date.now() || A.state === 'gone' || A.onField || A.kind === 'hallow' || A.n < 1 || F.held.size >= 24) continue;
+      if (typeof SEASON.fieldGrantConfirmed === 'function' && SEASON.fieldGrantConfirmed(A) !== true) continue;
       const q = F.pos(A);
       let to = null;
       for (const R of ROOMS.values()) { for (const c of R.clients.values()) if (fits(c, A, q)) { to = c; break; } if (to) break; }

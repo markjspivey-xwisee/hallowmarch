@@ -444,6 +444,7 @@ function war3Reset() {
   war4Reset(); // [war4] columns on the road take their posts, the gates' work is over (08l_war4.js)
   for (const E of SIEGE.engines) if (!E.gone) { siegeReleaseCrew(E); siegeRemove(E); }
   for (const C of CASTLES) {
+    if (typeof realmPublicWorksHosted === 'function' && realmPublicWorksHosted()) continue;
     if (!C.sections) continue;
     let dirty = false;
     for (const W of C.sections) if (W.state !== 'whole') { if (W.wreck) W.wreck.visible = false; castleRepairDone(W); dirty = true; }

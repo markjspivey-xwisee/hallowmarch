@@ -662,6 +662,13 @@ export function createSharedScene({ hostFor, live, admission, stateFor, send, ch
     return typeof confirmPersist === 'function' && kept.worldparts?.receipts?.some(receiptNeedsCommit)
       ? { ...kept, worldparts: null } : kept;
   }
+  // Server-only proof: live accepted owner rows are never exposed by publicActivity.
+  function proofFor(c) {
+    if(!c?.room||!live(c)||!canMutate()) return null;
+    const s=sync(c.room);
+    if(!s||s.persistedRef!==stateFor(c.room).activity||!sameAdmission(c.worldAdmission,s.worldAdmission)||!sameAdmission(s.worldAdmission,admission())) return null;
+    return {entities:s.streams.entities,worldparts:s.publicWorldparts};
+  }
   function commander(c,id) {
     if(!c?.room||!live(c)||!canMutate()||!Number.isSafeInteger(id)) return null;
     const s=sync(c.room);
@@ -671,5 +678,5 @@ export function createSharedScene({ hostFor, live, admission, stateFor, send, ch
     if(!h||h.realm!==c.slow?.r||![0,1,2].includes(h.realm)) return null;
     return {realm:h.realm,hall:id,x:h.x,z:h.z};
   }
-  return { handle, sync, leave, acceptsChunk, publicActivity, commander };
+  return { handle, sync, leave, acceptsChunk, publicActivity, commander, proofFor };
 }

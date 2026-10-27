@@ -600,6 +600,7 @@ function cwFanfare(win) {
 }
 // after the peace every keep and hallow goes home and a new campaign begins
 function restoreKeep(K) {
+  if (typeof realmPublicWorksHosted === 'function' && realmPublicWorksHosted()) return;
   if (seasonKeepStays(K)) { fillGarrison(K, true); K.underSiegeUntil = -99; setDoorState(K.door, true, 1); return; } // [loops] in the season's war a keep taken stays its taker's (08n_season.js)
   if (K.realm !== K.orig) {
     for (const id of K.guards) { const g = getEnt(id); if (g) { FX.burst(g.x, g.y + 1.2, g.z, 14, [0.5, 1.1, 1.8], 2.5, 0.8, 0.16, 0.5); removeEnt(g); } }

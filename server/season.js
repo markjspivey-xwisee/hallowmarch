@@ -62,7 +62,7 @@ function loopsAdapt(L) {
       return ok ? { ok: true } : { ok: false, why: 'Not now' };
     },
     realmSimCapture: (RS, keep, realm) => L.realmSimLive(RS, { type: 'keep', keep, holder: realm }),
-    realmSimSummary: (RS, realm, since) => {
+    realmSimSummary: (RS, realm, since, owner) => {
       const R = realm >= 0 ? RS.realms[realm] : null, ph = PHASE[RS.phase] || 'war';
       const s = {
         n: RS.n, t: RS.t, len: RS.len, day: Math.floor(RS.t / day) + 1, days: Math.round(RS.len / day), phase: ph, over: ph === 'over' ? 1 : 0, winner: RS.winner == null ? -1 : RS.winner,
@@ -74,8 +74,8 @@ function loopsAdapt(L) {
         target: R ? R.aim : -1, st: null, levyIn: R ? Math.max(0, Math.round(R.levyAt - RS.t)) : 0,
       };
       s.armyIds=RS.armies.filter(a=>a.state!=='gone').map(a=>a.id);s.armyIdsComplete=s.armyIds.length<=40&&s.armyIds.every(Number.isSafeInteger);
-      s.works = RS.realms.map((q,r)=>({r,...Object.fromEntries(['walls','granary','yard','smithy','engines'].map(k=>[k,Math.max(0,Math.min(4,Math.floor(q.proj?.[k]||0)))]))}));
-      s.logistics = realmLogisticsView(RS);s.repairs=s.logistics?.repairs||[];
+      s.works = RS.realms.map((q,r)=>({r,hungry:Math.max(0,Math.min(48,Number(q.hungry)||0)),...Object.fromEntries(['walls','granary','yard','smithy','engines'].map(k=>[k,Math.max(0,Math.min(4,Math.floor(q.proj?.[k]||0)))]))}));
+      s.logistics = realmLogisticsView(RS,owner);s.repairs=s.logistics?.repairs||[];
       s.management = typeof L.realmManageView === 'function' && realm >= 0 ? L.realmManageView(RS,realm) : null;
       if (R) {
         s.st = Object.fromEntries(G.slice(0, 7).map((g, i) => [g, Math.round(R.s[i])]));
@@ -131,6 +131,7 @@ export function makeSeason(cfg, store, stats) {
     S.lastStep = now;
     if (!(dt > 0)) return;
     const t0 = performance.now();
+    const previousSeason=S.RS.n,previousLogistics=S.RS.management?.logistics;
     S.M.realmSimStep(S.RS, dt);
     // a new season once one has been over for a day (its winner told in the log first)
     if (S.RS.over && S.RS.t > S.RS.len + 86400) {
@@ -138,6 +139,7 @@ export function makeSeason(cfg, store, stats) {
       S.RS = S.M.realmSimInit(cfg.seasonSeed + n, { keeps: cfg.keeps, len: cfg.seasonLen, season: n });
       S.RS.lastWinner = w; stats.seasons++;
     }
+    if(S.RS.n!==previousSeason&&previousLogistics) realmLogisticsRestore(S.RS,{n:previousSeason,management:{logistics:previousLogistics}});
     const ms = performance.now() - t0;
     S.stepMs.push(ms); if (S.stepMs.length > 120) S.stepMs.shift();
     stats.seasonSteps++; S.dirty = true;
@@ -178,9 +180,9 @@ export function makeSeason(cfg, store, stats) {
     stats.liveCaptures++; S.dirty = true;
   };
   S.keepsOf = () => (S.RS && Array.isArray(S.RS.keeps) ? S.RS.keeps.map((K) => (K && (K.r ?? K.h ?? K.holder ?? K.owner))) : null);
-  S.summary = (realm, since) => {
+  S.summary = (realm, since, owner) => {
     if (!S.RS) return null;
-    const s = S.M.realmSimSummary(S.RS, realm, since);
+    const s = S.M.realmSimSummary(S.RS, realm, since, owner);
     return s && typeof s === 'object' ? s : null;
   };
   S.seen = (acct, p) => {

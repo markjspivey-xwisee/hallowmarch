@@ -812,6 +812,7 @@ function tick(dt) {
   netUiFrame(); // [net] the Players button, the party's frames, speech over heads (14o_netui.js)
   hudLayout(dt); // [phones] keep the panels apart on every screen (10p_hud.js)
   if (typeof updateThroneRTS === 'function') updateThroneRTS(dt);
+  if (typeof realmLogisticsOwnerFrame === 'function') realmLogisticsOwnerFrame();
   updateAudio(dt);
   adaptQuality(dt);
 }

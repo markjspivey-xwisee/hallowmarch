@@ -16,7 +16,7 @@ function extract(source, name) {
 }
 function modelFixture() {
   // Match the production server loader's realm, including strict receipt-data prototypes.
-  const api = new Function(realmSource + '\n' + managementSource + '\nreturn { RSM,RSM_GEO,realmSimInit,realmSimStep,realmSimSanitize,realmSimFieldTake,realmSimFieldReport,realmSimFieldFold,realmManageInit,realmManageStep,realmManageAction,realmManageView,realmSimOrder,rsmArmy,rsmEconomy,rsmFieldDesc };')();
+  const api = new Function(realmSource + '\n' + managementSource + '\nreturn { RSM,RSM_GEO,RSM_GOODS,rsmProjectCost,rsmProject,realmSimInit,realmSimStep,realmSimSanitize,realmSimFieldTake,realmSimFieldReport,realmSimFieldFold,realmManageInit,realmManageStep,realmManageAction,realmManageView,realmSimOrder,rsmArmy,rsmEconomy,rsmFieldDesc };')();
   const RS = api.realmSimInit(987654, { days: 28 });
   api.realmManageInit(RS);
   return { api, RS,
@@ -30,13 +30,13 @@ function bridgeFixture({ initialPhase = 'war', capability = 2, virtual = false }
   const world = { keeps: GEO.keep.map(([x,z],id) => ({ id,x,z,home:RS.keeps[id].home })),
     SITES: GEO.muster.map(([x,z],realm) => ({kind:'muster',realm,x,z})).concat(GEO.temple.map(([x,z],realm) => ({kind:'temple',realm,x,z}))) };
   const room = { clients: new Map(), regions: { frontier: 'keeper' } }, rooms = new Map([['march',room]]);
-  const state = { keeper: true, view: virtual ? { realm:0,x:GEO.muster[0][0],z:GEO.muster[0][1],radius:220 } : null };
+  const state = { keeper: true, fresh:true, view: virtual ? { realm:0,x:GEO.muster[0][0],z:GEO.muster[0][1],radius:220 } : null };
   const keeper = { peer:'keeper',realm:0,region:'frontier',room,slow:{seasonField:capability},ws:{readyState:1},
     pos: virtual ? {x:450,z:450} : {x:GEO.muster[0][0],z:GEO.muster[0][1]} };
   const king = { peer:'king',realm:0,region:'town',room,slow:{seasonField:2},ws:{readyState:1},pos:{x:-450,z:450} };
   room.clients.set(king.peer,king); room.clients.set(keeper.peer,keeper);
   const serverMessages=[], clientMessages=[], entities=new Map(), costs={loops:0,spawns:0,removed:0};
-  const season = { RS, M:api, dirty:false }, stats={};
+  const season = { RS, M:api, dirty:false, fieldGrantConfirmed: () => true }, stats={};
   const field = makeField(season,rooms,(client,message)=>serverMessages.push({client,message}),()=> 'frontier',world,stats,
     client=>client===king ? state.view : null,client=>client===keeper && state.keeper);
   const realms = GEO.muster.map(([x,z],id)=>({id,name:'Realm '+id,musterSite:{x,z,name:'Muster '+id},
@@ -49,7 +49,7 @@ function bridgeFixture({ initialPhase = 'war', capability = 2, virtual = false }
     NETWS:{url:'wss://march.test'},NETS:{s:{n:RS.n,phase:initialPhase,management:{v:1},armies:[],offs:[]}},
     GAME:{started:true,t:100,player},CAMPAIGN:{n:1,state:'war'},WAR:{warbands:[],nextWb:1,keeps,temples:[]},REALMS:realms,ENT:[],
     NET:{self:'keeper'},SEASONP:{rs:null},TAU:Math.PI*2,WB_CLASSES:['warrior','archer','priest'],WAR_LEVEL_OFF:{soldier:0},
-    OUTFIT:{lord:1},WB:{},queueMicrotask(){},netEntityCanSimulateWorld:()=>state.keeper,netRealmViewInterest:()=>state.view,
+    OUTFIT:{lord:1},WB:{},queueMicrotask(){},netRealmSeasonProjectionFresh:()=>state.fresh,netEntityCanSimulateWorld:()=>state.keeper,netRealmViewInterest:()=>state.view,
     netWsSend:message=>{clientMessages.push(message);return true;},
     clamp:(n,lo,hi)=>Math.max(lo,Math.min(hi,n)),dist:(x,z,a,b)=>Math.hypot(x-a,z-b),
     isWalkable:()=>true,look5InColl:()=>false,inDungeon:()=>false,heightAt:()=>0,floorAt:()=>0,
@@ -67,7 +67,7 @@ function bridgeFixture({ initialPhase = 'war', capability = 2, virtual = false }
     news(){},possessive:s=>s+"'s",siegeGatePoint:site=>({x:site.x,z:site.z,nx:0,nz:1}),
     seasonGiveKeep(keep,realm){keep.realm=realm;},
   });
-  vm.runInContext(extract(aiSource,'spawnRealmUnit')+'\n'+seasonSource+'\nthis.api={S2,s2Spawn,s2Report,s2BandStep,s2Remove,s2Read,s2Near,season2ServerMsg,season2Update,season2CanonicalWar,season2StrategicArmies};',context);
+  vm.runInContext(extract(aiSource,'spawnRealmUnit')+'\n'+seasonSource+'\nthis.api={S2,s2Spawn,s2Report,s2BandStep,s2Remove,s2Read,s2Near,season2ServerMsg,season2Update,season2CanonicalWar,season2StrategicArmies,s2Reconcile,season2InventoryReady};',context);
   return {model,api,RS,field,season,state,keeper,king,room,rooms,serverMessages,clientMessages,context,client:context.api,entities,costs,
     army() { return RS.armies.find(a=>a.state!=='gone'); },
     legacyArmy() { const A=api.rsmArmy(RS,0,8,'assault',2);assert.ok(A);return A; },
@@ -312,4 +312,77 @@ test('conquered housing cannot grow residents beyond the sanitizer population bo
   assert.deepEqual(plain(restored.realms[0].management),plain(input.realms[0].management));
   const snapshot={worlds:{},season:plain(input)};
   assert.deepEqual(checkedWorldSnapshot(snapshot,{keepCount:6,realmModule:{loops:true,realmSimSanitize:f.api.realmSimSanitize}}),snapshot);
+});
+
+test('cold cohort inventory blocks simulation until fresh and retires orphans before readiness', () => {
+  const f=bridgeFixture();f.legacyArmy();const grant=f.grant();f.deliver(grant);
+  const tracked=f.client.S2.bands.get(grant.a.id);
+  const make=(id,canonical)=>{const e=f.context.makeEnt({kind:'humanoid',role:'soldier',faction:0,x:0,y:0,z:0});const wb={id,members:[e.id],realm:0,dead:false,order:null,season:{id:canonical,season:f.RS.n}};f.context.WAR.warbands.push(wb);return{wb,e};};
+  const stale=make(900,900),extant=make(901,901);
+  f.context.NETS.s={...f.context.NETS.s,armyIds:[901],armyIdsComplete:false};
+  assert.equal(f.client.season2InventoryReady(),false);assert.equal(stale.e.alive,true);
+  f.context.NETS.s.armyIdsComplete=true;f.state.fresh=false;
+  assert.equal(f.client.season2InventoryReady(),false);assert.equal(stale.e.alive,true);
+  f.state.fresh=true;assert.equal(f.client.season2InventoryReady(),true);
+  assert.equal(stale.wb.dead,true);assert.equal(stale.e.alive,false);
+  assert.equal(extant.e.alive,true);assert.equal(tracked.wb.dead,undefined);assert.equal(f.context.wbMembers(tracked.wb).length,Math.round(grant.a.n*0.42));
+  const observer=make(902,902);f.state.keeper=false;f.client.s2Reconcile();assert.equal(observer.e.alive,true);assert.equal(observer.wb.dead,false);
+});
+test('the forty-first canonical army cannot muster or debit any resources', () => {
+  const f=modelFixture();f.RS.t=f.RS.len/4;f.RS.phase='war';for(const R of f.RS.realms)R.lev=60;
+  for(let i=0;i<40;i++)assert.ok(f.api.rsmArmy(f.RS,i%3,4,'assault',((i%3+1)%3)*2));
+  assert.equal(f.RS.armies.length,40);const before=plain(f.RS);
+  assert.equal(f.action(1,{type:'muster'}).ok,false);assert.deepEqual(plain(f.RS),before);
+  assert.equal(f.api.rsmArmy(f.RS,1,4,'assault',0),null);assert.deepEqual(plain(f.RS),before);
+});
+test('convoy escort reservations count against levy capacity and eat canonical provisions', () => {
+  const make=old=>{const f=modelFixture();f.RS.n=2;const R=f.RS.realms[0];R.lev=58;R.levyAt=R.refillAt=1e8;for(const K of f.RS.keeps)K.g=0;
+    f.RS.management.logistics={v:1,season:old?1:2,jobs:[{id:'job-12345678',lease:'lease-12345678',season:old?1:2,peer:'keeper',realm:0,keep:0,cargo:{food:6,timber:6,stone:6},escorts:2,state:'active',at:0}],mounts:[],repairs:[],appliedGateSpent:[]};return f;};
+  const active=make(false),old=make(true);
+  assert.equal(active.api.realmManageView(active.RS,0).military.field,2);assert.equal(old.api.realmManageView(old.RS,0).military.field,0);
+  active.api.rsmEconomy(active.RS,0,active.RS.realms[0],1/60);old.api.rsmEconomy(old.RS,0,old.RS.realms[0],1/60);
+  assert.ok(Math.abs(old.RS.realms[0].s[0]-active.RS.realms[0].s[0]-2*active.api.RSM.eat/60)<1e-7);
+  const before=plain(active.RS);assert.equal(active.action(0,{type:'recruit',units:1}).ok,false);assert.deepEqual(plain(active.RS),before);
+  assert.equal(old.action(0,{type:'recruit',units:1}).ok,true,'expired season reservations cannot block new recruitment');
+});
+test('all six keep centers and owned plots use the physical world index order', () => {
+  const f=modelFixture();
+  for(let k=0;k<6;k++){
+    const home=Math.floor(k/2),a=[150,270,30][home]*Math.PI/180,lat=k%2===0?64:-64;
+    const x=Math.sin(a)*118+Math.cos(a)*lat,z=-Math.cos(a)*118+Math.sin(a)*lat;
+    assert.ok(Math.abs(f.api.RSM_GEO.keep[k][0]-x)<1e-9);assert.ok(Math.abs(f.api.RSM_GEO.keep[k][1]-z)<1e-9);
+    const owner=(home+1)%3;f.RS.keeps[k].h=owner;
+    const plots=f.api.realmManageView(f.RS,owner).plots.filter(p=>p.site==='keep:'+k);assert.equal(plots.length,4);
+    assert.ok(plots.every(p=>p.owner===owner));assert.ok(Math.abs(plots.reduce((n,p)=>n+p.x,0)/4-x)<0.011);assert.ok(Math.abs(plots.reduce((n,p)=>n+p.z,0)/4-z)<0.011);
+  }
+});
+test('public works quotes and actual project spending share one canonical cost helper', () => {
+  const f=modelFixture(),R=f.RS.realms[0],cost=[0,24,48,12,0,0,0,0];
+  f.api.RSM.projects.smithy.cost=cost;R.act='smithy';R.work=0;R.prog=0;R.bank=Array(8).fill(0);R.s=f.api.RSM.target.map(n=>n*2);
+  const quote=f.api.realmManageView(f.RS,0).publicWorks.find(p=>p.id==='smithy');
+  const expected=Object.fromEntries(cost.map((n,i)=>[f.api.RSM_GOODS[i],n]).filter(([,n])=>n>0));
+  assert.deepEqual(plain(quote.cost),expected);assert.deepEqual(plain(quote.nextCost),expected);
+  const before=[...R.s];f.api.rsmProject(f.RS,0,R,f.api.RSM.projects.smithy.days*24);
+  assert.equal(R.proj.smithy,1);for(let i=0;i<8;i++)assert.ok(Math.abs(R.s[i]-(before[i]-cost[i]))<1e-7,'project charge '+i);
+});
+
+
+test('native cohort handout waits for a literal confirmed grant while reports can still settle', () => {
+  for (const pending of [false, undefined, Promise.resolve(true)]) {
+    const f = bridgeFixture({initialPhase:'muster'}); success(f.model.action(0,{type:'muster'}));
+    f.season.fieldGrantConfirmed = () => pending;
+    const before = plain(f.RS); f.field.step();
+    assert.deepEqual(plain(f.RS), before);
+    assert.equal(f.field.held.size, 0);
+    assert.equal(f.serverMessages.some(row => row.message.t === 'sarmy'), false);
+    f.season.fieldGrantConfirmed = () => true;
+    const grant = f.grant();
+    assert.equal(f.field.held.size, 1);
+    f.season.fieldGrantConfirmed = () => false;
+    f.report({t:'sarmyrep', id:grant.a.id, season:grant.a.season, fieldLease:grant.a.fieldLease,
+      rep:{n:grant.a.n - 1, fold:1}});
+    assert.equal(f.field.held.size, 0);
+    assert.equal(f.army().n, grant.a.n - 1);
+    assert.equal(f.army().onField, null);
+  }
 });

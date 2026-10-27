@@ -18,7 +18,7 @@ function fixture(saved = {}) {
   const admission = { origin: 'https://game.test', epoch: 1 };
   function add(peer) {
     const c = { peer, room, live: true, acct: { id: 'owner-' + peer }, since: room.clients.size,
-      slow: { on: 1, r: 0, l: 20, rr: 2, sharedScene: 2, warbandOrders: 1, dn: peer },
+      slow: { on: 1, r: 0, l: 20, rr: 2, sharedScene: 2, realmManagement: 1, seasonField: 2, warbandOrders: 1, dn: peer },
       fast: { p: [2, 0, 3], d: 0 }, pos: { x: 2, z: 3 }, posT: clock, worldAdmission: admission };
     room.clients.set(peer, c); return c;
   }
@@ -179,8 +179,8 @@ test('persisted command revisions fence legacy keepers without scheduling idle w
   const extract = name => { const at = source.indexOf('function ' + name + '('); return source.slice(at, source.indexOf('\n}', at) + 2); };
   const state = { activity: { entities: entities(null, 2, 'b:release') } };
   const room = { name: 'march', clients: new Map() };
-  const a = { peer: 'a', live: true, since: 1, slow: { on: 1, sharedScene: 2, warbandOrders: 0 } };
-  const b = { peer: 'b', live: true, since: 2, slow: { on: 1, sharedScene: 2, warbandOrders: 1 } };
+  const a = { peer: 'a', live: true, since: 1, slow: { on: 1, sharedScene: 2, realmManagement: 1, seasonField: 2, warbandOrders: 0 } };
+  const b = { peer: 'b', live: true, since: 2, slow: { on: 1, sharedScene: 2, realmManagement: 1, seasonField: 2, warbandOrders: 1 } };
   room.clients.set('a', a); room.clients.set('b', b);
   const context = vm.createContext({ WORLDS: { march: state }, isHumanPlaying: c => c.live });
   vm.runInContext(extract('roomNeedsWarbandOrders') + '\n' + extract('roomHost'), context);

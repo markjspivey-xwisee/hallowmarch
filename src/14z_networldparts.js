@@ -391,9 +391,11 @@ function netWorldPartsLootStep() {
 function netWorldPartsLoopsSave() {
   const d = SAVE_PARTS.world.loops.save();
   if (d) delete d.c; // The legacy loader unloads carts; live cargo is already in shared entity metadata.
+  if (d && typeof loopsCanonicalManaged === 'function' && loopsCanonicalManaged()) { delete d.r; delete d.k; }
   return d;
 }
 function netWorldPartsLoopsApply(d) {
+  if (typeof loopsCanonicalManaged === 'function' && loopsCanonicalManaged()) return;
   if (!d || !Array.isArray(d.r)) return;
   for (let r = 0; r < 3; r++) LOOPS_R.forEach((g, i) => {
     const value = d.r[r]?.[i]; if (Number.isFinite(value)) LOOPS.r[r][g] = clamp(value, 0, LT.target[g] * LT.cap);

@@ -6,10 +6,12 @@ import { readFileSync } from 'node:fs';
 
 const read = path => readFileSync(new URL('../../' + path, import.meta.url), 'utf8');
 const core = read('src/09a_throne_rts.js');
+const ui = read('src/10q_throne_rts.js');
 function extract(source, name) {
   const at = source.indexOf('function ' + name + '(');
   assert.ok(at >= 0, name);
-  return source.slice(at, source.indexOf('\n}', at) + 2);
+  const start = source.slice(Math.max(0, at - 6), at) === 'async ' ? at - 6 : at;
+  return source.slice(start, source.indexOf('\n}', at) + 2);
 }
 class Vector3 {
   constructor(x = 0, y = 0, z = 0) { this.set(x, y, z); }
@@ -56,7 +58,15 @@ function fixture() {
     yaw: 0.8, pitch: 0.4, dist: 9, targetDist: 10 };
   const camera = { position: new Vector3(19, 23, 29), quaternion: new Quaternion(0.1, 0.2, 0.3, 0.4),
     up: new Vector3(0, 0.8, 0.2), fov: 60, lookAt(v) { this.lookTarget = v.clone(); this.quaternion.copy(new Quaternion(0, 0, 0, 1)); },
-    updateMatrixWorld() {} };
+    view: null, aspect: 1280 / 720, projections: [], projectionUpdates: 0, clears: 0,
+    setViewOffset(fullWidth, fullHeight, offsetX, offsetY, width, height) {
+      this.view = { enabled: true, fullWidth, fullHeight, offsetX, offsetY, width, height };
+      this.projections.push([fullWidth, fullHeight, offsetX, offsetY, width, height]); this.updateProjectionMatrix();
+    },
+    clearViewOffset() { this.clears++; if (this.view) this.view.enabled = false; this.updateProjectionMatrix(); },
+    updateProjectionMatrix() { this.projectionUpdates++; }, updateMatrixWorld() {} };
+  stage.rect = { left: 0, top: 88, width: 940, height: 632 };
+  stage.getBoundingClientRect = () => ({ ...stage.rect });
   const UI = { modal: 'rts' }, INPUT = { keys: new Set(), pointers: new Map(), joy: null };
   const normalKeys = [], picks = [], closed = [], forwarded = [], human = { activity: 0, pendingAt: null, focused: true };
   window.addEventListener('keydown', event => { if (!event.defaultPrevented) normalKeys.push(event.code); });
@@ -213,6 +223,8 @@ test('cleanup preserves a newer title or photo camera owner instead of restoring
   f.CAM.mode = 'title'; f.CAM.pos.set(300, 80, 200); f.CAM.focus.set(20, 30, 40);
   f.camera.position.set(300, 80, 200); f.camera.quaternion.copy(new Quaternion(0.5, 0.5, 0.5, 0.5));
   const newer = f.snapshot();
+  f.scope.throneRtsUpdateCamera(0.1);
+  assert.deepEqual(f.snapshot(), newer);
   f.scope.throneRtsStopCamera();
   assert.deepEqual(f.snapshot(), newer); assert.equal(f.scope.state.active, false);
   assert.equal(f.scope.state.saved, null); assert.equal(f.scope.state.keys.size, 0);
@@ -231,4 +243,140 @@ test('focusing a form cancels held RTS navigation and pointer capture without is
   f.document.activeElement = null;
   f.window.fire('keydown', { code: 'KeyW' }); assert.equal(f.scope.state.keys.has('KeyW'), true);
   f.window.fire('keyup', { code: 'KeyW' });
+});
+
+test('projection centers the playable stage for phone portrait, short landscape and desktop with a stable cache', () => {
+  for (const [w,h,rect] of [
+    [390,844,{left:0,top:116,width:390,height:407}],
+    [568,320,{left:0,top:104,width:346,height:216}],
+    [1280,720,{left:0,top:88,width:940,height:632}],
+  ]) {
+    const f=fixture(); Object.assign(f.scope.view,{w,h}); f.stage.rect=rect;
+    f.scope.throneRtsBindStage(f.stage); f.start();
+    const expected=[w,h,w/2-(rect.left+rect.width/2),h/2-(rect.top+rect.height/2),w,h];
+    assert.deepEqual(f.camera.projections,[expected]);
+    f.scope.throneRtsUpdateCamera(0.02); f.scope.throneRtsUpdateCamera(0.02);
+    assert.equal(f.camera.projections.length,1,'unchanged stage does not rebuild the projection');
+    f.stage.rect={...rect,left:rect.left+10}; f.scope.throneRtsUpdateCamera(0.02);
+    assert.equal(f.camera.projections.length,2); assert.equal(f.camera.projections[1][2],expected[2]-10);
+    Object.assign(f.scope.view,{w:h,h:w}); f.camera.aspect=h/w; f.camera.fov=47;
+    f.scope.throneRtsUpdateCamera(0.02);
+    assert.equal(f.camera.projections.length,3); assert.equal(f.camera.projections[2][0],h);
+    f.scope.throneRtsStopCamera();
+    assert.equal(f.camera.view,null); assert.equal(f.camera.clears,1);
+    assert.equal(f.camera.fov,47); assert.equal(f.camera.aspect,h/w,'cleanup preserves a newer viewport resize');
+  }
+});
+
+test('projection cleanup restores a preexisting camera crop and leaves a newer camera owner untouched', () => {
+  const f=fixture(), original={enabled:true,fullWidth:1600,fullHeight:900,offsetX:31,offsetY:19,width:1280,height:720};
+  f.camera.view={...original}; f.scope.throneRtsBindStage(f.stage); f.start();
+  assert.notDeepEqual(f.camera.view,original);
+  f.camera.fov=52; f.camera.aspect=0.75; f.scope.throneRtsStopCamera();
+  assert.deepEqual(f.camera.view,original); assert.notEqual(f.camera.view,original);
+  assert.equal(f.camera.fov,52); assert.equal(f.camera.aspect,0.75); assert.equal(f.camera.clears,0);
+  f.start(); f.CAM.mode='photo';
+  const newer={enabled:true,fullWidth:800,fullHeight:600,offsetX:7,offsetY:9,width:500,height:400};
+  f.camera.view={...newer}; const count=f.camera.projectionUpdates;
+  f.scope.throneRtsUpdateCamera(0.1);
+  assert.deepEqual(f.camera.view,newer); assert.equal(f.camera.projectionUpdates,count);
+  assert.equal(f.scope.state.active,false);
+});
+
+function uiFixture() {
+  const f=fixture(), root={hidden:true}, classes=new Set(), leaves=[], renders=[], notices=[], commands=[];
+  const prior={isConnected:true,focusCount:0,focus(){this.focusCount++;}};
+  f.stage.focusCount=0; f.stage.focus=function(){this.focusCount++;};
+  f.document.activeElement=prior; f.document.body={classList:{add:c=>classes.add(c),remove:c=>classes.delete(c)}};
+  const nodes={'mapov':{hidden:false},'rts-stage':f.stage};
+  const state={root,focusBefore:null,markers:[],markerKey:'',key:'',time:0,revision:7,form:{plotId:'r0p0',buildKind:'farm'},quoteForm:{plotId:'r0p0',buildKind:'farm'}};
+  let ledger={revision:7};
+  Object.assign(f.scope,{THRONE_RTS:f.scope.state,THRONE_RTS_UI:state,HALL:{sit:{x:12,z:8}},
+    $:id=>nodes[id],throneRtsInitUI(){f.scope.throneRtsBindStage(f.stage);return root;},
+    throneRtsRenderPanel:force=>renders.push(force),throneRtsNotice:message=>notices.push(message),
+    throneRtsSetStatus:message=>notices.push(message),throneRtsView:()=>ledger,
+    netRealmManagementCommand:action=>commands.push(action),
+    hallLeave(){leaves.push(true);f.scope.HALL.sit=null;}});
+  vm.runInContext(['openThroneRTS','closeThroneRTS','throneRtsGuard','throneRtsManage','throneRtsLogistics'].map(name=>extract(ui,name)).join('\n'),f.scope);
+  return {...f,root,classes,leaves,renders,notices,commands,prior,state,ledger:value=>{ledger=value;}};
+}
+test('actual UI opens only a living confirmed seat and cleans up once while preserving newer death modal and camera owners', () => {
+  const f=uiFixture(), before=f.snapshot(); f.UI.modal=null;
+  f.grant(false); assert.equal(f.scope.openThroneRTS(),false); assert.equal(f.root.hidden,true);
+  f.grant(true); f.live(false); assert.equal(f.scope.openThroneRTS(),false);
+  f.live(true); f.UI.modal='death'; assert.equal(f.scope.openThroneRTS(),false);
+  f.UI.modal=null; assert.equal(f.scope.openThroneRTS(),true);
+  assert.equal(f.root.hidden,false); assert.equal(f.classes.has('throne-rts-open'),true);
+  assert.equal(f.stage.focusCount,1); assert.equal(f.scope.openThroneRTS(),true);
+  f.scope.closeThroneRTS(true);
+  assert.equal(f.root.hidden,true); assert.equal(f.classes.size,0); assert.equal(f.UI.modal,null);
+  assert.equal(f.leaves.length,1); assert.equal(f.prior.focusCount,1); assert.deepEqual(f.snapshot(),before);
+  f.scope.closeThroneRTS(true); assert.equal(f.leaves.length,1); assert.equal(f.prior.focusCount,1);
+  const g=uiFixture(); g.UI.modal=null; g.scope.openThroneRTS();
+  g.UI.modal='death'; g.CAM.mode='title'; g.camera.position.set(100,80,90); const newer=g.snapshot();
+  g.scope.throneRtsGuard();
+  assert.equal(g.UI.modal,'death'); assert.deepEqual(g.snapshot(),newer);
+  assert.equal(g.leaves.length,1); assert.equal(g.root.hidden,true); assert.equal(g.prior.focusCount,0);
+});
+
+test('actual UI guards idle, dead and revoked sessions and tears down a failed camera start', () => {
+  for(const invalidate of [f=>f.live(false),f=>f.grant(false),f=>{f.player.alive=false;},f=>{f.scope.GAME.started=false;}]) {
+    const f=uiFixture(); f.UI.modal=null; f.scope.openThroneRTS(); f.window.fire('keydown',{code:'KeyW'}); f.stage.fire('pointerdown');
+    invalidate(f); f.scope.throneRtsGuard();
+    assert.equal(f.scope.state.active,false); assert.equal(f.scope.state.keys.size,0); assert.equal(f.stage.captures.size,0);
+    assert.equal(f.root.hidden,true); assert.equal(f.classes.size,0); assert.equal(f.leaves.length,1);
+  }
+  const f=uiFixture(); f.UI.modal=null; f.scope.throneRtsStartCamera=()=>false;
+  assert.equal(f.scope.openThroneRTS(),false); assert.equal(f.root.hidden,true);
+  assert.equal(f.classes.size,0); assert.equal(f.UI.modal,null); assert.equal(f.leaves.length,0);
+});
+
+test('realm management dispatch uses the displayed canonical revision and the actual throne/modal gate', () => {
+  const f=uiFixture(); f.UI.modal=null; f.scope.openThroneRTS();
+  const action={type:'build',plotId:'r0p0',kind:'farm'};
+  assert.equal(f.scope.throneRtsManage(action),true); assert.deepEqual(f.commands,[action]);
+  f.ledger({revision:8}); assert.equal(f.scope.throneRtsManage(action),false); assert.equal(f.commands.length,1);
+  assert.equal(f.renders.at(-1),true); assert.ok(f.notices.at(-1).includes('realm changed'));
+  f.state.revision=8; f.grant(false); assert.equal(f.scope.throneRtsManage(action),false);
+  f.grant(true); f.UI.modal='death'; assert.equal(f.scope.throneRtsManage(action),false);
+  assert.equal(f.commands.length,1,'another modal cannot dispatch stale throne actions');
+});
+
+test('changing a quoted cost field at the same revision requires a fresh review before dispatch', () => {
+  for (const [type,key,value] of [['build','buildKind','mill'],['build','plotId','r0p1'],['recruit','recruitUnits',8],['project','projectId','walls']]) {
+    const f=uiFixture(); f.UI.modal=null; f.scope.openThroneRTS();
+    f.state.form[key]=value;
+    assert.equal(f.scope.throneRtsManage({type}),false);
+    assert.equal(f.commands.length,0); assert.equal(f.renders.at(-1),true);
+    f.state.quoteForm[key]=value;
+    assert.equal(f.scope.throneRtsManage({type}),true);
+    assert.equal(f.commands.length,1);
+  }
+});
+
+test('actual supply dispatch requires a current throne and presents canonical saved, refused and pending receipts', async () => {
+  const f=uiFixture(), calls=[]; f.UI.modal=null; f.scope.openThroneRTS();
+  let result={ok:true,message:'Convoy confirmed.'};
+  f.scope.netRealmLogisticsCommand=async args=>{calls.push(args);return result;};
+  const args={op:'convoy.dispatch',keep:1};
+  f.grant(false); await f.scope.throneRtsLogistics(args); assert.equal(calls.length,0);
+  f.grant(true); f.UI.modal='death'; await f.scope.throneRtsLogistics(args); assert.equal(calls.length,0);
+  f.UI.modal='rts'; await f.scope.throneRtsLogistics(args);
+  assert.deepEqual(calls,[args]); assert.equal(f.notices.at(-1),'Convoy confirmed.');
+  result={ok:false,why:'Keep ownership changed.'}; await f.scope.throneRtsLogistics({op:'repair.issue',keep:1,kind:'wall'});
+  assert.equal(f.notices.at(-1),'Keep ownership changed.');
+  result={ok:false,pending:true}; await f.scope.throneRtsLogistics(args);
+  assert.ok(f.notices.at(-1).includes('waiting for native confirmation'));
+  f.scope.closeThroneRTS(true); await f.scope.throneRtsLogistics(args);
+  assert.equal(calls.length,3,'closed strategy cannot issue another supply mutation');
+});
+test('delayed supply replies cannot reopen strategy or overwrite a newer modal after leaving', async () => {
+  const f=uiFixture(); f.UI.modal=null; f.scope.openThroneRTS();
+  let settle; f.scope.netRealmLogisticsCommand=()=>new Promise(resolve=>{settle=resolve;});
+  const operation=f.scope.throneRtsLogistics({op:'convoy.dispatch',keep:1});
+  assert.equal(f.notices.at(-1),'Saving the supply order…');
+  f.scope.closeThroneRTS(true); f.UI.modal='death'; f.CAM.mode='title'; const newer=f.snapshot(), notices=f.notices.length;
+  settle({ok:true,message:'Old callback'}); await operation;
+  assert.equal(f.notices.length,notices); assert.equal(f.UI.modal,'death'); assert.deepEqual(f.snapshot(),newer);
+  assert.equal(f.root.hidden,true); assert.equal(f.leaves.length,1);
 });

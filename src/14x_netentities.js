@@ -112,6 +112,7 @@ function netEntityRow(e) {
     p: [netEntityR(e.x), netEntityR(e.y), netEntityR(e.z)], yaw: netEntityR(e.yaw),
     hp: netEntityR(e.hp), maxHp: netEntityR(e.maxHp), alive: e.alive ? 1 : 0,
     a: netEntityR(animActValue(e)), ph: netEntityR(e.anim.phase % (Math.PI * 2)), am: netEntityR(e.anim.amt),
+    ...(e.kind === 'humanoid' && e.mount ? { mounted: 1 } : {}),
     scale: netEntityR(e.scale || 1), radius: netEntityR(e.radius || 0.45), speed: netEntityR(e.speed || 0),
     fixedY: Number.isFinite(e.fixedY) ? e.fixedY : null, hover: netEntityR(e.hover || 0),
     look: netEntityPlain(e.look), home: e.home ? { x: e.home.x, z: e.home.z, r: e.home.r || 0 } : null,
@@ -134,6 +135,7 @@ function netEntityReadRow(value) {
   if (row.hp == null) row.hp = row.maxHp;
   row.look = netEntityUnpackLook(row.look);
   if (Array.isArray(value.look) && row.look === null) return null;
+  if (row.mounted != null && row.mounted !== 0 && row.mounted !== 1) return null;
   const finite = (v, lo, hi) => typeof v === 'number' && Number.isFinite(v) && v >= lo && v <= hi;
   if (!row || typeof row.id !== 'string' || !/^scene:[a-zA-Z0-9_-]{1,32}:\d{1,8}$/.test(row.id)
     || typeof row.key !== 'string' || row.key.length > 160 || typeof row.kind !== 'string' || row.kind.length > 24
@@ -171,6 +173,14 @@ function netEntityApply(e, row, immediate = false) {
   e.netEntityMissing = false; e.netEntityPose = row.a;
   e.name = row.name; e.faction = row.faction; e.cls = row.cls; e.mobType = row.mobType; e.level = row.level;
   e.look = netEntityPlain(row.look); e.scale = row.scale; e.radius = row.radius; e.speed = row.speed;
+  if (e.kind === 'humanoid') {
+    const paid = typeof loopsCanonicalManaged !== 'function' || !loopsCanonicalManaged()
+      || typeof realmLogisticsMountGranted === 'function' && realmLogisticsMountGranted(row.id, row.faction);
+    if (row.mounted === 1 && paid) {
+      if (!e.mount) e.mount = horseLook(e);
+      e.mountAnim = e.mountAnim || { phase: row.ph || 0, amt: row.am || 0, q: 0 };
+    } else { e.mount = null; e.mountAnim = null; }
+  }
   e.fixedY = row.fixedY; e.hover = row.hover; e.home = row.home ? netEntityPlain(row.home) : e.home;
   e.netEntityOwner = row.owner || null;
   e.tame = row.tame ? netEntityPlain(row.tame) : null;
@@ -515,12 +525,13 @@ function netEntityMeta() {
   if (typeof LOOPS !== 'undefined') meta.caravans = LOOPS.caravans.slice(0, 64).map(c => ({
     id: c.id, realm: c.realm, keep: c.keep, route: netEntityPlain(c.route), i: c.i, state: c.state,
     load: netEntityPlain(c.load), back: c.back, horse: ref(c.horse), carter: ref(c.carter), esc: c.esc.map(ref).filter(Boolean),
-    ...(c.logisticsId ? { logisticsId: c.logisticsId, logisticsLease: c.logisticsLease, logisticsSeason: c.logisticsSeason } : {}),
+    ...(c.logisticsId ? { logisticsId: c.logisticsId, logisticsLease: c.logisticsLease, logisticsSeason: c.logisticsSeason, logisticsSettled: !!c.logisticsSettled } : {}),
     ax: c.ax, az: c.az, y: c.y, yaw: c.yaw, roll: c.roll, pitch: c.pitch, wheel: c.wheel,
     wreckT: c.wreckT, parked: c.parkT || 0, age: Math.max(0, GAME.t - c.t0) }));
-  if (typeof LOOPS !== 'undefined') meta.logistics = { jobs: LOOPS.caravans.filter(c => c.logisticsId).slice(0, 6).map(c => ({
+  if (typeof LOOPS !== 'undefined') meta.logistics = { jobs: LOOPS.caravans.filter(c => c.logisticsId && !c.logisticsSettled).slice(0, 6).map(c => ({
     jobId: c.logisticsId, lease: c.logisticsLease, season: c.logisticsSeason, horseId: ref(c.horse),
     escortIds: c.esc.slice(0, 2).map(ref).filter(Boolean) })) };
+  if (typeof realmPublicWorksMeta === 'function') meta.publicWorks = realmPublicWorksMeta();
   return meta;
 }
 function netEntityApplyMeta(meta) {

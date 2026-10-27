@@ -93,9 +93,36 @@ function throneRtsOverview(v) {
     <label>Public works<select name="projectId">${throneRtsOptions(projects, throneRtsForm('projectId','granary'))}</select></label>${project ? `<p>Level ${throneRtsNumber(project.level)} / ${throneRtsNumber(project.maxLevel)}${project.atWork ? ` · ${Math.round(project.progress*100)}% complete` : ''}</p><p>${project.nextCost ? 'Next level: '+throneRtsCost(project.nextCost) : 'Fully supplied'}. Materials are drawn as work proceeds.</p>` : ''}<button data-action="project"${!project?.nextCost ? ' disabled' : ''}>Prioritize public works</button><p>Use Armies to recruit paid reserves and mobilize a field company.</p>
     ${(v.log || []).slice(-4).reverse().map(n => `<p class="rts-news">${throneRtsEscape(typeof n === 'string' ? n : n.text)}</p>`).join('')}`;
 }
+function throneRtsSupplies() {
+  const logistics=typeof netRealmLogisticsView === 'function' ? netRealmLogisticsView() : null;
+  if (!logistics?.quotes) return '<h4>Supplies and repairs</h4><p>Reading confirmed supply orders…</p>';
+  const own=typeof NETS !== 'undefined' ? (NETS.s?.keeps || []).filter(k => k.r === GAME.player.faction) : [];
+  const selected=Number(throneRtsForm('supplyKeep',own[0]?.i ?? -1)), kind=throneRtsForm('repairKind','wall');
+  const repairs=logistics.quotes.repairs || {}, jobs=(logistics.jobs || []).filter(j => j.realm === GAME.player.faction);
+  const houses=typeof HOUSES !== 'undefined' ? HOUSES.filter(h => h.realm === GAME.player.faction && !h.keepHall) : [];
+  return `<h4>Supplies and repairs</h4><p>Convoys carry reserved goods and paid escorts through the live world. Successful deliveries reinforce the destination; losses consume the reserved supplies.</p>
+    <label>Owned keep<select name="supplyKeep">${throneRtsOptions(own.map(k => [k.i,WAR.keeps[k.i]?.site.name || 'Keep '+(k.i+1)]),selected)}</select></label>
+    <p>Convoy: ${throneRtsCost(logistics.quotes.cargo)} · ${logistics.quotes.escorts} reserve escorts. Maximum two active per realm.</p>
+    <button data-logistics="convoy"${!own.length ? ' disabled' : ''}>Dispatch supply convoy</button>
+    <label>Fortification repair<select name="repairKind">${throneRtsOptions([['wall','Walls'],['gate','Gate'],['tower','Tower']],kind)}</select></label>
+    <p>Repair work order: ${throneRtsCost(repairs[kind])}. Workers apply the paid work to damaged structures.</p>
+    <button data-logistics="repair"${!own.length ? ' disabled' : ''}>Fund fortification repair</button>
+    ${repairs.house && houses.length ? `<label>Town building<select name="repairHouse">${throneRtsOptions(houses.map(h => [h.num,'Building '+(h.num+1)+' · '+(h.state || 'standing')]),throneRtsForm('repairHouse',houses[0].num))}</select></label><p>Town repair: ${throneRtsCost(repairs.house)}</p><button data-logistics="house">Fund town repair</button>` : ''}
+    ${jobs.slice(-6).map(j => `<div class="rts-card">Convoy to ${throneRtsEscape(WAR.keeps[j.keep]?.site.name || 'keep')} · ${throneRtsEscape(j.state)}</div>`).join('')}`;
+}
+async function throneRtsLogistics(args) {
+  if (!THRONE_RTS.active || UI.modal !== 'rts' || !hallThroneGrant() || typeof netRealmLogisticsCommand !== 'function') return;
+  throneRtsNotice('Saving the supply order…');
+  try {
+    const result=await netRealmLogisticsCommand(args);
+    if (!THRONE_RTS.active || UI.modal !== 'rts') return;
+    throneRtsNotice(result.pending ? 'This order is waiting for native confirmation. Retry the same order to check it.' : result.message || result.why || (result.ok ? 'Supply order saved.' : 'The order was refused.'));
+    THRONE_RTS_UI.key='';
+  } catch (err) { if (THRONE_RTS.active) throneRtsNotice('The connection changed. Retry the same supply order after reconnecting.'); }
+}
 function throneRtsResources(v) {
   return `<h3>Realm stores</h3><p>Real material stocks. Shortages stop dependent production and limit construction and army supplies.</p><table><thead><tr><th>Resource</th><th>Stored</th><th>/ min</th></tr></thead><tbody>${(v.stocks || []).map(s => `<tr><th>${throneRtsEscape(s.label ?? s.id)}</th><td>${throneRtsNumber(s.n)}${s.cap ? ` / ${throneRtsNumber(s.cap)}` : ''}</td><td>${throneRtsNumber(s.rate)}</td></tr>`).join('')}</tbody></table>
-    <h4>Production chains</h4>${(v.recipes || []).map(r => `<div class="rts-card"><b>${throneRtsEscape(r.label ?? r.id)}</b><p>${throneRtsCost(r.inputs)} → ${throneRtsCost(r.outputs)}</p></div>`).join('')}`;
+    ${throneRtsSupplies()}<h4>Production chains</h4>${(v.recipes || []).map(r => `<div class="rts-card"><b>${throneRtsEscape(r.label ?? r.id)}</b><p>${throneRtsCost(r.inputs)} → ${throneRtsCost(r.outputs)}</p></div>`).join('')}`;
 }
 function throneRtsProduction(v) {
   const rows = (v.buildings || []).filter(b => b.kind !== 'house');
@@ -202,6 +229,12 @@ function throneRtsClick(e) {
   }
   if (b.dataset.tab) { THRONE_RTS_UI.tab = b.dataset.tab; throneRtsRenderPanel(true); return; }
   if (b.dataset.marker) { throneRtsMarkerAction(b.dataset.marker,b.dataset.id); return; }
+  if (b.dataset.logistics) {
+    if (b.dataset.logistics === 'convoy') throneRtsLogistics({op:'convoy.dispatch',keep:num('supplyKeep',NETS.s?.keeps?.find(k => k.r === GAME.player.faction)?.i ?? -1)});
+    else if (b.dataset.logistics === 'repair') throneRtsLogistics({op:'repair.issue',keep:num('supplyKeep',NETS.s?.keeps?.find(k => k.r === GAME.player.faction)?.i ?? -1),kind:String(throneRtsForm('repairKind','wall'))});
+    else if (b.dataset.logistics === 'house') throneRtsLogistics({op:'repair.issue',house:num('repairHouse',typeof HOUSES !== 'undefined' ? HOUSES.find(h => h.realm === GAME.player.faction && !h.keepHall)?.num ?? -1 : -1),kind:'house'});
+    return;
+  }
   if (b.dataset.canonicalArmy) { throneRtsFocusArmy(b.dataset.canonicalArmy); return; }
   if (b.dataset.wb) { throneRtsSelectBand(+b.dataset.wb,true); return; }
   if (b.classList.contains('cw-leave')) { closeThroneRTS(true); return; }
