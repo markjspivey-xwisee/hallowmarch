@@ -7,9 +7,10 @@
 // commands: {"cmd":"hello","name":..,"realm":..,"cls":..,"x":..,"z":..} {"cmd":"move","x":..,"z":..} {"cmd":"ev","kind":..,"to":..,"data":..}
 //           {"cmd":"state"} {"cmd":"save","d":{...}} {"cmd":"load"} {"cmd":"raw","m":{...}} {"cmd":"quit"}
 import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
 import readline from 'node:readline';
 const require = createRequire(import.meta.url);
-const WebSocket = require(new URL('../../server/node_modules/ws/index.js', import.meta.url).pathname);
+const WebSocket = require(fileURLToPath(new URL('../../server/node_modules/ws/index.js', import.meta.url)));
 const url = process.argv[2], token = process.argv[3] || '';
 const out = (o) => process.stdout.write(JSON.stringify(o) + '\n');
 const S = { peer: '', acct: null, token: '', peers: {}, got: { peer: 0, far: 0, ev: 0, left: 0, fast: 0 }, evs: [], me: null, profile: null, seq: 0, evSeq: 0, ring: [], save: null };

@@ -20,8 +20,8 @@ function fixture(network = true, realDamage = false) {
   const c = vm.createContext({ console, Math: Object.create(Math), Map, Set });
   vm.runInContext(`
     const GAME={t:1,player:null},ENT=[],CLS={grounds:[],runes:[],steam:[],ice:[],frozen:new Set(),raiseScanT:Infinity,stats:{consecrated:0,runes:0,steam:0}};
-    const NETPARTS={authority:'first-keeper'},FACTION_NEUTRAL=4,DISC_KIND={shock:3},ELEM_COL={fire:[1,0,0],frost:[0,0,1]};
-    const camera={position:{x:1000,z:1000}},effects=[],followups=[],queue=[];
+    const NETPARTS={authority:'first-keeper'},FACTION_NEUTRAL=4,DISC_KIND={shock:3,rune:6,runecut:8},ELEM_COL={fire:[1,0,0],frost:[0,0,1]};
+    const camera={position:{x:1000,z:1000}},effects=[],followups=[],queue=[],AOE_MARKS=[],visualDiscs=[];
     const dist2=(x,z,a,b)=>(x-a)**2+(z-b)**2;
     const getEnt=id=>ENT.find(e=>e.id===id)||null,isActor=e=>e.kind!=='door',isUndead=e=>!!e.undead,lordTurnsLight=()=>false;
     let computeDamage=(src,dst,m)=>({d:10*m,crit:false});
@@ -30,7 +30,7 @@ function fixture(network = true, realDamage = false) {
     function healEnt(src,dst,d){record('heal',dst,{d})}
     function addBuff(dst,kind){record('buff',dst,{kind})}
     const hallowDazzle=()=>{},raiseOfferStep=()=>{},stepDazzle=()=>{},stepArrows=()=>{},stepSnares=()=>{},heightAt=()=>0;
-    const FX={burst:()=>{}},spellDisc=()=>null,lightFlash=()=>{},rankMult=()=>1,fireLandsAt=()=>{},classSfx=()=>{},steamPuff=()=>{},wxLive=()=>false,WEATHER={snowing:0},sunStrength=()=>1;
+    const FX={burst:()=>{}},spellDisc=(x,z,r,kind,dur)=>{visualDiscs.push({x,z,r,kind,dur});return null},lightFlash=()=>{},rankMult=()=>1,fireLandsAt=()=>{},classSfx=()=>{},steamPuff=()=>{},wxLive=()=>false,WEATHER={snowing:0},sunStrength=()=>1;
     const netWorldPartsActive=()=>true,netEntityCanSimulateWorld=()=>true,frostRootExtra=()=>null;
     const clsHas=()=>true,attOf=()=>0,mageRankK=()=>1,realmFlavour=()=>true,attune=()=>{};
     const csOf=e=>e.cs||{},devOf=()=>100,sanctified=()=>false,setAct=()=>{},sfxAtE=()=>{},spellPillar=()=>{};
@@ -45,6 +45,7 @@ function fixture(network = true, realDamage = false) {
     + (network ? ['netCombatFieldsActive', 'netCombatFieldId', 'netCombatFieldAreaRun'].map(n => declaration(fields, n)).join('\n') : '')
     + '\n' + entities.slice(entities.indexOf('const SGRID ='), entities.indexOf('\nfunction isEnemy('))
     + '\n' + declaration(entities, 'abilityGroundPoint')
+    + '\n' + declaration(entities, 'aoeMarker')
     + '\n' + ['classFieldAreaRun', 'classFieldSource', 'stepGrounds', 'runeEnd', 'runeBurst', 'updateClasses', 'mageView'].map(n => declaration(classes, n)).join('\n')
     + (realDamage ? '\n' + declaration(data, 'baseDmg')
       + '\ncomputeDamage=' + declaration(entities, 'computeDamage') + ';\nMath.random=()=>.5;\n'
@@ -107,6 +108,29 @@ test('actual rune burst stamps the blast radius and root while excluding escaped
   f.run(`ENT[1].x=0;GAME.t=31;CLS.runes.push({...R,dead:false});updateClasses(.05)`);
   assert.equal(f.run('effects.length'), 0);
   assert.equal(f.run('CLS.runes.length'), 0);
+});
+
+test('a waiting rune advertises its full five-metre blast until the actual burst, preserving the inner glyph', () => {
+  const f = fixture(true, true);
+  f.run(actors + `const R=layRune(ENT[0],0,0,'fire'),mark=R.mark`);
+  assert.deepEqual(f.json('visualDiscs.map(d=>d.r)'), [2.2, 2.2], 'the carved trigger glyph keeps its original artwork');
+  assert.deepEqual(f.json('mark'), {x:0,z:0,r:5,until:31,faction:0,t0:1});
+  assert.doesNotThrow(() => f.json('mark'), 'the warning has no circular field link');
+  f.run('GAME.t=30.9;updateClasses(.05)');
+  assert.equal(f.run('mark.until>GAME.t'), true, 'the full danger circle lasts for the waiting rune lifetime');
+  assert.equal(f.run('effects.length'), 0);
+  f.run('ENT[1].x=2.19;updateClasses(.05)');
+  assert.equal(f.run('effects.filter(e=>e.effect==="damage").length'), 1, 'the original inner trigger still releases the actual burst');
+  assert.equal(f.run('CLS.runes.length'), 0);
+  assert.equal(f.run('mark.until'), f.run('GAME.t'), 'burst removal expires the outer warning immediately');
+});
+
+test('an expired waiting rune clears its outer warning without applying a burst', () => {
+  const f = fixture(true, true);
+  f.run(actors + `const R=layRune(ENT[0],0,0,'fire'),mark=R.mark;GAME.t=31.01;ENT[1].x=0;updateClasses(.05)`);
+  assert.equal(f.run('effects.length'), 0);
+  assert.equal(f.run('CLS.runes.length'), 0);
+  assert.equal(f.run('mark.until'), f.run('GAME.t'));
 });
 
 test('producer scope restores after a failed effect and standalone local play needs no network helper', () => {

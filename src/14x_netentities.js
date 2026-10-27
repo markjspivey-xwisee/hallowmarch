@@ -883,6 +883,8 @@ function netEntityMessage(m) {
     const current = typeof netCurrentWorldAdmission === 'function' ? netCurrentWorldAdmission() : m.worldAdmission;
     if (!current || !m.worldAdmission || current.origin !== m.worldAdmission.origin || current.epoch !== m.worldAdmission.epoch
       || typeof m.authority !== 'string' || !m.authority || typeof m.peer !== 'string') return false;
+    if (typeof netCombatFieldsReset === 'function' && (m.authority !== NET_ENTITIES.authority
+      || m.worldAdmission.origin !== NET_ENTITIES.admission?.origin || m.worldAdmission.epoch !== NET_ENTITIES.admission?.epoch)) netCombatFieldsReset();
     if (m.authority !== NET_ENTITIES.authority) {
       NET_ENTITIES.orderPatches.clear();
       NET_ENTITIES.sent.clear(); NET_ENTITIES.received = -1; NET_ENTITIES.seq = 0; NET_ENTITIES.assembly = null; NET_ENTITIES.published = false;
@@ -977,6 +979,7 @@ function netEntityPump(now) {
   NET_ENTITIES.metaKey = metaKey;
 }
 function netEntityReset() {
+  if (typeof netCombatFieldsReset === 'function') netCombatFieldsReset();
   for (const e of ENT) if (e.netEntityLocalOwner) {
     if (e.netEntityId) NET_ENTITIES.bodies.delete(e.netEntityId);
     e.netEntityOwner = null; e.netEntityId = null;

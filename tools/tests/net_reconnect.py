@@ -39,6 +39,7 @@ ws.on('message',data=>{
    // This setup actor explicitly plays once before its authorized seed save.
    // Load-only inspection below remains idle and does not publish a live lease.
    ws.send(JSON.stringify({t:'slow',d:{v:1,on:1,humanLive:1,humanActivity:1,since:0,
+    sharedScene:2,warbandOrders:1,seasonField:2,realmManagement:1,sharedCombat:1,actorDevelopment:1,
     n:char.name,dn:char.name,r:char.realm,c:char.cls,l:char.level,rr:1}}));
    ws.send(JSON.stringify({t:'ping',n:1}));
   }else ws.send(JSON.stringify({t:'load'}));
@@ -245,6 +246,7 @@ async def peer_traffic(page, backend):
         position=await page.evaluate('()=>{const p=__hm.GAME.player;return [p.x+4,p.y,p.z]}')
         await send({'cmd':'raw','m':{'t':'slow','d':{
             'v':1,'on':1,'humanLive':1,'humanActivity':1,'since':0,'n':'Peer Nodric','dn':'Peer Nodric',
+            'sharedScene':2,'warbandOrders':1,'seasonField':2,'realmManagement':1,'sharedCombat':1,'actorDevelopment':1,
             'r':0,'c':'warrior','l':3,'rr':1}}})
         await send({'cmd':'raw','m':{'t':'fast','d':{
             's':1,'t':1,'p':position,'y':0,'v':[0,0],'a':0,'h':1,'m':200,
