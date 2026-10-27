@@ -45,9 +45,9 @@ window.G2T = {
     const keys = [...document.querySelectorAll('.chron-nav [data-sec]')].map((b) => b.dataset.sec).filter((k) => k !== 'coach');
     for (const k of keys) {
       H.LORE.openChronicle(k);
-      const s = document.querySelector('#menu-body'), bd = document.querySelector('.chron-body'), st = H.guide2.G2.stats.pages[k] || {};
+      const s = document.querySelector('#menu .sheet'), content = document.querySelector('#menu-body'), bd = document.querySelector('.chron-body'), st = H.guide2.G2.stats.pages[k] || {};
       if (!bd) throw Error('Missing Chronicle body for ' + k);
-      out[k] = { h0: st.h0 || 0, h: Math.round(bd.getBoundingClientRect().height), vh: s.clientHeight, ov: s.scrollWidth - s.clientWidth, folds: bd.querySelectorAll('details.cf').length };
+      out[k] = { h0: st.h0 || 0, h: Math.round(bd.getBoundingClientRect().height), vh: s.clientHeight, contentVh: content.clientHeight, ov: content.scrollWidth - content.clientWidth, folds: bd.querySelectorAll('details.cf').length };
     }
     return out;
   },
