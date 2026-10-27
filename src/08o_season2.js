@@ -165,8 +165,13 @@ function s2Remove(B) {
   for (const e of wbMembers(B.wb)) { if (e.siegeCrew) e.siegeCrew = null; removeEnt(e); }
   B.wb.members = []; B.wb.dead = true; B.wb.order = null;
 }
-// A settled cohort belongs to canonical reserves/garrison again; remove its physical representation.
-function s2Release(B) { s2Remember(B.a); s2Remove(B); S2.stats.released++; }
+// Hosted soldiers return to canonical reserves/garrison; a solo band stays to hold its ground.
+function s2Release(B) {
+  s2Remember(B.a);
+  if (B.mode === 'server') s2Remove(B);
+  else { B.wb.season = null; B.wb.order = null; }
+  S2.stats.released++;
+}
 function s2BandStep(B) {
   const wb = B.wb, a = B.a, P = GAME.player, m = wbMembers(wb);
   const n = m.length * B.per;

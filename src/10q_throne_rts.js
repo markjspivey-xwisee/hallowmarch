@@ -131,16 +131,23 @@ function throneRtsProduction(v) {
       <label>Priority<select name="priority-${throneRtsEscape(b.id)}">${throneRtsOptions([['0','Low'],['1','Normal'],['2','High']], throneRtsForm('priority-'+b.id,b.priority ?? 1))}</select></label>
       <div class="rts-row"><button data-workforce="${throneRtsEscape(b.id)}">Assign workers</button><button data-pause="${throneRtsEscape(b.id)}" data-paused="${b.paused ? '0' : '1'}">${b.paused ? 'Resume' : 'Pause'}</button></div></article>`).join('') || '<p>Choose Construction to commission production buildings.</p>'}`;
 }
+function throneRtsConstructionChoice(v) {
+  const plots = (v?.plots || []).filter(p => p.owner === GAME.player.faction && !p.buildingId);
+  const requested = throneRtsForm('plotId', THRONE_RTS_UI.selectedPlot);
+  const chosen = plots.find(p => p.id === requested)?.id || plots[0]?.id || '';
+  const catalog = v?.catalog || [], requestedKind = throneRtsForm('buildKind', catalog[0]?.id || '');
+  const item = catalog.find(c => c.id === requestedKind) || catalog[0];
+  const kind = item?.id || '';
+  THRONE_RTS_UI.form.plotId = chosen; THRONE_RTS_UI.selectedPlot = chosen; THRONE_RTS_UI.form.buildKind = kind;
+  return { plots, chosen, kind, item };
+}
 function throneRtsConstruction(v) {
-  const plots = (v.plots || []).filter(p => p.owner === GAME.player.faction || p.owner == null);
-  const chosen = throneRtsForm('plotId', THRONE_RTS_UI.selectedPlot || plots.find(p => !p.buildingId)?.id || plots[0]?.id || '');
-  const kind = throneRtsForm('buildKind', v.catalog?.[0]?.id || '');
-  const item = (v.catalog || []).find(c => c.id === kind);
+  const { plots, chosen, kind, item } = throneRtsConstructionChoice(v);
   return `<h3>Construction</h3><p>Choose an owned plot in the 3D view or below. Realm stores pay the displayed cost; workers then complete the building.</p>
-    <label>Building plot<select name="plotId">${throneRtsOptions(plots.filter(p => !p.buildingId).map(p => [p.id,p.name || p.site || p.id]),chosen)}</select></label>
+    <label>Building plot<select name="plotId">${throneRtsOptions(plots.map(p => [p.id,p.name || p.site || p.id]),chosen)}</select></label>
     <label>Building<select name="buildKind">${throneRtsOptions((v.catalog || []).map(c => [c.id,c.label || c.id]),kind)}</select></label>
     ${item ? `<div class="rts-card"><b>${throneRtsEscape(item.label || kind)}</b><p>${throneRtsCost(item.cost)}</p><p>${throneRtsNumber(item.seconds)} seconds · ${throneRtsNumber(item.workers)} workers</p><p>${throneRtsCost(item.inputs)} → ${throneRtsCost(item.outputs)}</p></div>` : ''}
-    <button data-action="build"${!plots.some(p => !p.buildingId) || !item ? ' disabled' : ''}>Commission building</button>
+    <button data-action="build"${!plots.length || !item ? ' disabled' : ''}>Commission building</button>
     <h4>Sites and upgrades</h4>${(v.buildings || []).map(b => `<article class="rts-card"><button class="rts-focus" data-building-focus="${throneRtsEscape(b.id)}">${throneRtsEscape(b.label || b.kind)} · Lv ${throneRtsNumber(b.level || 1)}</button><p>${throneRtsEscape(b.status || '')}${b.remaining > 0 ? ` · ${Math.ceil(b.remaining)}s to complete` : ''}</p>${b.upgradeCost ? `<p>Upgrade: ${throneRtsCost(b.upgradeCost)}</p>` : ''}<button data-upgrade="${throneRtsEscape(b.id)}"${!b.upgradeCost ? ' disabled' : ''}>${b.level >= 3 ? 'Maximum level' : 'Upgrade building'}</button></article>`).join('')}`;
 }
 function throneRtsDiplomacy(v) {
@@ -185,12 +192,13 @@ function throneRtsRenderPanel(force = false) {
   const key = JSON.stringify([THRONE_RTS_UI.tab,v,CWUI.sel,CWUI.msg,THRONE_RTS_UI.selectedPlot]);
   const editing = host.contains(document.activeElement) && /^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement.tagName);
   if (!force && (editing || key === THRONE_RTS_UI.key)) return;
-  THRONE_RTS_UI.key = key; THRONE_RTS_UI.revision = v?.revision ?? null; THRONE_RTS_UI.quoteForm = {...THRONE_RTS_UI.form};
+  THRONE_RTS_UI.key = key; THRONE_RTS_UI.revision = v?.revision ?? null;
   $('rts-title').textContent = `High seat of ${HALL.sit?.H.S.name || REALMS[GAME.player.faction].name}`;
   for (const b of $('rts-tabs').querySelectorAll('button')) b.setAttribute('aria-current',b.dataset.tab === THRONE_RTS_UI.tab ? 'page' : 'false');
   host.innerHTML = THRONE_RTS_UI.tab === 'armies' ? throneRtsArmies(v) : !v ? '<h3>Connecting the realm ledger…</h3><p>Your realm’s saved economy is being read. Orders become available after that read confirms.</p>' :
     THRONE_RTS_UI.tab === 'production' ? throneRtsProduction(v) : THRONE_RTS_UI.tab === 'resources' ? throneRtsResources(v) :
     THRONE_RTS_UI.tab === 'build' ? throneRtsConstruction(v) : THRONE_RTS_UI.tab === 'diplomacy' ? throneRtsDiplomacy(v) : throneRtsOverview(v);
+  THRONE_RTS_UI.quoteForm = {...THRONE_RTS_UI.form};
 }
 function throneRtsSelectBand(id, focus = false) {
   if (!THRONE_RTS.active || UI.modal !== 'rts' || !hallThroneGrant()) return;
@@ -245,7 +253,7 @@ function throneRtsClick(e) {
   else if (b.dataset.workforce) throneRtsManage({type:'workforce',buildingId:b.dataset.workforce,workers:num('workers-'+b.dataset.workforce),priority:num('priority-'+b.dataset.workforce,1)});
   else if (b.dataset.offer) throneRtsManage({type:'reply',offerId:Number(b.dataset.offer),accept:b.dataset.accept === '1'});
   else if (b.dataset.treaty) throneRtsManage({type:'treaty',targetRealm:num('targetRealm',[0,1,2].find(r => r !== GAME.player.faction)),kind:b.dataset.treaty});
-  else if (b.dataset.action === 'build') throneRtsManage({type:'build',plotId:String(throneRtsForm('plotId',THRONE_RTS_UI.selectedPlot || v?.plots?.find(p => !p.buildingId)?.id || '')),kind:String(throneRtsForm('buildKind',v?.catalog?.[0]?.id || ''))});
+  else if (b.dataset.action === 'build') { const choice=throneRtsConstructionChoice(v); throneRtsManage({type:'build',plotId:choice.chosen,kind:choice.kind}); }
   else if (b.dataset.action === 'tax') throneRtsManage({type:'tax',policy:String(throneRtsForm('taxPolicy',v?.population?.taxPolicy || 'normal'))});
   else if (b.dataset.action === 'project') throneRtsManage({type:'project',id:String(throneRtsForm('projectId','granary'))});
   else if (b.dataset.action === 'recruit') throneRtsManage({type:'recruit',units:num('recruitUnits',4)});

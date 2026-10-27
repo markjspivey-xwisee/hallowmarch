@@ -41,6 +41,7 @@ function fixture() {
     const tasks = [], errors = [], notices = [], calls = [], publications = [];
     const scope = vm.createContext({ GAME: { started: true, t: 100, player, prog: { level: 20, rp: 1 } },
       CAMPAIGN: { n: 1, state: 'war', story: { you: { orders: 0 } } }, CWUI: { msg: '' }, HALL: { list: [hall], grant: null },
+      W3: { on: true, pact: null }, W4: { on: true },
       WAR: { keeps, temples, relics, warbands: [{ id: 1, realm: 0, members: [], order: null }], commanders: [], nextWb: 2, stats: { raidOrders: 0 } }, NAV: { nodes },
       NETWS: { url: 'wss://march.test', state: 'on', acct: { id: c.acct.id } }, NET: { self: id, peers: new Map(), fastKey: '', fastAt: 0 },
       NET_ENTITIES: { authority: '', admission: null, peer: '', sent: new Map(), received: -1, seq: 0, complete: false, waiting: false,
@@ -72,7 +73,7 @@ function fixture() {
     const gameplay = ['cwCanCommand','cwCommandTable','cwSetOrder','playerOrder','cwPlayerOrder','cwRallyCaller','cwOrderRef','cwOrderView','rallyPoint','cwTarget','orderShort'].map(n=>extract(campaignSource,n)).join('\n');
     const entities = ['netEntityOrderEncode','netEntityOrderDecode','netEntityPrepareWarbands','netEntityApplyBandOrder','netEntityOrderPatch','netEntityMeta','netEntityApplyMeta','netEntityMessage'].map(n=>extract(entitySource,n)).join('\n');
     vm.runInContext('const cwFinitePoint = p => !!p && Number.isFinite(p.x) && Number.isFinite(p.z); const netEntityBandMember = () => false;\n'+prefix+'\n'+functions+'\n'+entities+'\n'+extract(read('src/08_ai.js'),'wbSetOrder')+'\n'+gameplay+'\n'
-      +partsSource.slice(partsSource.indexOf('// Warband commands'))
+      +extract(read('src/08l_war4.js'),'war4Allied')+'\n'+partsSource.slice(partsSource.indexOf('// Warband commands'))
       +'\nglobalThis.hooks={NETPARTS,netWorldPartsMessage,netWorldPartsPublish,netWorldPartsPump,playerOrder,cwPlayerOrder,cwTarget,orderShort,rallyPoint,netEntityMeta,netEntityApplyMeta,netEntityMessage};', scope);
     for (const fn of tasks) fn();
     const p = { id,c,scope,player,hall,errors,notices,calls,publications,...scope.hooks }; peers.set(id,p);

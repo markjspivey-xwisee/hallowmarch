@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import { readFileSync } from 'node:fs';
 import { realmManagementReloadRequired } from '../../server/realm-management.js';
+import { realmLogisticsView } from '../../server/realm-logistics.js';
 import { createHumanPlayGate } from '../../server/human-play.js';
 const server = readFileSync(new URL('../../server/server.js', import.meta.url), 'utf8');
 const client = readFileSync(new URL('../../src/12_save.js', import.meta.url), 'utf8');
@@ -80,10 +81,11 @@ test('actual realm and company online rosters exclude authenticated dormant and 
   let online;
   const context=vm.createContext({
     ROOMS:new Map([['main',room],['other',other]]),isHumanPlaying:c=>c.live===true,
-    WORLD_STATE:null,SEASON:{RS:{t:10},speed:1,summary:()=>({}),rosterOf:(r,ids)=>{online=ids;return ids;}},
+    WORLD_STATE:null,realmLogisticsView,SEASON:{RS:{t:10},speed:1,summary:()=>({}),rosterOf:(r,ids)=>{online=ids;return ids;}},
     STATS:{seasonPushes:0},send(){},COMP:{canParticipate:()=>true},PLAYER_ACCOUNTS:{isBound:()=>false,principalFor:()=>null}
   });
-  vm.runInContext(between(server,'function seasonTell(', 'function onContrib(')+'\n'+
+  vm.runInContext(between(server,'function realmConfirmedLogisticsView(', 'const realmConfirmationWaiters=')+'\n'+
+    between(server,'function seasonTell(', 'function onContrib(')+'\n'+
     between(server,'const coClients =', '// a player told its company')+'\nglobalThis.H={seasonTell,coOnline};',context);
   context.H.seasonTell(liveOwner,-1,false);
   assert.deepEqual([...online],['live']);assert.deepEqual([...context.H.coOnline()],['live']);

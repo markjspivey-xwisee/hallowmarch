@@ -273,7 +273,7 @@ test('projection cleanup restores a preexisting camera crop and leaves a newer c
   f.camera.view={...original}; f.scope.throneRtsBindStage(f.stage); f.start();
   assert.notDeepEqual(f.camera.view,original);
   f.camera.fov=52; f.camera.aspect=0.75; f.scope.throneRtsStopCamera();
-  assert.deepEqual(f.camera.view,original); assert.notEqual(f.camera.view,original);
+  assert.deepEqual({...f.camera.view},original); assert.notEqual(f.camera.view,original);
   assert.equal(f.camera.fov,52); assert.equal(f.camera.aspect,0.75); assert.equal(f.camera.clears,0);
   f.start(); f.CAM.mode='photo';
   const newer={enabled:true,fullWidth:800,fullHeight:600,offsetX:7,offsetY:9,width:500,height:400};

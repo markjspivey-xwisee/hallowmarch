@@ -48,7 +48,7 @@ function bridgeFixture({ initialPhase = 'war', capability = 2, virtual = false }
   const context = vm.createContext({
     NETWS:{url:'wss://march.test'},NETS:{s:{n:RS.n,phase:initialPhase,management:{v:1},armies:[],offs:[]}},
     GAME:{started:true,t:100,player},CAMPAIGN:{n:1,state:'war'},WAR:{warbands:[],nextWb:1,keeps,temples:[]},REALMS:realms,ENT:[],
-    NET:{self:'keeper'},SEASONP:{rs:null},TAU:Math.PI*2,WB_CLASSES:['warrior','archer','priest'],WAR_LEVEL_OFF:{soldier:0},
+    NET:{self:'keeper'},SEASONP:{rs:null},realmSimFieldReport:api.realmSimFieldReport,TAU:Math.PI*2,WB_CLASSES:['warrior','archer','priest'],WAR_LEVEL_OFF:{soldier:0},
     OUTFIT:{lord:1},WB:{},queueMicrotask(){},netRealmSeasonProjectionFresh:()=>state.fresh,netEntityCanSimulateWorld:()=>state.keeper,netRealmViewInterest:()=>state.view,
     netWsSend:message=>{clientMessages.push(message);return true;},
     clamp:(n,lo,hi)=>Math.max(lo,Math.min(hi,n)),dist:(x,z,a,b)=>Math.hypot(x-a,z-b),
@@ -105,6 +105,37 @@ test('terminal report returns remaining soldiers once and removes the live band'
   assert.equal(f.client.S2.bands.size,0);assert.equal(B.wb.dead,true);assert.equal(f.costs.removed,count);
   noModelChange(f,()=>f.report(report));
   f.deliver(grant);assert.equal(f.costs.spawns,count,'settled grant cannot create another cohort');
+});
+
+test('captured keeps retain solo defenders while hosted settlement retires the canonical cohort', () => {
+  for(const mode of ['page','server']){
+    const f=bridgeFixture();f.legacyArmy();
+    let descriptor;
+    if(mode==='page'){
+      f.context.NETWS.url='';f.context.SEASONP.rs=f.RS;
+      descriptor=f.api.realmSimFieldTake(f.RS,f.army().id,'page');
+      f.client.s2Spawn(descriptor,'page');
+    } else {
+      const grant=f.grant();descriptor=grant.a;f.deliver(grant);
+    }
+    const B=f.client.S2.bands.get(descriptor.id), wb=B.wb, members=f.context.wbMembers(wb), count=members.length;
+    assert.ok(count>0);
+    f.context.WAR.keeps[descriptor.k].realm=descriptor.r;
+    f.client.s2BandStep(B);
+    assert.equal(f.client.S2.bands.size,0);assert.equal(f.client.S2.stats.won,1);assert.equal(f.client.S2.stats.released,1);
+    if(mode==='page'){
+      assert.equal(wb.season,null);assert.equal(wb.order,null);assert.notEqual(wb.dead,true);
+      assert.equal(f.context.wbMembers(wb).length,count);assert.equal(f.costs.removed,0);
+      assert.ok(members.every(e=>e.warband===wb&&e.alive));
+    } else {
+      assert.equal(wb.dead,true);assert.equal(f.context.wbMembers(wb).length,0);assert.equal(f.costs.removed,count);
+      const report=f.clientMessages.at(-1);assert.equal(report.rep.done,'taken');f.report(report);
+      noModelChange(f,()=>f.report(report));
+      f.deliver({t:'sarmy',a:descriptor});assert.equal(f.costs.spawns,count,'the settled lease cannot respawn its paid cohort');
+    }
+    assert.equal(f.RS.armies.length,0);assert.equal(f.RS.keeps[descriptor.k].h,descriptor.r);
+    assert.ok(f.RS.keeps[descriptor.k].g>0);
+  }
 });
 test('stale lease, wrong season, wrong socket and lost keeper authority cannot report', () => {
   for(const change of [

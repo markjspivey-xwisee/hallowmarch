@@ -86,8 +86,8 @@ test('replicas never spawn or adopt logistics and unconfirmed responses retain t
  const f=fixture();f.view.jobs=[paid()];f.state.keeper=false;f.api.realmLogisticsApplyProjection();assert.equal(f.state.spawned,0);
  assert.equal(f.api.realmLogisticsRequest('x',{op:'mount.issue',actorId:'scene:test:2'}),false);
  f.state.keeper=true;assert.equal(f.api.realmLogisticsRequest('x',{op:'mount.issue',actorId:'scene:test:2'}),true);
- f.api.realmLogisticsPump();await Promise.resolve();await Promise.resolve();const n=f.state.calls[0].nonce;
- f.context.GAME.t+=6;f.api.realmLogisticsPump();await Promise.resolve();await Promise.resolve();
+ f.api.realmLogisticsPump();await new Promise(setImmediate);const n=f.state.calls[0].nonce;
+ f.context.GAME.t+=6;f.api.realmLogisticsPump();await new Promise(setImmediate);
  assert.equal(f.state.calls.length,2);assert.equal(f.state.calls[1].nonce,n);
 });
 test('private horse donation requires confirmed private claim and matching native outcome; no gold is invented',async()=>{
