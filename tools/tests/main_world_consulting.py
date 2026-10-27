@@ -16,6 +16,7 @@ QA_OUT.mkdir(parents=True,exist_ok=True)
 
 HOOK = r"""
 window.__consultingFixture={
+  realDate:Date,
   realNow:Date.now.bind(Date),
   reset({restore=false}={}){
     marchConsultingClose();Object.assign(MARCH_CONSULTING,{busy:false,note:'',ownerKey:'',snoozeUntil:0,lastTip:''});
@@ -32,14 +33,22 @@ window.__consultingFixture={
     // The normal title above created a local character. Bind its explicit test
     // native profile before observing it; a live helper never resets this state.
     if(!restore)Object.assign(GAME_ACTIVITY,{profile:null,stored:undefined,scope:null,blocked:false,queue:[],preloadDropped:0,code:null});
-    Date.now=()=>this.clock;
+    // Both capture-time observations (new Date()) and age/expiry checks
+    // (Date.now()) must share this explicit fixture clock. Preserve normal
+    // parsing, explicit constructor arguments, prototypes and Date() calls.
+    const f=this,NativeDate=this.realDate;
+    function FixtureDate(...args){
+      if(!new.target)return new NativeDate(f.clock).toString();
+      return Reflect.construct(NativeDate,args.length?args:[f.clock],new.target);
+    }
+    Object.setPrototypeOf(FixtureDate,NativeDate);FixtureDate.prototype=NativeDate.prototype;
+    FixtureDate.now=()=>f.clock;window.Date=FixtureDate;
     NETWS.state='on';NETWS.acct={id:'fixture-player'};NETWS.worldRoom='march';NETWS.generation ||=1;NETWS.token='fixture-app-token';
     Object.assign(SAVE,{native:true,readConfirmed:true,nativeFlight:null,nativePaused:false,pending:null,chain:Promise.resolve(),lastBody:'',lastCore:''});
     NATIVE_PLAYER.status={bound:true,verified:true,account:{id:'fixture-player'},binding:{subjectDid:'did:example:self',podUrl:'https://pods.example/self/',authenticatedAgentDid:'did:example:delegate'}};
     nativePlayerRequest=async()=>structuredClone(NATIVE_PLAYER.status);
     nativePlayerModules=async()=>{NATIVE_PLAYER.cache={list:async()=>[{ownerDid:'did:example:self',podUrl:'https://pods.example/self/',expiresAt:Date.now()+3600000,relayUrl:'https://relay.example'}],
       get:async()=>({credential:{kind:'relay-oauth-bearer',accessToken:'FIXTURE-PRIVATE-NATIVE-TOKEN',expiresAt:Date.now()+3600000}})}};
-    const f=this;
     SAVE.ref={native:true,async get(){return{exists:!!f.character,data:()=>structuredClone(f.character)}},async set(value){
       f.calls.push('character-save');f.characterWrites.push(structuredClone(value));f.character=structuredClone(value);
       if(f.characterUnconfirmed)throw Object.assign(Error('fixture unknown character ACK'),{code:'pod_pending'});

@@ -16,7 +16,9 @@
       "dct:isPartOf": { "@id": "gaming:profile" },
       "dct:description": "Hallowmarch domain extension over generic gaming activity. Class, realm, combat and resource actions are game facts; game levels, rewards and wins are not real-world credentials or automatic evidence of competence.",
       "dct:source": { "@id": "https://id.i2idl.org/scheme" },
-      "gaming:glossaryPublicationVersion": "v0.0.89",
+      "gaming:glossaryPublicationVersion": "v0.0.93",
+      "gaming:glossarySourceCommit": "b75261de5ad7851c1f61607091cc00e486bbbb5f",
+      "gaming:glossaryVerificationDate": "2026-10-27",
       "gaming:mappingStatus": "proposed-application-annotation"
     },
     {

@@ -77,7 +77,7 @@ jobs:
               node --test tools/tests/combat_ground_timing.test.mjs tools/tests/class_ground_producers.test.mjs tools/tests/projectile_wall_lifetime.test.mjs tools/tests/enemy_ground_warnings.test.mjs tools/tests/death_cause_feedback.test.mjs tools/tests/pvp_ground_receipts.test.mjs tools/tests/character_start_level.test.mjs tools/tests/dot_source_attribution.test.mjs tools/tests/encounter_development.test.mjs tools/tests/town_worker_development.test.mjs tools/tests/world_development.test.mjs tools/tests/world_level_independence.test.mjs tools/tests/work_practice.test.mjs tools/tests/world_progression_review.test.mjs tools/tests/dungeon_pet_levels.test.mjs tools/tests/client_release_compatibility.test.mjs tools/tests/guide_progression.test.mjs
               python3 -m unittest discover -s tools/tests -p ci_runner_regression.py
               node --test tools/tests/startup_graphics.mjs tools/tests/gpu_diagnostic.mjs tools/tests/net_reconnect.mjs tools/tests/net_world_pause.mjs tools/tests/net_social_delivery.mjs
-              node --test tools/tests/gameplay_activity_profile.test.mjs tools/tests/progressive_ui.test.mjs
+              node --test tools/tests/gameplay_activity_profile.test.mjs tools/tests/gameplay_capture_time.test.mjs tools/tests/activity_dashboard_scope.test.mjs tools/tests/progressive_ui.test.mjs
               node --test tools/tests/recovery_shader_equivalence.test.mjs tools/tests/input_lifecycle.test.mjs tools/tests/menu_accessibility.test.mjs
               node --test tools/tests/warband_campaign_repair.test.mjs tools/tests/warband_replication.test.mjs tools/tests/warband_orders_shared.test.mjs server/warband-orders.test.mjs server/thrones.test.mjs tools/tests/throne_control.test.mjs tools/tests/throne_rts.test.mjs tools/tests/throne_rts_construction.test.mjs tools/tests/throne_rts_workforce.test.mjs tools/tests/throne_rts_render.test.mjs tools/tests/realm_management.test.mjs tools/tests/realm_diplomacy.test.mjs tools/tests/season_field.test.mjs tools/tests/realm_protocol.test.mjs tools/tests/realm_war_hooks.test.mjs tools/tests/realm_public_works.test.mjs tools/tests/realm_logistics.test.mjs tools/tests/realm_logistics_client.test.mjs tools/tests/realm_logistics_network.test.mjs
               node --test tools/tests/party_companion.mjs tools/tests/party_companion_network.mjs tools/tests/party_companion_transport.mjs tools/tests/season_connection_ui.mjs
@@ -94,6 +94,9 @@ jobs:
               node --test client/native-pod/signing-delegation.test.mjs client/native-pod/agent-gameplay-performance.test.mjs
               node --test client/native-pod/agent-directory.test.mjs
               node --test client/native-pod/gameplay-activity*.test.mjs
+              node --test client/native-pod/gameplay-patterns.test.mjs client/native-pod/gameplay-semantics.test.mjs
+              node --test client/native-pod/activity-dashboard.test.mjs client/native-pod/gameplay-record-reader.test.mjs
+              HM_PLAYWRIGHT_MODULE="$PWD/tools/node_modules/playwright/index.mjs" node --test client/native-pod/activity-dashboard.browser.test.mjs
               node --test client/native-pod/gameplay-learning-delivery*.test.mjs
               node --test client/world-agent-client.test.mjs client/world-agent-mcp.test.mjs
               HM_PLAYWRIGHT_MODULE="$PWD/tools/node_modules/playwright/index.mjs" node --test client/world-agent-client.browser.test.mjs

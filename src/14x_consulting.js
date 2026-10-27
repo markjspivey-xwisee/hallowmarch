@@ -399,7 +399,9 @@ function marchConsultingCreate(parent) {
   }); dismiss.id = 'march-coach-close-pending'; recovery.append(dismiss); guidance.append(recovery);
   cards.append(guidance);
   if (typeof marchLearningMount === 'function') marchLearningMount(cards);
-  optional.append(cards); box.append(optional); parent.append(box); return box;
+  optional.append(cards); box.append(optional); parent.append(box);
+  if (typeof activityDashboardProgressMount === 'function') activityDashboardProgressMount(parent, box);
+  return box;
 }
 function marchConsultingSetupReady() {
   return SAVE.native && SAVE.readConfirmed && NATIVE_PLAYER.status?.verified && NATIVE_PLAYER.status?.bound;
