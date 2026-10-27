@@ -20,8 +20,12 @@ function activityDashboardRecording(scope) {
   const sameOwner = value => !!value && value.ownerDid === scope?.ownerDid && value.characterId === scope?.characterId;
   const candidate = sameOwner(live) ? live : sameOwner(stored) && stored.schema === 'hallowmarch.gameplay-learning-delivery/v1' ? stored : null;
   const count = value => Number.isSafeInteger(value) && value >= 0 ? value : null;
-  if (!live && !stored && scope?.native && NATIVE_PLAYER.status?.verified && NATIVE_PLAYER.status?.bound)
+  if (!live && !stored && scope?.native && NATIVE_PLAYER.status?.verified && NATIVE_PLAYER.status?.bound) {
+    if (state.blocked) return { scoped: true, enabled: false, busy: state.busy, blocked: true, pending: false,
+      acknowledgedCount: null, pendingCount: null, closedUnconfirmedCount: null, expiresAt: null,
+      note: 'A previous recording journal could not be read. Its confirmation counts are unavailable. Nothing was sent again.' };
     return { scoped: true, enabled: false, pending: false, acknowledgedCount: 0, pendingCount: 0, closedUnconfirmedCount: 0 };
+  }
   const storedShape = candidate !== stored || stored && count(stored.throughOrdinal) !== null
     && Object.keys(stored).every(key => ['schema', 'ownerDid', 'characterId', 'throughOrdinal', 'acknowledgedCount', 'closedUnconfirmedCount', 'pending'].includes(key))
     && (stored.pending === null || stored.pending && typeof stored.pending === 'object' && Array.isArray(stored.pending.events)

@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import { readFileSync } from 'node:fs';
+import { normalizeActivityDashboardData } from '../../client/native-pod/activity-dashboard.mjs';
 
 const source = readFileSync(new URL('../../src/14y_activitydashboard.js', import.meta.url), 'utf8');
 const owner = 'did:example:owner';
@@ -47,6 +48,25 @@ test('foreign and malformed delivery journals cannot appear as this player’s c
   f.MARCH_LEARNING.enabledUntil = Date.now() + 10000;
   f.MARCH_LEARNING.scope = { ...f.scope() };
   assert.equal(f.H.recording(f.scope()).enabled, false, 'A stale same-owner connection cannot show recording as active');
+});
+
+test('an unreadable recording journal shows attention with unknown confirmation counts, rather than a fresh empty journal', () => {
+  const f = fixture();
+  Object.assign(f.context.NATIVE_PLAYER.status, { verified: true, bound: true });
+  f.MARCH_LEARNING.blocked = true;
+  f.MARCH_LEARNING.note = 'A previous activity record could not be read. It has not been sent again.';
+  const before = JSON.stringify(f.MARCH_LEARNING), recording = f.H.recording(f.scope());
+  assert.equal(recording.scoped, true); assert.equal(recording.blocked, true); assert.equal(recording.enabled, false);
+  assert.equal(recording.acknowledgedCount, null); assert.equal(recording.pendingCount, null); assert.equal(recording.closedUnconfirmedCount, null);
+  assert.match(recording.note, /confirmation counts are unavailable/);
+  const view = normalizeActivityDashboardData({ identityState: 'native', recording }).recording;
+  assert.equal(view.blocked, true); assert.equal(view.scoped, true);
+  assert.equal(view.acknowledgedCount, null); assert.equal(view.pendingCount, null); assert.equal(view.closedUnconfirmedCount, null);
+  assert.equal(JSON.stringify(f.MARCH_LEARNING), before, 'reading does not repair or replace the corrupt journal');
+  assert.equal(f.counters.queries, 0); assert.equal(f.counters.writes, 0); assert.equal(f.counters.activityEnsure, 0);
+  f.MARCH_LEARNING.blocked = false;
+  const fresh = f.H.recording(f.scope());
+  assert.equal(fresh.acknowledgedCount, 0); assert.equal(fresh.pendingCount, 0); assert.equal(fresh.closedUnconfirmedCount, 0);
 });
 
 test('a response from a closed dashboard cannot erase the newly opened scope', async () => {

@@ -224,7 +224,8 @@ export function mountActivityDashboard(parent, { onRefresh, onLoadAccount, onMor
     if (recording.scoped) {
       const info = details('Recording status', 'recording-status');
       if (recording.note) info.append(el('p', recording.note));
-      info.append(el('p', 'Confirmed by this character’s delivery journal: ' + number(recording.acknowledgedCount) + ' observations.'));
+      info.append(el('p', recording.acknowledgedCount === null ? 'This character’s delivery confirmation count is unavailable.'
+        : 'Confirmed by this character’s delivery journal: ' + number(recording.acknowledgedCount) + ' observations.'));
       if (recording.pending) info.append(el('p', number(recording.pendingCount) + ' observations await confirmation.'));
       if (recording.closedUnconfirmedCount) info.append(el('p', number(recording.closedUnconfirmedCount) + ' observations were closed without confirmation. Their arrival remains unknown.'));
       info.append(el('small', 'These are local delivery acknowledgments, not the account’s total records or a delivery label for each event.')); parentNode.append(info);
