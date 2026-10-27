@@ -17,6 +17,8 @@ export function createPlayerBrowserAssets({ clientRoot = new URL('../../client/n
     'gameplay-activity.mjs': 'text/javascript; charset=utf-8',
     'gameplay-patterns.mjs': 'text/javascript; charset=utf-8',
     'gameplay-semantics.mjs': 'text/javascript; charset=utf-8',
+    'activity-dashboard.mjs': 'text/javascript; charset=utf-8',
+    'gameplay-record-reader.mjs': 'text/javascript; charset=utf-8',
     'gameplay-activity-archive.mjs': 'text/javascript; charset=utf-8',
     'gameplay-learning-delivery.mjs': 'text/javascript; charset=utf-8',
     'vendor/interego-browser.mjs': 'text/javascript; charset=utf-8', 'vendor/interego-public-browser.mjs': 'text/javascript; charset=utf-8',

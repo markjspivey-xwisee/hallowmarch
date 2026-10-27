@@ -143,6 +143,7 @@ async function activityArchiveFlush() {
 }
 registerSavePart('char', 'activity', { save: () => GAME_ACTIVITY.profile?.save() || GAME_ACTIVITY.stored || null,
   load(value) {
+    if (typeof activityDashboardInvalidate === 'function') activityDashboardInvalidate();
     GAME_ACTIVITY.archive?.close(); GAME_ACTIVITY.archive = null; GAME_ACTIVITY.archivePage = null; GAME_ACTIVITY.archiveNeedsSave = false;
     GAME_ACTIVITY.profile = null; GAME_ACTIVITY.stored = value; GAME_ACTIVITY.scope = null; GAME_ACTIVITY.blocked = false; GAME_ACTIVITY.code = null; GAME_ACTIVITY.queue = []; GAME_ACTIVITY.preloadDropped = 0;
   }, key: value => value ? [value.schema, value.revision, value.eventCount, value.archiveHead] : null });

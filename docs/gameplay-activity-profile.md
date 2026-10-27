@@ -64,6 +64,16 @@ The native resource publication now uses `i2x:isClassifiedBy` for actual Profile
 
 This superset adds semantic interpretation to standard xAPI evidence. It does not replace xAPI Profile conformance or LRS delivery contracts.
 
+## Player activity dashboard
+
+Open **Progress → View activity dashboard**. **This character** shows cumulative observations, activity counts, the newest retained details, known body/controller attribution, and this character's optional-recording journal. Individual events can be inspected as their exact xAPI projection when a native owner is connected. A confirmed-delivery count is a character-journal total; it never labels every displayed event as externally delivered. Closed unconfirmed deliveries retain unknown arrival status.
+
+**Account record → Load account record** performs a separate signed, read-only own-subject query against the live Foxxi affordance. It uses the current owner's existing native session and discover delegation, checks that same account before and after each asynchronous step, and requires durable owner-bound responses. Cumulative account totals and the service's returned one-hour detail coverage remain distinct from character totals and page length. Account observations may span applications and characters. Continuation is tied to the exact reader/page/query/snapshot; the player can explicitly load more, up to 200 details in this UI. Empty, unavailable, changed/expired snapshot and identity-required states remain different.
+
+Opening, refreshing or filtering the dashboard does not enable recording, grant recording consent, register or repair delegation, reconcile an uncertain delivery, publish an archive, or write a new learner record. **Manage optional recording** returns to the existing controls. Only **Check recent patterns** fetches public Profile documents for bounded local analysis. Player changes, character loads, hiding the game and leaving the dashboard discard the account view and its ephemeral reader; stale responses cannot populate another player's view. The game server is not made the custodian of these private account records.
+
+The renderer uses the menu body's scrolling viewport, wrapped record text, keyboard scope tabs, preserved disclosure focus and touch targets of at least 44 pixels. Browser regression covers 320, 390 and 1280 pixel widths; actual built-game layout/navigation is also reviewed at desktop, phone, narrow phone and landscape sizes.
+
 ## External xAPI delivery
 
 The native Foxxi signed writer accepts ordinary Activity statements only when `actor.account.name` equals the authenticated signing DID. A delegated browser signs as its session agent, so this writer cannot be used to impersonate the human actor. Keep the correct human record in the human's encrypted pod until an explicitly supported subject-attestation contract is available. An independently authenticated agent can use its own supported native contract.
