@@ -39,11 +39,21 @@ function guideFront(P, R, x, z, what) {
   return { x, z, what };
 }
 const GUIDE_BEASTS = new Set(['wolf', 'boar', 'bear']);
+// Authored camp tiers describe its place in the world, not the strength of its
+// inhabitants. Each resident now develops through its own actual experience.
+function guideCampResidents(c) {
+  return [...(c.members || [])].map(getEnt).filter((e) => e && e.alive && !e.removed && !e.elite && Number.isFinite(e.level) && e.level >= 1);
+}
 function guideCampFor(P, prog, beasts = false) {
   const R = REALMS[P.faction];
-  const ok = CAMPS.filter((c) => c.realm === R.id && !c.elite && c.lmin <= prog.level + 1 && c.lmax >= prog.level - 3 && (!beasts || GUIDE_BEASTS.has(c.type)));
-  const c = guideNearest(ok, P);
-  return c ? { x: c.x, z: c.z, what: `the ${(MOB_PLURAL[c.type] || c.type).toLowerCase()} of your level` } : null;
+  const ok = CAMPS.filter((c) => c.realm === R.id && !c.elite && (!beasts || GUIDE_BEASTS.has(c.type)))
+    .map((c) => { const levels = guideCampResidents(c).map((e) => e.level); return { c, low: Math.min(...levels), high: Math.max(...levels) }; })
+    .filter((q) => q.low !== Infinity && q.high <= prog.level + 1);
+  const matched = ok.filter((q) => q.high >= prog.level - 3);
+  const q = guideNearest(matched.length ? matched : ok, P, (v) => v.c);
+  if (!q) return null;
+  const levels = q.low === q.high ? String(q.low) : `${q.low}–${q.high}`;
+  return { x: q.c.x, z: q.c.z, what: `the level ${levels} ${(MOB_PLURAL[q.c.type] || q.c.type).toLowerCase()}` };
 }
 function guideEnemyKeep(P) {
   const foes = WAR.keeps.filter((K) => K.realm !== P.faction);
@@ -64,14 +74,14 @@ function guideMarkOf(S) {
       return R.herald ? guideTown(P, R, R.herald.x, R.herald.z, `the ${R.name} Herald`) : null;
     case 'lv5': case 'lv20':
       if (b && !b.done && CAMPS[b.camp]) return { x: CAMPS[b.camp].x, z: CAMPS[b.camp].z, what: `the ${pluralName(b.name)}` };
-      return guideOnFrontier(P) ? null : guideCampFor(P, prog);
+      return guideOnFrontier(P) ? guideTown(P, R, R.town.x, R.town.z, R.townName) : guideCampFor(P, prog);
     case 'draught': return R.merchant ? guideTown(P, R, R.merchant.x, R.merchant.z, R.merchant.name) : null;
     case 'cook': {
       if (goodsHave('meat_raw') || goodsHave('fish_raw')) {
         const f = guideNearest(FIRES.filter((q) => !q.ghost && !q.wall && (q.until == null || q.until > GAME.t) && (q.indoor || q.station || q.size >= 0.5)), P);
         return f ? { x: f.x, z: f.z, what: f.indoor ? 'a hearth' : f.station ? `the ${f.station}` : 'a fire' } : null;
       }
-      return guideOnFrontier(P) ? null : guideCampFor(P, prog, true);
+      return guideOnFrontier(P) ? guideTown(P, R, R.town.x, R.town.z, R.townName) : guideCampFor(P, prog, true);
     }
     case 'craft': {
       const kind = goodsCount('herb_heal') >= 2 && goodsHave('water') ? 'alchemy' : 'tanning';
@@ -81,7 +91,7 @@ function guideMarkOf(S) {
     case 'muster':
       if (prog.level < 14) { // until 14: hunt (the bounty's creatures, or a camp of your level)
         if (b && !b.done && CAMPS[b.camp]) return { x: CAMPS[b.camp].x, z: CAMPS[b.camp].z, what: `the ${pluralName(b.name)}` };
-        return guideOnFrontier(P) ? null : guideCampFor(P, prog);
+        return guideOnFrontier(P) ? guideTown(P, R, R.town.x, R.town.z, R.townName) : guideCampFor(P, prog);
       }
       return guideOnFrontier(P) ? { x: R.musterSite.x, z: R.musterSite.z, what: `${R.name} Muster` } : { x: R.town.x, z: R.town.z, what: 'the portal stones' };
     case 'climb': {
@@ -104,7 +114,7 @@ function guideMarkOf(S) {
     }
     case 'barrow': case 'king': return BARROW.door ? guideFront(P, R, BARROW.door.x, BARROW.door.z, 'the Hollow Barrow') : null;
     case 'champion': {
-      const list = CAMPS.filter((c) => c.elite && c.lmin <= prog.level + 2).map((c) => getEnt(c.eliteId)).filter((e) => e && e.alive);
+      const list = CAMPS.filter((c) => c.elite).map((c) => getEnt(c.eliteId)).filter((e) => e && e.alive && !e.removed && Number.isFinite(e.level) && e.level >= 1 && e.level <= prog.level + 2);
       const e = guideNearest(list, P);
       return e ? { x: e.x, z: e.z, what: capFirst(e.name) } : null;
     }
