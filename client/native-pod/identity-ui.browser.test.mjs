@@ -342,6 +342,8 @@ try {
     });
     assert(await page.locator('#btn-begin').isDisabled());
     assert.equal(await page.locator('#title button.primary:visible').innerText(), 'Open my saved character');
+    assert(await page.locator('#title').getByRole('button', { name: 'Start a new character', exact: true }).isHidden());
+    await page.locator('#title .native-player-alternatives > summary').click();
     assert(await page.locator('#title').getByRole('button', { name: 'Start a new character', exact: true }).isVisible());
     await page.evaluate(() => { identityTest.render(); identityTest.render(); });
     assert.deepEqual(await page.evaluate(() => ({ sameSession: retainedMenuState.session === NATIVE_PLAYER.provisional, sameKey: retainedMenuState.guest.keyId === NATIVE_PLAYER.provisional.status().keyId,
@@ -367,6 +369,8 @@ try {
     assert(await page.locator('#btn-begin').isDisabled());
     assert.equal(await page.locator('#title details.native-player-more').count(), 0);
     assert.equal(await page.locator('#title button.primary:visible').innerText(), 'Reconnect identity');
+    assert(await page.locator('#title').getByRole('button', { name: 'Sign in with a different account', exact: true }).isHidden());
+    await page.locator('#title .native-player-alternatives > summary').click();
     assert(await page.locator('#title').getByRole('button', { name: 'Sign in with a different account', exact: true }).isVisible());
     assert.equal(await page.locator('#title').getByRole('button', { name: /^(Start a new character|Play with a new character)$/ }).count(), 0);
     assert.match(await page.locator('#title .native-player').innerText(), /Reconnect the original identity/);
@@ -448,6 +452,100 @@ try {
     assert(await page.locator('#character-create-fields').isVisible()); assert(await page.locator('#btn-begin').isEnabled());
     assert.equal(await page.locator('#name-input').inputValue(), 'Kept draft name');
     assert.deepEqual(await page.evaluate(() => ({ saves: identityCalls.save, loads: identityCalls.load, entries: identityCalls.entries.length })), { saves: 0, loads: 0, entries: 0 });
+    await context.close();
+  });
+  await check('locked title initially exposes only its required recovery action, then explicit alternatives retain draft and focus', async () => {
+    const context = await contextForMobile(), page = await openFixture(context, 'title');
+    await page.evaluate(() => {
+      SAVE.readConfirmed = false; NATIVE_PLAYER.state = 'key_required';
+      NATIVE_PLAYER.profile.status = () => ({ hasRecord: true, keyPresent: false, pending: false }); nativePlayerRender();
+    });
+    const box = page.locator('#title .native-player'), alternatives = box.locator('details.native-player-alternatives');
+    assert.deepEqual(await box.locator('button:visible:enabled').allTextContents(), ['Restore recovery file']);
+    assert(await page.locator('#btn-begin').isDisabled()); assert(await alternatives.evaluate(node => !node.open));
+    assert(await box.locator('.native-source-recovery').isVisible());
+    assert.equal(await box.getByRole('button', { name: /^(Recovery options|Hide recovery options|Retry pod save)$/ }).count(), 0, 'forced recovery has no no-op toggle or duplicate read retry');
+    assert(await box.getByRole('button', { name: 'Reconnect identity', exact: true }).isHidden());
+    assert(await box.getByRole('button', { name: 'Retry connection', exact: true }).isHidden());
+    await box.locator('.native-source-recovery').fill('Kept private fixture phrase');
+    await alternatives.locator('summary').click();
+    assert(await box.getByRole('button', { name: 'Reconnect identity', exact: true }).isVisible());
+    assert(await box.getByRole('button', { name: 'Retry connection', exact: true }).isVisible());
+    await box.getByRole('button', { name: 'Retry connection', exact: true }).focus();
+    await page.evaluate(() => { NATIVE_PLAYER.message = 'Synthetic connection status changed'; nativePlayerRender(); });
+    assert(await alternatives.evaluate(node => node.open));
+    assert(await box.getByRole('button', { name: 'Retry connection', exact: true }).evaluate(node => node === document.activeElement));
+    assert.equal(await box.locator('.native-source-recovery').inputValue(), 'Kept private fixture phrase');
+    await box.locator('.native-source-recovery').focus();
+    await page.evaluate(() => { NATIVE_PLAYER.message = 'Another synthetic status change'; nativePlayerRender(); });
+    assert(await box.locator('.native-source-recovery').evaluate(node => node === document.activeElement));
+    assert.deepEqual(await page.evaluate(() => ({ saves: identityCalls.save, loads: identityCalls.load, entries: identityCalls.entries.length })), { saves: 0, loads: 0, entries: 0 });
+    await context.close();
+  });
+  await check('a retry moving between primary and closed alternatives preserves its exact focus or lands on the disclosure safely', async () => {
+    const context = await contextForMobile(), page = await openFixture(context, 'title');
+    await page.evaluate(() => {
+      SAVE.readConfirmed = false; window.fixtureKeyHeld = true;
+      NATIVE_PLAYER.profile.status = () => ({ hasRecord: true, keyPresent: fixtureKeyHeld, pending: false }); nativePlayerRender();
+    });
+    const box = page.locator('#title .native-player'), alternatives = box.locator('details.native-player-alternatives');
+    await box.getByRole('button', { name: 'Retry connection', exact: true }).focus();
+    await page.evaluate(() => { fixtureKeyHeld = false; nativePlayerRender(); });
+    assert(await alternatives.evaluate(node => !node.open));
+    assert(await alternatives.locator('summary').evaluate(node => node === document.activeElement));
+    assert(await box.getByRole('button', { name: 'Retry connection', exact: true }).isHidden());
+    await alternatives.locator('summary').click(); await box.getByRole('button', { name: 'Retry connection', exact: true }).focus();
+    await page.evaluate(() => { fixtureKeyHeld = true; nativePlayerRender(); });
+    assert(await box.getByRole('button', { name: 'Retry connection', exact: true }).evaluate(node => node === document.activeElement));
+    assert.equal(await box.locator('button.primary').innerText(), 'Retry connection');
+    assert(await alternatives.evaluate(node => node.open));
+    await context.close();
+  });
+  for (const boundary of ['owner', 'host']) await check(boundary + ' change closes recovery alternatives and clears prior recovery text without retargeting focus', async () => {
+    const context = await contextForMobile(), page = await openFixture(context, 'title');
+    await page.evaluate(() => {
+      SAVE.readConfirmed = false; NATIVE_PLAYER.profile.status = () => ({ hasRecord: true, keyPresent: false, pending: false }); nativePlayerRender();
+    });
+    const box = page.locator('#title .native-player'), alternatives = box.locator('details.native-player-alternatives');
+    await box.locator('.native-source-recovery').fill('Prior owner private fixture phrase');
+    await alternatives.locator('summary').click(); await box.locator('.native-source-recovery').focus();
+    await page.evaluate(boundary => {
+      if (boundary === 'owner') NETWS.acct = { id: 'different-fixture-owner' }; else NETWS.host = 'different-fixture-host.invalid';
+      nativePlayerRender();
+    }, boundary);
+    assert(await alternatives.evaluate(node => !node.open));
+    assert.equal(await box.locator('.native-source-recovery').inputValue(), '');
+    assert(await box.locator('.native-player-status').evaluate(node => node === document.activeElement));
+    assert.deepEqual(await page.evaluate(() => ({ saves: identityCalls.save, loads: identityCalls.load, entries: identityCalls.entries.length })), { saves: 0, loads: 0, entries: 0 });
+    await context.close();
+  });
+  await check('claim-target key recovery stays visible while temporary refresh and reconnect choices are collapsed', async () => {
+    const context = await contextForMobile(), page = await openFixture(context, 'title');
+    await page.evaluate(() => {
+      SAVE.readConfirmed = false; NATIVE_PLAYER.claimPendingResume = true;
+      NATIVE_PLAYER.status = { ...NATIVE_PLAYER.status, bound: false, provisional: true, provisionalPlay: { enabled: true } };
+      const target = { status: () => ({ hasRecord: true, keyPresent: false }) };
+      NATIVE_PLAYER.provisional = { status: () => ({ provisional: true, claim: { targetAvailable: true } }), claimProfile: () => target };
+      nativePlayerRender();
+    });
+    const box = page.locator('#title .native-player');
+    assert(await box.locator('.native-target-recovery').isVisible());
+    assert.deepEqual(await box.locator('button:visible:enabled').allTextContents(), ['Restore saved character']);
+    assert(await box.getByRole('button', { name: 'Refresh temporary connection', exact: true }).isHidden());
+    await box.locator('.native-target-recovery').fill('Kept target fixture phrase');
+    await box.locator('.native-target-recovery').focus();
+    await page.evaluate(() => { NATIVE_PLAYER.message = 'Target key is still required'; nativePlayerRender(); });
+    assert.equal(await box.locator('.native-target-recovery').inputValue(), 'Kept target fixture phrase');
+    assert(await box.locator('.native-target-recovery').evaluate(node => node === document.activeElement));
+    assert(await page.locator('#btn-begin').isDisabled());
+    await page.evaluate(() => {
+      NATIVE_PLAYER.claimPendingResume = false; SAVE.readConfirmed = true;
+      SAVE.loaded = { v: 1, char: { name: 'Playable fixture hero', realm: 0, cls: 'warrior', level: 3 } }; identityTest.showTitle(SAVE.loaded);
+    });
+    assert(await page.locator('#btn-begin').isEnabled(), 'claim-target recovery must not revoke play of the current confirmed character');
+    assert.equal(await page.locator('#btn-begin').innerText(), 'Continue as Playable fixture hero');
+    assert.deepEqual(await page.locator('#title button.primary:visible').allTextContents(), ['Restore saved character']);
+    assert.equal(await box.locator('.native-target-recovery').inputValue(), 'Kept target fixture phrase');
     await context.close();
   });
   await check('verified foreign-owner callback explains refusal and only an explicit title action restores the selected existing owner', async () => {

@@ -381,6 +381,7 @@ function nativePlayerRender() {
     // the exact saved owner/key intact. Only a confirmed empty/new path opens it.
     $('character-create-fields').hidden = returning || unresolved;
   }
+  let titleRecoveryTask = false;
   for (const target of [document.querySelector('#create .card-body'), $('netsheet-acct')]) {
     if (!target) continue;
     if (!status?.enabled) { target.querySelector('.native-player')?.remove(); continue; }
@@ -390,34 +391,46 @@ function nativePlayerRender() {
       if (target.classList.contains('card-body')) target.prepend(box); else target.appendChild(box);
     }
     const title = target.classList.contains('card-body');
+    const currentClaimProfile = NATIVE_PLAYER.provisional?.claimProfile();
+    const claimRecovery = !!currentClaimProfile?.status().hasRecord && !currentClaimProfile.status().keyPresent;
+    const ownerKey = JSON.stringify([NETWS.acct?.id, NETWS.host, status.binding?.subjectDid, status.binding?.podUrl]);
+    const taskPanel = title && !GAME.started && (blocked || claimRecovery);
+    if (taskPanel && claimRecovery) titleRecoveryTask = true;
     const compact = title && !GAME.started && !blocked && typeof UI !== 'undefined' && !!UI.titleSave?.char
-      && !SAVE.pending && !NATIVE_PLAYER.authRefusal && !NATIVE_PLAYER.conflict && !NATIVE_PLAYER.claimConfirmationPending;
-    const renderKey = JSON.stringify([NETWS.acct?.id, status.bound, status.verified, status.provisional, status.provisionalPlay?.enabled, SAVE.readConfirmed, !!SAVE.loaded, SAVE.loading?.settled, NATIVE_PLAYER.state, NATIVE_PLAYER.busy, NATIVE_PLAYER.switching, NATIVE_PLAYER.message, NATIVE_PLAYER.recoveryOpen, !!NATIVE_PLAYER.conflict, NATIVE_PLAYER.profile?.status(), nativePlayerFreshAllowed(), nativePlayerNewAdventureAllowed(), nativePlayerGuestExpired(), nativePlayerExpiredAdventureAllowed(), compact, !!SAVE.pending, !!GAME.started, !!blocked]);
-    if (box._nativeKey === renderKey) continue;
+      && !SAVE.pending && !NATIVE_PLAYER.authRefusal && !NATIVE_PLAYER.conflict && !NATIVE_PLAYER.claimConfirmationPending && !claimRecovery;
+    const renderKey = JSON.stringify([ownerKey, status.bound, status.verified, status.provisional, status.provisionalPlay?.enabled, SAVE.readConfirmed, !!SAVE.loaded, SAVE.loading?.settled, NATIVE_PLAYER.state, NATIVE_PLAYER.busy, NATIVE_PLAYER.switching, NATIVE_PLAYER.message, NATIVE_PLAYER.recoveryOpen, !!NATIVE_PLAYER.conflict, NATIVE_PLAYER.profile?.status(), nativePlayerFreshAllowed(), nativePlayerNewAdventureAllowed(), nativePlayerGuestExpired(), nativePlayerExpiredAdventureAllowed(), compact, !!SAVE.pending, !!GAME.started, !!blocked, currentClaimProfile?.status()]);
+    if (box._nativeKey === renderKey && box._claimProfile === currentClaimProfile) continue;
     box._nativeKey = renderKey;
-    const sameOwner = box._nativeOwner === NETWS.acct?.id;
+    const sameOwner = box._nativeOwner === ownerKey;
     const detailsOpen = sameOwner && box.querySelector('details.native-player-more')?.open;
+    const alternativesOpen = sameOwner && box.querySelector('details.native-player-alternatives')?.open;
     const focused = box.contains(document.activeElement) ? document.activeElement : null;
     const focusAction = focused?.dataset.nativeAction, focusInput = focused?.className;
-    const focusSummary = focused?.tagName === 'SUMMARY';
+    const focusSummary = focused?.dataset.nativeDisclosure;
     const typedPassphrase = sameOwner ? box.querySelector('.native-source-recovery')?.value || '' : '';
-    const currentClaimProfile = NATIVE_PLAYER.provisional?.claimProfile();
-    const typedClaimPassphrase = box._claimProfile === currentClaimProfile ? box.querySelector('.native-target-recovery')?.value || '' : '';
+    const typedClaimPassphrase = sameOwner && box._claimProfile === currentClaimProfile ? box.querySelector('.native-target-recovery')?.value || '' : '';
     box._claimProfile = currentClaimProfile;
-    box._nativeOwner = NETWS.acct?.id;
+    box._nativeOwner = ownerKey;
     box.replaceChildren();
     let content = box;
     if (compact) {
       const details = document.createElement('details'); details.className = 'native-player-more'; details.open = !!detailsOpen;
       const summary = document.createElement('summary'); summary.textContent = 'Character save and identity';
+      summary.dataset.nativeDisclosure = 'character-save';
       summary.style.cssText = 'min-height:44px;display:list-item;box-sizing:border-box;padding:12px 4px;cursor:pointer';
       details.appendChild(summary); box.appendChild(details); content = details;
     }
-    const add = (tag, text) => { const node = document.createElement(tag); node.textContent = text; content.appendChild(node); return node; };
+    const add = (tag, text, parent = content) => { const node = document.createElement(tag); node.textContent = text; parent.appendChild(node); return node; };
+    const alternatives = document.createElement('details'); alternatives.className = 'native-player-alternatives'; alternatives.open = !!alternativesOpen;
+    const alternativeSummary = document.createElement('summary'); alternativeSummary.textContent = 'Other connection and recovery options';
+    alternativeSummary.dataset.nativeDisclosure = 'connection-options';
+    alternativeSummary.style.cssText = 'min-height:44px;display:list-item;box-sizing:border-box;padding:12px 4px;cursor:pointer';
+    const alternativeBody = document.createElement('div'); alternatives.appendChild(alternativeSummary); alternatives.appendChild(alternativeBody);
     const provisional = nativePlayerIsProvisional(), expired = nativePlayerGuestExpired() || !!NATIVE_PLAYER.expiredAdventure;
     if (!compact) add('h3', expired ? 'Temporary session expired' : provisional ? 'Keep your character' : status.bound ? 'Your identity and character' : nativePlayerCanPlayNow() ? 'Start your adventure' : 'Your identity and character');
-    add('p', expired || status.bound || nativePlayerCanPlayNow() || nativePlayerNewAdventureAllowed() ? nativePlayerSaveMessage() : 'Connect your Interego identity to open your private character.');
-    const primary = !title || !blocked ? null : expired ? 'Open my saved character'
+    const hint = add('p', expired || status.bound || nativePlayerCanPlayNow() || nativePlayerNewAdventureAllowed() ? nativePlayerSaveMessage() : 'Connect your Interego identity to open your private character.');
+    hint.className = 'native-player-status'; hint.tabIndex = -1;
+    const primary = !taskPanel ? null : claimRecovery ? 'Restore saved character' : expired ? 'Open my saved character'
       : NATIVE_PLAYER.claimConfirmationPending ? 'Confirm kept character'
       : profileStatus?.hasRecord && !profileStatus.keyPresent ? 'Restore recovery file'
       : nativePlayerFreshAllowed() && NATIVE_PLAYER.authRefusal.reason !== 'native_owner_mismatch' ? 'Start a fresh sign-in'
@@ -425,8 +438,8 @@ function nativePlayerRender() {
       : provisional ? nativePlayerQuotaExhausted() && SAVE.pending ? 'Keep last confirmed save' : 'Keep my character'
       : status.bound && profileStatus && !SAVE.readConfirmed ? 'Retry connection'
       : status.bound ? 'Reconnect identity' : 'I already have an identity';
-    const action = (label, run) => {
-      const b = add('button', label); b.type = 'button'; b.className = 'btn' + (label === primary ? ' primary' : ''); b.disabled = NATIVE_PLAYER.busy || NATIVE_PLAYER.switching;
+    const action = (label, run, parent = taskPanel && label !== primary ? alternativeBody : content) => {
+      const b = add('button', label, parent); b.type = 'button'; b.className = 'btn' + (label === primary ? ' primary' : ''); b.disabled = NATIVE_PLAYER.busy || NATIVE_PLAYER.switching;
       b.dataset.nativeAction = label;
       b.style.minHeight = '44px'; b.style.margin = '4px'; b.style.touchAction = 'manipulation';
       b.onclick = () => run(); return b;
@@ -447,26 +460,29 @@ function nativePlayerRender() {
     if (target.classList.contains('card-body') && nativePlayerNewAdventureAllowed()) action('Play with a new character', nativePlayerNewAdventure);
     if (target.classList.contains('card-body') && nativePlayerFreshAllowed()) action(
       NATIVE_PLAYER.authRefusal.reason === 'native_owner_mismatch' ? 'Sign in with a different account' : 'Start a fresh sign-in', () => nativePlayerConnect(true));
-    if (!expired && SAVE.native && !SAVE.readConfirmed && !GAME.started && !NATIVE_PLAYER.switching) action('Retry connection', () => nativePlayerTask(nativePlayerRetryLoad));
+    const connectionRetry = !expired && SAVE.native && !SAVE.readConfirmed && !GAME.started && !NATIVE_PLAYER.switching;
+    if (connectionRetry) action('Retry connection', () => nativePlayerTask(nativePlayerRetryLoad));
     const profile = NATIVE_PLAYER.switching ? null : NATIVE_PLAYER.profile;
+    const forcedRecovery = profile && profileStatus?.hasRecord && !profileStatus.keyPresent;
     if (profile) {
-      action(NATIVE_PLAYER.recoveryOpen ? 'Hide recovery options' : 'Recovery options', () => { NATIVE_PLAYER.recoveryOpen = !NATIVE_PLAYER.recoveryOpen; nativePlayerRender(); });
+      if (!forcedRecovery) action(NATIVE_PLAYER.recoveryOpen ? 'Hide recovery options' : 'Recovery options', () => { NATIVE_PLAYER.recoveryOpen = !NATIVE_PLAYER.recoveryOpen; nativePlayerRender(); });
       if (SAVE.pending || profile.status().pending) action('Retry saving character', () => nativePlayerTask(async () => {
         await NATIVE_PLAYER.provisional?.retry(); await saveNow({ final: true });
       }));
     }
     if (profile && (NATIVE_PLAYER.recoveryOpen || profileStatus?.hasRecord && !profileStatus.keyPresent)) {
+      const recoveryParent = taskPanel && !forcedRecovery ? alternativeBody : content;
       const pass = document.createElement('input'); pass.type = 'password'; pass.autocomplete = 'new-password';
       pass.className = 'native-source-recovery';
       pass.value = typedPassphrase;
       pass.placeholder = 'Recovery passphrase (12+ characters)'; pass.setAttribute('aria-label', 'Recovery file passphrase');
-      pass.style.cssText = 'display:block;width:100%;box-sizing:border-box;min-height:44px;max-width:28rem;font-size:16px'; content.appendChild(pass);
-      if (profile.status().keyPresent) action('Download recovery file', () => nativePlayerRecovery(pass.value));
+      pass.style.cssText = 'display:block;width:100%;box-sizing:border-box;min-height:44px;max-width:28rem;font-size:16px'; recoveryParent.appendChild(pass);
+      if (profile.status().keyPresent) action('Download recovery file', () => nativePlayerRecovery(pass.value), recoveryParent);
       const file = document.createElement('input'); file.type = 'file'; file.accept = '.json,application/json'; file.hidden = true;
-      file.setAttribute('aria-label', 'Choose encrypted recovery file'); content.appendChild(file);
-      action('Restore recovery file', () => file.click());
+      file.setAttribute('aria-label', 'Choose encrypted recovery file'); recoveryParent.appendChild(file);
+      action('Restore recovery file', () => file.click(), recoveryParent);
       file.onchange = () => { if (file.files[0]) nativePlayerRestore(file.files[0], pass.value); };
-      action('Retry pod save', () => nativePlayerTask(async () => {
+      if (!(taskPanel && connectionRetry && !profile.status().pending)) action(taskPanel && connectionRetry ? 'Confirm pending private save' : 'Retry pod save', () => nativePlayerTask(async () => {
         if (!GAME.started && !SAVE.readConfirmed) {
           if (profile.status().pending) await profile.retry();
           await nativePlayerRetryLoad(); return;
@@ -477,10 +493,10 @@ function nativePlayerRender() {
     }
     if (NATIVE_PLAYER.conflict) {
       add('p', 'This Interego identity already has a character. Both saves are intact. Choose which one to continue.');
-      action('Keep playing this character', () => { NATIVE_PLAYER.conflict = null; NATIVE_PLAYER.message = ''; nativePlayerRender(); });
-      action('Use my saved character', () => nativePlayerTask(() => nativePlayerUseExistingTarget()));
+      action('Keep playing this character', () => { NATIVE_PLAYER.conflict = null; NATIVE_PLAYER.message = ''; nativePlayerRender(); }, content);
+      action('Use my saved character', () => nativePlayerTask(() => nativePlayerUseExistingTarget()), content);
     }
-    const claimProfile = NATIVE_PLAYER.provisional?.claimProfile();
+    const claimProfile = currentClaimProfile;
     if (claimProfile?.status().hasRecord && !claimProfile.status().keyPresent) {
       add('p', 'This identity has an encrypted character. Restore its recovery file to open it. Your current character remains saved.');
       const pass = document.createElement('input'); pass.type = 'password'; pass.autocomplete = 'current-password';
@@ -489,7 +505,7 @@ function nativePlayerRender() {
       pass.style.cssText = 'display:block;width:100%;box-sizing:border-box;min-height:44px;font-size:16px'; content.appendChild(pass);
       const file = document.createElement('input'); file.type = 'file'; file.accept = '.json,application/json'; file.hidden = true;
       file.setAttribute('aria-label', 'Choose saved character recovery file'); content.appendChild(file);
-      action('Restore saved character', () => file.click());
+      action('Restore saved character', () => file.click(), content);
       file.onchange = () => { if (file.files[0]) void nativePlayerTask(async () => {
         if (file.files[0].size > 32768) throw new Error('That recovery file is too large.');
         await claimProfile.restoreRecovery(JSON.parse(await file.files[0].text()), pass.value);
@@ -497,11 +513,22 @@ function nativePlayerRender() {
       }); };
     }
     if (NATIVE_PLAYER.message) { const p = add('p', NATIVE_PLAYER.message); p.setAttribute('role', 'status'); }
-    if (focused && sameOwner) {
-      const replacement = focusSummary ? box.querySelector('summary') : focusAction
+    if (taskPanel && alternativeBody.children.length) content.appendChild(alternatives);
+    if (focused) {
+      const replacement = !sameOwner ? null : focusSummary
+        ? [...box.querySelectorAll('summary')].find(summary => summary.dataset.nativeDisclosure === focusSummary) : focusAction
         ? [...box.querySelectorAll('button')].find(button => button.dataset.nativeAction === focusAction)
         : [...box.querySelectorAll('input')].find(input => input.className === focusInput);
-      (replacement || box.querySelector('summary'))?.focus({ preventScroll: true });
+      const shown = node => {
+        if (!node || node.disabled) return false;
+        for (let current = node; current && current !== box; current = current.parentElement) {
+          if (current.hidden) return false;
+          if (current.tagName === 'DETAILS' && !current.open && node !== current.querySelector('summary')) return false;
+        }
+        return true;
+      };
+      (shown(replacement) ? replacement : sameOwner && shown(alternativeSummary) && alternatives.parentElement ? alternativeSummary
+        : sameOwner && box.querySelector('summary') || hint).focus({ preventScroll: true });
     }
   }
   const titleBusy = NATIVE_PLAYER.busy && !GAME.started;
@@ -515,7 +542,7 @@ function nativePlayerRender() {
   for (const id of ['btn-begin', 'btn-continue']) if ($(id)) {
     $(id).disabled = !!blocked; $(id).setAttribute('aria-busy', String(titleBusy));
   }
-  if ($('btn-begin')) $('btn-begin').classList?.toggle('primary', !blocked);
+  if ($('btn-begin')) $('btn-begin').classList?.toggle('primary', !blocked && !titleRecoveryTask);
   const titleCharacter = typeof UI !== 'undefined' && UI.titleSave?.char;
   if ($('btn-begin')) $('btn-begin').textContent = titleBusy ? NATIVE_PLAYER.busyMessage
     : titleCharacter ? 'Continue as ' + titleCharacter.name : nativePlayerCanPlayNow() ? 'Play now' : 'Enter the realm';

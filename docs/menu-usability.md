@@ -2,8 +2,8 @@
 
 The October 2026 menu pass addresses the owner's reports of duplicate entry
 buttons, unclear next steps and competing actions. It retains the game's visual
-language and character/account safeguards. These are task-based agent checks
-and a browser walkthrough, not a human player study or an AAA certification.
+language and character/account safeguards. These are scripted task checks
+and visual browser review, not a human player study or an AAA certification.
 
 ## Action contract
 
@@ -14,7 +14,7 @@ and a browser walkthrough, not a human player study or an AAA certification.
 | Recover an existing character | The appropriate reconnect or recovery action | Blocked entry never looks like a fresh-character choice; existing drafts, keys and expiry remain intact. |
 | Find the next objective | Continue your path | Practice milestones are labelled separately from guided objectives. |
 | Inspect activity | Activity history | Reading never enables recording, grants access, repairs delegation or sends a coaching request. |
-| Leave a game menu | Back to game | One quiet pinned return control; content owns its task action. |
+| Leave the main menu | Back to game | One quiet pinned return control; content owns its task action. |
 | Change settings | Choose a labelled radio option | Changes apply immediately; selection, keyboard focus and scroll position survive redraw. |
 | Inspect equipment or the map | Inventory / Map | Focus enters the screen, stays inside during Tab navigation, then returns to the opener. |
 | Read an NPC dialog | Talk / read, then choose an action | The heading receives focus; Escape closes without accepting a quest or reward. |
@@ -25,6 +25,8 @@ long Help and Chronicle pages must remain readable by keyboard and touch.
 The six top-level tabs retain their labels, arrow navigation and Home/End.
 New-character controls do not appear in unrelated Help, Settings or Progress
 tasks. Optional identity, guidance and recording controls use explicit disclosure.
+When a private character needs recovery, its required fields and recovery action
+remain visible; alternative connection actions stay behind a labelled disclosure.
 
 ## Regression coverage
 

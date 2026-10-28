@@ -243,6 +243,21 @@ async def audit(args):
                   if(s.top!==e.scrollTop){s.top=e.scrollTop;s.at=now;return false;}
                   return now-s.at>=200;
                 }""",timeout=5000,polling=50)
+            async def panel_fixture_top():
+                # The fixture's instant scroll also emits scrollend. Consume
+                # that event before observing the subsequent native key.
+                await page.evaluate("""()=>{
+                  const e=document.getElementById('menu-body'),moves=e.scrollTop>2;
+                  if(e.__qaScrollEndListener)e.removeEventListener('scrollend',e.__qaScrollEndListener);
+                  if(e.__qaFixtureEndListener)e.removeEventListener('scrollend',e.__qaFixtureEndListener);
+                  e.__qaFixtureEnded=!moves;
+                  e.__qaFixtureEndListener=()=>{e.__qaFixtureEnded=true;};
+                  if(moves)e.addEventListener('scrollend',e.__qaFixtureEndListener,{once:true});
+                  e.scrollTop=0;
+                }""")
+                await page.wait_for_function("(()=>{const e=document.getElementById('menu-body');return e.__qaFixtureEnded&&e.scrollTop<=2})()",timeout=5000,polling=50)
+                await page.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))')
+                await settle_panel_scroll()
             async def panel_key(key,condition,moves):
                 await page.evaluate("""()=>{
                   const e=document.getElementById('menu-body');
@@ -374,18 +389,14 @@ async def audit(args):
                     # Establish the fixture start separately. Home is tested
                     # below after End, so neither key starts during another
                     # native keyboard scrolling transaction.
-                    await page.evaluate("document.getElementById('menu-body').scrollTop=0")
-                    await page.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))')
-                    await page.wait_for_function("document.getElementById('menu-body').scrollTop<=2",timeout=5000,polling=50)
-                    await settle_panel_scroll()
+                    await panel_fixture_top()
                     scrollable=initial['total']>initial['height']+5
                     await panel_key('PageDown',"document.getElementById('menu-body').scrollTop>0" if scrollable else 'true',scrollable)
                     paged=await page.evaluate('__menuQA.scrollState()')
                     report['checks'].append({'task':label+'-'+long_page+'-keyboard-page-scroll','passed':initial['total']<=initial['height']+5 or paged['top']>0,'scroll':paged})
                     # End has its own established top-of-panel fixture so it
                     # remains observable even if PageDown reached the bottom.
-                    await page.evaluate("document.getElementById('menu-body').scrollTop=0")
-                    await settle_panel_scroll()
+                    await panel_fixture_top()
                     await panel_key('End',"(()=>{const e=document.getElementById('menu-body');return e.scrollTop+e.clientHeight>=e.scrollHeight-2})()",scrollable)
                     end=await page.evaluate('__menuQA.scrollState()');await capture(long_page+'-end-reachable')
                     report['checks'].append({'task':label+'-'+long_page+'-end-reachable','passed':end['endVisible'] and end['top']+end['height']>=end['total']-2,'scroll':end})
