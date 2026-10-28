@@ -158,7 +158,9 @@ const QUALITY_PRESETS = {
   medium: { dpr: 1.25, msaa: 2, grass: 0.62, flowers: 0.7, treeDist: 300, nearTrees: 28, bloom: 5, label: 'Medium' },
   low: { dpr: 1.0, msaa: 0, grass: 0.36, flowers: 0.45, treeDist: 200, nearTrees: 0, bloom: 4, label: 'Low' }, // [motion] treeDist 230 -> 200: the farthest chunks are lost in the fog at low
 };
-const GRAPHICS_BOOT_LEVEL = BOOT_SAFE ? 'low' : IS_TOUCH ? 'medium' : 'high';
+// An unknown desktop GPU must draw its first view before adaptive detail has
+// any frame timings. Saved and manual quality choices still apply normally.
+const GRAPHICS_BOOT_LEVEL = BOOT_SAFE ? 'low' : 'medium';
 const quality = { level: GRAPHICS_BOOT_LEVEL, ...QUALITY_PRESETS[GRAPHICS_BOOT_LEVEL] };
 graphicsCheckpoint('Preparing graphics data');
 

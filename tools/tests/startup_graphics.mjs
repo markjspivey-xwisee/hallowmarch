@@ -19,6 +19,7 @@ const apply = extract(read('12_save.js'), 'applySettings');
 const saveGraphics = extract(read('12_save.js'), 'graphicsSaveSettings');
 const phone = extract(read('13q_lod.js'), 'phoneQualityPick');
 const set = extract(read('13_main.js'), 'setQuality');
+const renderRatio = extract(read('13_main.js'), 'graphicsRenderRatio');
 const automatic = read('13_main.js').split('\n').find(line => line.startsWith('quality.auto ='));
 
 function boot({url='https://march.example/?tag=a&tag=b', touch=false, failure='', webgl2=true, storage=new Map(), session=new Map(), storageFailure=false}={}) {
@@ -71,12 +72,79 @@ function boot({url='https://march.example/?tag=a&tag=b', touch=false, failure=''
   }
   return {ctx,elements,options,state,error,callbacks,storage,session};
 }
-test('normal desktop quality and renderer preference remain unchanged',()=>{
+test('an unknown desktop starts at Medium before adaptive detail has timings',()=>{
   const b=boot(); assert.equal(b.error,undefined);
-  assert.equal(b.ctx.__startup.quality.level,'high');
+  assert.equal(b.ctx.__startup.quality.level,'medium');
+  assert.equal(b.ctx.__startup.quality.msaa,2);
   assert.equal(b.ctx.__startup.quality.auto,true);
   assert.equal(b.options[0].powerPreference,'high-performance');
-  assert.equal(boot({url:'https://march.example/?safe=0'}).ctx.__startup.quality.level,'high');
+  assert.equal(boot({url:'https://march.example/?safe=0'}).ctx.__startup.quality.level,'medium');
+});
+
+function pixelRatio(b, {width=3840,height=2160,dpr=2,stored=null}={}) {
+  b.ctx.view={w:width,h:height}; b.ctx.window.devicePixelRatio=dpr;
+  b.ctx.SAVE={loaded:stored && {settings:stored}};
+  vm.runInContext(renderRatio,b.ctx);
+  return vm.runInContext('graphicsRenderRatio()',b.ctx);
+}
+
+test('automatic desktop targets stay bounded at high DPI and large sizes',()=>{
+  for(const [width,height,dpr] of [[1270,1315,1.6],[3840,2160,2],[2160,3840,3],[6000,4000,2],[10000,400,2]]) {
+    const b=boot(), ratio=pixelRatio(b,{width,height,dpr});
+    const w=Math.floor(width*ratio),h=Math.floor(height*ratio);
+    assert.ok(w*h<=1440000,`${width}x${height}: ${w*h} pixels`);
+    assert.ok(Math.max(w,h)<=1920,`${width}x${height}: longest edge ${Math.max(w,h)}`);
+    assert.equal(b.ctx.__startup.quality.auto,true,'the budget does not turn automatic detail into a manual choice');
+    b.ctx.GAME={started:true};
+    assert.equal(vm.runInContext('graphicsRenderRatio()',b.ctx),ratio,'entering Play cannot remove the initial protection');
+  }
+  assert.equal(pixelRatio(boot(),{width:800,height:600,dpr:1}),1,'a small ordinary viewport is not reduced');
+});
+
+test('saved automatic quality retains its level within the budget, manual choices retain their render ratio',()=>{
+  for(const level of ['low','medium','high']) for(const auto of [false,true]) {
+    const b=boot(); settings(b);
+    b.ctx.SAVE={loaded:{settings:{quality:level,auto}}};
+    vm.runInContext('applySettings(SAVE.loaded.settings)',b.ctx);
+    const before={...b.ctx.__startup.quality};
+    const ratio=pixelRatio(b,{stored:{quality:level,auto}});
+    assert.equal(b.ctx.__startup.quality.level,level);
+    assert.equal(b.ctx.__startup.quality.auto,auto);
+    if(auto) {
+      assert.ok(Math.floor(3840*ratio)*Math.floor(2160*ratio)<=1440000,'saved automatic choices retain the pixel budget');
+    } else assert.equal(ratio,before.dpr,'a saved manual choice keeps its full render ratio');
+  }
+  const manual=boot();settings(manual);
+  vm.runInContext("setQuality('high')",manual.ctx);
+  assert.equal(pixelRatio(manual),1.6);
+  assert.equal(manual.ctx.__startup.quality.auto,false);
+});
+
+test('an automatic preference remains bounded after autosave and reload until a manual selection',()=>{
+  const first=boot();first.ctx.SAVE={loaded:null};
+  vm.runInContext(phone+'\n'+saveGraphics,first.ctx);
+  const saved=JSON.parse(vm.runInContext('JSON.stringify(graphicsSaveSettings())',first.ctx));
+  assert.deepEqual(saved,{quality:'medium',auto:true});
+  const returning=boot();settings(returning);
+  returning.ctx.SAVE={loaded:{settings:saved}};
+  vm.runInContext('applySettings(SAVE.loaded.settings)',returning.ctx);
+  const ratio=pixelRatio(returning,{stored:saved});
+  assert.ok(Math.floor(3840*ratio)*Math.floor(2160*ratio)<=1440000);
+  assert.equal(returning.ctx.__startup.quality.level,'medium');
+  vm.runInContext("setQuality('high')",returning.ctx);
+  assert.equal(pixelRatio(returning,{stored:saved}),1.6,'a later manual selection removes the automatic cap');
+  assert.equal(returning.ctx.__startup.quality.auto,false);
+});
+
+test('automatic desktop budget leaves touch and recovery sizing intact',()=>{
+  assert.equal(pixelRatio(boot({touch:true})),1.25,'touch sizing continues to use its existing device selection');
+  for(const touch of [false,true]) {
+    const b=boot({url:'https://march.example/?safe=1',touch});
+    const ratio=pixelRatio(b,{width:6000,height:4000,stored:{quality:'high',auto:false}});
+    assert.ok(Math.floor(6000*ratio)*Math.floor(4000*ratio)<=921600);
+    assert.ok(Math.max(Math.floor(6000*ratio),Math.floor(4000*ratio))<=1280);
+    assert.equal(b.ctx.__startup.quality.level,'low');
+  }
 });
 test('safe recovery selects Low before any scene or world allocation',()=>{
   const b=boot({url:'https://march.example/?safe=1'});
@@ -161,7 +229,7 @@ test('automatic saves preserve the existing graphics preference until a manual c
 test('recovery without a saved preference retains the ordinary device default on save',()=>{
   const desk=boot({url:'https://march.example/?safe=1'});desk.ctx.SAVE={loaded:null};
   vm.runInContext(phone+'\n'+saveGraphics,desk.ctx);
-  assert.equal(vm.runInContext('graphicsSaveSettings().quality',desk.ctx),'high');
+  assert.equal(vm.runInContext('graphicsSaveSettings().quality',desk.ctx),'medium');
   assert.equal(vm.runInContext('graphicsSaveSettings().auto',desk.ctx),true);
   const tablet=boot({url:'https://march.example/?safe=1',touch:true});tablet.ctx.SAVE={loaded:null};
   vm.runInContext(phone+'\n'+saveGraphics,tablet.ctx);
@@ -376,7 +444,7 @@ function titleFixture({autoPaint=false}={}) {
   const resizeStart=main.indexOf('let resizeTimer = 0;'),resizeEnd=main.indexOf('\n\n',resizeStart);
   assert.ok(resizeStart>=0 && resizeEnd>resizeStart,'test installs the actual resize timer declaration and listener');
   vm.createContext(ctx);
-  vm.runInContext(main.slice(resizeStart,resizeEnd)+'\n'+declarations+'\n'+['prepareTitleView','applyGraphicsSize','resize','captureTitleResizeRequest','titleAssertActive','titleGraphicsBusy','submitTitleStage','renderTitleFrame','waitForTitleVisibility',
+  vm.runInContext(main.slice(resizeStart,resizeEnd)+'\n'+declarations+'\n'+['prepareTitleView','graphicsRenderRatio','applyGraphicsSize','resize','captureTitleResizeRequest','titleAssertActive','titleGraphicsBusy','submitTitleStage','renderTitleFrame','waitForTitleVisibility',
     'renderFirstTitleFrame','tick','frame','startGame'].map(name=>extract(main,name)).join('\n'),ctx);
   const f={ctx,nodes,events,staticCalls,fences,paints,glErrors,sizeCalls,inventory,objects,hidden,postState,originalTrail,originalShaderError,direct,
     grassCenter,grassCamera,flowerCenter,flowerCamera,documentListeners,canvasListeners,windowListeners,resizeTimers,

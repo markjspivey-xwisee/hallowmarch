@@ -17,15 +17,24 @@ window.addEventListener('unhandledrejection', (e) => reportError(e.reason));
 /* ------------------------------------------------------------------ */
 /* sizing and quality                                                  */
 /* ------------------------------------------------------------------ */
+function graphicsRenderRatio() {
+  let ratio = Math.max(0.5, Math.min(window.devicePixelRatio || 1, quality.dpr) * (quality.scale || 1));
+  // Recovery keeps its existing, stricter limit regardless of saved choices.
+  if (BOOT_SAFE) return Math.min(ratio, 1280 / view.w, 1280 / view.h, Math.sqrt(921600 / (view.w * view.h)));
+  if (!IS_TOUCH && quality.auto !== false) {
+    // Automatic detail needs a bound before it has frame timings, including
+    // after an automatic preference was saved. Manual choices retain their DPR.
+    ratio = Math.min(ratio, 1920 / view.w, 1920 / view.h, Math.sqrt(1440000 / (view.w * view.h)));
+  }
+  return ratio;
+}
 function applyGraphicsSize() {
   // A changed frustum/quality can expose a previously culled shader variant.
   // Rewarm this explicit title view; unchanged redraws reuse completed work.
   if (!GAME.started) TITLE_WARMED = false;
   view.w = Math.max(1, window.innerWidth);
   view.h = Math.max(1, window.innerHeight);
-  quality.dprActual = Math.max(0.5, Math.min(window.devicePixelRatio || 1, quality.dpr) * (quality.scale || 1));
-  // Bound recovery work even on a large desktop; the ordinary DPR floor cannot enforce this cap.
-  if (BOOT_SAFE) quality.dprActual = Math.min(quality.dprActual, 1280 / view.w, 1280 / view.h, Math.sqrt(921600 / (view.w * view.h)));
+  quality.dprActual = graphicsRenderRatio();
   renderer.setPixelRatio(quality.dprActual);
   renderer.setSize(view.w, view.h, false);
   camera.aspect = view.w / view.h;
