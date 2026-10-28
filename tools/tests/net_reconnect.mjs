@@ -78,18 +78,63 @@ function harness(options = {}) {
     async bootstrap() { provisionalCalls.bootstrap++; }, async resume() { provisionalCalls.resume++; },
     profile: () => null, claimProfile: () => null, status: () => ({ provisional: false }), close() { provisionalCalls.close++; },
   });
-  const node = (tag, className = '') => ({ tagName: tag, className, children: [], style: {}, textContent: '', attributes: new Map(),
-    classList: { contains: value => className.split(' ').includes(value) },
-    appendChild(child) { this.children.push(child); }, prepend(child) { this.children.unshift(child); },
-    replaceChildren() { this.children = []; },
-    setAttribute(name, value) { this.attributes.set(String(name), String(value)); },
-    getAttribute(name) { return this.attributes.get(String(name)) ?? null; },
-    removeAttribute(name) { this.attributes.delete(String(name)); },
-    querySelector(selector) { return selector === '.native-player' ? this.children.find(child => child.className === 'native-player') : null; },
-  });
+  let body = null, activeElement = null;
+  const node = (tag, className = '') => {
+    let text = '', disabled = false;
+    const element = { tagName: tag.toUpperCase(), className, children: [], parentElement: null, style: {}, dataset: {}, attributes: new Map(),
+      get parentNode() { return this.parentElement; },
+      get isConnected() { return !!body?.contains(this); },
+      get disabled() { return disabled; },
+      set disabled(value) { disabled = !!value; if (disabled && activeElement === this) activeElement = body; },
+      get textContent() { return text + this.children.map(child => child.textContent).join(''); },
+      set textContent(value) { this.replaceChildren(); text = value == null ? '' : String(value); },
+      contains(other) { for (let current = other; current; current = current.parentElement) if (current === this) return true; return false; },
+      appendChild(child) {
+        assert(!child.contains(this), 'the fixture must reject a cyclic DOM tree');
+        child.remove(); child.parentElement = this; this.children.push(child); return child;
+      },
+      prepend(child) { this.appendChild(child); this.children.pop(); this.children.unshift(child); },
+      replaceChildren(...children) { for (const child of [...this.children]) child.remove(); text = ''; for (const child of children) this.appendChild(child); },
+      remove() {
+        if (this.contains(activeElement)) activeElement = body;
+        if (this.parentElement) this.parentElement.children.splice(this.parentElement.children.indexOf(this), 1);
+        this.parentElement = null;
+      },
+      setAttribute(name, value) { this.attributes.set(String(name), String(value)); if (name === 'class') this.className = String(value); },
+      getAttribute(name) { return name === 'class' ? this.className : this.attributes.get(String(name)) ?? null; },
+      removeAttribute(name) { this.attributes.delete(String(name)); if (name === 'class') this.className = ''; },
+      querySelectorAll(selector) {
+        const match = selector.match(/^([\w-]+)?(?:\.([\w-]+))?$/);
+        assert(match, 'fixture selector must be implemented explicitly: ' + selector);
+        const found = [];
+        for (const child of this.children) {
+          if ((!match[1] || child.tagName === match[1].toUpperCase()) && (!match[2] || child.classList.contains(match[2]))) found.push(child);
+          found.push(...child.querySelectorAll(selector));
+        }
+        return found;
+      },
+      querySelector(selector) { return this.querySelectorAll(selector)[0] || null; },
+      focus() { if (this.isConnected && !this.disabled) activeElement = this; },
+      blur() { if (activeElement === this) activeElement = body; },
+    };
+    const classes = () => new Set(element.className.split(/\s+/).filter(Boolean));
+    element.classList = {
+      contains: value => classes().has(value),
+      add(...values) { const current = classes(); for (const value of values) current.add(value); element.className = [...current].join(' '); },
+      remove(...values) { const current = classes(); for (const value of values) current.delete(value); element.className = [...current].join(' '); },
+      toggle(value, force) {
+        const present = arguments.length > 1 ? !!force : !this.contains(value);
+        if (present) this.add(value); else this.remove(value); return present;
+      },
+    };
+    return element;
+  };
   const buttons = new Map(['btn-begin', 'btn-continue', 'save-note'].map(id => [id,
     Object.assign(node(id === 'save-note' ? 'p' : 'button'), { id, disabled: false })]));
   const titleBody = node('div', 'card-body');
+  body = node('body'); body.appendChild(titleBody);
+  for (const button of buttons.values()) body.appendChild(button);
+  activeElement = body;
   const requests = [], titleUpdates = [], settingUpdates = [], worldUpdates = [];
   const context = vm.createContext({
     // This transport fixture represents an already live human; lease/idle behavior has dedicated integration tests.
@@ -109,7 +154,7 @@ function harness(options = {}) {
     },
     location: { search: '?server=' + encodeURIComponent(URL_WS) + '&shard=regression', reload: () => failures.push('unexpected reload') },
     window: { claude: options.claude, addEventListener() {} },
-    document: { addEventListener() {}, querySelector: selector => options.renderNative && selector === '#create .card-body' ? titleBody : null,
+    document: { body, get activeElement() { return activeElement; }, addEventListener() {}, querySelector: selector => options.renderNative && selector === '#create .card-body' ? titleBody : null,
       createElement: tag => node(tag), hidden: false },
     $: id => buttons.get(id) || null,
     fetch: async (url, init) => {
@@ -178,6 +223,30 @@ function harness(options = {}) {
   }
   return { H, clock, sockets, failures, storage, context, welcome, healthy, drive, nextSocket, buttons, requests, nativeProfile, titleUpdates, settingUpdates, worldUpdates, provisionalCalls, titleBody, earlyLoading: context.earlyLoading };
 }
+
+test('native title fixture models live class membership, descendant ownership and detached focus', () => {
+  const h = harness(), document = h.context.document, button = h.buttons.get('btn-begin');
+  assert.equal(button.classList.toggle('primary', true), true);
+  assert.equal(button.classList.contains('primary'), true);
+  assert.equal(button.classList.toggle('primary', false), false);
+  assert.equal(button.classList.contains('primary'), false);
+  button.className = 'btn quiet'; button.classList.add('primary'); button.classList.remove('quiet');
+  assert.equal(button.className, 'btn primary');
+  assert.equal(button.classList.toggle('primary'), false); assert.equal(button.classList.toggle('primary'), true);
+  const frame = document.createElement('section'), nested = document.createElement('div'), input = document.createElement('input');
+  nested.className = 'native-player'; frame.appendChild(nested); nested.appendChild(input); h.titleBody.appendChild(frame);
+  assert.equal(h.titleBody.contains(h.titleBody), true); assert.equal(h.titleBody.contains(input), true);
+  assert.equal(h.titleBody.contains(null), false); assert.equal(input.contains(frame), false);
+  assert.equal(h.titleBody.querySelector('.native-player'), nested); assert.equal(h.titleBody.querySelectorAll('input')[0], input);
+  assert.equal(input.parentNode, nested); assert.equal(input.isConnected, true);
+  input.focus(); assert.equal(document.activeElement, input);
+  const other = document.createElement('div'); h.titleBody.prepend(other); other.appendChild(input);
+  assert.equal(nested.contains(input), false); assert.equal(other.contains(input), true); assert.equal(input.parentElement, other);
+  input.focus(); h.titleBody.replaceChildren(document.createElement('p'));
+  assert.equal(input.isConnected, false); assert.equal(h.titleBody.contains(input), false); assert.equal(document.activeElement, document.body);
+  assert.equal(h.titleBody.querySelectorAll('input').length, 0);
+  assert.equal(h.sockets.length, 0); assert.deepEqual(h.requests, []);
+});
 
 test('cold handshake failure is shared, clears its promise, and reconnects after a stalled boot', async () => {
   const h = harness({ storage: { ['hallowmarch.token.' + HOST]: 'existing-host-token' } });
@@ -877,7 +946,7 @@ async function refusedProgressiveTitle(extra = {}, denial = { t: 'denied', code:
   await flush(); await h.sockets[0].open(); await flush(); h.sockets[0].message(denial);
   await loading; h.H.GAME.ready = true; h.H.nativePlayerRender(); return h;
 }
-const titleActions = h => h.titleBody.children.flatMap(box => box.children).filter(child => child.tagName === 'button');
+const titleActions = h => h.titleBody.querySelectorAll('button');
 
 test('a first-time anonymous welcome and advertised status offer Play now without provisioning on discovery', async () => {
   const h = harness(progressiveOptions({ storage: {} })), loading = h.H.loadSave();

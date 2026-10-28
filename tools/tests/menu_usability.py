@@ -233,6 +233,39 @@ async def audit(args):
             await page.evaluate('__menuQA.play()');await human_play(page)
             # Keep the browser's real paint scheduling. The game menu pauses
             # play itself; native scrolling must not inherit a fixture RAF.
+            async def settle_panel_scroll():
+                # A native Home animation can reach zero before its browser
+                # transaction has finished. Observe a settled position before
+                # sending the next independent key, rather than retrying it.
+                await page.evaluate("document.getElementById('menu-body').__qaScroll={top:null,at:performance.now()}")
+                await page.wait_for_function("""()=>{
+                  const e=document.getElementById('menu-body'),s=e.__qaScroll,now=performance.now();
+                  if(s.top!==e.scrollTop){s.top=e.scrollTop;s.at=now;return false;}
+                  return now-s.at>=200;
+                }""",timeout=5000,polling=50)
+            async def panel_key(key,condition,moves):
+                await page.evaluate("""()=>{
+                  const e=document.getElementById('menu-body');
+                  if(e.__qaScrollEndListener)e.removeEventListener('scrollend',e.__qaScrollEndListener);
+                  e.__qaKeyScroll={ended:false,keys:[]};
+                  e.__qaScrollEndListener=()=>{e.__qaKeyScroll.ended=true;};
+                  e.addEventListener('scrollend',e.__qaScrollEndListener,{once:true});
+                  if(!window.__qaKeyListener){window.__qaKeyListener=true;document.addEventListener('keydown',event=>queueMicrotask(()=>{
+                    const body=document.getElementById('menu-body');
+                    if(body?.__qaKeyScroll)body.__qaKeyScroll.keys.push({key:event.key,target:event.target.id,
+                      active:document.activeElement.id,prevented:event.defaultPrevented,top:body.scrollTop});
+                  }));}
+                }""")
+                await page.keyboard.press(key)
+                try:
+                    await page.wait_for_function(condition,timeout=5000,polling=50)
+                    if moves:
+                        await page.wait_for_function("document.getElementById('menu-body').__qaKeyScroll.ended",timeout=5000,polling=50)
+                except Exception:
+                    report['checks'].append({'task':label+'-native-'+key+'-scroll-completed','passed':False,
+                      'scroll':await page.evaluate('__menuQA.scrollState()'),
+                      'events':await page.evaluate("document.getElementById('menu-body').__qaKeyScroll")})
+                    save();raise
             for viewport in ([{'width':390,'height':780},{'width':320,'height':740},{'width':844,'height':390}] if touch else [{'width':1280,'height':800}]):
                 await page.set_viewport_size(viewport);label=('phone-'+str(viewport['width'])) if touch else 'desktop'
                 for tab in ['char','companion','progress','chronicle','settings','help']:
@@ -338,24 +371,28 @@ async def audit(args):
                             await target.click()
                     await page.locator('#menu-body').focus()
                     initial=await page.evaluate('__menuQA.scrollState()')
-                    await page.keyboard.press('Home')
+                    # Establish the fixture start separately. Home is tested
+                    # below after End, so neither key starts during another
+                    # native keyboard scrolling transaction.
+                    await page.evaluate("document.getElementById('menu-body').scrollTop=0")
                     await page.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))')
                     await page.wait_for_function("document.getElementById('menu-body').scrollTop<=2",timeout=5000,polling=50)
-                    await page.keyboard.press('PageDown')
-                    await page.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))')
-                    if initial['total']>initial['height']+5:
-                        await page.wait_for_function("document.getElementById('menu-body').scrollTop>0",timeout=5000,polling=50)
+                    await settle_panel_scroll()
+                    scrollable=initial['total']>initial['height']+5
+                    await panel_key('PageDown',"document.getElementById('menu-body').scrollTop>0" if scrollable else 'true',scrollable)
                     paged=await page.evaluate('__menuQA.scrollState()')
                     report['checks'].append({'task':label+'-'+long_page+'-keyboard-page-scroll','passed':initial['total']<=initial['height']+5 or paged['top']>0,'scroll':paged})
-                    await page.keyboard.press('End')
-                    await page.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))')
-                    await page.wait_for_function("(()=>{const e=document.getElementById('menu-body');return e.scrollTop+e.clientHeight>=e.scrollHeight-2})()",timeout=5000,polling=50)
+                    # End has its own established top-of-panel fixture so it
+                    # remains observable even if PageDown reached the bottom.
+                    await page.evaluate("document.getElementById('menu-body').scrollTop=0")
+                    await settle_panel_scroll()
+                    await panel_key('End',"(()=>{const e=document.getElementById('menu-body');return e.scrollTop+e.clientHeight>=e.scrollHeight-2})()",scrollable)
                     end=await page.evaluate('__menuQA.scrollState()');await capture(long_page+'-end-reachable')
                     report['checks'].append({'task':label+'-'+long_page+'-end-reachable','passed':end['endVisible'] and end['top']+end['height']>=end['total']-2,'scroll':end})
+                    await panel_key('Home',"document.getElementById('menu-body').scrollTop<=2",scrollable)
+                    home=await page.evaluate('__menuQA.scrollState()')
+                    report['checks'].append({'task':label+'-'+long_page+'-keyboard-home','passed':home['top']<=2 and home['focus']['id']=='menu-body','scroll':home})
                     if touch and viewport['width']==320 and long_page=='help':
-                        await page.keyboard.press('Home')
-                        await page.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))')
-                        await page.wait_for_function("document.getElementById('menu-body').scrollTop<=2",timeout=5000,polling=50)
                         rect=await page.locator('#menu-body').bounding_box();x=rect['x']+rect['width']-20;y=rect['y']+rect['height']*.8
                         cdp=await page.context.new_cdp_session(page)
                         await cdp.send('Input.dispatchTouchEvent',{'type':'touchStart','touchPoints':[{'x':x,'y':y,'id':1}]})
