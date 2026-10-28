@@ -259,6 +259,11 @@ function renderTitleFrame() {
           await waitForTitleVisibility();
           titleAssertActive();
           if (GAME.started) return false;
+          if (id === 'terrain') {
+            const preparation = await prepareTitlePrograms(inventory, stages, TITLE_WARM_GENERATION);
+            captureTitleResizeRequest();
+            if (preparation.stale || TITLE_RESIZE_PENDING) { TITLE_FRAME_DIRTY = true; resized = true; break; }
+          }
           const result = await submitTitleStage(id, members, inventory);
           GRAPHICS_STARTUP.titleWarmup.push(result);
           // A real event-loop/paint opportunity separates cold submissions.
