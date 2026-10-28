@@ -18,12 +18,15 @@ function fixture() {
     'rts-content': { innerHTML: '', contains: () => false }, 'rts-title': {},
     'rts-tabs': { querySelectorAll: () => [] },
   };
-  const commands = [], notices = [];
+  const commands = [], notices = [], blocked = new Map(), focused = [];
   const scope = vm.createContext({
     THRONE_RTS: { active: true }, THRONE_RTS_UI: state, UI: { modal: 'rts' },
-    GAME: { player: { faction: 1 } }, REALMS: [{}, { name: 'Realm' }], HALL: { sit: { H: { S: { name: 'Keep' } } } },
+    GAME: { player: { faction: 1 } }, REALMS: [{}, { name: 'Realm', town: { x: -378, z: 0 } }], HALL: { sit: { H: { S: { name: 'Keep' } } } },
+    WAR: { keeps: [] }, throneRtsFocus: (x, z) => focused.push([x, z]),
     CWUI: {}, document: { activeElement: null }, $: id => nodes[id],
     hallThroneGrant: () => true, throneRtsView: () => ledger,
+    REALM_RTS_SITE_CACHE: new Map(),
+    realmRtsSiteStatus: plot => ({ eligible: !blocked.has(plot.id), reason: blocked.get(plot.id) || '' }),
     throneRtsNotice: value => notices.push(value),
     netRealmManagementCommand: action => {
       commands.push({ ...action });
@@ -34,7 +37,7 @@ function fixture() {
     },
   });
   vm.runInContext(['throneRtsEscape', 'throneRtsNumber', 'throneRtsForm', 'throneRtsCost', 'throneRtsOptions',
-    'throneRtsConstructionChoice', 'throneRtsConstruction', 'throneRtsRenderPanel', 'throneRtsManage', 'throneRtsClick']
+    'throneRtsConstructionChoice', 'throneRtsConstruction', 'throneRtsRenderPanel', 'throneRtsManage', 'throneRtsClick', 'throneRtsMarkerAction', 'throneRtsFormInput', 'throneRtsFocusBuilding']
     .map(extract).join('\n'), scope);
   const render = () => { scope.throneRtsRenderPanel(true); return nodes['rts-content'].innerHTML; };
   const displayedPlot = () => /<select name="plotId">([\s\S]*?)<\/select>/.exec(nodes['rts-content'].innerHTML)?.[1]
@@ -43,7 +46,9 @@ function fixture() {
     const button = { dataset: { action: 'build' }, disabled: false, classList: { contains: () => false } };
     scope.throneRtsClick({ target: { closest: () => button } });
   };
-  return { ledger, state, commands, notices, render, displayedPlot, click };
+  return { ledger, state, commands, notices, blocked, focused, render, displayedPlot, click,
+    focusBuilding: id => scope.throneRtsFocusBuilding(id),
+    marker: id => scope.throneRtsMarkerAction('plot', id), input: id => scope.throneRtsFormInput({ target: { name: 'plotId', value: id } }) };
 }
 
 test('two sequential commissions use the plot displayed after the previous plot becomes occupied', () => {
@@ -65,4 +70,52 @@ test('a captured selected plot is replaced with the same empty owned plot shown 
   assert.equal(displayed, 'second');
   f.click(); assert.equal(f.commands[0].plotId, displayed);
   assert.equal(f.notices.length, 0);
+});
+
+test('terrain or obstacles becoming unsuitable after a displayed quote cannot retarget or charge a commission', () => {
+  const f = fixture(); f.render();
+  f.blocked.set('first', 'An obstacle occupies this site.');
+  f.click();
+  assert.equal(f.commands.length, 0, 'a stale click cannot silently commission the next site');
+  assert.match(f.notices.at(-1), /obstacle/);
+  assert.equal(f.displayedPlot(), 'second');
+  f.click(); assert.equal(f.commands.length, 1); assert.equal(f.commands[0].plotId, 'second');
+});
+
+test('occupied, enemy and obstructed markers do not change the selected plot', () => {
+  const f = fixture(); f.render();
+  f.marker('enemy'); assert.equal(f.state.selectedPlot, 'first');
+  f.ledger.plots.find(p => p.id === 'second').buildingId = 'b:second';
+  f.marker('second'); assert.equal(f.state.selectedPlot, 'first');
+  delete f.ledger.plots.find(p => p.id === 'second').buildingId;
+  f.blocked.set('second', 'This site needs dry ground.'); f.marker('second');
+  assert.equal(f.state.selectedPlot, 'first'); assert.match(f.notices.at(-1), /dry ground/);
+  assert.equal(f.commands.length, 0);
+});
+
+test('a fully obstructed settlement explains availability and disables commissioning', () => {
+  const f = fixture(); f.blocked.set('first', '<steep>'); f.blocked.set('second', 'A road crosses the site.');
+  const html = f.render();
+  assert.match(html, /No clear building plots/); assert.match(html, /Unavailable sites · 2/);
+  assert.match(html, /&lt;steep&gt;/); assert.doesNotMatch(html, /<steep>/);
+  assert.match(html, /data-action="build" disabled/); assert.equal(f.state.selectedPlot, '');
+  f.click(); assert.equal(f.commands.length, 0);
+});
+
+test('a focused plot selector updates the shared selection immediately, without relying on a panel redraw', () => {
+  const f = fixture(); f.render(); f.input('second');
+  assert.equal(f.state.form.plotId, 'second'); assert.equal(f.state.selectedPlot, 'second');
+  f.input('enemy'); assert.equal(f.state.selectedPlot, '');
+  f.blocked.set('second', 'A tree crown occupies this site.'); f.input('second');
+  assert.equal(f.state.selectedPlot, ''); assert.equal(f.commands.length, 0);
+});
+
+test('existing town works focus their authored settlement while earned construction focuses its pinned site', () => {
+  const f = fixture(), plot = f.ledger.plots.find(p => p.id === 'first');
+  Object.assign(plot, { home: 1, site: 'town:1', x: -480, z: 63 });
+  f.ledger.buildings.push({ id: 'b:first', plotId: 'first', adopted: true, x: -480, z: 63 });
+  f.focusBuilding('b:first'); assert.deepEqual(f.focused.at(-1), [-378, 0]);
+  Object.assign(f.ledger.buildings[0], { adopted: false, x: -301, z: 44 });
+  f.focusBuilding('b:first'); assert.deepEqual(f.focused.at(-1), [-301, 44]);
+  assert.equal(f.commands.length, 0, 'focusing never migrates or commissions a building');
 });
