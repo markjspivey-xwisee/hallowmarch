@@ -1618,21 +1618,26 @@ function loreSaveData() {
   return L ? { done: L.done.slice(), seen: L.seen.slice(), pro: L.pro ? 1 : 0, pv: L.pv || PATH_VERSION, ...(L.track && Object.hasOwn(PATH_BY_ID, L.track) && !L.done.includes(L.track) ? { track: L.track } : {}) } : null; // [guide] pv
 }
 function loreCancelBegin() { LORE.begin = null; }
-function loreRequestBegin() {
+function loreRequestBegin(save) {
   loreCancelBegin();
-  if (GAME.started || UI.titleSave?.char) return;
-  const name = ($('name-input').value || '').trim().replace(/\s+/g, ' ').slice(0, 18);
-  LORE.begin = { realm: UI.realm, cls: UI.cls, name,
+  if (GAME.started || UI.titleSave?.char || !save?.fresh) return;
+  LORE.begin = { realm: save.realm, cls: save.cls, name: save.name, request: save,
     host: typeof NETWS === 'undefined' ? '' : NETWS.host || '',
     account: typeof NETWS === 'undefined' ? '' : NETWS.acct?.id || '' };
 }
 function loreConsumeBegin(save) {
   const intent = LORE.begin;
   loreCancelBegin(); // A start consumes the intent, including a recovered old character.
-  return !!(intent && save.fresh && intent.realm === save.realm && intent.cls === save.cls
+  const account = typeof NETWS === 'undefined' ? '' : NETWS.acct?.id || '';
+  // A first Play now can bind a temporary owner after the click. It may keep
+  // only this exact guarded fresh request after its native read is confirmed.
+  const bootstrap = intent && !intent.account && account && intent.request === save
+    && typeof NATIVE_PLAYER !== 'undefined' && NATIVE_PLAYER.status?.verified
+    && typeof SAVE !== 'undefined' && SAVE.native && SAVE.readConfirmed;
+  return !!(intent && intent.request === save && save.fresh && intent.realm === save.realm && intent.cls === save.cls
     && (!intent.name || intent.name === save.name)
     && intent.host === (typeof NETWS === 'undefined' ? '' : NETWS.host || '')
-    && intent.account === (typeof NETWS === 'undefined' ? '' : NETWS.acct?.id || ''));
+    && (intent.account === account || bootstrap));
 }
 // called at the end of startGame with what it was started from
 function loreOnStart(save) {
@@ -1661,7 +1666,6 @@ function loreOnStart(save) {
   else if (kept && pv0 < PATH_VERSION) setTimeout(() => { if (GAME.prog === prog) loreNote('pathnew'); }, 2500); // [guide] what the path gained since the save was made
 }
 // the title screen's "Enter the realm" means a new character: it gets the prologue
-$('btn-begin').addEventListener('click', loreRequestBegin, true);
 for (const id of ['realm-pick', 'class-pick', 'btn-dice', 'btn-continue']) $(id).addEventListener('click', loreCancelBegin, true);
 $('name-input').addEventListener('input', loreCancelBegin);
 

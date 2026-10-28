@@ -38,7 +38,9 @@ function bindTitle() {
     }
     const name = ($('name-input').value || '').trim().replace(/\s+/g, ' ').slice(0, 18) || randomName(UI.realm);
     audioUnlock();
-    void nativePlayerBegin({ v: 1, name, realm: UI.realm, cls: UI.cls, level: 1, xp: 0, rp: 0, fresh: true });
+    const request = { v: 1, name, realm: UI.realm, cls: UI.cls, level: 1, xp: 0, rp: 0, fresh: true };
+    if (typeof loreRequestBegin === 'function') loreRequestBegin(request);
+    void nativePlayerBegin(request);
   };
   $('btn-continue').onclick = () => {
     const s = UI.titleSave;
