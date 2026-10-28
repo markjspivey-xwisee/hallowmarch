@@ -53,9 +53,16 @@ async def main():
                 assert chosen['earned'] == before, chosen
                 await page.screenshot(path=OUT + f'objective_tracking_{width}.png', timeout=300000)
                 print(f'PASS {width}x{height}: later objective selected, instructions visible, focus retained, no rewards, no horizontal overflow', flush=True)
-                await page.evaluate("__hm.UI.modal=null;document.getElementById('menu').hidden=true;__hm.frame(1/30);0")
+                # Resume through the real button: changing UI.modal by hand
+                # bypasses the trusted-input lease and can leave a stale HUD.
+                await page.locator('#menu-close').click()
+                await page.evaluate("for(let i=0;i<12;i++) __hm.frame(1/30);0")
                 assert await page.locator('#lore-path').get_attribute('hidden') is None
-                assert 'Cook a meal' in await page.locator('#lore-path').inner_text()
+                hud = await page.evaluate("""(() => {const e=document.getElementById('lore-path');return {
+                  text:e.innerText,raw:e.textContent,classes:e.className,modal:__hm.UI.modal,
+                  next:__hm.LORE.pathNext()?.id,track:__hm.GAME.prog.lore.track,
+                  done:__hm.GAME.prog.lore.done,errors:__hm.errors};})()""")
+                assert 'Cook a meal' in hud['text'] and hud['next'] == 'cook', hud
             restored = await page.evaluate("""(async () => {
               const F=__hm.LORE.fn, saved=F.validSave(F.buildSave());
               const before=JSON.stringify({xp:saved.char.xp,level:saved.char.level,gold:saved.char.gold,potions:saved.char.potions,done:saved.char.lore.done});

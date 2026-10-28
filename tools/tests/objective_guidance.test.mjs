@@ -203,3 +203,35 @@ test('selected objectives survive a save round trip and invalid or completed sel
   assert.deepEqual(Array.from(damaged.seen), ['start']);
   assert.equal(damaged.track, 'cook');
 });
+
+function beginIntent() {
+  const c = vm.createContext({
+    LORE: { begin: null }, GAME: { started: false }, UI: { realm: 0, cls: 'warrior', titleSave: null },
+    NETWS: { host: 'fixture.example', acct: { id: 'fixture-owner' } },
+    $: () => ({ value: 'Fixture recruit' }), performance: { now: () => 0 },
+  });
+  vm.runInContext(declarations('10c_lore.js', ['loreCancelBegin', 'loreRequestBegin', 'loreConsumeBegin']), c);
+  return { c, save: { fresh: true, realm: 0, cls: 'warrior', name: 'Fixture recruit' } };
+}
+
+test('a real Begin intent survives slow startup and is consumed exactly once for that character', () => {
+  const { c, save } = beginIntent();
+  c.loreRequestBegin();
+  c.performance.now = () => 600000;
+  assert.equal(c.loreConsumeBegin(save), true, 'a ten-minute graphics or native read delay must not discard the requested prologue');
+  assert.equal(c.loreConsumeBegin(save), false, 'the intent cannot replay on another start');
+});
+
+test('cancelled, changed-owner, changed-character and recovered-old-character starts cannot reuse a Begin intent', () => {
+  for (const [change, value] of [['realm', 1], ['cls', 'mage'], ['name', 'Another recruit'], ['fresh', false]]) {
+    const { c, save } = beginIntent(); c.loreRequestBegin();
+    assert.equal(c.loreConsumeBegin({ ...save, [change]: value }), false, change);
+    assert.equal(c.loreConsumeBegin(save), false, 'a rejected or recovered character consumes the old intent');
+  }
+  for (const change of [c => { c.NETWS.acct.id = 'other-owner'; }, c => { c.NETWS.host = 'other.example'; }, c => c.loreCancelBegin()]) {
+    const { c, save } = beginIntent(); c.loreRequestBegin(); change(c);
+    assert.equal(c.loreConsumeBegin(save), false);
+  }
+  const { c, save } = beginIntent(); c.UI.titleSave = { char: save }; c.loreRequestBegin();
+  assert.equal(c.loreConsumeBegin(save), false, 'a returning character button never requests a fresh-character prologue');
+});

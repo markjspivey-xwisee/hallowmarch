@@ -49,6 +49,7 @@ function bindTitle() {
   UI.titleBound = true;
 }
 function setupTitle(save) {
+  if (typeof loreCancelBegin === 'function') loreCancelBegin(); // A title/account reset cancels the old character's Begin intent.
   if (!UI.titleBound) bindTitle();
   UI.titleSave = save && save.char ? save : null;
   UI.nameTouched = false;

@@ -245,7 +245,7 @@ const LORE_CSS = `
 /* state and small helpers                                             */
 /* ------------------------------------------------------------------ */
 const LORE = {
-  pro: null, chronSec: 'march', begin: -1e9,
+  pro: null, chronSec: 'march', begin: null,
   watchT: 0, hudT: 0, placeT: 0, hudKey: '', top: -1, min: null,
   ev: {}, bounty: null, potions: 0, carried: null, doors: new Map(), elites: new Set(), loot: new Set(),
   queue: [], noteUntil: 0, deathShown: false,
@@ -1617,6 +1617,23 @@ function loreSaveData() {
   const L = GAME.prog && GAME.prog.lore;
   return L ? { done: L.done.slice(), seen: L.seen.slice(), pro: L.pro ? 1 : 0, pv: L.pv || PATH_VERSION, ...(L.track && Object.hasOwn(PATH_BY_ID, L.track) && !L.done.includes(L.track) ? { track: L.track } : {}) } : null; // [guide] pv
 }
+function loreCancelBegin() { LORE.begin = null; }
+function loreRequestBegin() {
+  loreCancelBegin();
+  if (GAME.started || UI.titleSave?.char) return;
+  const name = ($('name-input').value || '').trim().replace(/\s+/g, ' ').slice(0, 18);
+  LORE.begin = { realm: UI.realm, cls: UI.cls, name,
+    host: typeof NETWS === 'undefined' ? '' : NETWS.host || '',
+    account: typeof NETWS === 'undefined' ? '' : NETWS.acct?.id || '' };
+}
+function loreConsumeBegin(save) {
+  const intent = LORE.begin;
+  loreCancelBegin(); // A start consumes the intent, including a recovered old character.
+  return !!(intent && save.fresh && intent.realm === save.realm && intent.cls === save.cls
+    && (!intent.name || intent.name === save.name)
+    && intent.host === (typeof NETWS === 'undefined' ? '' : NETWS.host || '')
+    && intent.account === (typeof NETWS === 'undefined' ? '' : NETWS.acct?.id || ''));
+}
 // called at the end of startGame with what it was started from
 function loreOnStart(save) {
   const prog = GAME.prog;
@@ -1634,15 +1651,19 @@ function loreOnStart(save) {
     if ((S.level && prog.level >= S.level) || (old && S.old && prog.level >= S.old) || (S.pv > pv0 && S.old && prog.level >= S.old)) pathComplete(S, true);
   }
   buildPathHud();
-  const fromTitle = performance.now() - LORE.begin < 4000;
-  LORE.begin = -1e9;
+  // The user's Begin intent survives slow graphics/native startup. A clock
+  // deadline skipped the prologue on slower devices; matching and consuming
+  // the actual character/owner intent avoids replaying it on another start.
+  const fromTitle = loreConsumeBegin(save);
   if (save.fresh && fromTitle) openPrologue(false);
   else if (save.fresh) setTimeout(() => { if (GAME.prog === prog) loreNote('start'); }, 1600);
   else if (old) setTimeout(() => { if (GAME.prog === prog) loreNote('news'); }, 2500);
   else if (kept && pv0 < PATH_VERSION) setTimeout(() => { if (GAME.prog === prog) loreNote('pathnew'); }, 2500); // [guide] what the path gained since the save was made
 }
 // the title screen's "Enter the realm" means a new character: it gets the prologue
-$('btn-begin').addEventListener('click', () => { if (!GAME.started) LORE.begin = performance.now(); }, true);
+$('btn-begin').addEventListener('click', loreRequestBegin, true);
+for (const id of ['realm-pick', 'class-pick', 'btn-dice', 'btn-continue']) $(id).addEventListener('click', loreCancelBegin, true);
+$('name-input').addEventListener('input', loreCancelBegin);
 
 function updateLore(dt) {
   const prog = GAME.prog;
