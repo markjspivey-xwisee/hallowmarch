@@ -134,6 +134,7 @@ jobs:
               HM_REALM_SITE_OUT="$PWD/tools/out/realm-sites" check python3 tools/tests/realm_sites_terrain.py
               ;;
             phone)
+              check python3 tools/tests/mobile_hud_tap_regression.py
               check python3 tools/tests/phone.py
               check python3 tools/tests/mobile_multitouch.py
               check python3 tools/tests/mobile_hud.py
