@@ -112,7 +112,7 @@ const netUiFocusable = node => !!node && node !== document.body && node.isConnec
   && !node.closest('[hidden], [inert]') && node.getClientRects().length > 0;
 function netSheetKey() {
   const P = GAME.player;
-  return JSON.stringify([netOn(), NET.state, NETWS.state, NETWS.worldPauseReason, NET.party, NET.partyMax, NET.host,
+  return JSON.stringify([netOn(), NET.state, NETWS.state, NETWS.worldPauseReason, netSheetConnectionStatus(), NET.party, NET.partyMax, NET.host,
     NET.invites.map(I => [I.peer, I.pt]), [...NET.peers.values()].map(R => {
       const s = R.slow, f = R.fast;
       return [R.peer, s?.on, s?.dn, s?.r, s?.c, s?.l, s?.pt, s?.co, !!R.ghost,
@@ -168,6 +168,29 @@ async function netAcctClick(act) {
   else netAcctRender(`Signed in as ${r.acct.name}: the March loads again with your character.`);
 }
 // built with elements and textContent: names and lines from other pages are never markup
+function netSheetConnectionStatus() {
+  const configured = typeof netServerUrl === 'function' ? netServerUrl() : '';
+  const admission = typeof netWsAdmissionStatus === 'function' ? netWsAdmissionStatus() : null;
+  let host = netStr(NETWS.host, 120), sameTarget = true;
+  try { if (configured) { const target = new URL(configured); host = netStr(target.host, 120); sameTarget = target.host === NETWS.host; } }
+  catch { return 'Shared-world connection settings could not be confirmed. Your private character save is separate.'; }
+  if (!sameTarget) return 'Not connected to the shared world on ' + host + '. Your private character save is separate.';
+  if (admission && admission.state !== 'live') return (admission.current ? 'Shared world on ' : 'Last shared-world attempt on ') + host + ': ' + admission.why;
+  if (configured && netOn() && NET.link?.kind !== 'ws')
+    return 'Connected to a separate multiplayer room. The shared world on ' + host + ' is not connected.';
+  if (configured && (!netOn() || NET.link?.kind !== 'ws' || NETWS.state !== 'on'))
+    return 'Not connected to the shared world on ' + host + '. Your private character save is separate.';
+  if (netSheetWorldConnected()) return 'Connected to the shared world on ' + host + '.';
+  if (configured) return 'Waiting for the shared world on ' + host + ' to confirm live play. A private character save does not confirm this connection.';
+  return netOn() ? 'Connected to a multiplayer room.' : 'Not connected to the March. Unsent chat stays in this browser; reconnecting does not send it.';
+}
+function netSheetWorldConnected() {
+  try {
+    const configured = typeof netServerUrl === 'function' ? netServerUrl() : '';
+    return !!configured && new URL(configured).host === NETWS.host && netOn() && NET.link?.kind === 'ws'
+      && NETWS.state === 'on' && typeof netWsAdmissionStatus === 'function' && netWsAdmissionStatus()?.state === 'live';
+  } catch { return false; }
+}
 function netSheetRender() {
   const body = $('netsheet-body'), P = GAME.player;
   if (!body || !P) return;
@@ -179,12 +202,9 @@ function netSheetRender() {
   const el = (tag, cls, txt) => { const d = document.createElement(tag); if (cls) d.className = cls; if (txt != null) d.textContent = txt; return d; };
   const btn = (label, act, peer, extra) => { const b = el('button', 'btn' + (extra || ''), label); b.type = 'button'; b.dataset.act = act; if (peer) b.dataset.peer = peer; return b; };
   if (NETWS.worldPauseReason) body.appendChild(el('p', 'net-quiet', NETWS.worldPauseReason));
-  if (!connected) {
-    const status = el('p', 'net-quiet', NET.state === 'connecting' || NETWS.state === 'connecting'
-      ? 'Connecting to the March. Chat and party invitations are unavailable until connected.'
-      : 'Not connected to the March. Unsent chat stays in this browser; reconnecting does not send it.');
-    status.setAttribute('role', 'status'); body.appendChild(status);
-  }
+  const status = el('p', 'net-quiet', netSheetConnectionStatus());
+  status.dataset.worldStatus = ''; status.style.overflowWrap = 'anywhere';
+  status.setAttribute('role', 'status'); body.appendChild(status);
   const navigation = el('div', 'net-acts');
   navigation.appendChild(btn('Companion', 'companion', ''));
   navigation.appendChild(btn('Progress', 'progress', ''));
@@ -207,8 +227,14 @@ function netSheetRender() {
   }
   // everyone here
   const list = [...NET.peers.values()].filter((R) => R.slow && R.slow.on);
-  body.appendChild(el('h3', '', !connected ? 'Players are unavailable while disconnected' : list.length ? `Others in the March (${list.length})` : 'No one else is in the March right now'));
-  if (connected && !list.length) body.appendChild(el('p', 'net-quiet', 'Whoever opens the March while you are here walks it with you: their realm, their calling and their deeds, beside you or against you.'));
+  const configuredWorld = typeof netServerUrl === 'function' && !!netServerUrl();
+  const separateRoom = configuredWorld && NET.link?.kind !== 'ws';
+  const worldUnconfirmed = configuredWorld && !separateRoom && !netSheetWorldConnected();
+  body.appendChild(el('h3', '', !connected ? 'Players are unavailable while disconnected'
+    : separateRoom ? list.length ? `Others in this multiplayer room (${list.length})` : 'No one else is in this multiplayer room'
+    : worldUnconfirmed ? 'Shared-world player presence is not confirmed'
+    : list.length ? `Others in the March (${list.length})` : 'No one else is in the March right now'));
+  if (connected && !list.length && !worldUnconfirmed && !separateRoom) body.appendChild(el('p', 'net-quiet', 'Whoever opens the March while you are here walks it with you: their realm, their calling and their deeds, beside you or against you.'));
   list.sort((a, b) => (a.slow.r === P.faction ? 0 : 1) - (b.slow.r === P.faction ? 0 : 1) || (a.slow.dn < b.slow.dn ? -1 : 1));
   for (const R of list) {
     const s = R.slow, f = R.fast;
@@ -417,14 +443,17 @@ function netSheetBadge() {
   if (!b) return;
   const n = netPeopleCount();
   const worldPaused = typeof NETWS !== 'undefined' && !!NETWS.worldPauseReason;
+  const identityRequired = typeof netWsAdmissionStatus === 'function' && netWsAdmissionStatus()?.state === 'identity-required';
+  const worldConfigured = typeof netServerUrl === 'function' && !!netServerUrl();
   const coI = typeof coInvited === 'function' && coInvited(); // [companies] the company is there with nobody else in the March; an invitation to one
   const aiAvailable = !!window.__HM_GAMING?.mainWorldAgents?.enabled;
-  b.hidden = !worldPaused && !aiAvailable && (!netOn() || (n === 0 && !NET.party && !NET.invites.length && !(typeof coWanted === 'function' && coWanted())));
-  const t = worldPaused || NET.invites.length || coI ? '!' : n ? String(n) : '';
+  b.hidden = !worldPaused && !identityRequired && !worldConfigured && !aiAvailable && (!netOn() || (n === 0 && !NET.party && !NET.invites.length && !(typeof coWanted === 'function' && coWanted())));
+  const t = worldPaused || identityRequired || NET.invites.length || coI ? '!' : n ? String(n) : '';
   const s = b.querySelector('.net-n');
   if (s && s.textContent !== t) s.textContent = t;
-  b.classList.toggle("net-glow", worldPaused || NET.invites.length > 0 || coI);
-  b.setAttribute('aria-label', worldPaused ? NETWS.worldPauseReason + ' Open Players for details.' : 'Players in the March: party and chat (P)');
+  b.classList.toggle("net-glow", worldPaused || identityRequired || NET.invites.length > 0 || coI);
+  b.setAttribute('aria-label', worldPaused ? NETWS.worldPauseReason + ' Open Players for details.' : identityRequired
+    ? 'Reconnect your identity for shared-world play. Open Players for details.' : 'Players in the March: party and chat (P)');
 }
 function netUiFrame() {
   if (!NETUI.on || !GAME.started || !GAME.player) return;

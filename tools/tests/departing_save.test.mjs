@@ -11,25 +11,59 @@ const between = (s,a,b) => s.slice(s.indexOf(a),s.indexOf(b,s.indexOf(a)+a.lengt
 const roomNeedsWarbandOrders = between(server, 'function roomNeedsWarbandOrders(', 'function roomHost(');
 const onMsg = between(server, 'function onMsg(', '/* ------------------------------------------------------------------ */');
 const endSession = between(server, 'function endHumanSession(', 'function resumeHumanSession(');
-function routing() {
-  let now=1000; const sent=[], writes=[], sceneLeaves=[];
-  const room={clients:new Map()}, owner={acct:{id:'owner'},room,peer:'owner',ws:{close(){}},winT:now,winN:0};
+function routing({ nativeRequired = false, verified = true } = {}) {
+  let now=1000, principalVerified=verified; const sent=[], writes=[], sceneLeaves=[], closes=[];
+  const room={clients:new Map()}, owner={acct:{id:'owner'},room,peer:'owner',ws:{close:(code,reason)=>closes.push({code,reason})},winT:now,winN:0};
   room.clients.set(owner.peer,owner);
   let context;
   const gate=createHumanPlayGate({clock:()=>now,onSessionEnd:c=>context.endHumanSession(c),setTimer:()=>({unref(){}}),clearTimer(){}});
   context=vm.createContext({
     Date:{now:()=>now}, JSON, Map, console, STATS:{msgs:0,bytesIn:0,badMsgs:0,saves:0},
     CFG:{maxMsg:65536,maxSave:1048576}, HUMAN_PLAY:gate,isHumanPlaying:gate.isPlaying,
-    realmManagementReloadRequired, nativePlayersRequired:false,PLAYER_ACCOUNTS:{principalFor:()=>null,isBound:()=>false,status:()=>({enabled:true})},
+    realmManagementReloadRequired, nativePlayersRequired:nativeRequired,PLAYER_ACCOUNTS:{humanPrincipalFor:()=>principalVerified?'did:example:owner':null,principalFor:()=>null,isBound:()=>false,status:()=>({enabled:true})},
     WORLD_STATE:null,WORLDS:{},SHARED_SCENE:{leave:c=>sceneLeaves.push(c)},FIELD:{left(){}},worldAgentTransport:{close(){}},regionsTell(){},
     clearTimeout(){},resumeHumanSession(){},accountsSave(){},onSlow(c,d){c.slow=d;},
     send:(c,m)=>sent.push(m),store:{write:(p,d)=>writes.push({p,d})},path:{join:(...p)=>p.join('/')},
     gamingEnvironment:{},process:{env:{}}
   });
   vm.runInContext(roomNeedsWarbandOrders+'\n'+endSession+'\n'+onMsg+'\nglobalThis.H={onMsg,endHumanSession};',context);
-  return {owner,room,sent,writes,sceneLeaves,gate,send:m=>context.H.onMsg(owner,JSON.stringify(m)),advance:ms=>{now+=ms;}};
+  return {owner,room,sent,writes,sceneLeaves,closes,gate,send:m=>context.H.onMsg(owner,JSON.stringify(m)),advance:ms=>{now+=ms;},setVerified:value=>{principalVerified=value;}};
 }
-const live=n=>({t:'slow',d:{on:1,humanLive:1,humanActivity:n,realmManagement:1,seasonField:2, sharedCombat: 1, actorDevelopment: 1,r:0}});
+const live=n=>({t:'slow',d:{on:1,humanLive:1,humanActivity:n,realmManagement:1,seasonField:2,sharedScene:2, sharedCombat: 1, actorDevelopment: 1,r:0}});
+
+test('actual routing acknowledges admitted play and distinguishes menu standby from missing native identity',()=>{
+  const f=routing({nativeRequired:true});
+  f.send(live(1)); assert.equal(f.gate.count(),1);
+  const statuses=()=>f.sent.filter(m=>m.t==='world-status');
+  assert.equal(statuses().at(-1)?.admission,'live');
+  f.send(live(1)); assert.equal(statuses().length,1,'unchanged admitted profiles do not spam status');
+  f.send({t:'slow',d:{on:0,humanLive:0,humanActivity:1}});
+  assert.equal(f.gate.count(),0); assert.equal(statuses().at(-1)?.admission,'standby');
+  assert.equal(statuses().at(-1)?.code,'human_play_required');
+  f.setVerified(false); f.send(live(2));
+  assert.equal(f.gate.count(),0); assert.equal(statuses().at(-1)?.admission,'identity-required');
+  assert.equal(statuses().at(-1)?.code,'native_signin_required');
+  assert.match(statuses().at(-1)?.why,/identity/i);
+  assert.equal(f.writes.length,0,'identity refusal cannot write or reopen play');
+  f.setVerified(true); f.send(live(2));
+  assert.equal(f.gate.count(),1); assert.equal(statuses().at(-1)?.admission,'live');
+  assert.equal(f.owner.finalSaveUntil,0,'normal resume retains the original departure fence');
+});
+
+test('cold native refusal reports the missing admission before closing without granting a human lease',()=>{
+  const f=routing({nativeRequired:true,verified:false}); f.send(live(1));
+  assert.equal(f.gate.count(),0); assert.equal(f.sent.at(-1)?.admission,'identity-required');
+  assert.equal(f.sent.at(-1)?.code,'native_signin_required'); assert.equal(f.closes[0]?.code,4000);
+  assert.equal(f.writes.length,0); assert.equal(f.owner.hasPlayedLive,undefined);
+});
+
+test('an expired live lease reports standby and requires fresh input before reporting admission again',()=>{
+  const f=routing({nativeRequired:true}); f.send(live(1)); f.advance(90001); f.send(live(1));
+  assert.equal(f.gate.count(),0); assert.equal(f.sent.at(-1)?.admission,'standby');
+  assert.equal(f.sent.at(-1)?.code,'human_play_required');
+  f.send(live(2)); assert.equal(f.gate.count(),1); assert.equal(f.sent.at(-1)?.admission,'live');
+  assert.equal(f.writes.length,0);
+});
 test('actual routing accepts one departing save after withdrawal without reopening its human lease',()=>{
   const f=routing();
   f.send({t:'save',final:1,d:{v:1,char:{xp:1}}});

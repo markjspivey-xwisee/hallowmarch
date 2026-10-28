@@ -152,6 +152,24 @@ test('native-required deployment rejects legacy participation and personal-file 
   assert.equal(await readFile(f.file('alice'), 'utf8'), f.original);
 });
 
+test('a native transport credential without current owner proof receives identity recovery instead of paused-play feedback', async t => {
+  const f = await fixture(t, true, true);
+  const alice = await f.connect(f.tokens.issueNative('alice', 'did:example:alice').token);
+  assert.equal(alice.welcome.acct.id, 'alice'); assert.equal(alice.welcome.acct.nativeBound, true);
+  alice.send({ t: 'save', d: { v: 1, player: { name: 'Unverified must never replace original' } } });
+  assert.equal((await alice.receive('saved')).error, 'native_identity_required');
+  alice.send({ t: 'slow', d: { r: 0, on: 1, realmManagement: 1, seasonField: 2,
+    sharedCombat: 1, actorDevelopment: 1, sharedScene: 2, humanLive: 1, humanActivity: 1 } });
+  const refused = await alice.receive('world-status');
+  assert.equal(refused.ok, true); assert.equal(refused.standby, true);
+  assert.equal(refused.admission, 'identity-required'); assert.equal(refused.code, 'native_signin_required');
+  assert.match(refused.why, /sign.in|identity/i);
+  const health = await (await fetch(f.base + '/health')).json();
+  assert.equal(health.livePlay.players, 0); assert.equal(health.livePlay.mode, 'standby');
+  assert.equal(await readFile(f.file('alice'), 'utf8'), f.original);
+  assert.deepEqual(Object.keys(JSON.parse(await readFile(f.accountsFile, 'utf8'))).sort(), ['alice', 'bob']);
+});
+
 
 test('actual WebSocket hello never downgrades expired or forged saved credentials to a new guest', async t => {
   const f = await fixture(t);

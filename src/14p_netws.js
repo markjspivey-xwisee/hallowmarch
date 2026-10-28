@@ -3,7 +3,7 @@
 /* ================================================================== */
 // The save's early request and the multiplayer pump share one attempt. A failed
 // boot request is retryable after GAME.ready; reconnecting never reloads a save.
-const NETWS = { ws: null, url: '', host: '', state: 'off', acct: null, token: '', world: null, worldPauseReason: '', worldPersistence: null, worldAdmission: null, activeWorldAdmission: null, worldInit: null, worldInitialized: false, worldAdmissionRequired: false, worldReloadRequired: false, link: null, linkP: null, openP: null, generation: 0, cancelOpen: null, retryTimer: 0, pingTimer: 0, closed: false, waits: [], backoff: 1, lastFailure: '', lastClose: null, stats: { opens: 0, drops: 0, sent: 0, recv: 0, bytesUp: 0, bytesDown: 0, rtt: 0 } };
+const NETWS = { ws: null, url: '', host: '', state: 'off', acct: null, token: '', world: null, worldPauseReason: '', worldPersistence: null, liveAdmission: null, worldAdmission: null, activeWorldAdmission: null, worldInit: null, worldInitialized: false, worldAdmissionRequired: false, worldReloadRequired: false, link: null, linkP: null, openP: null, generation: 0, cancelOpen: null, retryTimer: 0, pingTimer: 0, closed: false, waits: [], backoff: 1, lastFailure: '', lastClose: null, stats: { opens: 0, drops: 0, sent: 0, recv: 0, bytesUp: 0, bytesDown: 0, rtt: 0 } };
 // Only a recognized refusal of this exact opening can offer explicit recovery.
 NETWS.sessionRefusal = null;
 // World/season admission and the owner's character save are separate. Keep a
@@ -24,6 +24,29 @@ function netSameWorldAdmission(a, b) {
 }
 function netCurrentWorldAdmission() {
   return netWorldAdmissionRead(NETWS.worldAdmission || window.__HM_GAMING?.worldAdmission);
+}
+// A transport welcome or a personal pod save does not acknowledge live world admission.
+function netWsAdmissionStatus() {
+  const value = NETWS.liveAdmission;
+  if (!value || value.host !== NETWS.host || value.accountId !== (NETWS.acct?.id || '')) return null;
+  const current = value.generation === NETWS.generation && NETWS.state === 'on' && NETWS.ws?.readyState === 1 && !NETWS.reload;
+  if (value.state === 'live' && !current) return null;
+  return { state: value.state, code: value.code, why: value.why, current };
+}
+function netWsAdmissionUpdate(message) {
+  const state = message.admission;
+  const code = state === 'live' ? 'human_play_admitted' : state === 'standby' ? 'human_play_required'
+    : state === 'identity-required' ? 'native_signin_required' : '';
+  if (!code || message.code !== code || state === 'live' && (message.ok !== true || message.standby === true)) return;
+  const fallback = state === 'identity-required' ? 'Reconnect your identity to join the shared world. Your private character is preserved.'
+    : state === 'standby' ? 'Shared-world play is paused. Return to the game and interact to resume.' : 'Live shared-world play is confirmed.';
+  const why = netStr(message.why, 180) || fallback, previous = netWsAdmissionStatus();
+  NETWS.liveAdmission = { state, code, why, host: NETWS.host, accountId: NETWS.acct?.id || '', generation: NETWS.generation };
+  if (state === 'identity-required' && (previous?.state !== state || previous.why !== why) && GAME.started && GAME.player) {
+    uiLog(why, 'sys'); uiToast(why, 'hint');
+  }
+  if (typeof NETUI !== 'undefined' && NETUI.open && typeof netSheetRender === 'function') netSheetRender();
+  if (typeof netSheetBadge === 'function') netSheetBadge();
 }
 function netSharedWorldRequired() {
   return NETWS.worldAdmissionRequired || !!window.__HM_GAMING?.worldAdmission
@@ -213,6 +236,7 @@ function netWsRetire(ws, why) {
   // A caller may request a fresh transport in this same turn, before the old
   // link promise's cleanup microtask runs. It must not inherit that attempt.
   NETWS.linkP = null;
+  if (NETWS.liveAdmission?.state === 'live') NETWS.liveAdmission = null;
   ++NETWS.generation; NETWS.ws = null; NETWS.state = 'off'; NETWS.lastFailure = why;
   if (typeof netSharedSceneReset === 'function') netSharedSceneReset();
   netWsPendingFail();
@@ -229,6 +253,8 @@ function netWsOpen() {
   if (NETWS.state === 'on' && NETWS.ws && NETWS.ws.readyState === 1) return Promise.resolve(true);
   if (NETWS.openP) return NETWS.openP;
   const generation = ++NETWS.generation, host = NETWS.host, url = NETWS.url;
+  if (NETWS.liveAdmission?.state === 'live' || NETWS.liveAdmission?.host !== host
+    || NETWS.liveAdmission?.accountId !== (NETWS.acct?.id || '')) NETWS.liveAdmission = null;
   NETWS.sessionRefusal = null;
   // Retire a closing socket before replacing it. Its queued callbacks remain
   // harmless because every handler checks both this generation and identity.
@@ -275,6 +301,7 @@ function netWsOpen() {
       if (m.t === 'welcome') {
         if (settled || NETWS.state !== 'opening') return;
         NETWS.sessionRefusal = null;
+        if (NETWS.liveAdmission?.accountId !== (m.acct?.id || '')) NETWS.liveAdmission = null;
         NETWS.state = 'on'; NETWS.backoff = 1; NETWS.lastFailure = ''; NETWS.acct = m.acct; NETWS.world = m.world || null;
         netWsWorldStatus(m.worldAuthority, true);
         NET.self = m.peer; NETWS.worldRoom = m.room; NET.srvWorld = m.world || null; NET.srvWorldDone = false; NETWS.season = m.season || null;
@@ -286,6 +313,7 @@ function netWsOpen() {
         if (GAME.ready && GAME.started && GAME.player) netWsSend({ t: 'slow', d: netSlowObj() }, ws);
         finish(true);
       } else if (m.t === 'denied') {
+        if (m.code === 'native_signin_required') netWsAdmissionUpdate({ ...m, admission: 'identity-required' });
         if (!settled && NETWS.state === 'opening' && m.code === 'native_signin_required' && tok) {
           NETWS.sessionRefusal = { host, token: tok, code: m.code, generation };
         }
@@ -293,7 +321,7 @@ function netWsOpen() {
       }
       else if (NETWS.state !== 'on') return;
       else if (m.t === 'reload-required') netSceneReloadRequired(m.why);
-      else if (m.t === 'world-status') netWsWorldStatus(m.persistence);
+      else if (m.t === 'world-status') { netWsWorldStatus(m.persistence); netWsAdmissionUpdate(m); }
       else if (m.t === 'peer' && typeof m.peer === 'string') netPeerUpdate(m.peer, { by: m.by || null, kind: 'viewer', slow: m.slow, fast: m.fast });
       else if (m.t === 'left' && typeof m.peer === 'string') netPeerLeft(m.peer);
       else if (m.t === 'ev' && typeof m.peer === 'string') netPeerEvents(m.peer, m.ev);
@@ -324,6 +352,7 @@ function netWsOpen() {
     };
     ws.onclose = (ev) => {
       if (!current()) return;
+      if (NETWS.liveAdmission?.state === 'live') NETWS.liveAdmission = null;
       if (ev && ev.code === 4006) {
         if (typeof netSceneReloadRequired === 'function') netSceneReloadRequired(ev.reason);
         else { NETWS.reload = true; NETWS.lastFailure = 'Reload Hallowmarch to join the updated shared world.'; }
@@ -361,7 +390,7 @@ function netLinkWS(url) {
     if (!u || typeof WebSocket === 'undefined' || NETWS.reload) return null;
     const host = new URL(u).host;
     if (NETWS.url && NETWS.url !== u && NETWS.link) NETWS.link.close();
-    if (NETWS.host && NETWS.host !== host) { NETWS.token = ''; NETWS.acct = null; }
+    if (NETWS.host && NETWS.host !== host) { NETWS.token = ''; NETWS.acct = null; NETWS.liveAdmission = null; }
     NETWS.url = u; NETWS.host = host; NETWS.closed = false;
     const opening = netWsOpen(), generation = NETWS.generation;
     const ok = await opening;
@@ -375,7 +404,7 @@ function netLinkWS(url) {
       connected: () => NETWS.link === L && NETWS.state === 'on',
       close: () => {
         if (NETWS.link !== L) return;
-        NETWS.closed = true; NETWS.link = null;
+        NETWS.closed = true; NETWS.link = null; NETWS.liveAdmission = null;
         clearTimeout(NETWS.retryTimer); NETWS.retryTimer = 0;
         clearInterval(NETWS.pingTimer); NETWS.pingTimer = 0;
         if (NETWS.cancelOpen) NETWS.cancelOpen();
