@@ -66,7 +66,9 @@ test('reduced effects suppress both incoming camera shake and screen flash witho
 test('secondary text meets normal-text contrast against the dark menu surface',()=>{
   const opacity=Number(shell.match(/--ink-faint: rgba\(239, 230, 211, ([\d.]+)\)/)[1]);
   const lum=rgb=>rgb.map(v=>v/255).map(v=>v<=.04045?v/12.92:((v+.055)/1.055)**2.4).reduce((s,v,i)=>s+v*[.2126,.7152,.0722][i],0);
-  for(const bg of [[26,28,34],[18,20,24],[60,60,60]]) {
+  const backing=Number(shell.match(/--slate: rgba\(15, 17, 21, ([\d.]+)\)/)[1]);
+  const overWhite=[15,17,21].map(v=>v*backing+255*(1-backing));
+  for(const bg of [[26,28,34],[18,20,24],overWhite]) {
     const fg=[239,230,211].map((v,i)=>opacity*v+(1-opacity)*bg[i]);
     assert.ok((lum(fg)+.05)/(lum(bg)+.05)>=4.5,'secondary text on '+bg);
   }

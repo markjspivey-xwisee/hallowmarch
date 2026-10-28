@@ -23,7 +23,10 @@ test('a real failed graphics dependency shows recovery and retry performs one no
     assert.equal(visits,1);
     mkdirSync(new URL('../out/',import.meta.url),{recursive:true});
     await page.screenshot({path:fileURLToPath(new URL('../out/startup-file-recovery-390.png',import.meta.url))});
-    await page.getByRole('button',{name:'Retry loading',exact:true}).click();
+    await Promise.all([
+      page.waitForNavigation({waitUntil:'domcontentloaded'}),
+      page.getByRole('button',{name:'Retry loading',exact:true}).click(),
+    ]);
     await page.waitForFunction(()=>document.querySelector('#nogl button') && !document.querySelector('#nogl').hidden);
     assert.equal(visits,2);
     assert.equal(await page.evaluate(()=>localStorage.length),0);

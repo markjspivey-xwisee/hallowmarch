@@ -40,7 +40,7 @@
     },
     {
       "path": "src/10_ui.js",
-      "digest": "sha256:6cd82024062a793fbe21fb8c301c1480126df59ea6a944debd5006dfdf3cc6ee"
+      "digest": "sha256:d48d27245cec168d097fc0e6badb147504dae021e313ee5c3796b64d05153ec4"
     },
     {
       "path": "src/10c_lore.js",
@@ -48,7 +48,7 @@
     },
     {
       "path": "src/10e_guide.js",
-      "digest": "sha256:9ce92d15c75d3f2e947b2f146d1066bf18b58163b1b8cc9e73f2525869873ab1"
+      "digest": "sha256:1ab9a459c4a687f0982889de3c4511586c91e9e8d9429e11fe982b800771850c"
     },
     {
       "path": "src/10f_guide2.js",
@@ -107,11 +107,11 @@
       ],
       "source": {
         "path": "src/10e_guide.js",
-        "digest": "sha256:9ce92d15c75d3f2e947b2f146d1066bf18b58163b1b8cc9e73f2525869873ab1",
+        "digest": "sha256:1ab9a459c4a687f0982889de3c4511586c91e9e8d9429e11fe982b800771850c",
         "selector": "FIELD_NOTES.bands",
         "lines": {
-          "start": 247,
-          "end": 247
+          "start": 248,
+          "end": 248
         }
       },
       "requiresContext": true,
@@ -123,7 +123,7 @@
         "note": "bands",
         "availability": "Collected in the game when relevant"
       },
-      "revisionDigest": "sha256:d3912578f1229c5542f32816a03d042900237c7b8af9f70c8859d094c97486cb"
+      "revisionDigest": "sha256:d2f4b0523f0c0cb59ae9d9e473886aaa36db55f2a81b7eb1de5b7d4882ef1d67"
     },
     {
       "id": "field-note:barrow",
@@ -225,11 +225,11 @@
       ],
       "source": {
         "path": "src/10e_guide.js",
-        "digest": "sha256:9ce92d15c75d3f2e947b2f146d1066bf18b58163b1b8cc9e73f2525869873ab1",
+        "digest": "sha256:1ab9a459c4a687f0982889de3c4511586c91e9e8d9429e11fe982b800771850c",
         "selector": "FIELD_NOTES.brand",
         "lines": {
-          "start": 244,
-          "end": 244
+          "start": 245,
+          "end": 245
         }
       },
       "requiresContext": true,
@@ -241,7 +241,7 @@
         "note": "brand",
         "availability": "Collected in the game when relevant"
       },
-      "revisionDigest": "sha256:543916b83a2b93d52c53f8ccf14d31f391a46df7ba38db02d46568ecaf75b842"
+      "revisionDigest": "sha256:f08cf56065127af1121f33698db2bd7c53d1233e9a4f8d94d11fcc98e80db155"
     },
     {
       "id": "field-note:breach",
@@ -254,11 +254,11 @@
       ],
       "source": {
         "path": "src/10e_guide.js",
-        "digest": "sha256:9ce92d15c75d3f2e947b2f146d1066bf18b58163b1b8cc9e73f2525869873ab1",
+        "digest": "sha256:1ab9a459c4a687f0982889de3c4511586c91e9e8d9429e11fe982b800771850c",
         "selector": "FIELD_NOTES.breach",
         "lines": {
-          "start": 240,
-          "end": 240
+          "start": 241,
+          "end": 241
         }
       },
       "requiresContext": false,
@@ -271,7 +271,7 @@
         "note": "breach",
         "availability": "Collected in the game when relevant"
       },
-      "revisionDigest": "sha256:e440a33fbeb0aa2ed327dbb7b7826439d04245e90c6d12c02e77e5f91abb8e69"
+      "revisionDigest": "sha256:6e8ec32c56e14a232db8d73b272b47537a85c09a0bbf4c9735427074bc53dd27"
     },
     {
       "id": "field-note:breed",
@@ -314,11 +314,11 @@
       ],
       "source": {
         "path": "src/10e_guide.js",
-        "digest": "sha256:9ce92d15c75d3f2e947b2f146d1066bf18b58163b1b8cc9e73f2525869873ab1",
+        "digest": "sha256:1ab9a459c4a687f0982889de3c4511586c91e9e8d9429e11fe982b800771850c",
         "selector": "FIELD_NOTES.burning",
         "lines": {
-          "start": 245,
-          "end": 245
+          "start": 246,
+          "end": 246
         }
       },
       "requiresContext": false,
@@ -331,7 +331,7 @@
         "note": "burning",
         "availability": "Collected in the game when relevant"
       },
-      "revisionDigest": "sha256:2be954f631f7817eb63d6555ed7cdfbb897b4b26fb143b2847dbffbdc8eda726"
+      "revisionDigest": "sha256:e2098a3673bf061516375dba05e3ca7e601051ee84de4150273fa611a11a8806"
     },
     {
       "id": "field-note:campaign",
@@ -403,11 +403,11 @@
       ],
       "source": {
         "path": "src/10e_guide.js",
-        "digest": "sha256:9ce92d15c75d3f2e947b2f146d1066bf18b58163b1b8cc9e73f2525869873ab1",
+        "digest": "sha256:1ab9a459c4a687f0982889de3c4511586c91e9e8d9429e11fe982b800771850c",
         "selector": "FIELD_NOTES.champion",
         "lines": {
-          "start": 248,
-          "end": 248
+          "start": 249,
+          "end": 249
         }
       },
       "requiresContext": false,
@@ -420,7 +420,7 @@
         "note": "champion",
         "availability": "Collected in the game when relevant"
       },
-      "revisionDigest": "sha256:a647d031e5543aba32ed4d9ef9ae0b5e323c360c7df561d82979d842a04ed454"
+      "revisionDigest": "sha256:15ab4d316b77cec6362bf94bf2ebf5aba5147b1d34326152ec1b9a3be87feb80"
     },
     {
       "id": "field-note:charge",
@@ -552,11 +552,11 @@
       ],
       "source": {
         "path": "src/10e_guide.js",
-        "digest": "sha256:9ce92d15c75d3f2e947b2f146d1066bf18b58163b1b8cc9e73f2525869873ab1",
+        "digest": "sha256:1ab9a459c4a687f0982889de3c4511586c91e9e8d9429e11fe982b800771850c",
         "selector": "FIELD_NOTES.crops",
         "lines": {
-          "start": 252,
-          "end": 252
+          "start": 253,
+          "end": 253
         }
       },
       "requiresContext": false,
@@ -569,7 +569,7 @@
         "note": "crops",
         "availability": "Collected in the game when relevant"
       },
-      "revisionDigest": "sha256:1803ce5ba6ca86f8f07145b8b3c71413fd1e7f2f6fd14d374903acd063675f6d"
+      "revisionDigest": "sha256:848ab29208ad1c023ba44310d59e43fed2763f0eb0f372ddadf7fa5df45fee4b"
     },
     {
       "id": "field-note:current",
@@ -612,11 +612,11 @@
       ],
       "source": {
         "path": "src/10e_guide.js",
-        "digest": "sha256:9ce92d15c75d3f2e947b2f146d1066bf18b58163b1b8cc9e73f2525869873ab1",
+        "digest": "sha256:1ab9a459c4a687f0982889de3c4511586c91e9e8d9429e11fe982b800771850c",
         "selector": "FIELD_NOTES.dark",
         "lines": {
-          "start": 254,
-          "end": 254
+          "start": 255,
+          "end": 255
         }
       },
       "requiresContext": false,
@@ -629,7 +629,7 @@
         "note": "dark",
         "availability": "Collected in the game when relevant"
       },
-      "revisionDigest": "sha256:eb042145a22d7d4bccc82ea5f3462bf4b73ad936720f5cf5c47db8750a43bd77"
+      "revisionDigest": "sha256:2f68a941aeeb60d5a659bd2796971ab2aef3929ca9ff82b309789ca0042fbedd"
     },
     {
       "id": "field-note:dazzle",
@@ -790,11 +790,11 @@
       ],
       "source": {
         "path": "src/10e_guide.js",
-        "digest": "sha256:9ce92d15c75d3f2e947b2f146d1066bf18b58163b1b8cc9e73f2525869873ab1",
+        "digest": "sha256:1ab9a459c4a687f0982889de3c4511586c91e9e8d9429e11fe982b800771850c",
         "selector": "FIELD_NOTES.engine",
         "lines": {
-          "start": 241,
-          "end": 241
+          "start": 242,
+          "end": 242
         }
       },
       "requiresContext": true,
@@ -806,7 +806,7 @@
         "note": "engine",
         "availability": "Collected in the game when relevant"
       },
-      "revisionDigest": "sha256:a0abb8ed8ebf23683a2c798e5077421dd7f3a241dd82769e79a06940541ed768"
+      "revisionDigest": "sha256:8cf0db46cdc2ec448d47a53f4f907a4710d2609fa983b3a1a8a4814dd793079e"
     },
     {
       "id": "field-note:farmers",
@@ -877,11 +877,11 @@
       ],
       "source": {
         "path": "src/10e_guide.js",
-        "digest": "sha256:9ce92d15c75d3f2e947b2f146d1066bf18b58163b1b8cc9e73f2525869873ab1",
+        "digest": "sha256:1ab9a459c4a687f0982889de3c4511586c91e9e8d9429e11fe982b800771850c",
         "selector": "FIELD_NOTES.fish",
         "lines": {
-          "start": 251,
-          "end": 251
+          "start": 252,
+          "end": 252
         }
       },
       "requiresContext": true,
@@ -893,7 +893,7 @@
         "note": "fish",
         "availability": "Collected in the game when relevant"
       },
-      "revisionDigest": "sha256:ec61239509b4d016b207cb2dcf558cfb7de9fab60b70aadb9a55079f3ee249fe"
+      "revisionDigest": "sha256:6575857634ccd158238f632ff8934a897d2a0782c95fb00c52aadc42ead71bb8"
     },
     {
       "id": "field-note:frontier",
@@ -965,11 +965,11 @@
       ],
       "source": {
         "path": "src/10e_guide.js",
-        "digest": "sha256:9ce92d15c75d3f2e947b2f146d1066bf18b58163b1b8cc9e73f2525869873ab1",
+        "digest": "sha256:1ab9a459c4a687f0982889de3c4511586c91e9e8d9429e11fe982b800771850c",
         "selector": "FIELD_NOTES.gear",
         "lines": {
-          "start": 243,
-          "end": 243
+          "start": 244,
+          "end": 244
         }
       },
       "requiresContext": true,
@@ -981,7 +981,7 @@
         "note": "gear",
         "availability": "Collected in the game when relevant"
       },
-      "revisionDigest": "sha256:586b903fd77ca360f269165e676030cb9610b5bd568f2ce24cb7bb89041a53c8"
+      "revisionDigest": "sha256:39072e7f6cfdc27a39f57e1cb0dc923571d940785751900ccc6aaa9da7c0a632"
     },
     {
       "id": "field-note:gearstats",
@@ -1023,11 +1023,11 @@
       ],
       "source": {
         "path": "src/10e_guide.js",
-        "digest": "sha256:9ce92d15c75d3f2e947b2f146d1066bf18b58163b1b8cc9e73f2525869873ab1",
+        "digest": "sha256:1ab9a459c4a687f0982889de3c4511586c91e9e8d9429e11fe982b800771850c",
         "selector": "FIELD_NOTES.gift",
         "lines": {
-          "start": 249,
-          "end": 249
+          "start": 250,
+          "end": 250
         }
       },
       "requiresContext": true,
@@ -1039,7 +1039,7 @@
         "note": "gift",
         "availability": "Collected in the game when relevant"
       },
-      "revisionDigest": "sha256:08ad32d5aa46c447d581e39eaed9e3a1d0ffab57f839d90eb7135c46273a5698"
+      "revisionDigest": "sha256:4a4258dd5a1c010623ad903539a702ccb590d9d90421eee24cfc51d7e5526ab6"
     },
     {
       "id": "field-note:hall",
@@ -1671,11 +1671,11 @@
       ],
       "source": {
         "path": "src/10e_guide.js",
-        "digest": "sha256:9ce92d15c75d3f2e947b2f146d1066bf18b58163b1b8cc9e73f2525869873ab1",
+        "digest": "sha256:1ab9a459c4a687f0982889de3c4511586c91e9e8d9429e11fe982b800771850c",
         "selector": "FIELD_NOTES.ladder",
         "lines": {
-          "start": 238,
-          "end": 238
+          "start": 239,
+          "end": 239
         }
       },
       "requiresContext": true,
@@ -1687,7 +1687,7 @@
         "note": "ladder",
         "availability": "Collected in the game when relevant"
       },
-      "revisionDigest": "sha256:ebf28247d9df70409bfcc7fa33e09a20aa73c15c99fb2b82089dcd20d7324cb1"
+      "revisionDigest": "sha256:282c05c53b2a1753bb54fa7829db47bb05aef5fde9b400d1869311905c1fc7d4"
     },
     {
       "id": "field-note:lakeice",
@@ -1962,11 +1962,11 @@
       ],
       "source": {
         "path": "src/10e_guide.js",
-        "digest": "sha256:9ce92d15c75d3f2e947b2f146d1066bf18b58163b1b8cc9e73f2525869873ab1",
+        "digest": "sha256:1ab9a459c4a687f0982889de3c4511586c91e9e8d9429e11fe982b800771850c",
         "selector": "FIELD_NOTES.needs",
         "lines": {
-          "start": 235,
-          "end": 235
+          "start": 236,
+          "end": 236
         }
       },
       "requiresContext": true,
@@ -1978,7 +1978,7 @@
         "note": "needs",
         "availability": "Collected in the game when relevant"
       },
-      "revisionDigest": "sha256:00dfa1138ba47adfa7196408d20ecdf7a2e1f0daa08411f7c60247e3a7330a2d"
+      "revisionDigest": "sha256:40c41b8087a334be9a1aefe87952429d0ebe7522c88a95f57f7e9d9a07446f0c"
     },
     {
       "id": "field-note:netcompany",
@@ -2107,11 +2107,11 @@
       ],
       "source": {
         "path": "src/10e_guide.js",
-        "digest": "sha256:9ce92d15c75d3f2e947b2f146d1066bf18b58163b1b8cc9e73f2525869873ab1",
+        "digest": "sha256:1ab9a459c4a687f0982889de3c4511586c91e9e8d9429e11fe982b800771850c",
         "selector": "FIELD_NOTES.pathnew",
         "lines": {
-          "start": 253,
-          "end": 253
+          "start": 254,
+          "end": 254
         }
       },
       "requiresContext": true,
@@ -2123,7 +2123,7 @@
         "note": "pathnew",
         "availability": "Collected in the game when relevant"
       },
-      "revisionDigest": "sha256:c90656b3416f928698005a05d4fc674e57a2bbdeeffe36500470cfd65add5300"
+      "revisionDigest": "sha256:fe177b601cf1ac4438593e4bd5a5fa77e05efe58b6b1800e010072f42a079ce4"
     },
     {
       "id": "field-note:pen",
@@ -2256,11 +2256,11 @@
       ],
       "source": {
         "path": "src/10e_guide.js",
-        "digest": "sha256:9ce92d15c75d3f2e947b2f146d1066bf18b58163b1b8cc9e73f2525869873ab1",
+        "digest": "sha256:1ab9a459c4a687f0982889de3c4511586c91e9e8d9429e11fe982b800771850c",
         "selector": "FIELD_NOTES.ranks",
         "lines": {
-          "start": 250,
-          "end": 250
+          "start": 251,
+          "end": 251
         }
       },
       "requiresContext": false,
@@ -2273,7 +2273,7 @@
         "note": "ranks",
         "availability": "Collected in the game when relevant"
       },
-      "revisionDigest": "sha256:cf7a667fddcb0ae6118f1d87ad71724cbbab67b53dc1c72902fd151550c3009f"
+      "revisionDigest": "sha256:85e10a2b7034ad6eb37ea22e0c1dff5a4ea544c8b66d6927fa092e6d5d2983fc"
     },
     {
       "id": "field-note:renew",
@@ -2551,11 +2551,11 @@
       ],
       "source": {
         "path": "src/10e_guide.js",
-        "digest": "sha256:9ce92d15c75d3f2e947b2f146d1066bf18b58163b1b8cc9e73f2525869873ab1",
+        "digest": "sha256:1ab9a459c4a687f0982889de3c4511586c91e9e8d9429e11fe982b800771850c",
         "selector": "FIELD_NOTES.station",
         "lines": {
-          "start": 237,
-          "end": 237
+          "start": 238,
+          "end": 238
         }
       },
       "requiresContext": true,
@@ -2567,7 +2567,7 @@
         "note": "station",
         "availability": "Collected in the game when relevant"
       },
-      "revisionDigest": "sha256:0a4867f50e5124d6f9c9634f9043c7d03d21ccad975d19c43236237a990b1953"
+      "revisionDigest": "sha256:5595a06944dee1038d15f501ad0382661dede77fb0301016532e78795e194c75"
     },
     {
       "id": "field-note:stock",
@@ -2610,11 +2610,11 @@
       ],
       "source": {
         "path": "src/10e_guide.js",
-        "digest": "sha256:9ce92d15c75d3f2e947b2f146d1066bf18b58163b1b8cc9e73f2525869873ab1",
+        "digest": "sha256:1ab9a459c4a687f0982889de3c4511586c91e9e8d9429e11fe982b800771850c",
         "selector": "FIELD_NOTES.stones",
         "lines": {
-          "start": 236,
-          "end": 236
+          "start": 237,
+          "end": 237
         }
       },
       "requiresContext": false,
@@ -2627,7 +2627,7 @@
         "note": "stones",
         "availability": "Collected in the game when relevant"
       },
-      "revisionDigest": "sha256:f783d8c8c50110e64d293f9e3c5dde74c560aa1862e150d83e5c87465976ce59"
+      "revisionDigest": "sha256:d8699f03d5b38478101db987ef0607b01ffe5503ddf38669d4f14a3a90d522fb"
     },
     {
       "id": "field-note:storm",
@@ -2640,11 +2640,11 @@
       ],
       "source": {
         "path": "src/10e_guide.js",
-        "digest": "sha256:9ce92d15c75d3f2e947b2f146d1066bf18b58163b1b8cc9e73f2525869873ab1",
+        "digest": "sha256:1ab9a459c4a687f0982889de3c4511586c91e9e8d9429e11fe982b800771850c",
         "selector": "FIELD_NOTES.storm",
         "lines": {
-          "start": 246,
-          "end": 246
+          "start": 247,
+          "end": 247
         }
       },
       "requiresContext": false,
@@ -2657,7 +2657,7 @@
         "note": "storm",
         "availability": "Collected in the game when relevant"
       },
-      "revisionDigest": "sha256:7925801d25cd36abeb9964adcbc962c0010908ec41174b63e2a0800de345ee97"
+      "revisionDigest": "sha256:6e371ceb4a6e336d46a9c6f38235ddb20bcac391fe87d550175355b0c52f5a86"
     },
     {
       "id": "field-note:swim",
@@ -2729,11 +2729,11 @@
       ],
       "source": {
         "path": "src/10e_guide.js",
-        "digest": "sha256:9ce92d15c75d3f2e947b2f146d1066bf18b58163b1b8cc9e73f2525869873ab1",
+        "digest": "sha256:1ab9a459c4a687f0982889de3c4511586c91e9e8d9429e11fe982b800771850c",
         "selector": "FIELD_NOTES.tower",
         "lines": {
-          "start": 239,
-          "end": 239
+          "start": 240,
+          "end": 240
         }
       },
       "requiresContext": false,
@@ -2746,7 +2746,7 @@
         "note": "tower",
         "availability": "Collected in the game when relevant"
       },
-      "revisionDigest": "sha256:270e3a0ae524133fa69b1cf0eabdc519f35b11fca64d804893d94711b1169069"
+      "revisionDigest": "sha256:953c86153b15b79fd73c472578a109d7c0812cfde9d18e7e9db88a180cf5112a"
     },
     {
       "id": "field-note:tracks",
@@ -2819,11 +2819,11 @@
       ],
       "source": {
         "path": "src/10e_guide.js",
-        "digest": "sha256:9ce92d15c75d3f2e947b2f146d1066bf18b58163b1b8cc9e73f2525869873ab1",
+        "digest": "sha256:1ab9a459c4a687f0982889de3c4511586c91e9e8d9429e11fe982b800771850c",
         "selector": "FIELD_NOTES.walls",
         "lines": {
-          "start": 242,
-          "end": 242
+          "start": 243,
+          "end": 243
         }
       },
       "requiresContext": false,
@@ -2836,7 +2836,7 @@
         "note": "walls",
         "availability": "Collected in the game when relevant"
       },
-      "revisionDigest": "sha256:4c6a9528a9d35819041319f1d4cd41be60a0ab8acb198f6948bad6ecf03656ad"
+      "revisionDigest": "sha256:5c594c35736f0e5cce6a44cb6e5d48fd77608ec071ec20b940eee2c57ccad878"
     },
     {
       "id": "field-note:ward",
@@ -3055,7 +3055,7 @@
       ],
       "source": {
         "path": "src/10_ui.js",
-        "digest": "sha256:6cd82024062a793fbe21fb8c301c1480126df59ea6a944debd5006dfdf3cc6ee",
+        "digest": "sha256:d48d27245cec168d097fc0e6badb147504dae021e313ee5c3796b64d05153ec4",
         "selector": "drawWorldMap(): .legend",
         "lines": {
           "start": 529,
@@ -3070,7 +3070,7 @@
       "ui": {
         "destination": "Map"
       },
-      "revisionDigest": "sha256:3395c00e99e69393276aafdfe897d91ec3bdc3be13df77e2f65d5ec6ad9bbc29"
+      "revisionDigest": "sha256:7158527677d25d49381a409b145c6710e8e5998077793e1cac5982dde4ac4a1b"
     }
   ],
   "courses": [
@@ -3093,5 +3093,5 @@
       "assessment": null
     }
   ],
-  "revisionDigest": "sha256:ffc8668434398e7b6c427c8547c393ff47a583491343398545b5d432aab671fb"
+  "revisionDigest": "sha256:7188a051345fdb6dddfb66247e702a61dc8dfd80efadcd1c2a1a3e094d35a232"
 }
