@@ -150,6 +150,26 @@ async def tap(page, selector, *, closes=None):
         await page.wait_for_function('!(window.__hm.guide2 && __hm.guide2.G2.tap.pending)', timeout=15000)
         if closes:
             await page.locator(closes).wait_for(state='hidden', timeout=15000)
+            # Closing the sheet and releasing its modal HUD can settle at
+            # different browser rendering boundaries. Measure the next tap
+            # only after the actual game controls are actionable again.
+            try:
+                await page.wait_for_function(r"""() => {
+                  const hud=document.getElementById('hud'),menu=document.getElementById('mobile-menu-toggle');
+                  if(__hm.UI.modal||document.body.classList.contains('mobile-modal-open')||hud.inert||!MH.shown(menu)||menu.closest('[inert]'))return false;
+                  const r=menu.getBoundingClientRect(),hit=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);
+                  return !!hit&&(hit===menu||menu.contains(hit));
+                }""", timeout=15000, polling=50)
+            except Exception as error:
+                state=await page.evaluate(r"""() => {
+                  const chain=[];
+                  for(let el=document.getElementById('mobile-menu-toggle');el&&chain.length<8;el=el.parentElement){
+                    const s=getComputedStyle(el),r=el.getBoundingClientRect();
+                    chain.push({id:el.id,tag:el.tagName,hidden:el.hidden,inert:el.inert,display:s.display,visibility:s.visibility,opacity:s.opacity,x:r.x,y:r.y,w:r.width,h:r.height});
+                  }
+                  return {modal:__hm.UI.modal,body:document.body.className,active:document.activeElement.id,receipt:window.__mobileTapClickReceipt,chain};
+                }""")
+                raise AssertionError('Gameplay controls did not return after closing '+closes+': '+json.dumps(state)) from error
     finally:
         await page.evaluate('window.__mobileTapClickCleanup?.();window.__mobileTapClickCleanup=null;0')
     return True
