@@ -125,6 +125,7 @@ function guideMarkOf(S) {
 // a creature's name for many of them: wolves, not wolfs; draugr and barrow bones as they are
 function pluralName(n) {
   n = String(n || '');
+  if (Object.values(MOB_PLURAL).includes(n)) return n;
   if (/(bones|draugr)$/.test(n)) return n;
   if (/wolf$/.test(n)) return n.replace(/wolf$/, 'wolves');
   return /(s|x|ch|sh)$/.test(n) ? n + 'es' : n + 's';

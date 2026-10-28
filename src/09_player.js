@@ -285,10 +285,18 @@ function teleportPlayer(S, kind) {
 /* bounties from the herald */
 function chooseBounty() {
   const P = GAME.player, prog = GAME.prog;
-  const camps = CAMPS.filter((c) => c.realm === P.faction).map((c) => ({ c, mid: (c.lmin + c.lmax) / 2 }));
-  camps.sort((a, b) => Math.abs(a.mid - prog.level - 0.5) - Math.abs(b.mid - prog.level - 0.5));
-  const c = camps[Math.floor(Math.random() * Math.min(2, camps.length))].c;
-  return { type: c.type, camp: c.id, need: 6, have: 0, name: MOBS[c.type].names[mobTier(MOBS[c.type], (c.lmin + c.lmax) / 2)], reward: Math.round(xpToNext(prog.level) * 0.35) };
+  const camps = CAMPS.filter((c) => c.realm === P.faction && !c.elite && MOBS[c.type])
+    .map((c) => { const residents = guideCampResidents(c), levels = residents.map((e) => e.level); return { c, residents, low: Math.min(...levels), high: Math.max(...levels) }; })
+    .filter((q) => q.residents.length && q.high <= prog.level + 1);
+  camps.sort((a, b) => Math.abs(a.high - prog.level - 0.5) - Math.abs(b.high - prog.level - 0.5)
+    || dist2(P.x, P.z, a.c.x, a.c.z) - dist2(P.x, P.z, b.c.x, b.c.z));
+  if (!camps.length) return null;
+  const { c, residents, low, high } = camps[Math.floor(Math.random() * Math.min(2, camps.length))];
+  const names = [...new Set(residents.map((e) => e.name).filter((name) => typeof name === 'string' && name))];
+  // An observed common name, or the species when several tiers live together.
+  // Existing accepted bounties retain their saved target, progress and reward.
+  const name = names.length === 1 && MOBS[c.type].names.includes(names[0]) ? names[0] : MOB_PLURAL[c.type] || MOBS[c.type].names[0];
+  return { type: c.type, camp: c.id, need: 6, have: 0, name, minLevel: low, maxLevel: high, reward: Math.round(xpToNext(prog.level) * 0.35) };
 }
 function bountyOnKill(e) {
   const b = GAME.prog && GAME.prog.bounty;

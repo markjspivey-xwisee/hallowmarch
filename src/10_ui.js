@@ -1012,8 +1012,11 @@ function openHerald() {
     acts.push(['Accept bounty', l2b.accept]);
   } else if (prog.level < LEVEL_CAP) {
     const nb = chooseBounty();
-    body += `<p>The ${pluralName(nb.name)} are troubling travellers. Slay ${nb.need} of them and I will see you rewarded with ${fmtInt(nb.reward)} experience and ${10 + prog.level * 5} gold. Their haunt is marked on your map.</p>`;
-    acts.push(['Accept bounty', () => { prog.bounty = nb; closeDialog(); uiToast(`Bounty accepted: slay ${nb.need} ${pluralName(nb.name)}`, 'quest'); saveSoon(); }]); // [guide] pluralName: wolves, not wolfs (10e_guide.js)
+    if (nb) {
+      const levels = nb.minLevel === nb.maxLevel ? String(nb.minLevel) : `${nb.minLevel}–${nb.maxLevel}`;
+      body += `<p>The ${pluralName(nb.name)} are troubling travellers. Slay ${nb.need} of them and I will see you rewarded with ${fmtInt(nb.reward)} experience and ${10 + prog.level * 5} gold. Their haunt is marked on your map. The creatures there are currently level ${levels}.</p>`;
+      acts.push(['Accept bounty', () => { prog.bounty = nb; closeDialog(); uiToast(`Bounty accepted: slay ${nb.need} ${pluralName(nb.name)}`, 'quest'); saveSoon(); }]); // [guide] pluralName: wolves, not wolfs (10e_guide.js)
+    } else body += '<p>I have no suitable bounty for you at present. The nearby quarry is resting or stronger than you. Return later, or explore and work with your allies.</p>';
   }
   if (prog.level >= 14) body += campaignHeraldText(); // [campaign] campaigns and commanding (08g_campaign.js)
   body += late3HeraldText(); // [late3] the way beneath the Hollow King's hall (10m_deep.js)

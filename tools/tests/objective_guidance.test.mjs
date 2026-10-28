@@ -104,6 +104,64 @@ test('champion recommendations also respect actual development instead of author
   assert.equal(f.c.guideMarkOf({ id: 'champion' }), null);
 });
 
+function bounties() {
+  const f = guidance(); fullGuidance(f);
+  Object.assign(f.c, {
+    MOBS: { wolf: { names: ['young wolf', 'wolf-lord'] } },
+    xpToNext: () => 100, Math: Object.create(Math),
+  });
+  f.c.Math.random = () => 0;
+  vm.runInContext(declarations('09_player.js', ['chooseBounty']) + '\n' + declarations('10e_guide.js', ['pluralName']), f.c);
+  return f;
+}
+
+test('bounty offers use suitable actual residents and their observed names, preserving accepted progress', () => {
+  const f = bounties();
+  f.camp('danger', 10, [15], { lmin: 1, lmax: 2 });
+  const safe = f.camp(1, 50, [1], { lmin: 40, lmax: 50 });
+  f.c.entities.get('1:0').name = 'young wolf';
+  const existing = { type: 'wolf', name: 'old saved quarry', camp: 0, have: 4, need: 6, reward: 35 };
+  f.c.GAME.prog.bounty = existing;
+  const offer = f.c.chooseBounty();
+  assert.equal(offer.camp, safe.id);
+  assert.equal(offer.name, 'young wolf');
+  assert.equal(offer.minLevel, 1); assert.equal(offer.maxLevel, 1);
+  assert.equal(offer.reward, 35);
+  assert.equal(f.c.GAME.prog.bounty, existing, 'opening an offer never rerolls an existing accepted bounty');
+  assert.equal(existing.have, 4);
+  f.c.entities.get('1:0').name = '<img src=x onerror=alert(1)>';
+  assert.equal(f.c.chooseBounty().name, 'wolves', 'an unrecognized resident name cannot become markup in the existing bounty UI');
+});
+
+test('mixed resident names use the true species, and unavailable quarry produces no fabricated offer', () => {
+  const f = bounties();
+  f.camp(0, 10, [1, 2]);
+  f.c.entities.get('0:0').name = 'young wolf'; f.c.entities.get('0:1').name = 'grey wolf';
+  const offer = f.c.chooseBounty();
+  assert.equal(offer.name, 'wolves');
+  assert.equal(f.c.pluralName(offer.name), 'wolves');
+  assert.equal(offer.minLevel, 1); assert.equal(offer.maxLevel, 2);
+  f.c.entities.get('0:1').level = 20;
+  assert.equal(f.c.chooseBounty(), null);
+  f.c.entities.get('0:0').alive = false; f.c.entities.get('0:1').alive = false;
+  assert.equal(f.c.chooseBounty(), null);
+});
+
+test('the real herald dialog explains unavailable quarry and cannot accept a nonexistent bounty', () => {
+  const f = bounties(), nodes = new Map();
+  const node = id => { if (!nodes.has(id)) nodes.set(id, { children: [], appendChild(child) { this.children.push(child); } }); return nodes.get(id); };
+  Object.assign(f.c, {
+    $: node, UI: {}, LEVEL_CAP: 50, late2HeraldBounty: () => null,
+    closeDialog() {}, late3HeraldText: () => '', seasonWarText: () => '', esc: text => text,
+    document: { createElement: () => ({}) },
+  });
+  vm.runInContext(declarations('10_ui.js', ['openHerald']), f.c);
+  f.c.openHerald();
+  assert.match(node('dlg-body').innerHTML, /no suitable bounty/);
+  assert.deepEqual(node('dlg-actions').children.map(b => b.textContent), ['Farewell']);
+  assert.equal(f.c.GAME.prog.bounty, undefined);
+});
+
 function objectives() {
   const c = vm.createContext({
     GAME: { prog: { level: 1, xp: 0, rp: 0, lore: { done: ['herald'], seen: ['start'], pro: 1, pv: 3 } } },
