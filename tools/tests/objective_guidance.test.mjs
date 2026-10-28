@@ -248,3 +248,51 @@ test('first native bootstraps from null or placeholder transport accounts keep t
     assert.equal(c.loreConsumeBegin({ ...save }), false, 'an unrelated fresh request cannot reuse the intent');
   }
 });
+
+test('the actual native Begin bootstrap hands the accepted request to the existing guarded start', async () => {
+  for (const initialAccount of [null, { id: 'placeholder-transport' }]) {
+    const { c, save } = beginIntent(), profile = {}, starts = [];
+    c.NETWS.acct = initialAccount;
+    Object.assign(c, {
+      SAVE: {}, NATIVE_PLAYER: { status: { bound: false, verified: false }, profile: null },
+      nativePlayerTask: async run => run(), nativePlayerCanPlayNow: () => true, nativePlayerRender() {},
+      nativePlayerProvisionalSession: async () => ({
+        peek: async () => null,
+        bootstrap: async () => { c.NETWS.acct = { id: 'new-temporary-owner', nativeBound: true }; c.NATIVE_PLAYER.status = { verified: true }; },
+        profile: () => profile,
+      }),
+      nativePlayerProvisionalRef: () => ({ get: async () => ({ exists: true, data: () => ({ v: 1, char: null }) }) }),
+      validSave: value => value,
+      startGame: (request, mayStart) => { if (mayStart()) starts.push({ same: request === save, prologue: c.loreConsumeBegin(request) }); },
+    });
+    vm.runInContext(declarations('14v_nativeidentity.js', ['nativePlayerBegin']), c);
+    c.loreRequestBegin(save);
+    await c.nativePlayerBegin(save);
+    assert.deepEqual(starts, [{ same: true, prologue: true }]);
+    assert.equal(c.SAVE.readConfirmed, true);
+    assert.equal(c.NATIVE_PLAYER.profile, profile);
+    assert.equal(c.NATIVE_PLAYER.playFlight, null);
+  }
+});
+
+test('the actual native Begin preserves a recovered character and its owner guard rejects a late account swap', async () => {
+  for (const recover of [true, false]) {
+    const { c, save } = beginIntent(), profile = {}, starts = [];
+    const old = { ...save, fresh: false, level: 8, xp: 19, name: 'Existing earned character' };
+    Object.assign(c, {
+      SAVE: {}, NATIVE_PLAYER: { status: { bound: false, verified: false }, profile: null },
+      nativePlayerTask: async run => run(), nativePlayerCanPlayNow: () => true, nativePlayerRender() {},
+      nativePlayerProvisionalSession: async () => ({ peek: async () => null,
+        bootstrap: async () => { c.NETWS.acct = { id: 'confirmed-owner' }; c.NATIVE_PLAYER.status = { verified: true }; }, profile: () => profile }),
+      nativePlayerProvisionalRef: () => ({ get: async () => ({ exists: true, data: () => ({ v: 1, char: recover ? old : null }) }) }),
+      validSave: value => value, applySettings() {}, applyWorldSave() {}, coreKey: () => '',
+      startGame: (request, mayStart) => {
+        if (!recover) c.NETWS.acct = { id: 'different-owner' };
+        if (mayStart()) starts.push({ name: request.name, level: request.level, xp: request.xp, prologue: c.loreConsumeBegin(request) });
+      },
+    });
+    vm.runInContext(declarations('14v_nativeidentity.js', ['nativePlayerBegin']), c);
+    c.loreRequestBegin(save); await c.nativePlayerBegin(save);
+    assert.deepEqual(starts, recover ? [{ name: old.name, level: 8, xp: 19, prologue: false }] : []);
+  }
+});
