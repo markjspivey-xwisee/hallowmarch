@@ -1622,24 +1622,17 @@ function loreRequestBegin(save) {
   loreCancelBegin();
   if (GAME.started || UI.titleSave?.char || !save?.fresh) return;
   LORE.begin = { realm: save.realm, cls: save.cls, name: save.name, request: save,
-    host: typeof NETWS === 'undefined' ? '' : NETWS.host || '',
-    account: typeof NETWS === 'undefined' ? '' : NETWS.acct?.id || '',
-    bound: !!((typeof NETWS !== 'undefined' && NETWS.acct?.nativeBound)
-      || (typeof NATIVE_PLAYER !== 'undefined' && (NATIVE_PLAYER.status?.bound || NATIVE_PLAYER.status?.verified))) };
+    host: typeof NETWS === 'undefined' ? '' : NETWS.host || '' };
 }
 function loreConsumeBegin(save) {
   const intent = LORE.begin;
   loreCancelBegin(); // A start consumes the intent, including a recovered old character.
-  const account = typeof NETWS === 'undefined' ? '' : NETWS.acct?.id || '';
-  // A first Play now can bind a temporary owner after the click. It may keep
-  // only this exact guarded fresh request after its native read is confirmed.
-  const bootstrap = intent && !intent.bound && account && intent.request === save
-    && typeof NATIVE_PLAYER !== 'undefined' && NATIVE_PLAYER.status?.verified && NATIVE_PLAYER.status?.account?.id === account
-    && typeof SAVE !== 'undefined' && SAVE.native && SAVE.readConfirmed;
+  // Ownership is enforced by nativePlayerBegin/startGame's existing guards.
+  // Public onboarding follows that accepted request, including a first native
+  // bootstrap that binds its transport account after the click.
   return !!(intent && intent.request === save && save.fresh && intent.realm === save.realm && intent.cls === save.cls
     && (!intent.name || intent.name === save.name)
-    && intent.host === (typeof NETWS === 'undefined' ? '' : NETWS.host || '')
-    && (intent.account === account || bootstrap));
+    && intent.host === (typeof NETWS === 'undefined' ? '' : NETWS.host || ''));
 }
 // called at the end of startGame with what it was started from
 function loreOnStart(save) {

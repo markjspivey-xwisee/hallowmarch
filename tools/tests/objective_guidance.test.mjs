@@ -222,14 +222,14 @@ test('a real Begin intent survives slow startup and is consumed exactly once for
   assert.equal(c.loreConsumeBegin(save), false, 'the intent cannot replay on another start');
 });
 
-test('cancelled, changed-owner, changed-character and recovered-old-character starts cannot reuse a Begin intent', () => {
+test('cancelled, changed-host, changed-character and recovered-old-character starts cannot reuse a Begin intent', () => {
   for (const [change, value] of [['realm', 1], ['cls', 'mage'], ['name', 'Another recruit'], ['fresh', false]]) {
     const { c, save } = beginIntent(); c.loreRequestBegin(save);
     save[change] = value;
     assert.equal(c.loreConsumeBegin(save), false, change);
     assert.equal(c.loreConsumeBegin(save), false, 'a rejected or recovered character consumes the old intent');
   }
-  for (const change of [c => { c.NETWS.acct.id = 'other-owner'; }, c => { c.NETWS.host = 'other.example'; }, c => c.loreCancelBegin()]) {
+  for (const change of [c => { c.NETWS.host = 'other.example'; }, c => c.loreCancelBegin()]) {
     const { c, save } = beginIntent(); c.loreRequestBegin(save); change(c);
     assert.equal(c.loreConsumeBegin(save), false);
   }
@@ -237,31 +237,14 @@ test('cancelled, changed-owner, changed-character and recovered-old-character st
   assert.equal(c.loreConsumeBegin(save), false, 'a returning character button never requests a fresh-character prologue');
 });
 
-test('a first temporary bootstrap retains only the exact fresh request after verified owner readback', () => {
-  const { c, save } = beginIntent();
-  c.NETWS.acct = null;
-  c.NATIVE_PLAYER = { status: { verified: false } }; c.SAVE = { native: true, readConfirmed: true };
-  c.loreRequestBegin(save);
-  c.NETWS.acct = { id: 'new-temporary-owner' };
-  c.NATIVE_PLAYER.status = { verified: true, account: { id: 'new-temporary-owner' } };
-  assert.equal(c.loreConsumeBegin(save), true);
-  for (const flags of [{ verified: false, read: true, exact: true }, { verified: true, read: false, exact: true }, { verified: true, read: true, exact: false }]) {
-    c.NETWS.acct = null; c.NATIVE_PLAYER.status = { verified: false }; c.SAVE.readConfirmed = flags.read;
-    c.loreRequestBegin(save); c.NETWS.acct = { id: 'new-temporary-owner' };
-    c.NATIVE_PLAYER.status = { verified: flags.verified, account: { id: 'new-temporary-owner' } };
-    assert.equal(c.loreConsumeBegin(flags.exact ? save : { ...save }), false, JSON.stringify(flags));
-  }
-});
-
-test('an unbound transport account can bootstrap, while an already bound owner cannot be replaced', () => {
-  for (const initiallyBound of [false, true]) {
+test('first native bootstraps from null or placeholder transport accounts keep the exact accepted fresh request', () => {
+  for (const initialAccount of [null, { id: 'placeholder-transport' }]) {
     const { c, save } = beginIntent();
-    c.NETWS.acct = { id: 'transport-owner', nativeBound: initiallyBound };
-    c.NATIVE_PLAYER = { status: { bound: initiallyBound, verified: initiallyBound, account: { id: 'transport-owner' } } };
-    c.SAVE = { native: true, readConfirmed: true };
+    c.NETWS.acct = initialAccount;
     c.loreRequestBegin(save);
     c.NETWS.acct = { id: 'new-temporary-owner', nativeBound: true };
-    c.NATIVE_PLAYER.status = { bound: true, verified: true, account: { id: 'new-temporary-owner' } };
-    assert.equal(c.loreConsumeBegin(save), !initiallyBound);
+    assert.equal(c.loreConsumeBegin(save), true, 'public prologue eligibility does not replace the existing guarded native start');
+    c.loreRequestBegin(save);
+    assert.equal(c.loreConsumeBegin({ ...save }), false, 'an unrelated fresh request cannot reuse the intent');
   }
 });
