@@ -3,12 +3,24 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import * as THREE from 'three';
+import { WebGLPrograms } from '../node_modules/three/src/renderers/webgl/WebGLPrograms.js';
 
 const root = new URL('../../', import.meta.url);
 const source = readFileSync(new URL('src/13o_title_compile.js', root), 'utf8');
+const originalRender = readFileSync(new URL('src/02_render.js', root), 'utf8');
+// Small shader/attribute fixture exercises real r160 cache parameters without
+// compiling GLSL or retaining the large native capture in CI. Native evidence
+// separately pins the exact humanVS(true) bytes and actual cached first draw.
+const avatarFixture = {
+  vertexShader: 'attribute vec4 iPos; void main(){ gl_Position = projectionMatrix * modelViewMatrix * vec4(position + iPos.xyz, 1.0); }',
+  fragmentShader: originalRender.match(/const DEPTH_FS = \/\* glsl \*\/`([^`]+)`;/)[1],
+  geometry: { attributes: ['position', 'normal', 'aBone', 'aW', 'aMat', 'aBit', 'aUV', 'aAO', 'iPos', 'iAnim', 'iColA', 'iColB', 'iMisc', 'iStyle', 'iWear'] },
+  sourceMaterial: { vertexShader: 'void main(){ gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }', fragmentShader: 'void main(){ gl_FragColor = vec4(1.0); }' },
+};
 const rendererSource = readFileSync(new URL('../node_modules/three/src/renderers/WebGLRenderer.js', import.meta.url), 'utf8');
 // Use the installed renderer's real compile/prepareMaterial traversal and sided
 // behavior. Only the GL program factory is replaced by a controllable fixture.
+const actualConstructors = originalRender.slice(originalRender.indexOf('function shadowCaster('), originalRender.indexOf('// [perf2]', originalRender.indexOf('function shadowCaster('))) + originalRender.slice(originalRender.indexOf('function depthFrom('), originalRender.indexOf('function liveIn('));
 const compile = rendererSource.slice(rendererSource.indexOf('\t\tfunction prepareMaterial('), rendererSource.indexOf('\t\t// compileAsync'));
 function target() {
   const listeners = new Map();
@@ -17,7 +29,7 @@ function target() {
     emit(name) { for (const fn of [...(listeners.get(name) || [])]) fn({}); },
     listenerCount: () => [...listeners.values()].reduce((n, set) => n + set.size, 0) };
 }
-function fixture({ safe = false, supported = true, count = 20, readyDelay = 25, failure = '' } = {}) {
+function fixture({ safe = false, supported = true, count = 20, readyDelay = 25, failure = '', avatar = false } = {}) {
   let now = 0, timerId = 0, currentTarget, lost = false, randomCalls = 0;
   const timers = new Map(), document = { hidden: false, ...target() }, window = target(), canvas = target();
   const scene = new THREE.Scene(), sceneRT = {}, originalTarget = currentTarget = {};
@@ -25,7 +37,9 @@ function fixture({ safe = false, supported = true, count = 20, readyDelay = 25, 
   const renderState = { init() {}, pushLight() {}, pushShadow() {}, setupLights() {} };
   const renderer = { info: { programs }, extensions: { has: () => supported }, _useLegacyLights: false,
     setRenderTarget(value) { assert(!lost); currentTarget = value; } };
-  const ctx = { THREE, scene, sceneRT, renderer, document, window, canvas, BOOT_SAFE: safe,
+  const SHADOW = { scene: new THREE.Scene(), cam: new THREE.OrthographicCamera(-100,100,100,-100,0.1,600), rt: avatar ? new THREE.WebGLRenderTarget(1536,1536) : null, proxies: [] };
+  const INDOOR = { on: false }, crowdHuman = { mesh: null };
+  const ctx = { SHADOW, INDOOR, crowdHuman, DEPTH_FS: avatarFixture.fragmentShader, THREE, scene, sceneRT, renderer, document, window, canvas, BOOT_SAFE: safe,
     GRAPHICS_STARTUP: { stopped: false }, GRAPHICS_CONTEXT_LOST: false, GAME: { started: false },
     TITLE_RESIZE_PENDING: false, resizeTimer: 0, TITLE_WARM_GENERATION: 1,
     performance: { now: () => now }, camera: new THREE.PerspectiveCamera(),
@@ -43,8 +57,8 @@ function fixture({ safe = false, supported = true, count = 20, readyDelay = 25, 
     renderStates: { get: () => renderState }, renderStateStack: [], currentRenderState: null, _this: renderer,
     BackSide: THREE.BackSide, FrontSide: THREE.FrontSide, DoubleSide: THREE.DoubleSide,
     getProgram(material, targetScene, object) {
-      assert.equal(targetScene, scene); assert.equal(currentTarget, sceneRT); assert(!lost);
-      calls.push({ material, object, geometry: object.geometry, side: material.side });
+      assert([scene, SHADOW.scene].includes(targetScene)); assert.equal(currentTarget, targetScene === SHADOW.scene ? SHADOW.rt : sceneRT); assert(!lost);
+      calls.push({ material, object, geometry: object.geometry, side: material.side, targetScene, target: currentTarget });
       if (failure === 'throw') throw Error('controlled compile failure');
       const key = material.id + ':' + material.side + ':' + !!object.isInstancedMesh + ':' + !!object.instanceColor;
       if (!known.has(key)) {
@@ -56,7 +70,8 @@ function fixture({ safe = false, supported = true, count = 20, readyDelay = 25, 
     },
   };
   vm.createContext(ctx);
-  vm.runInContext('function install(){' + compile + '}\ninstall.call(renderer);\n' + source, ctx);
+  vm.runInContext('function install(){' + compile + '}\ninstall.call(renderer);\n' + actualConstructors + '\n' + source, ctx);
+  const compileCalls = [], actualCompile = renderer.compile; renderer.compile = function(collection, camera, targetScene) { compileCalls.push({ collection, camera, targetScene, target: currentTarget }); return actualCompile.call(this, collection, camera, targetScene); };
   const objects = [];
   for (let i = 0; i < count; i++) {
     const geometry = new THREE.BufferGeometry(), material = new THREE.ShaderMaterial({ transparent: i % 4 === 0,
@@ -78,7 +93,17 @@ function fixture({ safe = false, supported = true, count = 20, readyDelay = 25, 
   const all = [...objects, ...extras], stages = [['post', new Set()], ['sky', new Set()],
     ['terrain', new Set(all.slice(0, 5))], ['structures', new Set(all.slice(5, 12))], ['crowds-1', new Set(all.slice(12, 13))], ['other', new Set(all.slice(13))]];
   const inventory = { renderables: all };
-  const f = { ctx, calls, queries, programs, timers, objects, all, hidden, offscreen, wrongLayer, child, array, hooked, cacheHook, inventory, stages, restores, glErrors, flushes,
+  const avatarGeometry = new THREE.InstancedBufferGeometry();
+  for(const name of avatarFixture.geometry.attributes) avatarGeometry.setAttribute(name, new THREE.InstancedBufferAttribute(new Float32Array(3), 3));
+  avatarGeometry.instanceCount = 6;
+  const avatarMaterial = new THREE.ShaderMaterial({ vertexShader: avatarFixture.sourceMaterial.vertexShader, fragmentShader: avatarFixture.sourceMaterial.fragmentShader });
+  const avatarSource = new THREE.Mesh(avatarGeometry, avatarMaterial); scene.add(avatarSource); crowdHuman.mesh = avatarSource;
+  const depth = ctx.depthFrom(avatarMaterial, avatarFixture.fragmentShader, avatarFixture.vertexShader);
+  const avatarProxy = ctx.shadowCaster(avatarSource, depth);
+  // Decoys make an accidental full material traversal observable. Stock light scanning is left intact.
+  const shadowDecoy = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.ShaderMaterial()); SHADOW.scene.add(shadowDecoy);
+  const hiddenShadowDecoy = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.ShaderMaterial()); hiddenShadowDecoy.visible=false; SHADOW.scene.add(hiddenShadowDecoy);
+  const f = { SHADOW, INDOOR, crowdHuman, avatarSource, avatarProxy, shadowDecoy, hiddenShadowDecoy, compileCalls, ctx, calls, queries, programs, timers, objects, all, hidden, offscreen, wrongLayer, child, array, hooked, cacheHook, inventory, stages, restores, glErrors, flushes,
     run: () => ctx.prepareTitlePrograms(inventory, stages, ctx.TITLE_WARM_GENERATION),
     async flush() { for (let i = 0; i < 10; i++) await Promise.resolve(); },
     async timer(lateBy = 0) {
@@ -182,4 +207,75 @@ test('preparation history is bounded and never claims readiness or mutates chara
   const f = fixture({ safe: true }); const before = JSON.stringify(f.ctx.GAME);
   for (let i = 0; i < 12; i++) await f.run();
   assert.equal(f.ctx.GRAPHICS_STARTUP.titlePreparations.length, 8); assert.equal(JSON.stringify(f.ctx.GAME), before); f.clean();
+});
+
+test('one exact existing avatar proxy is compiled once in its real shadow scene/camera/target', async () => {
+  const f = fixture({ avatar: true }), side = f.avatarProxy.material.side;
+  const sceneTraversal = f.SHADOW.scene.traverseVisible, sourceParent = f.avatarSource.parent;
+  const receipt = await f.finish(f.run());
+  const calls = f.calls.filter(call => call.targetScene === f.SHADOW.scene);
+  assert.equal(calls.length, 1); assert.equal(calls[0].object, f.avatarProxy);
+  assert.equal(calls[0].material, f.avatarProxy.material); assert.equal(calls[0].geometry, f.avatarSource.geometry);
+  assert.equal(calls[0].side, THREE.DoubleSide); assert.equal(calls[0].target, f.SHADOW.rt);
+  const compileCall = f.compileCalls.find(call => call.targetScene === f.SHADOW.scene);
+  assert.equal(compileCall.camera, f.SHADOW.cam); assert.notEqual(compileCall.collection, f.SHADOW.scene);
+  assert.equal(f.SHADOW.scene.traverseVisible, sceneTraversal, 'stock target-scene light scan is untouched');
+  for (const decoy of [f.shadowDecoy, f.hiddenShadowDecoy]) assert(!f.calls.some(call => call.object === decoy));
+  assert.equal(receipt.families['avatar-shadow'].jobs, 1); assert.equal(receipt.families['avatar-shadow'].prepared, 1);
+  assert.equal(receipt.families['avatar-shadow'].programs, 1); assert.equal(receipt.avatarShadowQueued, true);
+  assert(receipt.maxPending <= 8 && receipt.maxPreparesPerTurn <= 4);
+  assert.equal(f.avatarProxy.parent, f.SHADOW.scene); assert.equal(f.avatarSource.parent, sourceParent);
+  assert.equal(f.avatarProxy.material.side, side); assert.equal(f.currentTarget(), f.originalTarget); f.clean();
+});
+test('safe/unsupported/Low/indoor/missing/ambiguous/unsupported proxy paths never preload shadow', async () => {
+  for (const kind of ['safe', 'extension', 'Low', 'indoor', 'missing', 'ambiguous', 'hook', 'side', 'geometry']) {
+    const f = fixture({ avatar: true, safe: kind === 'safe', supported: kind !== 'extension' });
+    if (kind === 'Low') f.SHADOW.rt = null;
+    if (kind === 'indoor') f.INDOOR.on = true;
+    if (kind === 'missing') f.SHADOW.proxies.length = 0;
+    if (kind === 'ambiguous') f.SHADOW.proxies.push(f.avatarProxy);
+    if (kind === 'hook') f.avatarProxy.onBeforeRender = () => {};
+    if (kind === 'side') f.avatarProxy.material.side = THREE.FrontSide;
+    if (kind === 'geometry') f.avatarProxy.geometry = new THREE.BufferGeometry();
+    const receipt = await f.finish(f.run());
+    assert(!f.calls.some(call => call.targetScene === f.SHADOW.scene), kind);
+    assert(!receipt.families['avatar-shadow'], kind); f.clean();
+  }
+});
+for (const kind of ['replace target', 'disable target', 'indoor']) test(kind + ' drains submitted shadow program before returning stale', async () => {
+  const f = fixture({ avatar: true, readyDelay: 100 }), promise = f.run(); await f.flush();
+  for(let i=0; i<100 && !f.calls.some(call => call.object === f.avatarProxy); i++) await f.timer();
+  assert(f.calls.some(call => call.object === f.avatarProxy), 'shadow program has been queued');
+  const submitted = f.calls.length;
+  if (kind === 'replace target') f.SHADOW.rt = {};
+  if (kind === 'disable target') f.SHADOW.rt = null;
+  if (kind === 'indoor') f.INDOOR.on = true;
+  const receipt = await f.finish(promise);
+  assert.equal(receipt.stale, true); assert.equal(receipt.reason, 'avatar-shadow');
+  assert.equal(f.calls.length, submitted); assert.equal(f.queries.length, f.programs.length);
+  assert.equal(f.currentTarget(), f.originalTarget); f.clean();
+});
+test('real r160 cache parameters match preparation and later avatar shadow transforms', () => {
+  const f = fixture({ avatar: true }), material = f.avatarProxy.material;
+  assert.equal(material.vertexShader, avatarFixture.vertexShader); assert.equal(material.fragmentShader, avatarFixture.fragmentShader);
+  assert.equal(material.uniforms, f.avatarSource.material.uniforms); assert.equal(material.colorWrite, false);
+  assert.equal(material.transparent, false); assert.equal(material.forceSinglePass, true);
+  const renderer = { getRenderTarget: () => f.SHADOW.rt, toneMapping: THREE.ACESFilmicToneMapping,
+    outputColorSpace: THREE.SRGBColorSpace, shadowMap: { enabled: false, type: THREE.PCFShadowMap }, _useLegacyLights: false };
+  const maps = { get: value => value || null }, extensions = { has: name => name === 'KHR_parallel_shader_compile' };
+  const cache = WebGLPrograms(renderer, maps, maps, extensions, { isWebGL2: true, logarithmicDepthBuffer: false,
+    vertexTextures: true, precision: 'highp', getMaxPrecision: value => value }, {}, { numPlanes: 0, numIntersection: 0 });
+  const lights = { directional: [], point: [], spot: [], spotLightMap: [], rectArea: [], hemi: [],
+    directionalShadowMap: [], pointShadowMap: [], spotShadowMap: [], numSpotLightShadowsWithMaps: 0, numLightProbes: 0 };
+  const parameters = () => cache.getParameters(material, lights, [], f.SHADOW.scene, f.avatarProxy);
+  const prepared = parameters(), preparedKey = cache.getProgramCacheKey(prepared);
+  f.avatarProxy.matrixWorld.makeTranslation(500, 12, -300); f.SHADOW.cam.position.set(20, 100, 90);
+  const drawn = parameters();
+  assert.deepEqual(drawn, prepared); assert.equal(cache.getProgramCacheKey(drawn), preparedKey);
+  assert.equal(prepared.vertexShader, avatarFixture.vertexShader); assert.equal(prepared.doubleSided, true);
+  for (const flag of ['instancing','instancingColor','batching','skinning','morphTargets','morphNormals','morphColors','shadowMapEnabled']) assert.equal(prepared[flag], false, flag);
+  assert.equal(prepared.toneMapping, THREE.NoToneMapping); assert.equal(prepared.outputColorSpace, THREE.LinearSRGBColorSpace);
+  assert.equal(prepared.fog, false); assert.equal(prepared.numDirLights, 0); assert.equal(prepared.numPointLights, 0);
+  assert.equal(f.avatarProxy.geometry.isInstancedBufferGeometry, true); assert.equal(f.avatarProxy.isInstancedMesh, undefined);
+  assert.equal(f.SHADOW.scene.children.filter(object => object.isLight).length, 0);
 });

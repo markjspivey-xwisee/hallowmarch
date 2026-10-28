@@ -19,6 +19,19 @@ function titleCompileSupported(object) {
     && material.onBeforeRender === THREE.Material.prototype.onBeforeRender
     && material.customProgramCacheKey === THREE.Material.prototype.customProgramCacheKey;
 }
+function titleAvatarShadowJob() {
+  if (BOOT_SAFE || !SHADOW.rt || INDOOR.on || !crowdHuman?.mesh) return null;
+  const source = crowdHuman.mesh;
+  const matches = SHADOW.proxies.filter(object => object.userData.src === source);
+  if (matches.length !== 1) return null;
+  const object = matches[0], material = object.material;
+  if (!titleCompileSupported(object) || object.parent !== SHADOW.scene || object.geometry !== source.geometry
+    || material.fragmentShader !== DEPTH_FS || material.colorWrite !== false || material.side !== THREE.DoubleSide
+    || material.transparent || !material.depthTest || !material.depthWrite || material.uniforms !== source.material.uniforms) return null;
+  return { family: 'avatar-shadow', object, material, geometry: object.geometry, cost: 1, avatarShadow: true,
+    target: SHADOW.rt, camera: SHADOW.cam, targetScene: SHADOW.scene };
+}
+
 async function prepareTitlePrograms(inventory, stages, generation) {
   const started = performance.now();
   const receipt = { generation, supported: false, outcome: 'serial', completed: false, stale: false,
@@ -33,7 +46,7 @@ async function prepareTitlePrograms(inventory, stages, generation) {
   GRAPHICS_STARTUP.titlePreparing = true;
   const message = document.getElementById?.('loadmsg');
   if (message) message.textContent = 'Preparing the first view';
-  const pending = new Map(), initialTarget = sceneRT;
+  const pending = new Map(), initialTarget = sceneRT, avatarJob = titleAvatarShadowJob();
   let timer = null, wake = null, lost = false, stale = false;
   const invalidate = reason => { stale = true; receipt.reason ||= reason; resume(); };
   const resume = () => {
@@ -51,6 +64,7 @@ async function prepareTitlePrograms(inventory, stages, generation) {
   const changed = () => {
     if (document.hidden) invalidate('visibility');
     if (TITLE_RESIZE_PENDING || resizeTimer || sceneRT !== initialTarget) invalidate('resize');
+    if (avatarJob && (SHADOW.rt !== avatarJob.target || INDOOR.on)) invalidate('avatar-shadow');
     if (TITLE_WARM_GENERATION !== generation || GAME.started) invalidate('generation');
   };
   const errors = () => {
@@ -83,11 +97,17 @@ async function prepareTitlePrograms(inventory, stages, generation) {
       if (!titleCompileSupported(object)) { receipt.skipped++; continue; }
       if (!titleCompileEligible(object)) continue;
       const material = object.material;
-      jobs.push({ family: id, object, material, geometry: object.geometry,
+      jobs.push({ family: id, object, material, geometry: object.geometry, target: initialTarget, camera, targetScene: scene,
         cost: material.transparent && material.side === THREE.DoubleSide && !material.forceSinglePass ? 2 : 1 });
       const family = receipt.families[id] ||= { jobs: 0, prepared: 0, programs: 0 };
       family.jobs++;
     }
+    if (avatarJob) {
+      const human = jobs.findIndex(job => job.family === 'crowds-1');
+      jobs.splice(human < 0 ? 0 : human, 0, avatarJob);
+      receipt.families['avatar-shadow'] = { jobs: 1, prepared: 0, programs: 0 };
+    }
+    receipt.avatarShadowQueued = !!avatarJob;
     receipt.eligibleJobs = jobs.length;
     let index = 0;
     while (index < jobs.length || pending.size) {
@@ -135,7 +155,7 @@ async function prepareTitlePrograms(inventory, stages, generation) {
         if (pending.size + job.cost > TITLE_COMPILE_LIMITS.pending) break;
         active(); changed();
         if (stale) break;
-        if (!titleCompileEligible(job.object) || job.object.geometry !== job.geometry || job.object.material !== job.material) { invalidate('inventory'); break; }
+        if (!(job.avatarShadow ? SHADOW.rt === job.target && !INDOOR.on && job.object.parent === job.targetScene && job.object.userData.src === crowdHuman.mesh : titleCompileEligible(job.object)) || job.object.geometry !== job.geometry || job.object.material !== job.material) { invalidate('inventory'); break; }
         const before = new Set(renderer.info.programs), saved = gpuDiagCaptureRenderer(), side = job.material.side;
         const queuedAt = performance.now();
         // Pinned r160 compile() needs only these traversals on its input root.
@@ -144,8 +164,8 @@ async function prepareTitlePrograms(inventory, stages, generation) {
         const collection = { traverse: visit => visit(job.object), traverseVisible: visit => visit(job.object) };
         let compiled = false;
         try {
-          renderer.setRenderTarget(initialTarget);
-          renderer.compile(collection, camera, scene);
+          renderer.setRenderTarget(job.target);
+          renderer.compile(collection, job.camera, job.targetScene);
           compiled = true;
         } finally {
           job.material.side = side;
