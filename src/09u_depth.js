@@ -1284,6 +1284,12 @@ function depthChronAnimals() {
 /* ------------------------------------------------------------------ */
 // [motion] Body feathers take the first coat (iColA), the head and neck the second (iColB, the dark-fur material), the
 // pheasant's long tail the barred horn material, bill and legs the beak's; wings of flight feathers (birdBuild)
+// These pools are created on entry, often with no birds in view. An empty pool
+// has no draw work; the first sight of an actual bird can still compile its shaders.
+class GameBirdCrowd extends Crowd {
+  constructor(...args) { super(...args); this.mesh.visible = false; }
+  end() { super.end(); this.mesh.visible = this.geo.instanceCount > 0; }
+}
 function dpBirdCrowds() {
   if (crowdBeast.pheasant || !crowdBeast.hen) return;
   const fs = farmBeastFS();
@@ -1296,8 +1302,8 @@ function dpBirdCrowds() {
     const m = shareMat(beastMat, u);
     m.vertexShader = birdVS(false); m.fragmentShader = birdFS(fs);
     const hd = depthFrom(m, DEPTH_FS, birdVS(true));
-    crowdBeast[k] = [new Crowd(birdBuild(k, 0), m, 24, BEAST_ATTRS), new Crowd(birdBuild(k, 1), m, 40, BEAST_ATTRS)];
-    for (const c of crowdBeast[k]) shadowCaster(c.mesh, hd);
+    crowdBeast[k] = [new GameBirdCrowd(birdBuild(k, 0), m, 24, BEAST_ATTRS), new GameBirdCrowd(birdBuild(k, 1), m, 40, BEAST_ATTRS)];
+    for (const c of crowdBeast[k]) shadowCaster(c.mesh, hd).visible = false;
   }
 }
 

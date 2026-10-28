@@ -313,10 +313,16 @@ test('ordinary safe boot still renders its first view and enters the normal loop
   assert.equal(h.ctx.window.__hm.ready,true);
 });
 
-test('ordinary high quality boot still follows its existing shader and frame pipeline', async () => {
+test('ordinary boot reaches its fenced title without bulk-compiling hidden world or dungeon shaders', async () => {
   const h = bootHarness({diagnostic:false,safe:false});
+  const forbidden = name => () => { throw Error('ordinary boot must not invoke '+name); };
+  h.ctx.perf2Compile=forbidden('bulk world compilation');
+  h.ctx.perf2Shaders=forbidden('bulk shader wait');
+  h.ctx.spellCompileVisible=forbidden('hidden spell visibility');
+  h.ctx.renderer.compile=forbidden('renderer.compile');
+  Object.defineProperty(h.ctx.DUN.root,'visible',{set:forbidden('hidden dungeon visibility')});
   await vm.runInContext('boot()',h.ctx);
-  assert.deepEqual(h.calls,['diagnostic','compile','map','dungeon-map','renderer.compile','shader-wait','title-draw','title','recovery-notice','raf']);
+  assert.deepEqual(h.calls,['diagnostic','map','dungeon-map','title-draw','title','recovery-notice','raf']);
   assert.equal(h.ctx.GAME.ready,true);
 });
 

@@ -235,8 +235,10 @@ async def phone(p):
     await ev(page, "__hm.simulate(1)")
     await ev(page, world(True))
     await frames(page, 1)
-    r = await ev(page, "(() => { const e = document.getElementById('lore-path'), r = e.getBoundingClientRect(), f = document.getElementById('pf').getBoundingClientRect(); return { min: e.classList.contains('min'), top: r.top, pfb: f.bottom, right: r.right, h: r.height }; })()")
-    check(r['min'] and r['top'] >= r['pfb'] and r['right'] <= 390 and r['h'] < 50, f'the path sits folded under the player frame ({r})')
+    r = await ev(page, "(() => { const e = document.getElementById('lore-path'), r = e.getBoundingClientRect(), f = document.getElementById('pf').getBoundingClientRect(), css = getComputedStyle(e); return { min: e.classList.contains('min'), top: r.top, pfb: f.bottom, right: r.right, h: r.height, target: parseFloat(css.getPropertyValue('--mobile-target')), border: parseFloat(css.borderTopWidth) + parseFloat(css.borderBottomWidth), buttons: [...e.querySelectorAll('button')].map(b => b.getBoundingClientRect().height) }; })()")
+    # A folded row must fit the configured touch target plus its border; the
+    # former h<50 rejected the existing 48px controls inside their 2px border.
+    check(r['min'] and r['top'] >= r['pfb'] and r['right'] <= 390 and r['h'] <= r['target'] + r['border'] + 0.5 and all(h >= r['target'] for h in r['buttons']), f'the path sits folded under the player frame with usable touch actions ({r})')
     await ev(page, "document.getElementById('zonetoast').classList.remove('on')")  # the zone name fades by itself after a few seconds
     await shot(page, 'lore_phone_path')
     await page.click('#lore-path [data-act="max"]')

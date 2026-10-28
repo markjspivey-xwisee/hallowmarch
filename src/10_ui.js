@@ -38,7 +38,9 @@ function bindTitle() {
     }
     const name = ($('name-input').value || '').trim().replace(/\s+/g, ' ').slice(0, 18) || randomName(UI.realm);
     audioUnlock();
-    void nativePlayerBegin({ v: 1, name, realm: UI.realm, cls: UI.cls, level: 1, xp: 0, rp: 0, fresh: true });
+    const request = { v: 1, name, realm: UI.realm, cls: UI.cls, level: 1, xp: 0, rp: 0, fresh: true };
+    if (typeof loreRequestBegin === 'function') loreRequestBegin(request);
+    void nativePlayerBegin(request);
   };
   $('btn-continue').onclick = () => {
     const s = UI.titleSave;
@@ -49,6 +51,7 @@ function bindTitle() {
   UI.titleBound = true;
 }
 function setupTitle(save) {
+  if (typeof loreCancelBegin === 'function') loreCancelBegin(); // A title/account reset cancels the old character's Begin intent.
   if (!UI.titleBound) bindTitle();
   UI.titleSave = save && save.char ? save : null;
   UI.nameTouched = false;
@@ -581,7 +584,7 @@ function updateNameplates() {
     if (e.tame && P.target !== e.id && (e.tame.owner !== 'player' || d > 16)) continue; // [animals] names over your own animals close by, not over every sheep (08h_animals.js)
     // under the barrow, names do not show through solid rock
     // [phones] and above ground, not through the walls of a house, a hall or a keep (npSeen, 10p_hud.js)
-    if (P.target !== e.id && !npSeen(e, d)) continue;
+    if (!npSeen(e, d)) continue;
     list.push([d, e]);
   }
   list.sort((a, b) => (b[1].id === P.target) - (a[1].id === P.target) || a[0] - b[0]); // [v13] the chosen one's name first: in a crowd it was cut with the farthest
@@ -734,6 +737,7 @@ function uiZone(z) {
 }
 function flashScreen(rgb, a) {
   const f = composite.uniforms.uFlash.value;
+  if (REDUCE_MOTION) { f.w = 0; return; }
   f.set(rgb[0], rgb[1], rgb[2], Math.max(f.w, a));
 }
 function showJoystick(x, y, dx, dy) {
@@ -896,6 +900,8 @@ function renderMenu(tab) {
     body.innerHTML = `<div class="setrow"><span>Graphics</span><div class="seg" id="set-q">${['low', 'medium', 'high'].map((k) => `<button type="button" data-v="${k}" aria-checked="${q === k}">${QUALITY_PRESETS[k].label}</button>`).join('')}</div></div>
       <div class="setrow"><span>Time of day</span><div class="seg" id="set-t">${[['cycle', 'Cycle'], ['morning', 'Morning'], ['golden', 'Golden'], ['night', 'Night']].map(([k, l]) => `<button type="button" data-v="${k}" aria-checked="${m === k}">${l}</button>`).join('')}</div></div>
       <div class="setrow"><span>Weather</span><div class="seg" id="set-w">${[['auto', 'Changing'], ['clear', 'Always clear']].map(([k, l]) => `<button type="button" data-v="${k}" aria-checked="${WEATHER.mode === k}">${l}</button>`).join('')}</div></div>
+      <div class="setrow"><span>Motion &amp; flashes</span><div class="seg" id="set-motion">${[['system', 'Use device setting'], ['reduced', 'Reduce effects']].map(([k, l]) => `<button type="button" data-v="${k}" aria-checked="${MOTION_MODE === k}">${l}</button>`).join('')}</div></div>
+      <p class="fineprint">${REDUCE_MOTION ? 'Reduced effects are active: camera shake, screen flashes and lightning flicker are off.' : 'Reduce effects turns off camera shake, screen flashes and lightning flicker.'} This preference stays on this browser.</p>
       ${soundSettingsHTML() /* [audio2] Volume, Effects, Ambience (11c_sound.js) */}
       <div class="setrow"><span>Music</span><div class="seg" id="set-m">${MUSIC_LEVELS.map(([k, l]) => `<button type="button" data-v="${k}" aria-checked="${musicLevelKey() === k}">${l}</button>`).join('')}</div></div>
       ${captureSettingsHTML() /* [capture] the capture build (14_capture.js) */}
@@ -904,6 +910,7 @@ function renderMenu(tab) {
     $('set-q').onclick = (e) => { const b = e.target.closest('button'); if (!b) return; setQuality(b.dataset.v); renderMenu('settings'); saveSoon(); };
     $('set-t').onclick = (e) => { const b = e.target.closest('button'); if (!b) return; setTimeMode(b.dataset.v); renderMenu('settings'); saveSoon(); };
     $('set-w').onclick = (e) => { const b = e.target.closest('button'); if (!b) return; setWeatherMode(b.dataset.v); renderMenu('settings'); saveSoon(); };
+    $('set-motion').onclick = (e) => { const b = e.target.closest('button'); if (!b) return; setMotionMode(b.dataset.v); renderMenu('settings'); };
     captureSettingsWire(); // [capture] (14_capture.js)
     soundSettingsWire(); // [audio2] the Volume, Effects and Ambience rows (11c_sound.js)
     $('set-m').onclick = (e) => { const b = e.target.closest('button'); if (!b) return; const L = MUSIC_LEVELS.find((x) => x[0] === b.dataset.v); if (L) setMusicVolume(L[2]); renderMenu('settings'); saveSoon(); }; // [music] the score's volume (11b_music.js)
@@ -1008,8 +1015,11 @@ function openHerald() {
     acts.push(['Accept bounty', l2b.accept]);
   } else if (prog.level < LEVEL_CAP) {
     const nb = chooseBounty();
-    body += `<p>The ${pluralName(nb.name)} are troubling travellers. Slay ${nb.need} of them and I will see you rewarded with ${fmtInt(nb.reward)} experience and ${10 + prog.level * 5} gold. Their haunt is marked on your map.</p>`;
-    acts.push(['Accept bounty', () => { prog.bounty = nb; closeDialog(); uiToast(`Bounty accepted: slay ${nb.need} ${pluralName(nb.name)}`, 'quest'); saveSoon(); }]); // [guide] pluralName: wolves, not wolfs (10e_guide.js)
+    if (nb) {
+      const levels = nb.minLevel === nb.maxLevel ? String(nb.minLevel) : `${nb.minLevel}–${nb.maxLevel}`;
+      body += `<p>The ${pluralName(nb.name)} are troubling travellers. Slay ${nb.need} of them and I will see you rewarded with ${fmtInt(nb.reward)} experience and ${10 + prog.level * 5} gold. Their haunt is marked on your map. The creatures there are currently level ${levels}.</p>`;
+      acts.push(['Accept bounty', () => { prog.bounty = nb; closeDialog(); uiToast(`Bounty accepted: slay ${nb.need} ${pluralName(nb.name)}`, 'quest'); saveSoon(); }]); // [guide] pluralName: wolves, not wolfs (10e_guide.js)
+    } else body += '<p>I have no suitable bounty for you at present. The nearby quarry is resting or stronger than you. Return later, or explore and work with your allies.</p>';
   }
   if (prog.level >= 14) body += campaignHeraldText(); // [campaign] campaigns and commanding (08g_campaign.js)
   body += late3HeraldText(); // [late3] the way beneath the Hollow King's hall (10m_deep.js)

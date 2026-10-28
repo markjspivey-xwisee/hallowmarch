@@ -286,7 +286,7 @@ function updateLod() {
   }
 }
 
-/* the phone's quality: a touch screen starts at low (it can be raised in the menu), a small or weak desk at medium */
+/* the phone's quality: a touch screen starts at low (it can be raised in the menu), a capable tablet at medium */
 function phoneQualityPick(ignoreRecovery = false) {
   if (BOOT_SAFE && !ignoreRecovery) return 'low';
   if (!IS_TOUCH) return null;

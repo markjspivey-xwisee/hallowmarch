@@ -113,7 +113,7 @@ function graphicsSaveSettings() {
   const stored = SAVE.loaded && SAVE.loaded.settings;
   const storedLevel = stored && Object.hasOwn(QUALITY_PRESETS, stored.quality) ? stored.quality : null;
   return {
-    quality: recovery ? storedLevel || phoneQualityPick(true) || (IS_TOUCH ? 'medium' : 'high') : quality.level,
+    quality: recovery ? storedLevel || phoneQualityPick(true) || 'medium' : quality.level,
     auto: recovery ? storedLevel ? stored.auto !== false : true : quality.auto !== false,
   };
 }

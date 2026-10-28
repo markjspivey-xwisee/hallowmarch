@@ -118,18 +118,60 @@ async def frame(page):
         await page.evaluate('__hm.frame(1/30); MH.lay(); 0')
 
 
-async def tap(page, selector):
+async def tap(page, selector, *, closes=None):
     await page.evaluate('MH.lay(); 0')
     box = await page.evaluate(r"""(selector) => {
       const el=document.querySelector(selector); if(!MH.shown(el))return null;
       const r=el.getBoundingClientRect(),x=r.x+r.width/2,y=r.y+r.height/2,hit=document.elementFromPoint(x,y);
-      return {x,y,w:r.width,h:r.height,top:!!hit&&(hit===el||el.contains(hit))};
+      const top=!!hit&&(hit===el||el.contains(hit)),watchClick=!el.closest('#hud');
+      window.__mobileTapClickCleanup?.();
+      window.__mobileTapClickReceipt={clicked:false,trusted:false};
+      if(top&&watchClick){
+        const receipt=window.__mobileTapClickReceipt;
+        const clicked=event=>{
+          if(event.target!==el&&!el.contains(event.target))return;
+          receipt.clicked=true;receipt.trusted=event.isTrusted;
+          document.removeEventListener('click',clicked,true);
+        };
+        document.addEventListener('click',clicked,true);
+        window.__mobileTapClickCleanup=()=>document.removeEventListener('click',clicked,true);
+      }
+      return {x,y,w:r.width,h:r.height,top,watchClick};
     }""", selector)
     check(bool(box and box['top'] and box['w'] >= 43.5 and box['h'] >= 43.5), f'{selector}: visible 44px tap target {box}')
     if not box or not box['top']:
         return False
-    await page.touchscreen.tap(box['x'], box['y'])
-    await page.wait_for_function('!(window.__hm.guide2 && __hm.guide2.G2.tap.pending)', timeout=15000)
+    try:
+        await page.touchscreen.tap(box['x'], box['y'])
+        # G2 tracks clicks only inside #hud. Dialog controls live outside it;
+        # its already-false flag does not prove their delayed native click ran.
+        if box['watchClick']:
+            await page.wait_for_function('window.__mobileTapClickReceipt?.clicked', timeout=15000)
+        await page.wait_for_function('!(window.__hm.guide2 && __hm.guide2.G2.tap.pending)', timeout=15000)
+        if closes:
+            await page.locator(closes).wait_for(state='hidden', timeout=15000)
+            # Closing the sheet and releasing its modal HUD can settle at
+            # different browser rendering boundaries. Measure the next tap
+            # only after the actual game controls are actionable again.
+            try:
+                await page.wait_for_function(r"""() => {
+                  const hud=document.getElementById('hud'),menu=document.getElementById('mobile-menu-toggle');
+                  if(__hm.UI.modal||document.body.classList.contains('mobile-modal-open')||hud.inert||!MH.shown(menu)||menu.closest('[inert]'))return false;
+                  const r=menu.getBoundingClientRect(),hit=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);
+                  return !!hit&&(hit===menu||menu.contains(hit));
+                }""", timeout=15000, polling=50)
+            except Exception as error:
+                state=await page.evaluate(r"""() => {
+                  const chain=[];
+                  for(let el=document.getElementById('mobile-menu-toggle');el&&chain.length<8;el=el.parentElement){
+                    const s=getComputedStyle(el),r=el.getBoundingClientRect();
+                    chain.push({id:el.id,tag:el.tagName,hidden:el.hidden,inert:el.inert,display:s.display,visibility:s.visibility,opacity:s.opacity,x:r.x,y:r.y,w:r.width,h:r.height});
+                  }
+                  return {modal:__hm.UI.modal,body:document.body.className,active:document.activeElement.id,receipt:window.__mobileTapClickReceipt,chain};
+                }""")
+                raise AssertionError('Gameplay controls did not return after closing '+closes+': '+json.dumps(state)) from error
+    finally:
+        await page.evaluate('window.__mobileTapClickCleanup?.();window.__mobileTapClickCleanup=null;0')
     return True
 
 
@@ -284,14 +326,14 @@ async def flows(page, tag):
         after=await page.evaluate('({power:__hm.GAME.player.power,casting:!!__hm.GAME.player.casting})')
         check(opened and before==after,tag+': reading a future skill expands its description without casting')
     await page.locator('#mobile-tray-close').scroll_into_view_if_needed()
-    await tap(page,'#mobile-tray-close')
+    await tap(page,'#mobile-tray-close',closes='#mobile-tray')
     check(not await page.locator('#mobile-tray').is_visible(),tag+': drawer closes by touch')
     await page.evaluate('__hm.surv.SURV.hunger=1; __hm.surv.SURV.thirst=1; __hm.mobile.state.t=0; 0')
     await frame(page)
     check(not await page.locator('#mobile-needs-alert').is_visible(),tag+': needs warning clears when fed and hydrated')
     await tap(page,'#mobile-character')
     check(await page.locator('#menu').is_visible(),tag+': compact character frame opens the full character sheet')
-    await tap(page,'#menu-close')
+    await tap(page,'#menu-close',closes='#menu')
     for section,control,panel,close in [('world','#btn-map','#mapov','#btn-mapclose'),('character','#btn-kit','#kit','#kit-close'),('character','#btn-menu','#menu','#menu-close')]:
         await tap(page,'#mobile-menu-toggle')
         await more_tab(page,section)
@@ -301,7 +343,7 @@ async def flows(page, tag):
         if panel=='#kit':
             await kit_geometry(page,tag)
         await page.locator(close).scroll_into_view_if_needed()
-        await tap(page,close)
+        await tap(page,close,closes=panel)
         check(not await page.locator(panel).is_visible(),tag+': '+panel+' closes back to play')
     await page.evaluate('__hm.GAME.player.onGround=true; __hm.GAME.player.vy=0; 0')
     await tap(page,'#t-jump')
@@ -336,7 +378,7 @@ async def flows(page, tag):
     title=await page.locator('#dlg-title').inner_text()
     check(await page.locator('#dialog').is_visible() and 'Herald' in title,tag+': Use tap speaks with the nearby herald '+json.dumps({'title':title}))
     await page.locator('#dlg-actions button:last-child').scroll_into_view_if_needed()
-    await tap(page,'#dlg-actions button:last-child')
+    await tap(page,'#dlg-actions button:last-child',closes='#dialog')
     await multitouch(page)
     check(await page.evaluate('scrollX===0 && scrollY===0'),tag+': touch controls do not scroll the page')
 
@@ -386,7 +428,7 @@ async def main():
                                 await page.locator('#btn-kit').scroll_into_view_if_needed()
                                 await tap(page,'#btn-kit')
                                 await kit_geometry(page,f'{w}x{h}')
-                                await tap(page,'#kit-close')
+                                await tap(page,'#kit-close',closes='#kit')
                             elif not BASELINE and level==1:
                                 await flows(page,f'{w}x{h}')
             errors=await page.evaluate('__hm.errors')

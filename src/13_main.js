@@ -17,15 +17,24 @@ window.addEventListener('unhandledrejection', (e) => reportError(e.reason));
 /* ------------------------------------------------------------------ */
 /* sizing and quality                                                  */
 /* ------------------------------------------------------------------ */
+function graphicsRenderRatio() {
+  let ratio = Math.max(0.5, Math.min(window.devicePixelRatio || 1, quality.dpr) * (quality.scale || 1));
+  // Recovery keeps its existing, stricter limit regardless of saved choices.
+  if (BOOT_SAFE) return Math.min(ratio, 1280 / view.w, 1280 / view.h, Math.sqrt(921600 / (view.w * view.h)));
+  if (!IS_TOUCH && quality.auto !== false) {
+    // Automatic detail needs a bound before it has frame timings, including
+    // after an automatic preference was saved. Manual choices retain their DPR.
+    ratio = Math.min(ratio, 1920 / view.w, 1920 / view.h, Math.sqrt(1440000 / (view.w * view.h)));
+  }
+  return ratio;
+}
 function applyGraphicsSize() {
   // A changed frustum/quality can expose a previously culled shader variant.
   // Rewarm this explicit title view; unchanged redraws reuse completed work.
   if (!GAME.started) TITLE_WARMED = false;
   view.w = Math.max(1, window.innerWidth);
   view.h = Math.max(1, window.innerHeight);
-  quality.dprActual = Math.max(0.5, Math.min(window.devicePixelRatio || 1, quality.dpr) * (quality.scale || 1));
-  // Bound recovery work even on a large desktop; the ordinary DPR floor cannot enforce this cap.
-  if (BOOT_SAFE) quality.dprActual = Math.min(quality.dprActual, 1280 / view.w, 1280 / view.h, Math.sqrt(921600 / (view.w * view.h)));
+  quality.dprActual = graphicsRenderRatio();
   renderer.setPixelRatio(quality.dprActual);
   renderer.setSize(view.w, view.h, false);
   camera.aspect = view.w / view.h;
@@ -157,7 +166,12 @@ async function submitTitleStage(id, members, inventory, combined = false) {
   let current = null, workCalls = 0, workTriangles = 0;
   GRAPHICS_STARTUP.titleStage = id;
   const message = document.getElementById('loadmsg');
-  if (message && !GAME.ready) message.textContent = 'Preparing title graphics: ' + id;
+  if (message && !GAME.ready) message.textContent = ({
+    post: 'Preparing the view', sky: 'Preparing the sky', terrain: 'Preparing the landscape',
+    grass: 'Preparing the meadows', flowers: 'Preparing the meadows', trees: 'Preparing the forests',
+    water: 'Preparing the water', structures: 'Preparing the towns and keeps',
+    crowds: 'Preparing the people and creatures', other: 'Finishing the world', combined: 'Checking the first view',
+  })[id.split('-')[0]] || 'Finishing the view';
   try {
     const priorErrors = gpuDiagGlErrors(gl);
     if (priorErrors.length) throw new Error('GL errors before title ' + id + ': ' + priorErrors.join(', '));
@@ -245,6 +259,11 @@ function renderTitleFrame() {
           await waitForTitleVisibility();
           titleAssertActive();
           if (GAME.started) return false;
+          if (id === 'terrain') {
+            const preparation = await prepareTitlePrograms(inventory, stages, TITLE_WARM_GENERATION);
+            captureTitleResizeRequest();
+            if (preparation.stale || TITLE_RESIZE_PENDING) { TITLE_FRAME_DIRTY = true; resized = true; break; }
+          }
           const result = await submitTitleStage(id, members, inventory);
           GRAPHICS_STARTUP.titleWarmup.push(result);
           // A real event-loop/paint opportunity separates cold submissions.
@@ -346,9 +365,8 @@ async function boot() {
   await loadStep(0.68, 'Mustering the realms', () => { buildCrowds(); buildParticles(); buildSpellFX(); buildFireflies(); buildWeather(); buildAmbientLife(); buildDragon(); buildLootMeshes(); initCamps(); initTowns(); initMerchants(); initWar(); initWildlife(); initAnimals(); spawnDragon(); initBarrow(); });
   GAME.built = true;
   groupOutdoors();
-  // [perf2] the save read and the screen sized first, then the shaders asked for (perf2Compile, 13x_perf2.js) while the
-  // map is drawn: the GPU's process compiles them meanwhile (the map came first, and the screen's sizing then waited
-  // for every shader the compile had asked for)
+  // Read saved preferences before sizing. Shader work belongs to the separately
+  // fenced, visible title families below, not a bulk compile of hidden content.
   await loadStep(0.78, 'Reading the chronicle');
   const save = await savePromise;
   graphicsAssertActive();
@@ -360,18 +378,11 @@ async function boot() {
   camera.updateMatrixWorld();
   // Isolation owns every draw and never enters ordinary compilation or the game loop.
   if (await graphicsRunDiagnostic()) return;
-  if (!BOOT_SAFE) { graphicsCheckpoint('Compiling world shaders'); perf2Compile(false); }
   await loadStep(0.84, 'Drawing the map', () => { buildMapImage(); buildDungeonMap(); });
-  await loadStep(0.9, 'Lighting the sky', () => {
+  await loadStep(0.9, 'Preparing the first view', () => {
     updateCamera(0.016);
     camera.updateMatrixWorld();
-    if (!BOOT_SAFE) {
-      try { DUN.root.visible = true; spellCompileVisible(true); renderer.compile(scene, camera); } catch (e) { reportError(e); }
-      DUN.root.visible = INDOOR.on;
-      spellCompileVisible(false);
-    }
   });
-  if (!BOOT_SAFE) await perf2Shaders(0.9, 0.97); // [perf2] the veil counts the shaders as they are ready (13x_perf2.js)
   await loadStep(0.97, 'Drawing the first view', () => renderFirstTitleFrame());
   graphicsAssertActive();
   GAME.ready = true;
@@ -803,7 +814,7 @@ function tick(dt) {
   renderer.render(scene, camera);
   composite.uniforms.uTime.value = renderTime;
   const fl = composite.uniforms.uFlash.value;
-  fl.w = Math.max(0, fl.w - dt * 1.3);
+  fl.w = REDUCE_MOTION ? 0 : Math.max(0, fl.w - dt * 1.3);
   renderPost();
   // interface
   if (GAME.started && GAME.player) updateHUD(dt);

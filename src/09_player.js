@@ -144,6 +144,13 @@ function screenOf(x, y, z) {
   if (_proj.z > 1 || _proj.z < -1) return null;
   return { x: (_proj.x * 0.5 + 0.5) * view.w, y: (-_proj.y * 0.5 + 0.5) * view.h, z: _proj.z };
 }
+// Selection follows the visible bodies, rather than their projected positions
+// through a wall. Reuse the nameplate visibility cache between target changes.
+function playerTargetVisible(e) {
+  const P = GAME.player;
+  if (!P || !e || e.removed || towerSightBlocked(P, e)) return false;
+  return e === P || npSeen(e, dist(e.x, e.z, camera.position.x, camera.position.z));
+}
 function pickAt(sx, sy) {
   const P = GAME.player;
   let best = null, bd = Infinity;
@@ -158,7 +165,7 @@ function pickAt(sx, sy) {
     if (!s) continue;
     const rad = clamp((e.kind === 'door' ? 900 : e.kind === 'dragon' ? 1400 : 260) / Math.max(d3, 1), 18, e.kind === 'dragon' ? 260 : 120) * (e.scale || 1);
     const d = Math.hypot(s.x - sx, (s.y - sy) * 0.8);
-    if (d < rad && d - rad * 0.3 * (e === P ? -1 : 0) < bd) { bd = d; best = e; }
+    if (d < rad && d - rad * 0.3 * (e === P ? -1 : 0) < bd && playerTargetVisible(e)) { bd = d; best = e; }
   }
   setPlayerTarget(best);
 }
@@ -172,15 +179,17 @@ function cycleTarget(back = false) {
   const P = GAME.player;
   const list = [];
   forNear(P.x, P.z, 40, (o) => {
-    if (!o.alive || !isEnemy(P, o) || o.kind === 'door') return;
+    if (!o.alive || o.removed || o.flying || !isEnemy(P, o) || o.kind === 'door') return;
     const ang = Math.abs(angDiff(CAM.yaw, Math.atan2(o.x - P.x, o.z - P.z)));
     if (ang > 1.4) return;
+    if (!playerTargetVisible(o)) return;
     list.push(o);
   });
   if (!list.length) { setPlayerTarget(null); return; }
   list.sort((a, b) => dist2(a.x, a.z, P.x, P.z) - dist2(b.x, b.z, P.x, P.z));
   const i = list.findIndex((o) => o.id === P.target);
-  setPlayerTarget(list[(i + (back ? list.length - 1 : 1) + list.length) % list.length] || list[0]);
+  const next = i < 0 ? (back ? list.length - 1 : 0) : (i + (back ? -1 : 1) + list.length) % list.length;
+  setPlayerTarget(list[next]);
 }
 function playerUseSlot(i) {
   const P = GAME.player;
@@ -201,7 +210,9 @@ function playerUseSlot(i) {
   const aim = !A.self && !A.friendly && (!t || !isEnemy(P, t) || !t.alive || far) ? houseFireAim(P, id) || natureFireAim(P, id) : null;
   const r = aim ? castAtHouse(P, id, aim) : useAbility(P, id, t);
   if (r !== true) {
-    const msg = { swimming: 'You cannot do that while swimming', cooldown: 'That ability is not ready yet', power: 'Not enough power', range: 'Your target is too far away', target: 'You need a hostile target', close: 'Too close to charge', held: 'Frost holds you fast' /* [balance3] */, level: `Learned at level ${A.level}`, stunned: 'You are stunned', busy: 'You are already casting', carrying: 'Your hands are full with the hallow', ladder: 'Not with one hand on the ladder', dead: '' }[r]; // [keeps] ladder
+    const msg = r === 'target' && t && t.alive && isEnemy(P, t) && towerSightBlocked(P, t)
+      ? 'Your target is hidden by a wall or floor'
+      : { swimming: 'You cannot do that while swimming', cooldown: 'That ability is not ready yet', power: 'Not enough power', range: 'Your target is too far away', target: 'You need a hostile target', close: 'Too close to charge', held: 'Frost holds you fast' /* [balance3] */, level: `Learned at level ${A.level}`, stunned: 'You are stunned', busy: 'You are already casting', carrying: 'Your hands are full with the hallow', ladder: 'Not with one hand on the ladder', dead: '' }[r]; // [keeps] ladder
     if (msg) uiError(msg);
   } else flashSlot(i);
 }
@@ -274,10 +285,18 @@ function teleportPlayer(S, kind) {
 /* bounties from the herald */
 function chooseBounty() {
   const P = GAME.player, prog = GAME.prog;
-  const camps = CAMPS.filter((c) => c.realm === P.faction).map((c) => ({ c, mid: (c.lmin + c.lmax) / 2 }));
-  camps.sort((a, b) => Math.abs(a.mid - prog.level - 0.5) - Math.abs(b.mid - prog.level - 0.5));
-  const c = camps[Math.floor(Math.random() * Math.min(2, camps.length))].c;
-  return { type: c.type, camp: c.id, need: 6, have: 0, name: MOBS[c.type].names[mobTier(MOBS[c.type], (c.lmin + c.lmax) / 2)], reward: Math.round(xpToNext(prog.level) * 0.35) };
+  const camps = CAMPS.filter((c) => c.realm === P.faction && !c.elite && MOBS[c.type])
+    .map((c) => { const residents = guideCampResidents(c), levels = residents.map((e) => e.level); return { c, residents, low: Math.min(...levels), high: Math.max(...levels) }; })
+    .filter((q) => q.residents.length && q.high <= prog.level + 1);
+  camps.sort((a, b) => Math.abs(a.high - prog.level - 0.5) - Math.abs(b.high - prog.level - 0.5)
+    || dist2(P.x, P.z, a.c.x, a.c.z) - dist2(P.x, P.z, b.c.x, b.c.z));
+  if (!camps.length) return null;
+  const { c, residents, low, high } = camps[Math.floor(Math.random() * Math.min(2, camps.length))];
+  const names = [...new Set(residents.map((e) => e.name).filter((name) => typeof name === 'string' && name))];
+  // An observed common name, or the species when several tiers live together.
+  // Existing accepted bounties retain their saved target, progress and reward.
+  const name = names.length === 1 && MOBS[c.type].names.includes(names[0]) ? names[0] : MOB_PLURAL[c.type] || MOBS[c.type].names[0];
+  return { type: c.type, camp: c.id, need: 6, have: 0, name, minLevel: low, maxLevel: high, reward: Math.round(xpToNext(prog.level) * 0.35) };
 }
 function bountyOnKill(e) {
   const b = GAME.prog && GAME.prog.bounty;
@@ -370,6 +389,7 @@ function updatePlayer(dt) {
 /* camera                                                              */
 /* ------------------------------------------------------------------ */
 function cameraShake(amount, x, z) {
+  if (REDUCE_MOTION) { CAM.shake = 0; return; }
   const P = GAME.player;
   const d = P ? dist(P.x, P.z, x, z) : 0;
   CAM.shake = Math.max(CAM.shake, amount * clamp(1 - d / 40, 0, 1));
@@ -397,7 +417,7 @@ function updateCamera(dt) {
   if (typeof throneRtsUpdateCamera === 'function' && throneRtsUpdateCamera(dt)) return;
   if (CAM.mode === 'fixed') return; // test and photo views place the camera themselves
   if (CAM.mode === 'title') {
-    CAM.orbitT += dt * 0.035;
+    if (!REDUCE_MOTION) CAM.orbitT += dt * 0.035;
     const a = CAM.orbitT + 2.2;
     const T = W.heroTree;
     const r = 34;
@@ -435,6 +455,7 @@ function updateCamera(dt) {
   if (hc) { cx = hc.x; cy = hc.y; cz = hc.z; }
   CAM.pos.set(cx, cy, cz);
   camera.position.copy(CAM.pos);
+  if (REDUCE_MOTION) CAM.shake = 0;
   if (CAM.shake > 0) {
     camera.position.x += (Math.random() - 0.5) * CAM.shake;
     camera.position.y += (Math.random() - 0.5) * CAM.shake;

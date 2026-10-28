@@ -238,7 +238,7 @@ function updateWeather(dt) {
     b.t += dt;
     if (b.t > 0.45) { W2.bolts.splice(i, 1); continue; }
     // the bolt flickers: on, off, on again
-    const on = b.t < 0.09 || (b.t > 0.16 && b.t < 0.26) || (b.t > 0.32 && b.t < 0.36);
+    const on = !REDUCE_MOTION && (b.t < 0.09 || (b.t > 0.16 && b.t < 0.26) || (b.t > 0.32 && b.t < 0.36));
     if (!on) continue;
     for (const p of b.path) glowPush(p[0], p[1], p[2], 2.4, 2.6, 3.2, p[3]);
   }
@@ -258,7 +258,7 @@ function strikeLightning(camX, camZ) {
   }
   WEATHER.bolts.push({ path, t: 0 });
   WEATHER.flash = 1;
-  lightFlash(x, gy + 20, z, 170, [3.0, 3.3, 4.2], 0.5);
+  if (!REDUCE_MOTION) lightFlash(x, gy + 20, z, 170, [3.0, 3.3, 4.2], 0.5);
   setTimeout(() => sfxAt(d < 120 ? 'thunderNear' : 'thunder', x, gy + 30, z, { now: true }), (d / 343) * 1000 * 0.6); // [audio2] from where it struck (11c_sound.js)
 }
 
@@ -298,7 +298,7 @@ function applyWeather() {
   U.uFogDensity.value *= 1 + 1.4 * fog + (U.uCloudDomeOn.value.x > 0.5 ? 0.7 : 2.2) * mist; // [weather2] the mist lies in the valleys (uMist, 12c_weather2.js)
   RAYS_BOOST.value = (1 - 0.85 * oc) + mist * 1.4;
   // a lightning flash lights everything for a moment
-  if (W2.flash > 0) {
+  if (W2.flash > 0 && !REDUCE_MOTION) {
     const f = W2.flash * W2.flash;
     A.addScalar(f * 0.9); A.z += f * 0.25;
     U.uZenith.value.addScalar(f * 0.6); U.uHorizon.value.addScalar(f * 0.5);

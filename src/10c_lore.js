@@ -209,6 +209,9 @@ const LORE_CSS = `
 .chron .steps .rw { display: inline-flex; align-items: center; gap: 5px; color: #e3c56c; font-size: 12.5px; white-space: nowrap; }
 .chron .steps .rw svg { width: 14px; height: 14px; }
 .chron .steps li.done .rw { color: var(--ink-faint); }
+.chron .steps .path-track { display: block; width: fit-content; margin-top: 7px; min-height: 40px; padding: 7px 12px; font-size: 13px; }
+.chron .steps .tracking { display: block; margin-bottom: 5px; color: var(--bronze-hi); font: 500 11px/1.3 var(--caps); letter-spacing: 0.08em; text-transform: uppercase; }
+.chron .steps li.cur:focus { outline: 2px solid var(--bronze-hi); outline-offset: 3px; }
 .chron .note { border-left: 3px solid var(--bronze); padding: 8px 12px; background: rgba(223, 193, 136, 0.06); border-radius: 0 6px 6px 0; font-size: 13.5px; line-height: 1.5; color: var(--ink-dim); }
 .chron .note b { display: block; font: 400 17px/1.25 var(--display); color: #fbf1dc; margin-bottom: 2px; }
 .chron .acts { display: flex; gap: 8px; flex-wrap: wrap; }
@@ -242,7 +245,7 @@ const LORE_CSS = `
 /* state and small helpers                                             */
 /* ------------------------------------------------------------------ */
 const LORE = {
-  pro: null, chronSec: 'march', begin: -1e9,
+  pro: null, chronSec: 'march', begin: null,
   watchT: 0, hudT: 0, placeT: 0, hudKey: '', top: -1, min: null,
   ev: {}, bounty: null, potions: 0, carried: null, doors: new Map(), elites: new Set(), loot: new Set(),
   queue: [], noteUntil: 0, deathShown: false,
@@ -360,7 +363,23 @@ const PATH_VERSION = 3; // [guide] 2: the steps of version 13 (pv 2 on a step); 
 const REWARD_SLOT_WORD = { weapon: 'weapon', cloak: 'cloak', ring: 'ring', charm: 'charm', chest: 'chest piece', head: 'helm', hands: 'pair of gloves', legs: 'pair of leggings' };
 function loreLvlFrac(prog, target) { return clamp((prog.level - 1 + (prog.level >= LEVEL_CAP ? 0 : prog.xp / xpToNext(prog.level))) / Math.max(1, target - 1), 0, 1); }
 function pathDone(id) { const L = GAME.prog && GAME.prog.lore; return !!L && L.done.includes(id); }
-function pathNext() { return PATH_STEPS.find((S) => !pathDone(S.id)) || null; }
+function pathSuggested() { return PATH_STEPS.find((S) => !pathDone(S.id)) || null; }
+function pathNext() {
+  const id = GAME.prog && GAME.prog.lore && GAME.prog.lore.track;
+  return (id && Object.hasOwn(PATH_BY_ID, id) && !pathDone(id) && PATH_BY_ID[id]) || pathSuggested();
+}
+// Choosing an objective only changes guidance. Rewards still require the real
+// deed, and completed steps cannot be selected or paid again.
+function pathTrack(id) {
+  const L = GAME.prog && GAME.prog.lore;
+  if (!L || !Object.hasOwn(PATH_BY_ID, id) || pathDone(id)) return false;
+  L.track = id;
+  GUIDE.mark = null; GUIDE.markT = 0; G2.pointT = 0;
+  LORE.hudKey = ''; LORE.hudT = 0;
+  guideUpdateMark(0); g2UpdatePointer(0); renderPathHud();
+  saveSoon(800);
+  return true;
+}
 // what a step will pay: gold at the level it is likely taken, experience as a share of a level
 const XP_SHARE = [[0.25, 'a quarter'], [1 / 3, 'a third'], [0.5, 'half']];
 function rewardLabel(S, prog, ahead = false) {
@@ -396,6 +415,7 @@ function pathComplete(S, silent = false) {
   const L = GAME.prog.lore;
   if (L.done.includes(S.id)) return;
   L.done.push(S.id);
+  if (L.track === S.id) delete L.track;
   LORE.ev[S.id] = false;
   LORE.hudKey = '';
   if (silent) return;
@@ -974,6 +994,7 @@ function closePrologue() {
 // the prologue's keys come first, and the game never sees them
 window.addEventListener('keydown', (e) => {
   if (UI.modal !== 'prologue' || !LORE.pro) return;
+  if (typeof netHumanInput === 'function') netHumanInput(e); // window capture stops the document's trusted-input listener
   const k = e.code;
   const onBtn = !!(document.activeElement && document.activeElement.closest && document.activeElement.closest('#lore-pro button'));
   if (k === 'Escape') { e.preventDefault(); closePrologue(); }
@@ -1226,7 +1247,9 @@ function renderChronicle(body, fromNav = false) {
   // two rows: the four parts of the Chronicle, then the pages of the part you are in (every page is in the row; the
   // other parts' pages are hidden until you turn to them)
   const grps = CHRON_GROUPS.map(([gk, gl]) => `<button type="button" data-grp="${gk}" aria-current="${gk === G[0]}">${gl}</button>`).join('');
-  const secs = CHRON_GROUPS.flatMap(([gk, , ks]) => ks.filter((k) => label[k]).map((k) => `<button type="button" data-sec="${k}" aria-current="${k === sec}"${gk === G[0] ? '' : ' hidden'}>${label[k]}</button>`)).join('');
+  // Progress has its own persistent menu tab. Keep old coach links routable,
+  // without repeating the same destination in the Chronicle's page controls.
+  const secs = CHRON_GROUPS.flatMap(([gk, , ks]) => ks.filter((k) => label[k] && k !== 'coach').map((k) => `<button type="button" data-sec="${k}" aria-current="${k === sec}"${gk === G[0] ? '' : ' hidden'}>${label[k]}</button>`)).join('');
   body.innerHTML = `<div class="chron"><nav class="chron-nav" aria-label="Chronicle"><div class="chron-grps">${grps}</div><div class="chron-secs">${secs}</div></nav><div class="chron-body">${fn()}</div></div>`;
   chronFold(sec); // [guide2] a long page folds into its summaries on a phone (10f_guide2.js)
   const nav = body.querySelector('.chron-nav'), row = nav.querySelector('.chron-secs'), cur = row.querySelector('[aria-current="true"]');
@@ -1278,6 +1301,11 @@ $('menu-body').addEventListener('click', (e) => {
   const a = e.target.closest('[data-lore]');
   if (a && a.dataset.lore === 'prologue') openPrologue(true);
   else if (a && a.dataset.lore.startsWith('sec:')) { openChronicle(a.dataset.lore.slice(4)); sfx('click'); } // [guide] a page's link to another (chronLink)
+  else if (a && a.dataset.lore.startsWith('track:') && pathTrack(a.dataset.lore.slice(6))) {
+    LORE.chronSec = 'path'; renderChronicle($('menu-body'));
+    $('menu-body').querySelector('.steps li.cur')?.focus({ preventScroll: true });
+    sfx('click');
+  }
 });
 
 function chronMarch() {
@@ -1560,15 +1588,17 @@ function chronPath() {
   const row = (S) => {
     const i = S.idx, done = prog.lore.done.includes(S.id), cur = S === next;
     const rw = rewardLabel(S, prog, !cur);
-    return `<li class="${done ? 'done' : cur ? 'cur' : ''}"><span class="mk">${done ? '✓' : i + 1}</span><span><b>${S.title}</b>${cur ? `<small>${S.hint(R, prog)}</small>` : ''}</span><span class="rw">${iconSvg(rw.ic, 14)}${done ? 'Claimed' : rw.t}</span></li>`;
+    return `<li class="${done ? 'done' : cur ? 'cur' : ''}"${cur ? ' tabindex="-1"' : ''}><span class="mk">${done ? '✓' : i + 1}</span><span>${cur ? '<span class="tracking">Tracked objective</span>' : ''}<b>${S.title}</b>${cur ? `<small>${S.hint(R, prog)}</small>` : !done ? `<button type="button" class="btn path-track" data-lore="track:${S.id}" aria-label="Track: ${S.title}">Track objective</button>` : ''}</span><span class="rw">${iconSvg(rw.ic, 14)}${done ? 'Claimed' : rw.t}</span></li>`;
   };
-  // [guide2] the step at hand and the two after it; the steps walked and the rest of the way each folded under a line (a
+  // The tracked step and two suggested steps; completed deeds and the rest of
+  // the path stay folded, including when a later objective was chosen. (A
   // phone read the whole path, 1,700 px of it, to find the one step that mattered)
   const done = PATH_STEPS.filter((S) => prog.lore.done.includes(S.id)), ahead = PATH_STEPS.filter((S) => !prog.lore.done.includes(S.id));
-  const near = ahead.slice(0, 3), far = ahead.slice(3);
+  const ordered = next ? [next, ...ahead.filter((S) => S !== next)] : ahead;
+  const near = ordered.slice(0, 3), far = ordered.slice(3);
   const fold = (title, list, open = false) => `<details class="cf"${open ? ' open' : ''}><summary><h3>${title}</h3></summary><div class="cf-b"><ol class="steps">${list.map(row).join('')}</ol></div></details>`;
   const nNotes = prog.lore.seen.filter((id) => FIELD_NOTES[id]).length;
-  return `<p>${capFirst(guideNumber(PATH_STEPS.length))} steps from recruit to the height of your powers. Each pays a reward the moment you take it; the next always shows at the ${IS_TOUCH ? 'top left' : 'left'} of your screen, with a gold gem on your minimap where it is to be done. Take them in any order.</p>
+  return `<p>${capFirst(guideNumber(PATH_STEPS.length))} steps from recruit to the height of your powers. Take them in any order; each pays its reward when you complete it. Choose <b>Track objective</b> on any unfinished step to see its instructions here and follow its gold gem on the minimap.</p>
     ${done.length ? fold(`${capFirst(guideNumber(done.length))} step${done.length === 1 ? '' : 's'} walked`, done) : ''}
     ${near.length ? `<ol class="steps">${near.map(row).join('')}</ol>` : `<p class="now">Every step is walked. The Aims page says what to aim for now.</p>`}
     ${far.length ? fold(`${capFirst(guideNumber(far.length))} more step${far.length === 1 ? '' : 's'} ahead`, far) : ''}
@@ -1582,11 +1612,30 @@ function chronPath() {
 function loreSanitize(o) {
   const ids = (a, ok) => (Array.isArray(a) ? [...new Set(a.filter((x) => typeof x === 'string' && ok(x)))] : []);
   if (!o || typeof o !== 'object') return null;
-  return { done: ids(o.done, (x) => !!PATH_BY_ID[x]), seen: ids(o.seen, (x) => !!FIELD_NOTES[x]), pro: o.pro ? 1 : 0, pv: Number.isInteger(o.pv) && o.pv > 0 && o.pv <= PATH_VERSION ? o.pv : 1 }; // [guide] pv
+  const kept = { done: ids(o.done, (x) => Object.hasOwn(PATH_BY_ID, x)), seen: ids(o.seen, (x) => Object.hasOwn(FIELD_NOTES, x)), pro: o.pro ? 1 : 0, pv: Number.isInteger(o.pv) && o.pv > 0 && o.pv <= PATH_VERSION ? o.pv : 1 }; // [guide] pv
+  if (typeof o.track === 'string' && Object.hasOwn(PATH_BY_ID, o.track) && !kept.done.includes(o.track)) kept.track = o.track;
+  return kept;
 }
 function loreSaveData() {
   const L = GAME.prog && GAME.prog.lore;
-  return L ? { done: L.done.slice(), seen: L.seen.slice(), pro: L.pro ? 1 : 0, pv: L.pv || PATH_VERSION } : null; // [guide] pv
+  return L ? { done: L.done.slice(), seen: L.seen.slice(), pro: L.pro ? 1 : 0, pv: L.pv || PATH_VERSION, ...(L.track && Object.hasOwn(PATH_BY_ID, L.track) && !L.done.includes(L.track) ? { track: L.track } : {}) } : null; // [guide] pv
+}
+function loreCancelBegin() { LORE.begin = null; }
+function loreRequestBegin(save) {
+  loreCancelBegin();
+  if (GAME.started || UI.titleSave?.char || !save?.fresh) return;
+  LORE.begin = { realm: save.realm, cls: save.cls, name: save.name, request: save,
+    host: typeof NETWS === 'undefined' ? '' : NETWS.host || '' };
+}
+function loreConsumeBegin(save) {
+  const intent = LORE.begin;
+  loreCancelBegin(); // A start consumes the intent, including a recovered old character.
+  // Ownership is enforced by nativePlayerBegin/startGame's existing guards.
+  // Public onboarding follows that accepted request, including a first native
+  // bootstrap that binds its transport account after the click.
+  return !!(intent && intent.request === save && save.fresh && intent.realm === save.realm && intent.cls === save.cls
+    && (!intent.name || intent.name === save.name)
+    && intent.host === (typeof NETWS === 'undefined' ? '' : NETWS.host || ''));
 }
 // called at the end of startGame with what it was started from
 function loreOnStart(save) {
@@ -1605,15 +1654,18 @@ function loreOnStart(save) {
     if ((S.level && prog.level >= S.level) || (old && S.old && prog.level >= S.old) || (S.pv > pv0 && S.old && prog.level >= S.old)) pathComplete(S, true);
   }
   buildPathHud();
-  const fromTitle = performance.now() - LORE.begin < 4000;
-  LORE.begin = -1e9;
+  // The user's Begin intent survives slow graphics/native startup. A clock
+  // deadline skipped the prologue on slower devices; matching and consuming
+  // the actual character/owner intent avoids replaying it on another start.
+  const fromTitle = loreConsumeBegin(save);
   if (save.fresh && fromTitle) openPrologue(false);
   else if (save.fresh) setTimeout(() => { if (GAME.prog === prog) loreNote('start'); }, 1600);
   else if (old) setTimeout(() => { if (GAME.prog === prog) loreNote('news'); }, 2500);
   else if (kept && pv0 < PATH_VERSION) setTimeout(() => { if (GAME.prog === prog) loreNote('pathnew'); }, 2500); // [guide] what the path gained since the save was made
 }
 // the title screen's "Enter the realm" means a new character: it gets the prologue
-$('btn-begin').addEventListener('click', () => { if (!GAME.started) LORE.begin = performance.now(); }, true);
+for (const id of ['realm-pick', 'class-pick', 'btn-dice', 'btn-continue']) $(id).addEventListener('click', loreCancelBegin, true);
+$('name-input').addEventListener('input', loreCancelBegin);
 
 function updateLore(dt) {
   const prog = GAME.prog;

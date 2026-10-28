@@ -362,7 +362,7 @@ function wxBoltVisual(x, z, d) {
   WEATHER.bolts.push({ path, t: 0 });
   wxCloudFlash(x, z, d);
   WEATHER.flash = Math.max(WEATHER.flash, clamp(1 - d / 900, 0.15, 1));
-  if (d < 600) lightFlash(clamp(x, -HALF, HALF), gy + 20, clamp(z, -HALF, HALF), 170, [3.0, 3.3, 4.2], 0.5);
+  if (d < 600 && !REDUCE_MOTION) lightFlash(clamp(x, -HALF, HALF), gy + 20, clamp(z, -HALF, HALF), 170, [3.0, 3.3, 4.2], 0.5);
 }
 
 /* ---- the save: the systems, the wind and the air carried (world part 'wx'; one small part the host can share) ---- */
@@ -757,7 +757,7 @@ function wxCloudsFrame(dt) {
   wxShaftsFrame();
   // lightning in the cloud
   const F = WX.flash;
-  U.uWxFlash.value.set(F.x, F.y, F.z, F.k * F.k * 1.6);
+  U.uWxFlash.value.set(F.x, F.y, F.z, REDUCE_MOTION ? 0 : F.k * F.k * 1.6);
   // mist in the valleys: the camera's own mist, lying over the low ground about it
   const mist = INDOOR.on ? 0 : WEATHER.mist || 0;
   if (mist > 0.01) {

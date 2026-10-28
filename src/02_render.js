@@ -3,7 +3,22 @@
 /* ================================================================== */
 const canvas = document.getElementById('scene');
 const IS_TOUCH = matchMedia('(pointer: coarse)').matches || ('ontouchstart' in window && navigator.maxTouchPoints > 0);
-const REDUCE_MOTION = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const MOTION_QUERY = matchMedia('(prefers-reduced-motion: reduce)');
+const MOTION_PREF_KEY = 'hallowmarch.motion.v1';
+let MOTION_MODE = 'system';
+try { if (localStorage.getItem(MOTION_PREF_KEY) === 'reduced') MOTION_MODE = 'reduced'; } catch (e) { /* a device preference must not block play */ }
+let REDUCE_MOTION = MOTION_MODE === 'reduced' || MOTION_QUERY.matches;
+function syncMotionPreference() {
+  REDUCE_MOTION = MOTION_MODE === 'reduced' || MOTION_QUERY.matches;
+  document.documentElement?.setAttribute('data-reduced-motion', String(REDUCE_MOTION));
+}
+function setMotionMode(mode) {
+  if (mode !== 'system' && mode !== 'reduced') return;
+  MOTION_MODE = mode; syncMotionPreference();
+  try { localStorage.setItem(MOTION_PREF_KEY, mode); } catch (e) { /* private browsing can refuse preferences */ }
+}
+syncMotionPreference();
+MOTION_QUERY.addEventListener?.('change', syncMotionPreference);
 
 const GRAPHICS_TRACE_KEY = 'hallowmarch.graphics.trace.v1';
 const GRAPHICS_RECOVERY_KEY = 'hallowmarch.graphics.recovery.v1';
@@ -143,7 +158,9 @@ const QUALITY_PRESETS = {
   medium: { dpr: 1.25, msaa: 2, grass: 0.62, flowers: 0.7, treeDist: 300, nearTrees: 28, bloom: 5, label: 'Medium' },
   low: { dpr: 1.0, msaa: 0, grass: 0.36, flowers: 0.45, treeDist: 200, nearTrees: 0, bloom: 4, label: 'Low' }, // [motion] treeDist 230 -> 200: the farthest chunks are lost in the fog at low
 };
-const GRAPHICS_BOOT_LEVEL = BOOT_SAFE ? 'low' : IS_TOUCH ? 'medium' : 'high';
+// An unknown desktop GPU must draw its first view before adaptive detail has
+// any frame timings. Saved and manual quality choices still apply normally.
+const GRAPHICS_BOOT_LEVEL = BOOT_SAFE ? 'low' : 'medium';
 const quality = { level: GRAPHICS_BOOT_LEVEL, ...QUALITY_PRESETS[GRAPHICS_BOOT_LEVEL] };
 graphicsCheckpoint('Preparing graphics data');
 
@@ -698,14 +715,21 @@ vec4 cloudDome(vec3 dir){
   if (uCloudDomeOn.x < 0.5 || dir.y < -0.03) return vec4(0.0, 0.0, 0.0, 1.0);
   return cloudLitDir(dir, texture(uCloudDome, cloudDomeUV(dir)));
 }
-// the sky of the main view: its own pixel of the screen's clouds (wxCloudsScreen), else the dome
+// The cloud render targets have no mipmaps. Select the sample first, then light
+// it once: duplicating this call through cloudDome also failed on native D3D11.
+// The main view uses its own screen clouds (wxCloudsScreen), else the dome.
 vec4 cloudScreen(vec3 dir, vec2 fc){
-  if (uCloudScrP.z < 0.5) return cloudDome(dir);
   if (uCloudDomeOn.x < 0.5 || dir.y < -0.03) return vec4(0.0, 0.0, 0.0, 1.0);
-  // (four taps half a texel of the pass apart: a tent over its texels, so the steps' spread reads as soft, not as grain)
-  vec2 o = 0.5 * uCloudScrP.w * uCloudScrP.xy, uv = fc * uCloudScrP.xy;
-  vec4 c = texture(uCloudScr, uv + vec2(-o.x, -o.y)) + texture(uCloudScr, uv + vec2(o.x, -o.y)) + texture(uCloudScr, uv + vec2(-o.x, o.y)) + texture(uCloudScr, uv + o);
-  return cloudLitDir(dir, c * 0.25);
+  vec4 c;
+  if (uCloudScrP.z < 0.5) {
+    c = texture(uCloudDome, cloudDomeUV(dir));
+  } else {
+    // Same four taps and averaging as the original screen path.
+    vec2 o = 0.5 * uCloudScrP.w * uCloudScrP.xy, uv = fc * uCloudScrP.xy;
+    c = texture(uCloudScr, uv + vec2(-o.x, -o.y)) + texture(uCloudScr, uv + vec2(o.x, -o.y)) + texture(uCloudScr, uv + vec2(-o.x, o.y)) + texture(uCloudScr, uv + o);
+    c *= 0.25;
+  }
+  return cloudLitDir(dir, c);
 }
 `;
 /* ------------------------------------------------------------------ */
