@@ -26,6 +26,8 @@ identity ownership checks, and learning consent.
 - **Effects and recovery:** Settings offers a browser-local reduced-effects
   preference that follows the device by default. Shake, screen flashes, and
   lightning flicker are suppressed while lightning mechanics remain intact.
+  Reduced effects disable transitions rather than assigning a tiny duration to
+  every property; control size, handedness and screen insets apply immediately.
   Failed dependency loading exposes a retry; a late successful download clears
   that notice and continues startup.
 
@@ -58,6 +60,43 @@ fence in a fresh native Edge process with default protections and no overrides.
 The before/after result supports this small compiler-path workaround; it does
 not identify a specific driver/compiler defect. Experimental noise-texture and
 shared-helper rewrites were discarded.
+
+The full native game then passed all 43 title submissions and the combined fence,
+real entry/prologue/movement/menu controls, active screen weather and day/night
+rendering, with all 74 exercised programs healthy. This was an offline synthetic
+character, not a hosted account or shared-world session.
+
+One instrumented cold-profile run took 115.1 seconds to Ready and exposed an
+approximately 18-second first-play page stall while further programs appeared.
+An equivalent fog-expression factoring passed numerical and native correctness
+checks but took 117.9 seconds in its comparison run; it was rejected as an
+unproven optimization. The retained title scheduler prepares only supported current-view materials in
+an eight-program window, at most four preparation calls per turn. Every original
+real draw and fence, and the combined visible-frame gate, remain mandatory.
+Recovery and unsupported cases keep the serial path. Visibility/resize changes
+drain a stale window before replanning; context, link and GL failures stop it.
+
+One existing common-avatar depth program is also prepared with its real shadow
+camera, scene and target. This dependency has separate receipts; it is not a
+pretend shadow draw. Low/shadows-off, recovery, indoor, unsupported or ambiguous
+cases skip it. It creates no mesh/material/target object and does not populate
+actors or change ownership/input admission.
+
+The controlled pair on the same GTX 980 Ti measured Ready at 43.715 / 50.038
+seconds and Play-to-verified-control at 15.418 / 7.642 seconds without / with the
+avatar dependency. Its first actual shadow draw changed from a 7.315-second
+cold setup to a 1.9 ms cached submission. Trace captures placed the first unobstructed
+world after Escape at 11.311–11.573 / 3.645–4.045 seconds. These are one paired
+cold-profile measurement, not a multi-run benchmark or pure key-handler latency.
+Loading still has visible pauses; do not claim smooth or instantaneous startup.
+Optional weather-gated sky effects are checked when actually active, rather than
+requiring a fixed shader-program total.
+
+Bird-only instance pools and their proxies stay hidden while their committed
+count is zero, and reappear after population at either detail level. The generic
+crowds and title human preparation are unchanged. Actual-game near/far checks
+confirmed populated color/shadow submissions and no empty bird submissions.
+First sight of a real bird can still require its shader compilation.
 
 ## Release limits
 
