@@ -355,9 +355,8 @@ async function boot() {
   await loadStep(0.68, 'Mustering the realms', () => { buildCrowds(); buildParticles(); buildSpellFX(); buildFireflies(); buildWeather(); buildAmbientLife(); buildDragon(); buildLootMeshes(); initCamps(); initTowns(); initMerchants(); initWar(); initWildlife(); initAnimals(); spawnDragon(); initBarrow(); });
   GAME.built = true;
   groupOutdoors();
-  // [perf2] the save read and the screen sized first, then the shaders asked for (perf2Compile, 13x_perf2.js) while the
-  // map is drawn: the GPU's process compiles them meanwhile (the map came first, and the screen's sizing then waited
-  // for every shader the compile had asked for)
+  // Read saved preferences before sizing. Shader work belongs to the separately
+  // fenced, visible title families below, not a bulk compile of hidden content.
   await loadStep(0.78, 'Reading the chronicle');
   const save = await savePromise;
   graphicsAssertActive();
@@ -369,18 +368,11 @@ async function boot() {
   camera.updateMatrixWorld();
   // Isolation owns every draw and never enters ordinary compilation or the game loop.
   if (await graphicsRunDiagnostic()) return;
-  if (!BOOT_SAFE) { graphicsCheckpoint('Compiling world shaders'); perf2Compile(false); }
   await loadStep(0.84, 'Drawing the map', () => { buildMapImage(); buildDungeonMap(); });
-  await loadStep(0.9, 'Lighting the sky', () => {
+  await loadStep(0.9, 'Preparing the first view', () => {
     updateCamera(0.016);
     camera.updateMatrixWorld();
-    if (!BOOT_SAFE) {
-      try { DUN.root.visible = true; spellCompileVisible(true); renderer.compile(scene, camera); } catch (e) { reportError(e); }
-      DUN.root.visible = INDOOR.on;
-      spellCompileVisible(false);
-    }
   });
-  if (!BOOT_SAFE) await perf2Shaders(0.9, 0.97); // [perf2] the veil counts the shaders as they are ready (13x_perf2.js)
   await loadStep(0.97, 'Drawing the first view', () => renderFirstTitleFrame());
   graphicsAssertActive();
   GAME.ready = true;

@@ -740,6 +740,38 @@ test('actual profiling propagates a failed warmup instead of declaring boot comp
   assert.equal(f.ctx.BOOT_STEPS.length,0);assert.equal(f.ctx.PERFX.boot.length,0);
 });
 
+test('ordinary title setup never schedules an idle bulk shadow compilation',()=>{
+  const source=read('13x_perf2.js'),start=source.indexOf('{\n  // the static meshes'),end=source.indexOf('// Static meshes may have released',start);
+  assert.ok(start>=0&&end>start,'executes the actual profiling installation block');
+  const calls=[],timers=[];
+  const ctx={BOOT_SAFE:false,GRAPHICS_CONTEXT_LOST:false,
+    groupOutdoors:()=>calls.push('group'),perf2ReleaseStatic:()=>calls.push('release'),
+    setupTitle:()=>calls.push('title'),perf2Compile:()=>calls.push('bulk-shadow-compile'),
+    setTimeout:(fn,delay)=>{timers.push({fn,delay});return timers.length;},reportError(error){throw error;}};
+  vm.createContext(ctx);vm.runInContext(source.slice(start,end),ctx);
+  vm.runInContext('groupOutdoors();setupTitle(null);setupTitle(null);',ctx);
+  assert.deepEqual(calls,['group','release','title','title']);
+  assert.equal(timers.length,0,'an unattended title must not queue shader work');
+});
+
+test('explicit profiling still has working world and shadow compile helpers',()=>{
+  const calls=[],ctx={BOOT_SAFE:false,GRAPHICS_CONTEXT_LOST:false,performance:{now:()=>1},
+    PERF2:{warmed:0,warmMs:0},scene:{id:'world'},camera:{id:'camera'},SHADOW:{rt:{},scene:{id:'shadow'},cam:{id:'light'}},
+    renderer:{info:{programs:[]},compile(scene,camera){calls.push([scene.id,camera.id]);this.info.programs.push({});}},
+    spellCompileVisible:value=>calls.push(['spells',value]),gl:{flush:()=>calls.push(['flush'])},reportError(error){throw error;}};
+  const source=read('13x_perf2.js'),start=source.indexOf('window.__hm.perf2 = {'),end=source.indexOf('\n};',start);
+  assert.ok(start>=0&&end>start,'executes the actual explicit profiling API installation');
+  Object.assign(ctx,{window:{__hm:{}},BOOT_T0:0,BOOT_STEPS:[],perf2Release(){},perf2ReleaseStatic(){},perf2LazyMesh(){}});
+  vm.createContext(ctx);vm.runInContext(extract(source,'perf2Compile')+'\n'+extract(source,'perf2Shaders')+'\n'+source.slice(start,end+3),ctx);
+  assert.deepEqual(calls,[],'installing explicit helpers does not request any shader work');
+  assert.equal(typeof ctx.window.__hm.perf2.shaders,'function');
+  vm.runInContext('window.__hm.perf2.compile(false);window.__hm.perf2.compile(true);',ctx);
+  assert.deepEqual(calls,[['spells',true],['world','camera'],['spells',false],['flush'],['shadow','light'],['flush']]);
+  assert.equal(ctx.PERF2.warmed,2);
+  ctx.GRAPHICS_CONTEXT_LOST=true;vm.runInContext('perf2Compile(false);perf2Compile(true);',ctx);
+  assert.equal(ctx.PERF2.warmed,2,'stopped graphics cannot start an explicit benchmark either');
+});
+
 function selectedSky(safe) {
   const source=read('02_render.js');
   const start=source.indexOf('const RECOVERY_SKY_FRAGMENT');
