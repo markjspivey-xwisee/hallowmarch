@@ -144,6 +144,13 @@ function screenOf(x, y, z) {
   if (_proj.z > 1 || _proj.z < -1) return null;
   return { x: (_proj.x * 0.5 + 0.5) * view.w, y: (-_proj.y * 0.5 + 0.5) * view.h, z: _proj.z };
 }
+// Selection follows the visible bodies, rather than their projected positions
+// through a wall. Reuse the nameplate visibility cache between target changes.
+function playerTargetVisible(e) {
+  const P = GAME.player;
+  if (!P || !e || e.removed || towerSightBlocked(P, e)) return false;
+  return e === P || npSeen(e, dist(e.x, e.z, camera.position.x, camera.position.z));
+}
 function pickAt(sx, sy) {
   const P = GAME.player;
   let best = null, bd = Infinity;
@@ -158,7 +165,7 @@ function pickAt(sx, sy) {
     if (!s) continue;
     const rad = clamp((e.kind === 'door' ? 900 : e.kind === 'dragon' ? 1400 : 260) / Math.max(d3, 1), 18, e.kind === 'dragon' ? 260 : 120) * (e.scale || 1);
     const d = Math.hypot(s.x - sx, (s.y - sy) * 0.8);
-    if (d < rad && d - rad * 0.3 * (e === P ? -1 : 0) < bd) { bd = d; best = e; }
+    if (d < rad && d - rad * 0.3 * (e === P ? -1 : 0) < bd && playerTargetVisible(e)) { bd = d; best = e; }
   }
   setPlayerTarget(best);
 }
@@ -172,15 +179,17 @@ function cycleTarget(back = false) {
   const P = GAME.player;
   const list = [];
   forNear(P.x, P.z, 40, (o) => {
-    if (!o.alive || !isEnemy(P, o) || o.kind === 'door') return;
+    if (!o.alive || o.removed || o.flying || !isEnemy(P, o) || o.kind === 'door') return;
     const ang = Math.abs(angDiff(CAM.yaw, Math.atan2(o.x - P.x, o.z - P.z)));
     if (ang > 1.4) return;
+    if (!playerTargetVisible(o)) return;
     list.push(o);
   });
   if (!list.length) { setPlayerTarget(null); return; }
   list.sort((a, b) => dist2(a.x, a.z, P.x, P.z) - dist2(b.x, b.z, P.x, P.z));
   const i = list.findIndex((o) => o.id === P.target);
-  setPlayerTarget(list[(i + (back ? list.length - 1 : 1) + list.length) % list.length] || list[0]);
+  const next = i < 0 ? (back ? list.length - 1 : 0) : (i + (back ? -1 : 1) + list.length) % list.length;
+  setPlayerTarget(list[next]);
 }
 function playerUseSlot(i) {
   const P = GAME.player;
@@ -201,7 +210,9 @@ function playerUseSlot(i) {
   const aim = !A.self && !A.friendly && (!t || !isEnemy(P, t) || !t.alive || far) ? houseFireAim(P, id) || natureFireAim(P, id) : null;
   const r = aim ? castAtHouse(P, id, aim) : useAbility(P, id, t);
   if (r !== true) {
-    const msg = { swimming: 'You cannot do that while swimming', cooldown: 'That ability is not ready yet', power: 'Not enough power', range: 'Your target is too far away', target: 'You need a hostile target', close: 'Too close to charge', held: 'Frost holds you fast' /* [balance3] */, level: `Learned at level ${A.level}`, stunned: 'You are stunned', busy: 'You are already casting', carrying: 'Your hands are full with the hallow', ladder: 'Not with one hand on the ladder', dead: '' }[r]; // [keeps] ladder
+    const msg = r === 'target' && t && t.alive && isEnemy(P, t) && towerSightBlocked(P, t)
+      ? 'Your target is hidden by a wall or floor'
+      : { swimming: 'You cannot do that while swimming', cooldown: 'That ability is not ready yet', power: 'Not enough power', range: 'Your target is too far away', target: 'You need a hostile target', close: 'Too close to charge', held: 'Frost holds you fast' /* [balance3] */, level: `Learned at level ${A.level}`, stunned: 'You are stunned', busy: 'You are already casting', carrying: 'Your hands are full with the hallow', ladder: 'Not with one hand on the ladder', dead: '' }[r]; // [keeps] ladder
     if (msg) uiError(msg);
   } else flashSlot(i);
 }

@@ -605,10 +605,10 @@ function finishCast(e) {
   let t = getEnt(c.targetId);
   if (!A.ground && !A.self) {
     if (A.friendly) { if (!t || !t.alive) t = e; }
-    else if (!t || !t.alive || !isEnemy(e, t)) return;
+    else if (!t || !t.alive || !isEnemy(e, t)) { if (e.role === 'player') uiError('Your target is no longer available'); return; }
     if (t !== e && dist(e.x, e.z, t.x, t.z) > abilityRange(e, A, t) + 4) { if (e.role === 'player') uiError('Your target is out of range'); return; }
   }
-  if (e.power < A.cost && !classOvercast(e, A)) return; // [classes]
+  if (e.power < A.cost && !classOvercast(e, A)) { if (e.role === 'player') uiError('Not enough power to finish casting'); return; } // [classes]
   executeAbility(e, A, t, c);
 }
 function executeAbility(e, A, t, cast = null) {

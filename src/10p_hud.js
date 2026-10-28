@@ -287,6 +287,7 @@ const _npCn = [];
 function npSeen(e, d) {
   if (e._losT > renderTime) return e._los;
   e._losT = renderTime + 0.25 + Math.random() * 0.1;
+  if (towerSightBlocked(GAME.player, e)) return (e._los = false);
   const cx = camera.position.x, cy = camera.position.y, cz = camera.position.z;
   if (INDOOR.on) return (e._los = d < 30 && segmentClear(GAME.player.x, GAME.player.z, e.x, e.z, 0.1)); // under the barrow: solid rock
   const hy = e.y + 1.6 * (e.scale || 1);

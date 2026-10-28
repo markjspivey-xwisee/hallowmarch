@@ -581,7 +581,7 @@ function updateNameplates() {
     if (e.tame && P.target !== e.id && (e.tame.owner !== 'player' || d > 16)) continue; // [animals] names over your own animals close by, not over every sheep (08h_animals.js)
     // under the barrow, names do not show through solid rock
     // [phones] and above ground, not through the walls of a house, a hall or a keep (npSeen, 10p_hud.js)
-    if (P.target !== e.id && !npSeen(e, d)) continue;
+    if (!npSeen(e, d)) continue;
     list.push([d, e]);
   }
   list.sort((a, b) => (b[1].id === P.target) - (a[1].id === P.target) || a[0] - b[0]); // [v13] the chosen one's name first: in a crowd it was cut with the farthest
