@@ -56,6 +56,17 @@ async def main():
                 await page.evaluate("__hm.UI.modal=null;document.getElementById('menu').hidden=true;__hm.frame(1/30);0")
                 assert await page.locator('#lore-path').get_attribute('hidden') is None
                 assert 'Cook a meal' in await page.locator('#lore-path').inner_text()
+            restored = await page.evaluate("""(async () => {
+              const F=__hm.LORE.fn, saved=F.validSave(F.buildSave());
+              const before=JSON.stringify({xp:saved.char.xp,level:saved.char.level,gold:saved.char.gold,potions:saved.char.potions,done:saved.char.lore.done});
+              if(saved.char.lore.track!=='cook') throw new Error('Selected objective missing from the actual character save');
+              await F.startGame({...saved.char});
+              const after=F.buildSave();
+              return {next:__hm.LORE.pathNext().id,before,
+                after:JSON.stringify({xp:after.char.xp,level:after.char.level,gold:after.char.gold,potions:after.char.potions,done:after.char.lore.done})};
+            })()""")
+            assert restored['next'] == 'cook' and restored['before'] == restored['after'], restored
+            print('PASS actual character save/reload preserves the tracked objective and earned progress', flush=True)
             assert not errors, errors
             print('PASS all objective tracking flows; no game errors', flush=True)
         except Exception as error:
