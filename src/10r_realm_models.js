@@ -1,4 +1,5 @@
-/* Canonical realm works in the 3D world. This module never changes realm or player state. */
+/* Canonical realm works in the 3D world. Local presentation and collision never
+ * change the realm ledger, saved coordinates, terrain or persistent nature. */
 const REALM_RTS_MODEL_LIMIT = 72;
 const REALM_RTS_MODEL_HEIGHT = {
   farm: 4.2, mill: 7.4, bakery: 5.8, woodcutter: 4.1, sawmill: 5.5, sheepfold: 3.8,
@@ -7,6 +8,7 @@ const REALM_RTS_MODEL_HEIGHT = {
 const REALM_RTS_MODELS = {
   group: null, material: null, pools: new Map(), signature: '', view: null, check: 0,
   rotors: [], rows: 0, buildings: 0, construction: 0, scratch: null,
+  plots: null, plotKey: '', solids: new Map(), bodyBounds: new Map(), ground: -1, world: null,
 };
 function realmRtsModelsView() {
   // Frame hooks can run during boot before later network bindings are initialized.
@@ -31,8 +33,8 @@ function realmRtsModelRows(data, ownKey, publicKey, buildings) {
   return [...rows.values()].sort((a, b) => a.id.localeCompare(b.id)).slice(0, REALM_RTS_MODEL_LIMIT);
 }
 function realmRtsModelSignature(plots, buildings) {
-  return JSON.stringify([plots.map(p => [p.id, p.x, p.z, p.owner, p.buildingId || '']),
-    buildings.map(b => [b.id, b.plotId, b.kind, b.x, b.z, b.owner, b.level, b.status, !!b.adopted,
+  return JSON.stringify([plots.map(p => [p.id, p.x, p.z, p.owner, p.home, p.yaw, p.layoutVersion, p.placementVersion, p.buildingId || '']),
+    buildings.map(b => [b.id, b.plotId, b.kind, b.x, b.z, b.owner, b.home, b.yaw, b.placementVersion, b.level, b.status, !!b.adopted,
       Math.round(Math.max(0, Math.min(1, Number(b.progress) || 0)) * 100), !!b.paused, !!b.working, b.blocked || '', b.assigned || 0])]);
 }
 function realmRtsModelRoofGeometry() {
@@ -132,16 +134,14 @@ function realmRtsModelGeometry(parts, bases) {
   const positions = [], colors = [], normals = [], v = new THREE.Vector3(), n = new THREE.Vector3();
   const matrix = new THREE.Matrix4(), normal = new THREE.Matrix3(), q = new THREE.Quaternion(), e = new THREE.Euler();
   const at = new THREE.Vector3(), scale = new THREE.Vector3(), color = new THREE.Color();
-  const light = new THREE.Vector3(-0.4, 0.85, 0.35).normalize();
   for (const p of parts) {
     const base = bases[p.shape], pos = base.getAttribute('position'), ns = base.getAttribute('normal');
     matrix.compose(at.set(p.x, p.y, p.z), q.setFromEuler(e.set(p.rx || 0, p.ry || 0, p.rz || 0)), scale.set(p.sx, p.sy, p.sz));
     normal.getNormalMatrix(matrix); color.set(p.color);
     for (let i = 0; i < pos.count; i++) {
       v.fromBufferAttribute(pos, i).applyMatrix4(matrix); n.fromBufferAttribute(ns, i).applyMatrix3(normal).normalize();
-      const shade = 0.56 + Math.max(0, n.dot(light)) * 0.39;
       positions.push(v.x, v.y, v.z); normals.push(n.x, n.y, n.z);
-      colors.push(color.r * shade, color.g * shade, color.b * shade);
+      colors.push(color.r, color.g, color.b);
     }
   }
   const g = new THREE.BufferGeometry();
@@ -151,11 +151,52 @@ function realmRtsModelGeometry(parts, bases) {
   g.computeBoundingSphere();
   return g;
 }
+function realmRtsModelPartBounds(parts, bases, kind) {
+  return parts.filter(p => !(kind === 'farm' && p.shape === 'box' && p.sx < .3 && p.sy < .6)).slice(0,64).map(p => {
+    const positions = bases[p.shape].getAttribute('position'), bounds = new THREE.Box3(), point = new THREE.Vector3();
+    const matrix = new THREE.Matrix4().compose(new THREE.Vector3(p.x,p.y,p.z),
+      new THREE.Quaternion().setFromEuler(new THREE.Euler(p.rx||0,p.ry||0,p.rz||0)),new THREE.Vector3(p.sx,p.sy,p.sz));
+    for (let i=0;i<positions.count;i++) bounds.expandByPoint(point.fromBufferAttribute(positions,i).applyMatrix4(matrix));
+    return { min:bounds.min.clone(), max:bounds.max.clone() };
+  });
+}
 function realmRtsModelsInit() {
   const state = REALM_RTS_MODELS;
   if (state.group) return;
   state.group = new THREE.Group(); state.group.name = 'canonical-realm-works';
-  state.material = new THREE.MeshBasicMaterial({ vertexColors: true, fog: true });
+  state.material = mat({ vertexColors: true, vertexShader: /* glsl */`
+    varying vec3 vW; varying vec3 vN; varying vec3 vCol; varying float vGroundMark;
+    void main(){
+      mat4 transform = modelMatrix; vec3 nn = normal; vGroundMark = 1.0;
+      #ifdef USE_INSTANCING
+      vGroundMark = 0.0;
+      mat3 im = mat3(instanceMatrix);
+      nn /= max(vec3(dot(im[0],im[0]),dot(im[1],im[1]),dot(im[2],im[2])),vec3(0.00001));
+      transform = modelMatrix * instanceMatrix;
+      #endif
+      vec4 w = transform * vec4(position,1.0); vW = w.xyz; vN = mat3(transform) * nn;
+      vCol = color;
+      #ifdef USE_INSTANCING_COLOR
+      vCol *= instanceColor;
+      #endif
+      gl_Position = projectionMatrix * viewMatrix * w;
+    }`, fragmentShader: /* glsl */`
+    ${GLSL_COMMON}
+    ${GLSL_ATMOS}
+    ${GLSL_SHADOW}
+    ${GLSL_PLIGHT}
+    ${GLSL_LIGHT}
+    ${GLSL_WEATHER}
+    ${GLSL_SEASON}
+    uniform float uWet, uSnowCover;
+    varying vec3 vW; varying vec3 vN; varying vec3 vCol; varying float vGroundMark;
+    void main(){
+      vec3 n = safeNormalize(vN); gSh = shadowAt(vW,n); gPL = pointLights(vW,n);
+      vec3 alb = vCol * (1.0 - 0.18 * wetHere(vW,uWet));
+      float snow = snowAmount(vW,n,uSnowCover * snowHere(vW),gPL) * (1.0-vGroundMark);
+      alb = mix(alb,vec3(0.87,0.91,0.96),clamp(snow,0.0,1.0));
+      gl_FragColor = vec4(safeColor(applyFog(lightSurface(alb,n,0.9),vW)),1.0);
+    }` });
   state.scratch = { object: new THREE.Object3D(), color: new THREE.Color(), rotation: new THREE.Quaternion(),
     spin: new THREE.Quaternion(), axis: new THREE.Vector3(0, 0, 1), euler: new THREE.Euler() };
   const indexed = {
@@ -177,15 +218,16 @@ function realmRtsModelsInit() {
   };
   const part = (shape, x, y, z, sx, sy, sz, color) => ({ shape, x, y, z, sx, sy, sz, color });
   try {
-    for (const kind of Object.keys(REALM_RTS_MODEL_HEIGHT)) addPool(kind, realmRtsModelParts(kind));
+    for (const kind of Object.keys(REALM_RTS_MODEL_HEIGHT)) {
+      const parts = realmRtsModelParts(kind); addPool(kind,parts); state.bodyBounds.set(kind,realmRtsModelPartBounds(parts,bases,kind));
+    }
     addPool('foundation', [part('box', 0, 0.18, 0, 7.6, 0.36, 7.6, '#aea28b')]);
-    addPool('plot', [-1, 1].flatMap(side => [part('box', side * 3.8, 0.07, 0, 0.12, 0.1, 7.7, '#b6a57a'),
-      part('box', 0, 0.07, side * 3.8, 7.7, 0.1, 0.12, '#b6a57a')]));
     const frame = [];
     for (const x of [-3.5, 3.5]) for (const z of [-3.5, 3.5]) frame.push(part('box', x, 0.5, z, 0.16, 1, 0.16, '#c1a475'));
     for (const y of [0.25, 0.65, 1]) for (const side of [-1, 1]) frame.push(
       part('box', side * 3.5, y, 0, 0.13, 0.09, 7.1, '#b2966c'), part('box', 0, y, side * 3.5, 7.1, 0.09, 0.13, '#b2966c'));
     addPool('scaffold', frame);
+    state.bodyBounds.set('scaffold',realmRtsModelPartBounds(frame,bases,'scaffold'));
     const rotor = [];
     for (let i = 0; i < 4; i++) {
       const angle = i * Math.PI / 2;
@@ -198,6 +240,7 @@ function realmRtsModelsInit() {
     for (const geometry of Object.values(bases)) geometry.dispose();
   }
   scene.add(state.group);
+  state.world = W.H;
 }
 function realmRtsModelInstance(pool, x, y, z, yaw, sx, sy, sz, color) {
   const state = REALM_RTS_MODELS, mesh = state.pools.get(pool);
@@ -207,24 +250,109 @@ function realmRtsModelInstance(pool, x, y, z, yaw, sx, sy, sz, color) {
   mesh.setMatrixAt(index, object.matrix); mesh.setColorAt(index, state.scratch.color.set(color)); mesh.visible = true;
   return index;
 }
-function realmRtsModelYaw(owner) {
-  try { return REALMS[owner]?.town?.yaw || 0; } catch (err) { return 0; }
+function realmRtsModelYaw(row) {
+  return realmRtsSiteFrame(row).yaw;
+}
+function realmRtsGroundRevision() {
+  const ground = typeof A2FL !== 'undefined' && Number.isFinite(A2FL.ground) ? A2FL.ground : 0;
+  // The title can enter play before updateLod builds the actual terrain meshes.
+  // Replace the initial height-map fit once their exact surface is available.
+  return ground * 2 + (typeof LOD !== 'undefined' && LOD.built ? 1 : 0);
+}
+function realmRtsConstructionOverlay() {
+  try { return THRONE_RTS.active && UI.modal === 'rts' && THRONE_RTS_UI.tab === 'build' && !!hallThroneGrant()
+    && Number.isInteger(GAME.player?.faction); } catch (err) { return false; }
+}
+function realmRtsModelsPlots(plots, buildings, force = false) {
+  const state = REALM_RTS_MODELS, occupied = new Set(buildings.map(b => b.plotId));
+  const rows = realmRtsConstructionOverlay() ? plots.filter(p => p.owner === GAME.player.faction && !p.buildingId
+    && !occupied.has(p.id) && realmRtsSiteStatus(p).eligible) : [];
+  const selected = rows.find(p => p.id === (THRONE_RTS_UI.form.plotId || THRONE_RTS_UI.selectedPlot))?.id || '';
+  const key = JSON.stringify([rows.map(p => [p.id,p.x,p.z,realmRtsModelYaw(p)]),selected,realmRtsGroundRevision()]);
+  if (!force && key === state.plotKey) return;
+  state.plotKey = key;
+  if (state.plots) { state.group.remove(state.plots); state.plots.geometry.dispose(); state.plots = null; }
+  if (!rows.length) return;
+  const positions = [], colors = [], half = 6, segments = 12;
+  for (const row of rows) {
+    const yaw = realmRtsModelYaw(row), c = Math.cos(yaw), s = Math.sin(yaw), width = row.id === selected ? 0.18 : 0.1;
+    const color = new THREE.Color(row.id === selected ? '#ddc080' : '#9da280');
+    const world = (x,z) => { const wx = row.x + x*c + z*s, wz = row.z - x*s + z*c; return [wx,heightAt(wx,wz)+0.06,wz]; };
+    for (let side = 0; side < 4; side++) for (let part = 0; part < segments; part++) {
+      const a = -half + 2*half*part/segments, b = -half + 2*half*(part+1)/segments;
+      const points = side === 0 ? [[a,-half],[b,-half],[b,-half+width],[a,-half+width]]
+        : side === 1 ? [[half,a],[half,b],[half-width,b],[half-width,a]]
+          : side === 2 ? [[b,half],[a,half],[a,half-width],[b,half-width]]
+            : [[-half,b],[-half,a],[-half+width,a],[-half+width,b]];
+      for (const index of [0,2,1,0,3,2]) { positions.push(...world(...points[index])); colors.push(color.r,color.g,color.b); }
+    }
+  }
+  const geometry = new THREE.BufferGeometry(); geometry.setAttribute('position',new THREE.Float32BufferAttribute(positions,3));
+  geometry.setAttribute('color',new THREE.Float32BufferAttribute(colors,3)); geometry.computeVertexNormals(); geometry.computeBoundingSphere();
+  state.plots = new THREE.Mesh(geometry,state.material); state.plots.name = 'realm-construction-plots';
+  // The shader projects this world-space mesh through the current camera every
+  // frame. Panning and zooming need no geometry rebuild or player-distance gate.
+  state.group.add(state.plots);
+}
+function realmRtsModelsDropSolid(item) {
+  // Parts are registered in the fixed 12m site envelope once, so their visual
+  // growth can update bounds without changing grid membership each percent.
+  // Restore those registration bounds when removing them from the grids.
+  for (const collider of item.colliders) { collider.active=false; Object.assign(collider,{x:item.x,z:item.z,hx:6,hz:6}); bCollRemove(collider); }
+  for (const floor of item.floors) { floor.active=false; Object.assign(floor,{x:item.x,z:item.z,hx:6,hz:6}); bFloorRemove(floor); }
+}
+function realmRtsModelsSolids(buildings) {
+  const state = REALM_RTS_MODELS, live = new Set(); let removed = false;
+  for (const b of buildings) {
+    if (b.adopted) continue;
+    live.add(b.id);
+    const yaw = realmRtsModelYaw(b), ground = realmRtsSiteGround(b), level = Math.max(1,Math.min(4,Number(b.level)||1));
+    const progress = Math.max(0,Math.min(1,Number(b.progress)||0)), constructing=b.status==='building', upgrading=b.status==='upgrading';
+    const scale = 1+.08*(Math.min(4,level+(upgrading?progress:0))-1), height=REALM_RTS_MODEL_HEIGHT[b.kind]*scale;
+    const key = JSON.stringify([b.x,b.z,yaw,ground.bottom,ground.top,b.kind,level,constructing||upgrading]), old = state.solids.get(b.id);
+    let item = old;
+    if (old?.key !== key || !COLL.boxes.includes(old.colliders[0]) || !FLOOR.list.includes(old.floors[0])) {
+      if (old) { realmRtsModelsDropSolid(old); state.solids.delete(b.id); removed=true; }
+      const collider = addBox(b.x,b.z,6,6,yaw,'realm-work',ground.top-ground.bottom);
+      Object.assign(collider,{baseY:ground.bottom,vert:true,y0:ground.bottom,realmRtsBuildingId:b.id});
+      const floor=addFloorBox(b.x,b.z,6,6,yaw,ground.top,ground.top,ground.bottom,0,'realm-work');
+      item={key,x:b.x,z:b.z,colliders:[collider],floors:[floor],parts:[]};
+      const parts=[...(state.bodyBounds.get(b.kind)||[]).map(bounds=>({bounds,scaffold:false})),
+        ...(constructing||upgrading?(state.bodyBounds.get('scaffold')||[]).map(bounds=>({bounds,scaffold:true})):[])].slice(0,64);
+      for(const part of parts) {
+        const body=addBox(b.x,b.z,6,6,yaw,'realm-work',1);
+        Object.assign(body,{vert:true,realmRtsBuildingId:b.id}); item.colliders.push(body);
+        const bounds=part.bounds, low=!part.scaffold && bounds.max.y<=.62 && (bounds.max.x-bounds.min.x)*(bounds.max.z-bounds.min.z)>=1;
+        const step=low?addFloorBox(b.x,b.z,6,6,yaw,ground.top,ground.top,ground.bottom,0,'realm-work'):null;
+        if(step)item.floors.push(step); item.parts.push({...part,collider:body,floor:step});
+      }
+      state.solids.set(b.id,item); if(COVER.built)coverMarkBox(b.x,b.z,6,6,yaw,.3);
+    }
+    const c=Math.cos(yaw),s=Math.sin(yaw);
+    for(const part of item.parts) {
+      const bounds=part.bounds, sy=part.scaffold?height*(constructing?Math.max(.3,progress):1):scale*(constructing?Math.max(.18,progress):1);
+      const base=ground.top+(part.scaffold ? .2 : 0), cx=(bounds.min.x+bounds.max.x)*.5*scale, cz=(bounds.min.z+bounds.max.z)*.5*scale;
+      const x=b.x+cx*c+cz*s,z=b.z-cx*s+cz*c, bottom=base+bounds.min.y*sy,top=base+bounds.max.y*sy;
+      Object.assign(part.collider,{x,z,hx:Math.max(.01,(bounds.max.x-bounds.min.x)*.5*scale),hz:Math.max(.01,(bounds.max.z-bounds.min.z)*.5*scale),
+        baseY:bottom,y0:bottom,h:Math.max(.01,top-bottom),active:part.scaffold||!constructing||progress>=.15});
+      if(part.floor)Object.assign(part.floor,{x,z,hx:part.collider.hx,hz:part.collider.hz,ya:top,yb:top,y0:bottom,active:part.collider.active});
+    }
+  }
+  for (const [id,item] of state.solids) if (!live.has(id)) { realmRtsModelsDropSolid(item); state.solids.delete(id); removed = true; }
+  if (removed && COVER.built) buildCoverMask();
 }
 function realmRtsModelsRebuild(plots, buildings) {
   const state = REALM_RTS_MODELS, oldAngles = new Map(state.rotors.map(r => [r.id, r.angle]));
   for (const mesh of state.pools.values()) { mesh.count = 0; mesh.visible = false; }
   state.rotors = []; state.rows = buildings.length; state.buildings = 0; state.construction = 0;
-  const occupied = new Set(buildings.map(b => b.plotId));
-  for (const p of plots) if (!p.buildingId && !occupied.has(p.id)) {
-    realmRtsModelInstance('plot', p.x, heightAt(p.x, p.z) + 0.02, p.z, realmRtsModelYaw(p.owner), 1, 1, 1, ['#bdc5dd', '#b2c9b3', '#c8bdaf'][p.owner]);
-  }
   for (const b of buildings) {
     if (b.adopted) continue;
-    const yaw = realmRtsModelYaw(b.owner), y = heightAt(b.x, b.z) + 0.06;
+    const yaw = realmRtsModelYaw(b), ground = realmRtsSiteGround(b), y = ground.top;
     const progress = Math.max(0, Math.min(1, Number(b.progress) || 0)), constructing = b.status === 'building', upgrading = b.status === 'upgrading';
-    const level = Math.max(1, Math.min(4, Number(b.level) || 1)), scale = 1 + 0.08 * (level - 1 + (upgrading ? progress : 0));
+    const level = Math.max(1, Math.min(4, Number(b.level) || 1)), scale = 1 + 0.08 * (Math.min(4,level + (upgrading ? progress : 0)) - 1);
     const height = REALM_RTS_MODEL_HEIGHT[b.kind] * scale;
-    realmRtsModelInstance('foundation', b.x, y, b.z, yaw, scale, 1, scale, '#ffffff');
+    const depth = Math.max(0.18,ground.top-ground.bottom);
+    realmRtsModelInstance('foundation', b.x, ground.bottom, b.z, yaw, 12/7.6, depth/0.36, 12/7.6, '#ffffff');
     if (!constructing || progress >= 0.15) {
       realmRtsModelInstance(b.kind, b.x, y, b.z, yaw, scale, scale * (constructing ? Math.max(0.18, progress) : 1), scale,
         constructing || upgrading ? '#c6bba7' : '#ffffff');
@@ -267,20 +395,33 @@ function realmRtsModelsAnimate(dt, force = false) {
 function realmRtsModelsFrame(dt) {
   const state = REALM_RTS_MODELS, data = realmRtsModelsView();
   if (!data) { if (state.group) realmRtsModelsClear(); return; }
+  // updateLod runs after this hook. Wait for its actual terrain surface on cold
+  // entry, then create models on the next frame without a temporary floating fit.
+  if (typeof LOD !== 'undefined' && !LOD.built) { if (state.group) realmRtsModelsClear(); return; }
+  if (state.group && state.world !== W.H) realmRtsModelsClear();
   const step = Number.isFinite(dt) ? Math.max(0, Math.min(0.1, dt)) : 0;
   state.check += step;
   if (!state.group || state.view !== data || state.check >= 0.25) {
     const plots = realmRtsModelRows(data, 'ownplots', 'publicPlots', false);
     const buildings = realmRtsModelRows(data, 'ownbuildings', 'publicBuildings', true);
-    const signature = realmRtsModelSignature(plots, buildings);
+    const ground = realmRtsGroundRevision(), signature = realmRtsModelSignature(plots, buildings) + ':' + ground;
     if (!state.group) realmRtsModelsInit();
     if (state.signature !== signature) { realmRtsModelsRebuild(plots, buildings); state.signature = signature; }
+    realmRtsModelsSolids(buildings);
+    realmRtsModelsPlots(plots,buildings);
+    state.ground = ground;
     state.view = data; state.check = 0;
   }
+  // Tab, selection and camera changes are independent of realm ledger revisions.
+  if (!realmRtsConstructionOverlay() && state.plots) { state.group.remove(state.plots); state.plots.geometry.dispose(); state.plots = null; state.plotKey = ''; }
   realmRtsModelsAnimate(step);
 }
 function realmRtsModelsClear() {
   const state = REALM_RTS_MODELS;
+  let removed = false;
+  for (const item of state.solids.values()) { realmRtsModelsDropSolid(item); removed = true; }
+  state.solids.clear(); if (removed && COVER.built) buildCoverMask();
+  if (state.plots) { state.plots.geometry.dispose(); state.plots = null; }
   if (state.group?.parent) state.group.parent.remove(state.group);
   for (const mesh of state.pools.values()) { mesh.geometry.dispose(); if (typeof mesh.dispose === 'function') mesh.dispose(); }
   if (state.material) state.material.dispose();
@@ -288,4 +429,6 @@ function realmRtsModelsClear() {
   state.group = null; state.material = null; state.scratch = null; state.pools.clear();
   state.signature = ''; state.view = null; state.check = 0; state.rotors = [];
   state.rows = 0; state.buildings = 0; state.construction = 0;
+  state.plotKey = ''; state.ground = -1; state.world = null;
+  state.bodyBounds.clear(); realmRtsSitesClear();
 }

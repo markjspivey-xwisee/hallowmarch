@@ -288,7 +288,9 @@ function netRealmManagementRead(value) {
     ||!Number.isFinite(value.time)||value.time<0)return null;
   const bounds={stocks:20,plots:72,buildings:72,publicPlots:72,publicBuildings:72,catalog:20,recipes:20,offers:24,relations:2,allRelations:3,log:12};
   for(const[key,max]of Object.entries(bounds))if(!Array.isArray(value[key])||value[key].length>max)return null;
-  let serial;try{serial=JSON.stringify(value);}catch{return null;}if(serial.length>65536)return null;
+  // A realm holding all six keeps receives 40 own works as well as the 72 public
+  // rows. Their pinned placement metadata still fits this bounded projection.
+  let serial;try{serial=JSON.stringify(value);}catch{return null;}if(serial.length>98304)return null;
   let nodes=0;
   function walk(x,depth=0){
     if(++nodes>18000||depth>10)throw Error('view');

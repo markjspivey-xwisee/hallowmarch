@@ -20,16 +20,111 @@ const RM_CATALOG = {
   market: { label: 'Market', cost: { planks: 22, stone: 20, tools: 2 }, seconds: 50, workers: 2, inputs: {}, outputs: {} },
 };
 const RM_START = ['farm', 'woodcutter', 'quarry', 'mine', 'sheepfold', 'hunter', 'stables', 'house', 'house', 'house'];
+// A placement version is fixed when construction is commissioned. Version 1 is
+// the historical layout; absent fields retain that layout without rewriting saves.
+const RM_PLOT_LAYOUT_VERSION = 2;
+// Vetted against buildWorld(7): a rotated 12 m footprint, dry ground, static
+// obstacles and crowns, and every possible legacy footprint remain clear.
+const RM_PLOT_LAYOUT_V2 = Object.freeze({
+  "town:0:0": Object.freeze({ x: 215.48, z: 201.22 }),
+  "town:0:1": Object.freeze({ x: 132.41, z: 265.34 }),
+  "town:0:2": Object.freeze({ x: 114.89, z: 287 }),
+  "town:0:3": Object.freeze({ x: 238.94, z: 233.86 }),
+  "town:0:4": Object.freeze({ x: 264.19, z: 221.59 }),
+  "town:0:5": Object.freeze({ x: 252.07, z: 228.59 }),
+  "town:0:6": Object.freeze({ x: 280.39, z: 237.64 }),
+  "town:0:7": Object.freeze({ x: 282.19, z: 252.77 }),
+  "town:0:8": Object.freeze({ x: 108.52, z: 359.97 }),
+  "town:0:9": Object.freeze({ x: 77.15, z: 389.63 }),
+  "town:0:10": Object.freeze({ x: 115.79, z: 376.55 }),
+  "town:0:11": Object.freeze({ x: 85.88, z: 400.75 }),
+  "town:0:12": Object.freeze({ x: 308.85, z: 278.95 }),
+  "town:0:13": Object.freeze({ x: 124.52, z: 387.68 }),
+  "town:0:14": Object.freeze({ x: 314.12, z: 292.07 }),
+  "town:0:15": Object.freeze({ x: 236.18, z: 337.07 }),
+  "town:1:0": Object.freeze({ x: -298, z: -14 }),
+  "town:1:1": Object.freeze({ x: -316, z: -32 }),
+  "town:1:2": Object.freeze({ x: -328, z: 44 }),
+  "town:1:3": Object.freeze({ x: -338, z: -60 }),
+  "town:1:4": Object.freeze({ x: -352, z: -48 }),
+  "town:1:5": Object.freeze({ x: -352, z: -74 }),
+  "town:1:6": Object.freeze({ x: -360, z: -96 }),
+  "town:1:7": Object.freeze({ x: -366, z: 76 }),
+  "town:1:8": Object.freeze({ x: -370, z: 62 }),
+  "town:1:9": Object.freeze({ x: -372, z: 46 }),
+  "town:1:10": Object.freeze({ x: -386, z: 46 }),
+  "town:1:11": Object.freeze({ x: -396, z: -62 }),
+  "town:1:12": Object.freeze({ x: -400, z: 42 }),
+  "town:1:13": Object.freeze({ x: -410, z: -66 }),
+  "town:1:14": Object.freeze({ x: -416, z: 28 }),
+  "town:1:15": Object.freeze({ x: -422, z: 80 }),
+  "town:2:0": Object.freeze({ x: 170.32, z: -255 }),
+  "town:2:1": Object.freeze({ x: 99.72, z: -332.72 }),
+  "town:2:2": Object.freeze({ x: 103.25, z: -346.84 }),
+  "town:2:3": Object.freeze({ x: 233.16, z: -271.84 }),
+  "town:2:4": Object.freeze({ x: 119.38, z: -346.77 }),
+  "town:2:5": Object.freeze({ x: 129.65, z: -368.55 }),
+  "town:2:6": Object.freeze({ x: 251.89, z: -300.29 }),
+  "town:2:7": Object.freeze({ x: 135.18, z: -386.14 }),
+  "town:2:8": Object.freeze({ x: 155.23, z: -376.87 }),
+  "town:2:9": Object.freeze({ x: 244.57, z: -327.61 }),
+  "town:2:10": Object.freeze({ x: 126.06, z: -398.34 }),
+  "town:2:11": Object.freeze({ x: 262.43, z: -326.53 }),
+  "town:2:12": Object.freeze({ x: 232.25, z: -346.27 }),
+  "town:2:13": Object.freeze({ x: 146.65, z: -398 }),
+  "town:2:14": Object.freeze({ x: 276.55, z: -323 }),
+  "town:2:15": Object.freeze({ x: 136.52, z: -408.46 }),
+  "keep:0:0": Object.freeze({ x: -27.62, z: 92.16 }),
+  "keep:0:1": Object.freeze({ x: -57.26, z: 120.82 }),
+  "keep:0:2": Object.freeze({ x: 38.22, z: 114.19 }),
+  "keep:0:3": Object.freeze({ x: 27.72, z: 208.01 }),
+  "keep:1:0": Object.freeze({ x: 88.89, z: 17.96 }),
+  "keep:1:1": Object.freeze({ x: 74.52, z: 77.07 }),
+  "keep:1:2": Object.freeze({ x: 167.53, z: 74.17 }),
+  "keep:1:3": Object.freeze({ x: 135.43, z: 106.56 }),
+  "keep:2:0": Object.freeze({ x: -116, z: -148 }),
+  "keep:2:1": Object.freeze({ x: -130, z: 18 }),
+  "keep:2:2": Object.freeze({ x: -132, z: 4 }),
+  "keep:2:3": Object.freeze({ x: -134, z: -144 }),
+  "keep:3:0": Object.freeze({ x: -60, z: 84 }),
+  "keep:3:1": Object.freeze({ x: -74, z: 104 }),
+  "keep:3:2": Object.freeze({ x: -100, z: 8 }),
+  "keep:3:3": Object.freeze({ x: -100, z: -12 }),
+  "keep:4:0": Object.freeze({ x: 82.16, z: -10.3 }),
+  "keep:4:1": Object.freeze({ x: 116.14, z: -9.16 }),
+  "keep:4:2": Object.freeze({ x: 131.8, z: -16.28 }),
+  "keep:4:3": Object.freeze({ x: 124.57, z: -119.76 }),
+  "keep:5:0": Object.freeze({ x: -35.07, z: -147.26 }),
+  "keep:5:1": Object.freeze({ x: -63.44, z: -182.12 }),
+  "keep:5:2": Object.freeze({ x: -24.73, z: -185.17 }),
+  "keep:5:3": Object.freeze({ x: -35.05, z: -207.3 }),
+});
+// Future layouts get another entry; never revise the coordinates of a retained version.
+const RM_PLOT_LAYOUTS = Object.freeze({ 2: RM_PLOT_LAYOUT_V2 });
 const rmClone = x => JSON.parse(JSON.stringify(x));
 const rmNum = (x, fallback = 0, lo = 0, hi = 1e9) => Number.isFinite(x) ? Math.max(lo, Math.min(hi, x)) : fallback;
 const rmInt = (x, fallback = 0, lo = 0, hi = 1e9) => Math.floor(rmNum(x, fallback, lo, hi));
 const rmRealm = r => Number.isSafeInteger(r) && r >= 0 && r < 3;
-function rmPlots(RS) {
+function rmLegacyPlots(RS) {
   const out = [], bearings = [150, 270, 30];
   const place = (r, along, lat) => { const a = bearings[r] * Math.PI / 180, dx = Math.sin(a), dz = -Math.cos(a); return { x: dx * along - dz * lat, z: dz * along + dx * lat }; };
   for (let r = 0; r < 3; r++) for (let i = 0; i < 16; i++) out.push({ id: 'town:' + r + ':' + i, site: 'town:' + r, name: 'Town plot ' + (i + 1), owner: r, ...place(r, 432 + Math.floor(i / 4) * 18, [-63, -39, 39, 63][i % 4]) });
   RS.keeps.slice(0, Math.min(6, RSM_GEO.keep.length)).forEach((K, k) => { const r = K.home; for (let i = 0; i < 4; i++) { const a = place(r, [-28, -28, 28, 28][i], [-26, 26, -26, 26][i]); out.push({ id: 'keep:' + k + ':' + i, site: 'keep:' + k, name: 'Keep ' + (k + 1) + ' plot ' + (i + 1), owner: K.h, x: RSM_GEO.keep[k][0] + a.x, z: RSM_GEO.keep[k][1] + a.z }); } });
-  return out.map(p => ({ ...p, x: Math.round(p.x * 100) / 100, z: Math.round(p.z * 100) / 100 }));
+  return out.map(p => {
+    const home = p.site.startsWith('town:') ? Number(p.site.slice(5)) : RS.keeps[Number(p.site.slice(5))].home;
+    const a = bearings[home] * Math.PI / 180;
+    return { ...p, home, yaw: Math.atan2(-Math.sin(a), Math.cos(a)), placementVersion: 1,
+      x: Math.round(p.x * 100) / 100, z: Math.round(p.z * 100) / 100 };
+  });
+}
+function rmPlots(RS) {
+  const occupied = new Map((RS.realms || []).flatMap(R => R.management?.buildings || []).map(b => [b.plotId, b]));
+  return rmLegacyPlots(RS).map(legacy => {
+    const building = occupied.get(legacy.id), version = building ? Object.hasOwn(building, 'placementVersion') ? building.placementVersion : 1 : RM_PLOT_LAYOUT_VERSION;
+    const current = Number.isSafeInteger(version) && Object.hasOwn(RM_PLOT_LAYOUTS, version) ? RM_PLOT_LAYOUTS[version][legacy.id] : null;
+    const available = version === 1 || current && Number.isFinite(current.x) && Number.isFinite(current.z);
+    return { ...legacy, ...(current ? { x: current.x, z: current.z } : {}), placementVersion: version, placementAvailable: !!available };
+  });
 }
 function rmBuilding(plotId, kind, adopted = false) {
   const D = RM_CATALOG[kind];
@@ -214,8 +309,9 @@ function realmManageAction(RS, realm, args, context = {}) {
   if (type === 'build') {
     const plot = plots.find(p => p.id === args.plotId), D = Object.hasOwn(RM_CATALOG, args.kind) ? RM_CATALOG[args.kind] : null;
     if (!plot || plot.owner !== realm || !D || all.some(b => b.plotId === plot.id)) return no('Choose an empty plot held by your realm.');
+    if (!plot.placementAvailable || plot.placementVersion !== RM_PLOT_LAYOUT_VERSION) return no('This construction site is unavailable. Review the realm’s current plots.');
     if (!rmPay(R, D.cost)) return no('The realm lacks the building materials.');
-    local.buildings.push(rmBuilding(plot.id, args.kind)); message = D.label + ' construction commissioned.';
+    local.buildings.push({ ...rmBuilding(plot.id, args.kind), placementVersion: RM_PLOT_LAYOUT_VERSION }); message = D.label + ' construction commissioned.';
   } else if (['upgrade', 'pause', 'workforce'].includes(type)) {
     const b = all.find(b => b.id === args.buildingId), plot = b && plots.find(p => p.id === b.plotId);
     if (!b || plot?.owner !== realm) return no('That building is not held by your realm.');
@@ -305,6 +401,7 @@ function realmManageView(RS, realm) {
   if (!realmManageInit(RS) || !rmRealm(realm)) return null;
   const R = RS.realms[realm], M = R.management, plots = rmPlots(RS), all = RS.realms.flatMap((q, r) => q.management.buildings.map(b => ({ ...b, owner: r })));
   const publicBuildings = all.map(b => { const p = plots.find(p => p.id === b.plotId), D = RM_CATALOG[b.kind]; return { ...rmClone(b), x: p.x, z: p.z,
+    home: p.home, yaw: p.yaw, placementVersion: p.placementVersion,
     owner: p.owner, upgradeCost: b.status === 'built' && b.level < 3 ? Object.fromEntries(Object.entries(D.cost).map(([g, n]) => [g, Math.ceil(n * (b.level + 1) * 0.75)])) : null,
     upgradeSeconds: b.status === 'built' && b.level < 3 ? D.seconds * (b.level + 1) : 0, progress: b.status === 'built' ? 1 : Math.max(0, 1 - b.remaining / (b.total || 1)), inputs: D.inputs, outputs: D.outputs }; });
   const publicPlots = plots.map(p => ({ ...p, buildingId: all.find(b => b.plotId === p.id)?.id || null }));
@@ -328,7 +425,7 @@ function realmManageView(RS, realm) {
     plots: publicPlots.filter(p => p.owner === realm), buildings: publicBuildings.filter(b => b.owner === realm),
     publicPlots, publicBuildings: publicBuildings.map(b => ({ id: b.id, plotId: b.plotId, kind: b.kind, level: b.level, targetLevel: b.targetLevel,
       status: b.status, remaining: b.remaining, total: b.total, progress: b.progress, paused: b.paused, assigned: b.assigned, working: b.working,
-      blocked: b.blocked, adopted: b.adopted, owner: b.owner, x: b.x, z: b.z })), catalog: Object.entries(RM_CATALOG).map(([id, D]) => ({ id, ...rmClone(D) })),
+      blocked: b.blocked, adopted: b.adopted, owner: b.owner, home: b.home, yaw: b.yaw, placementVersion: b.placementVersion, x: b.x, z: b.z })), catalog: Object.entries(RM_CATALOG).map(([id, D]) => ({ id, ...rmClone(D) })),
     recipes: Object.entries(RM_CATALOG).filter(([, D]) => Object.keys(D.inputs).length).map(([id, D]) => ({ id, inputs: D.inputs, outputs: D.outputs })),
     offers: RS.management.offers.filter(o => o.from === realm || o.to === realm).map(rmClone), relations,
     allRelations: RS.management.relations.map(rmClone), log: M.log.map(rmClone) };
@@ -401,12 +498,14 @@ function realmManageSanitize(RS, inputRS) {
     M.buildings = [];
     for (const b of (Array.isArray(src.buildings) ? src.buildings : []).slice(0, 72)) {
       const p = plots.find(p => p.id === b?.plotId), D = Object.hasOwn(RM_CATALOG, b?.kind) ? RM_CATALOG[b.kind] : null;
-      if (!p || !D || b.id !== 'b:' + p.id || ids.has(b.id)) continue;
+      if (!p || !D || b.id !== 'b:' + p.id || ids.has(b.id)
+        || Object.hasOwn(b, 'placementVersion') && !(b.placementVersion === 1 || Number.isSafeInteger(b.placementVersion) && Object.hasOwn(RM_PLOT_LAYOUTS, b.placementVersion))) continue;
       ids.add(b.id);
       M.buildings.push({ id: b.id, plotId: b.plotId, kind: b.kind, level: rmInt(b.level, 0, 0, 3), targetLevel: rmInt(b.targetLevel, 1, 1, 3),
         status: ['built', 'building', 'upgrading'].includes(b.status) ? b.status : 'building', remaining: rmNum(b.remaining, 0, 0, 600), total: rmNum(b.total, D.seconds, 1, 600),
         paused: b.paused === true, priority: rmInt(b.priority, 1, 0, 2), workers: rmInt(b.workers, D.workers, 0, D.workers * 3), assigned: rmInt(b.assigned, 0, 0, D.workers * 3 + 2),
-        working: b.working === true, blocked: String(b.blocked || '').slice(0, 40), adopted: b.adopted === true });
+        working: b.working === true, blocked: String(b.blocked || '').slice(0, 40), adopted: b.adopted === true,
+        ...(Object.hasOwn(b, 'placementVersion') ? { placementVersion: b.placementVersion } : {}) });
     }
     M.log = (Array.isArray(src.log) ? src.log : []).slice(-12).filter(x => x && typeof x.text === 'string').map(x => ({ at: rmNum(x.at, 0, 0, 1e12), text: x.text.slice(0, 160) }));
   }

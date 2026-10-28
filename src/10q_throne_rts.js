@@ -28,6 +28,14 @@ function throneRtsManage(action) {
 }
 function throneRtsNotice(message) { THRONE_RTS_UI.notice=message; THRONE_RTS_UI.noticeUntil=performance.now()+8000; throneRtsSetStatus(message); }
 function throneRtsSetStatus(message) { const e = $('rts-status'); if (e) e.textContent = String(message || ''); }
+function throneRtsFormInput(e) {
+  if (!e.target.name) return;
+  THRONE_RTS_UI.form[e.target.name] = e.target.value;
+  if (e.target.name === 'plotId') {
+    const plot = throneRtsView()?.plots?.find(p => p.id === e.target.value);
+    THRONE_RTS_UI.selectedPlot = plot && plot.owner === GAME.player.faction && !plot.buildingId && realmRtsSiteStatus(plot).eligible ? plot.id : '';
+  }
+}
 function throneRtsInitUI() {
   if (THRONE_RTS_UI.root) return THRONE_RTS_UI.root;
   const root = document.createElement('section');
@@ -42,8 +50,8 @@ function throneRtsInitUI() {
     <div id="rts-help">Drag / WASD: pan · Wheel / pinch: zoom · Select a warband, then a keep · Esc: leave throne</div>`;
   document.body.appendChild(root); THRONE_RTS_UI.root = root;
   throneRtsBindStage($('rts-stage'));
-  root.addEventListener('input', e => { if (e.target.name) THRONE_RTS_UI.form[e.target.name] = e.target.value; });
-  root.addEventListener('change', e => { if (e.target.name) { THRONE_RTS_UI.form[e.target.name] = e.target.value; THRONE_RTS_UI.key = ''; } });
+  root.addEventListener('input', throneRtsFormInput);
+  root.addEventListener('change', e => { throneRtsFormInput(e); if (e.target.name) THRONE_RTS_UI.key = ''; });
   root.addEventListener('click', throneRtsClick);
   return root;
 }
@@ -132,22 +140,27 @@ function throneRtsProduction(v) {
       <div class="rts-row"><button data-workforce="${throneRtsEscape(b.id)}">Assign workers</button><button data-pause="${throneRtsEscape(b.id)}" data-paused="${b.paused ? '0' : '1'}">${b.paused ? 'Resume' : 'Pause'}</button></div></article>`).join('') || '<p>Choose Construction to commission production buildings.</p>'}`;
 }
 function throneRtsConstructionChoice(v) {
-  const plots = (v?.plots || []).filter(p => p.owner === GAME.player.faction && !p.buildingId);
+  const candidates = (v?.plots || []).filter(p => p.owner === GAME.player.faction && !p.buildingId);
+  const available = candidates.map(plot => ({ plot, status: realmRtsSiteStatus(plot) }));
+  const plots = available.filter(row => row.status.eligible).map(row => row.plot);
+  const unavailable = available.filter(row => !row.status.eligible);
   const requested = throneRtsForm('plotId', THRONE_RTS_UI.selectedPlot);
   const chosen = plots.find(p => p.id === requested)?.id || plots[0]?.id || '';
   const catalog = v?.catalog || [], requestedKind = throneRtsForm('buildKind', catalog[0]?.id || '');
   const item = catalog.find(c => c.id === requestedKind) || catalog[0];
   const kind = item?.id || '';
   THRONE_RTS_UI.form.plotId = chosen; THRONE_RTS_UI.selectedPlot = chosen; THRONE_RTS_UI.form.buildKind = kind;
-  return { plots, chosen, kind, item };
+  return { plots, chosen, kind, item, unavailable };
 }
 function throneRtsConstruction(v) {
-  const { plots, chosen, kind, item } = throneRtsConstructionChoice(v);
-  return `<h3>Construction</h3><p>Choose an owned plot in the 3D view or below. Realm stores pay the displayed cost; workers then complete the building.</p>
+  const { plots, chosen, kind, item, unavailable } = throneRtsConstructionChoice(v);
+  return `<h3>Construction</h3><p>Choose a clear, owned plot in the 3D view or below. Plot boundaries appear only while this Construction view is open. Realm stores pay the displayed cost; workers then complete the building.</p>
+    ${!plots.length ? '<p>No clear building plots are currently available.</p>' : ''}
     <label>Building plot<select name="plotId">${throneRtsOptions(plots.map(p => [p.id,p.name || p.site || p.id]),chosen)}</select></label>
     <label>Building<select name="buildKind">${throneRtsOptions((v.catalog || []).map(c => [c.id,c.label || c.id]),kind)}</select></label>
     ${item ? `<div class="rts-card"><b>${throneRtsEscape(item.label || kind)}</b><p>${throneRtsCost(item.cost)}</p><p>${throneRtsNumber(item.seconds)} seconds · ${throneRtsNumber(item.workers)} workers</p><p>${throneRtsCost(item.inputs)} → ${throneRtsCost(item.outputs)}</p></div>` : ''}
     <button data-action="build"${!plots.length || !item ? ' disabled' : ''}>Commission building</button>
+    ${unavailable.length ? `<details><summary>Unavailable sites · ${unavailable.length}</summary><ul>${unavailable.map(row => `<li>${throneRtsEscape(row.plot.name || row.plot.id)}: ${throneRtsEscape(row.status.reason)}</li>`).join('')}</ul></details>` : ''}
     <h4>Sites and upgrades</h4>${(v.buildings || []).map(b => `<article class="rts-card"><button class="rts-focus" data-building-focus="${throneRtsEscape(b.id)}">${throneRtsEscape(b.label || b.kind)} · Lv ${throneRtsNumber(b.level || 1)}</button><p>${throneRtsEscape(b.status || '')}${b.remaining > 0 ? ` · ${Math.ceil(b.remaining)}s to complete` : ''}</p>${b.upgradeCost ? `<p>Upgrade: ${throneRtsCost(b.upgradeCost)}</p>` : ''}<button data-upgrade="${throneRtsEscape(b.id)}"${!b.upgradeCost ? ' disabled' : ''}>${b.level >= 3 ? 'Maximum level' : 'Upgrade building'}</button></article>`).join('')}`;
 }
 function throneRtsDiplomacy(v) {
@@ -189,7 +202,9 @@ function throneRtsArmies(v) {
 function throneRtsRenderPanel(force = false) {
   if (!THRONE_RTS.active || !THRONE_RTS_UI.root) return;
   const v = throneRtsView(), host = $('rts-content');
-  const key = JSON.stringify([THRONE_RTS_UI.tab,v,CWUI.sel,CWUI.msg,THRONE_RTS_UI.selectedPlot]);
+  const sites = THRONE_RTS_UI.tab === 'build' ? (v?.plots || []).filter(p => p.owner === GAME.player.faction && !p.buildingId)
+    .map(p => [p.id, realmRtsSiteStatus(p)]) : null;
+  const key = JSON.stringify([THRONE_RTS_UI.tab,v,CWUI.sel,CWUI.msg,THRONE_RTS_UI.selectedPlot,sites]);
   const editing = host.contains(document.activeElement) && /^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement.tagName);
   if (!force && (editing || key === THRONE_RTS_UI.key)) return;
   THRONE_RTS_UI.key = key; THRONE_RTS_UI.revision = v?.revision ?? null;
@@ -208,13 +223,26 @@ function throneRtsSelectBand(id, focus = false) {
   if (focus) { const leader = wbLeader(band); if (leader) throneRtsFocus(leader.x,leader.z); }
   throneRtsRenderPanel(true);
 }
+function throneRtsFocusBuilding(id) {
+  const v = throneRtsView(), item = v?.buildings?.find(b => String(b.id) === String(id));
+  const plot = item && v?.plots?.find(p => p.id === item.plotId);
+  if (!item || !plot) return;
+  // Adopted works are the settlement's existing authored structures, not another
+  // model at the historical virtual lot. Focus their real settlement instead.
+  const site = item.adopted ? plot.site?.startsWith('town:') ? REALMS[plot.home]?.town
+    : plot.site?.startsWith('keep:') ? WAR.keeps.find(k => k.id === Number(plot.site.slice(5)))?.site : null : item;
+  if (Number.isFinite(site?.x) && Number.isFinite(site?.z)) throneRtsFocus(site.x, site.z);
+}
 function throneRtsMarkerAction(kind, id) {
   if (!THRONE_RTS.active || UI.modal !== 'rts' || !hallThroneGrant()) return;
   if (kind === 'canonical') { throneRtsFocusArmy(id); return; }
   if (kind === 'army') { throneRtsSelectBand(id); return; }
   if (kind === 'plot') {
     const plot = throneRtsView()?.plots?.find(p => String(p.id) === String(id));
-    if (!plot || plot.owner !== GAME.player.faction) return;
+    if (!plot || plot.owner !== GAME.player.faction || plot.buildingId) return;
+    REALM_RTS_SITE_CACHE.delete(plot.id);
+    const status = realmRtsSiteStatus(plot);
+    if (!status.eligible) { throneRtsNotice(status.reason); throneRtsRenderPanel(true); return; }
     THRONE_RTS_UI.selectedPlot = plot.id; THRONE_RTS_UI.form.plotId = plot.id; THRONE_RTS_UI.tab = 'build'; throneRtsRenderPanel(true); return;
   }
   if (!CWUI.sel) return;
@@ -247,7 +275,7 @@ function throneRtsClick(e) {
   if (b.dataset.wb) { throneRtsSelectBand(+b.dataset.wb,true); return; }
   if (b.classList.contains('cw-leave')) { closeThroneRTS(true); return; }
   if (b.dataset.cmd) { if (b.getAttribute('aria-disabled') !== 'true') cwIssue(b.dataset.cmd,+b.dataset.t); throneRtsRenderPanel(true); return; }
-  if (b.dataset.buildingFocus) { const item = v?.buildings?.find(x => String(x.id) === b.dataset.buildingFocus), plot = v?.plots?.find(p => p.id === item?.plotId); if (plot) throneRtsFocus(plot.x,plot.z); return; }
+  if (b.dataset.buildingFocus) { throneRtsFocusBuilding(b.dataset.buildingFocus); return; }
   if (b.dataset.upgrade) throneRtsManage({type:'upgrade',buildingId:b.dataset.upgrade});
   else if (b.dataset.pause) throneRtsManage({type:'pause',buildingId:b.dataset.pause,paused:b.dataset.paused === '1'});
   else if (b.dataset.workforce) {
@@ -256,7 +284,15 @@ function throneRtsClick(e) {
   }
   else if (b.dataset.offer) throneRtsManage({type:'reply',offerId:Number(b.dataset.offer),accept:b.dataset.accept === '1'});
   else if (b.dataset.treaty) throneRtsManage({type:'treaty',targetRealm:num('targetRealm',[0,1,2].find(r => r !== GAME.player.faction)),kind:b.dataset.treaty});
-  else if (b.dataset.action === 'build') { const choice=throneRtsConstructionChoice(v); throneRtsManage({type:'build',plotId:choice.chosen,kind:choice.kind}); }
+  else if (b.dataset.action === 'build') {
+    const requested = String(throneRtsForm('plotId', '')), plot = v?.plots?.find(p => p.id === requested);
+    if (plot) REALM_RTS_SITE_CACHE.delete(plot.id);
+    const site = plot && plot.owner === GAME.player.faction && !plot.buildingId ? realmRtsSiteStatus(plot) : null;
+    if (!site?.eligible) { throneRtsRenderPanel(true); throneRtsNotice(site?.reason || 'That plot is no longer available. Review the current sites.'); return; }
+    const choice = throneRtsConstructionChoice(v);
+    if (!choice.item || choice.chosen !== requested) { throneRtsRenderPanel(true); throneRtsNotice('Review the selected site and building before commissioning.'); return; }
+    throneRtsManage({type:'build',plotId:requested,kind:choice.kind});
+  }
   else if (b.dataset.action === 'tax') throneRtsManage({type:'tax',policy:String(throneRtsForm('taxPolicy',v?.population?.taxPolicy || 'normal'))});
   else if (b.dataset.action === 'project') throneRtsManage({type:'project',id:String(throneRtsForm('projectId','granary'))});
   else if (b.dataset.action === 'recruit') throneRtsManage({type:'recruit',units:num('recruitUnits',4)});
@@ -281,7 +317,8 @@ function throneRtsCollectMarkers() {
   }
   for (const k of WAR.keeps) out.push({kind:'keep',id:k.id,x:k.site.x,y:heightAt(k.site.x,k.site.z)+7,z:k.site.z,label:k.site.name,color:REALMS[k.realm].color});
   for (const t of WAR.temples) out.push({kind:'temple',id:t.id,x:t.site.x,y:heightAt(t.site.x,t.site.z)+7,z:t.site.z,label:t.site.name,color:REALMS[t.realm].color});
-  if (THRONE_RTS_UI.tab === 'build') for (const p0 of throneRtsView()?.plots || []) if (p0.owner === p.faction && !p0.buildingId) out.push({kind:'plot',id:p0.id,x:p0.x,y:heightAt(p0.x,p0.z)+0.8,z:p0.z,label:p0.name || 'Building plot',color:'#f1dc9b'});
+  if (THRONE_RTS_UI.tab === 'build') for (const p0 of throneRtsView()?.plots || []) if (p0.owner === p.faction && !p0.buildingId && realmRtsSiteStatus(p0).eligible)
+    out.push({kind:'plot',id:p0.id,x:p0.x,y:realmRtsSiteGround(p0).top+0.8,z:p0.z,label:p0.name || 'Building plot',color:p0.id === THRONE_RTS_UI.selectedPlot ? '#ffe4a4' : '#d6c492'});
   return out.slice(0,128);
 }
 function throneRtsPick(x,y) {
@@ -303,7 +340,7 @@ function throneRtsDrawMarkers() {
     const marker=markers[i], s=screenOf(marker.x,marker.y,marker.z), node=nodes[i];
     const visible=s && s.x > stage.left+18 && s.x < stage.right-18 && s.y > stage.top+24 && s.y < stage.bottom-16;
     marker.screen=visible?s:null; node.hidden=!visible;
-    if (visible) {node.style.left=`${s.x}px`;node.style.top=`${s.y}px`;node.classList.toggle('selected',marker.kind==='army'&&marker.id===CWUI.sel);}
+    if (visible) {node.style.left=`${s.x}px`;node.style.top=`${s.y}px`;node.classList.toggle('selected',marker.kind==='army'&&marker.id===CWUI.sel || marker.kind==='plot'&&marker.id===THRONE_RTS_UI.selectedPlot);}
   }
   THRONE_RTS_UI.markers=markers;
   const band=WAR.warbands.find(w => w.id===CWUI.sel), leader=band&&wbLeader(band);

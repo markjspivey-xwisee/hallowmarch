@@ -80,6 +80,7 @@ jobs:
               node --test tools/tests/gameplay_activity_profile.test.mjs tools/tests/gameplay_capture_time.test.mjs tools/tests/activity_dashboard_scope.test.mjs tools/tests/progressive_ui.test.mjs
               node --test tools/tests/recovery_shader_equivalence.test.mjs tools/tests/input_lifecycle.test.mjs tools/tests/menu_accessibility.test.mjs
               node --test tools/tests/warband_campaign_repair.test.mjs tools/tests/warband_replication.test.mjs tools/tests/warband_orders_shared.test.mjs server/warband-orders.test.mjs server/thrones.test.mjs tools/tests/throne_control.test.mjs tools/tests/throne_rts.test.mjs tools/tests/throne_rts_construction.test.mjs tools/tests/throne_rts_workforce.test.mjs tools/tests/throne_rts_render.test.mjs tools/tests/realm_management.test.mjs tools/tests/realm_diplomacy.test.mjs tools/tests/season_field.test.mjs tools/tests/realm_protocol.test.mjs tools/tests/realm_war_hooks.test.mjs tools/tests/realm_public_works.test.mjs tools/tests/realm_logistics.test.mjs tools/tests/realm_logistics_client.test.mjs tools/tests/realm_logistics_network.test.mjs
+              node --test tools/tests/realm_site_clearance.test.mjs tools/tests/realm_plot_placement.test.mjs tools/tests/realm_models_grounding.test.mjs
               node --test tools/tests/party_companion.mjs tools/tests/party_companion_network.mjs tools/tests/party_companion_transport.mjs tools/tests/season_connection_ui.mjs
               node --test tools/tests/companies_regression.mjs tools/tests/fieldarmies_regression.mjs tools/tests/fisher_liveness.mjs
               node tools/tests/net_companies.mjs
@@ -121,7 +122,10 @@ jobs:
             season) check python3 tools/tests/season2.py ;;
             performance) echo 'Performance checks run in the following steps.' ;;
             visuals) check python3 tools/tests/look.py views=l7_yard,l7_cart,l7_woodcutter,l7_quarry,l7_moon,l7_dead,l7_weapons,l7_inside_storm q=low v=day tag=hallowmarch-ci ;;
-            shaders) check python3 tools/tests/shaders.py ;;
+            shaders)
+              check python3 tools/tests/shaders.py
+              HM_REALM_SITE_OUT="$PWD/tools/out/realm-sites" check python3 tools/tests/realm_sites_terrain.py
+              ;;
             phone)
               check python3 tools/tests/phone.py
               check python3 tools/tests/mobile_multitouch.py
