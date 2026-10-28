@@ -1026,7 +1026,15 @@ function onMsg(c, raw) {
     const playing = HUMAN_PLAY.update(c, principalVerified ? m.d : null);
     if (!playing) {
       c.slow = { ...(m.d && typeof m.d === 'object' ? m.d : {}), on: 0, humanLive: 0 };
-      send(c, { t: 'world-status', ok: true, standby: true, why: 'Live play is paused. Interact with the game to resume.' });
+      const admission = !principalVerified && m.d?.on === 1 ? 'identity-required' : 'standby';
+      if (c.liveAdmission !== admission) {
+        c.liveAdmission = admission;
+        send(c, { t: 'world-status', ok: true, standby: true, admission,
+          code: admission === 'identity-required' ? 'native_signin_required' : 'human_play_required',
+          why: admission === 'identity-required'
+            ? 'Reconnect your Interego identity to join the shared world. Your private character is preserved.'
+            : 'Live play is paused. Interact with the game to resume.' });
+      }
       // An established owner connection can sleep without traffic or timers.
       // Never-played/title sockets retain their short admission deadline.
       if (!c.hasPlayedLive) c.ws.close(4000, 'Human play not started');
@@ -1034,6 +1042,11 @@ function onMsg(c, raw) {
     }
     const resuming = c.humanDormant === true;
     c.humanDormant = false; c.hasPlayedLive = true; c.finalSaveUntil = 0; c.ws._dead = false;
+    if (c.liveAdmission !== 'live') {
+      c.liveAdmission = 'live';
+      send(c, { t: 'world-status', ok: true, standby: false, admission: 'live',
+        code: 'human_play_admitted', why: 'Connected to the shared world.' });
+    }
     if (c.pendingAccountSave) { c.pendingAccountSave = false; accountsSave(); }
     clearTimeout(c.inactiveTimer); c.inactiveTimer = null;
     if (resuming) resumeHumanSession(c);
@@ -1258,6 +1271,11 @@ function endHumanSession(c) {
       send(o, { t: 'left', peer: c.peer }); o.nearAt?.delete(c.peer); o.farAt?.delete(c.peer);
     }
     regionsTell(c.room);
+  }
+  if (c.liveAdmission === 'live') {
+    c.liveAdmission = 'standby';
+    send(c, { t: 'world-status', ok: true, standby: true, admission: 'standby',
+      code: 'human_play_required', why: 'Live play is paused. Interact with the game to resume.' });
   }
 }
 function resumeHumanSession(c) {

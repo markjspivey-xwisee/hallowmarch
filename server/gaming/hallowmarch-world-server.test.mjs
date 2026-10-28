@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readFile, readdir, stat, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
@@ -69,14 +69,14 @@ async function fixture(t, { worlds = { march: world }, season = seedSeason(), co
   await writeFile(preload, `import {register} from 'node:module'; register(new URL('./loader.mjs', import.meta.url));`);
   const children = [], sockets = [];
   async function stop(child) {
-    if (child.exitCode !== null) return;
+    if (child.exitCode !== null || child.signalCode !== null) return;
     const done = once(child, 'exit'); child.kill('SIGTERM');
     const timeout = setTimeout(() => child.kill('SIGKILL'), 17000); await done; clearTimeout(timeout);
   }
   t.after(async () => { for (const socket of sockets) socket.terminate(); for (const child of children) await stop(child); await rm(directory, { recursive: true, force: true }); });
   async function start({ expectFailure = false, env = {}, loaderEnabled = true } = {}) {
     const port = await freePort(), base = 'http://127.0.0.1:' + port;
-    const child = spawn(process.execPath, [...(loaderEnabled ? ['--import', preload] : []), path.join(root, 'server/server.js')], {
+    const child = spawn(process.execPath, [...(loaderEnabled ? ['--import', pathToFileURL(preload).href] : []), path.join(root, 'server/server.js')], {
       cwd: root, env: { PATH: process.env.PATH, NODE_ENV: 'test', PORT: String(port), HM_DATA: data,
         HM_SECRET: 'synthetic-local-world-test-secret', HM_GAMING_BOOTSTRAP: '0', HM_GAMING_ENABLED: '1',
         HM_PUBLIC_ORIGIN: 'https://game.example', HM_ADMIN: 'synthetic-world-admin', HM_SEASON_STEP: '600000', HM_WORLD_CHECKPOINT_MS: '60000',
@@ -169,6 +169,65 @@ test('real server recovers canonical owned world and season before constructing 
   const native = (await f.readDurable()).streams['hallowmarch-world-season-v1'].state.value;
   assert.deepEqual(Object.keys(native).sort(), ['season', 'worlds']);
   assert.equal(native.worlds.march.cn, 3);
+});
+
+test('confirmed native reboot stays durable without capturing only a boot-time savedAt rebase', async t => {
+  const f = await fixture(t), first = await f.start();
+  await first.connect({ live: true });
+  assert.equal((await first.admin('world-checkpoint')).body.persistence.durable, true);
+  await f.stop(first.child);
+  const before = await f.readDurable(), confirmed = before.streams['hallowmarch-world-season-v1'];
+  assert.ok(confirmed.version > 0);
+
+  const second = await f.start({ env: { HM_WORLD_CHECKPOINT_MS: '10' } });
+  const health = await (await fetch(second.base + '/health')).json();
+  assert.equal(health.livePlay.players, 0);
+  const status = await second.status();
+  assert.equal(status.pendingSnapshots, 0, 'Rebasing the paused simulation clock is not a new world mutation');
+  assert.equal(status.durable, true);
+  assert.equal(status.confirmedVersion, confirmed.version);
+  assert.equal(status.liveVersion, status.confirmedLiveVersion);
+  await new Promise(resolve => setTimeout(resolve, 80));
+  assert.equal((await second.status()).pendingSnapshots, 0);
+  assert.equal((await second.status()).durable, true);
+  assert.deepEqual(await f.readDurable(), before, 'A zero-human reboot and passive status checks perform no native writes');
+  await f.stop(second.child);
+  assert.deepEqual(await f.readDurable(), before, 'Idle shutdown does not persist the rebased wall clock');
+});
+
+test('actual local live admission confirms a world checkpoint then stops writes after explicit standby', async t => {
+  const f = await fixture(t), server = await f.start({ env: { HM_WORLD_CHECKPOINT_MS: '10' } });
+  const actor = await server.connect({ live: true });
+  const admitted = await actor.receive('world-status', message => message.admission === 'live');
+  assert.equal(admitted.ok, true); assert.equal(admitted.standby, false);
+  assert.equal(admitted.code, 'human_play_admitted');
+  assert.equal((await (await fetch(server.base + '/health')).json()).livePlay.players, 1);
+  assert.equal((await server.admin('keep&i=0&r=1')).status, 200);
+  assert.equal((await server.admin('world-checkpoint')).body.persistence.durable, true);
+  assert.equal((await f.readDurable()).streams['hallowmarch-world-season-v1'].state.value.season.keeps[0].h, 1);
+
+  actor.send({ t: 'slow', d: { on: 0, humanLive: 0 } });
+  const standby = await actor.receive('world-status', message => message.standby === true);
+  assert.equal(standby.admission, 'standby'); assert.equal(standby.code, 'human_play_required');
+  assert.equal(standby.ok, true);
+  const deadline = Date.now() + 3000;
+  while ((await server.status()).durable !== true) {
+    assert.ok(Date.now() < deadline, 'Accepted final world checkpoint must settle before the idle comparison');
+    await new Promise(resolve => setTimeout(resolve, 5));
+  }
+  const health = await (await fetch(server.base + '/health')).json(), before = await f.readDurable();
+  assert.equal(health.livePlay.players, 0); assert.equal(health.livePlay.mode, 'standby');
+  const volume = async () => Promise.all((await readdir(f.data, { withFileTypes: true }))
+    .filter(entry => entry.isFile()).sort((a, b) => a.name.localeCompare(b.name)).map(async entry => {
+      const info = await stat(path.join(f.data, entry.name));
+      return [entry.name, info.size, info.mtimeMs];
+    }));
+  const filesBefore = await volume();
+  await new Promise(resolve => setTimeout(resolve, 600));
+  assert.deepEqual(await f.readDurable(), before, 'Inactive time does not retry or write after the accepted final checkpoint');
+  assert.deepEqual(await volume(), filesBefore, 'Inactive time crosses the account-save deadline without another local file write');
+  assert.equal((await server.admin('world-checkpoint')).body.persistence.durable, true);
+  assert.deepEqual(await f.readDurable(), before, 'An explicit inactive checkpoint does not create a new operation');
 });
 
 test('real server returns from a live world mutation before slow native writes, then confirms only the explicit checkpoint', async t => {

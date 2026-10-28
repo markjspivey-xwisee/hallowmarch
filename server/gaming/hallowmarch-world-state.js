@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 import { checkedSharedScene } from '../shared-scene.js';
 import { createProgressiveOwnedState, OwnedStateError } from './progressive-owned-state.js';
 
@@ -83,7 +84,8 @@ export async function openHallowmarchWorldState({ nativeStore, files, dataDir, k
     try { return JSON.parse(fs.readFileSync(path.join(dataDir, name), 'utf8')); }
     catch (error) { if (error.code === 'ENOENT') return fallback; invalid(); }
   }
-  const initial = validate(await bridge.start({ seed: () => validate({ worlds: strictRead('worlds.json', {}), season: strictRead('season.json', null) }) }));
+  const initialValue = await bridge.start({ seed: () => validate({ worlds: strictRead('worlds.json', {}), season: strictRead('season.json', null) }) });
+  const initial = validate(initialValue);
   let attached = null, captureFailure = false, closing = false, rollingBack = false, backgroundCaptureDeferred = false, lastCaptureAt = clock();
   const idleCaptureIntervalMs = 5 * 60 * 1000;
   const status = () => ({ ...bridge.status(), backgroundCaptureDeferred,
@@ -133,6 +135,16 @@ export async function openHallowmarchWorldState({ nativeStore, files, dataDir, k
     attached = { worlds, season, field, rooms };
     for (const name of ['step', 'contribute', 'order', 'capture']) wrap(season, name);
     for (const name of ['step', 'report', 'left']) wrap(field, name);
+    try {
+      if (liveOnly && active === false && initial.season && bridge.status().confirmedVersion > 0) {
+        // A live-only scheduler rebases its wall clock on startup. Compare the
+        // complete snapshot with only the persisted timestamp restored.
+        const current = validate({ worlds, season: { ...season.RS, savedAt: season.lastStep } });
+        if (Object.hasOwn(initialValue.season, 'savedAt')) current.season.savedAt = initialValue.season.savedAt;
+        else delete current.season.savedAt;
+        if (isDeepStrictEqual(current, initialValue)) return;
+      }
+    } catch (error) { captureFailure = true; throw error; }
     capture();
   }
   async function recover() {

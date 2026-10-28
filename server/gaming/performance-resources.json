@@ -84,7 +84,7 @@
     },
     {
       "path": "src/14o_netui.js",
-      "digest": "sha256:f6bc452e69e654ba2a2d8c1908727f1d9299378bab803ea807ea20caa2117c93"
+      "digest": "sha256:4d41cc9fc0a7108d8ecc4fc5becb48de522ac1d5cdb079e13770c0ce5fecefec"
     },
     {
       "path": "src/14q_netseason.js",
@@ -2020,11 +2020,11 @@
       ],
       "source": {
         "path": "src/14o_netui.js",
-        "digest": "sha256:f6bc452e69e654ba2a2d8c1908727f1d9299378bab803ea807ea20caa2117c93",
+        "digest": "sha256:4d41cc9fc0a7108d8ecc4fc5becb48de522ac1d5cdb079e13770c0ce5fecefec",
         "selector": "FIELD_NOTES.netothers",
         "lines": {
-          "start": 544,
-          "end": 544
+          "start": 573,
+          "end": 573
         }
       },
       "requiresContext": true,
@@ -2036,7 +2036,7 @@
         "note": "netothers",
         "availability": "Collected in the game when relevant"
       },
-      "revisionDigest": "sha256:68881f2b0fe993b78ba747e90a9b0da720f978071cdbfb256c954388fb46f15a"
+      "revisionDigest": "sha256:f911857b8887c4555e0676c6462a0adab253ea7e89eef3def75a4b2c4cccb4c0"
     },
     {
       "id": "field-note:netseason",
@@ -3093,5 +3093,5 @@
       "assessment": null
     }
   ],
-  "revisionDigest": "sha256:dc8d4d306ad5ad072d4b649f0478789a5aa77c53b684f2618cb8317228379ec8"
+  "revisionDigest": "sha256:9f0004a9567219c473502f39e3e8ccbb1cfff3cbd8b7d2228408f93d8af5097a"
 }

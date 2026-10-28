@@ -420,7 +420,7 @@ test('verified old production pages receive a reload notice before a human lease
   }
 });
 
-test('verified version-two scene pages acquire the ordinary human lease without an upgrade notice', async () => {
+test('verified version-two scene pages acquire the ordinary human lease and receive its acknowledgement without an upgrade notice', async () => {
   const f=fixture(),sent=[],closed=[];let leases=0,profile=null,slow=null;
   const {onMsg}=await ingress(f,{nativePlayersRequired:true,PLAYER_ACCOUNTS:{humanPrincipalFor:()=>({subject:'owner'})},
     HUMAN_PLAY:{update(c,p){leases++;profile=p;return true}},send:(c,m)=>sent.push(m),clearTimeout(){},
@@ -428,7 +428,9 @@ test('verified version-two scene pages acquire the ordinary human lease without 
   f.a.ws.close=(code,reason)=>closed.push({code,reason});
   onMsg(f.a,JSON.stringify({t:'slow',d:{on:1,humanLive:1,humanActivity:1,sharedScene:2,realmManagement:1,seasonField:2, sharedCombat: 1, actorDevelopment: 1}}));
   assert.equal(leases,1);assert.equal(profile.sharedScene,2);assert.equal(slow.sharedScene,2);
-  assert.equal(f.a.hasPlayedLive,true);assert.equal(sent.length,0);assert.equal(closed.length,0);
+  assert.equal(f.a.hasPlayedLive,true);assert.equal(closed.length,0);
+  assert.deepEqual(JSON.parse(JSON.stringify(sent)), [{ t: 'world-status', ok: true, standby: false,
+    admission: 'live', code: 'human_play_admitted', why: 'Connected to the shared world.' }]);
 });
 
 test('unauthenticated legacy identity refusal is preserved before a protocol-upgrade notice', async () => {
