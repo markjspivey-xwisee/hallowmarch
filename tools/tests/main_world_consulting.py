@@ -175,8 +175,8 @@ async def main():
                 assert state=={'external':0,'requests':0,'journalCreations':0,'enabled':False,'writes':[]},state
                 assert not port_writes,port_writes
 
-            # These Character links live outside .chron. Exercise their real
-            # click handlers so an inert shortcut cannot pass via a direct API.
+            # Character opens Progress, whose primary action opens the path.
+            # Exercise the real buttons instead of bypassing navigation by API.
             await page.locator('#btn-menu').click()
             await page.locator('#menu-body [data-lore="sec:coach"]').click()
             await destination('progress')
@@ -185,7 +185,9 @@ async def main():
             assert await page.locator('#march-coach-mount').count()==1
             await navigation_only()
             await page.locator('#menu-tabs [data-tab="char"]').click()
-            await page.locator('#menu-body [data-lore="sec:path"]').click()
+            await page.get_by_role('button',name='View progress',exact=True).click()
+            await destination('progress')
+            await page.get_by_role('button',name='Continue your path',exact=True).click()
             await destination('chronicle')
             assert await page.evaluate('__hm.LORE.state.chronSec')=='path'
             assert await page.locator('.chron-nav [data-sec="path"][aria-current="true"]').is_visible()
@@ -205,7 +207,7 @@ async def main():
             await destination('progress')
             assert not await page.locator('#netsheet').is_visible()
             await navigation_only()
-            print('PASS Character progress/path links and Players→Progress use real routes without stacked panels, automatic Enable, consent or delivery',flush=True)
+            print('PASS Character→Progress→Path and Players→Progress use real routes without stacked panels, automatic Enable, consent or delivery',flush=True)
             await page.wait_for_function('__hm.activity.snapshot().current',timeout=30000)
             assert await page.locator('#march-consulting input,#march-consulting textarea,#march-consulting form').count()==0
             assert await page.locator('#march-coach-interventions button').count()>=2
@@ -302,6 +304,7 @@ async def main():
             await page.evaluate('__consultingFixture.record("ability.executed","fixture-ability");__consultingFixture.advance(120001);__hm.GAME.player.combatUntil=__hm.GAME.t+10;__consultingFixture.step()')
             await page.wait_for_timeout(50);assert await page.evaluate('__consultingFixture.external')==2
             await page.evaluate('__hm.GAME.player.combatUntil=-1;__consultingFixture.open()')
+            await options()
             await page.get_by_role('button',name='Quiet for 10 minutes',exact=True).click()
             await resume_play()
             await page.evaluate('__consultingFixture.advance(120001);__consultingFixture.step()')
