@@ -803,7 +803,7 @@ function tick(dt) {
   renderer.render(scene, camera);
   composite.uniforms.uTime.value = renderTime;
   const fl = composite.uniforms.uFlash.value;
-  fl.w = Math.max(0, fl.w - dt * 1.3);
+  fl.w = REDUCE_MOTION ? 0 : Math.max(0, fl.w - dt * 1.3);
   renderPost();
   // interface
   if (GAME.started && GAME.player) updateHUD(dt);

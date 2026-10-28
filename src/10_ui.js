@@ -734,6 +734,7 @@ function uiZone(z) {
 }
 function flashScreen(rgb, a) {
   const f = composite.uniforms.uFlash.value;
+  if (REDUCE_MOTION) { f.w = 0; return; }
   f.set(rgb[0], rgb[1], rgb[2], Math.max(f.w, a));
 }
 function showJoystick(x, y, dx, dy) {
@@ -896,6 +897,8 @@ function renderMenu(tab) {
     body.innerHTML = `<div class="setrow"><span>Graphics</span><div class="seg" id="set-q">${['low', 'medium', 'high'].map((k) => `<button type="button" data-v="${k}" aria-checked="${q === k}">${QUALITY_PRESETS[k].label}</button>`).join('')}</div></div>
       <div class="setrow"><span>Time of day</span><div class="seg" id="set-t">${[['cycle', 'Cycle'], ['morning', 'Morning'], ['golden', 'Golden'], ['night', 'Night']].map(([k, l]) => `<button type="button" data-v="${k}" aria-checked="${m === k}">${l}</button>`).join('')}</div></div>
       <div class="setrow"><span>Weather</span><div class="seg" id="set-w">${[['auto', 'Changing'], ['clear', 'Always clear']].map(([k, l]) => `<button type="button" data-v="${k}" aria-checked="${WEATHER.mode === k}">${l}</button>`).join('')}</div></div>
+      <div class="setrow"><span>Motion &amp; flashes</span><div class="seg" id="set-motion">${[['system', 'Use device setting'], ['reduced', 'Reduce effects']].map(([k, l]) => `<button type="button" data-v="${k}" aria-checked="${MOTION_MODE === k}">${l}</button>`).join('')}</div></div>
+      <p class="fineprint">${REDUCE_MOTION ? 'Reduced effects are active: camera shake, screen flashes and lightning flicker are off.' : 'Reduce effects turns off camera shake, screen flashes and lightning flicker.'} This preference stays on this browser.</p>
       ${soundSettingsHTML() /* [audio2] Volume, Effects, Ambience (11c_sound.js) */}
       <div class="setrow"><span>Music</span><div class="seg" id="set-m">${MUSIC_LEVELS.map(([k, l]) => `<button type="button" data-v="${k}" aria-checked="${musicLevelKey() === k}">${l}</button>`).join('')}</div></div>
       ${captureSettingsHTML() /* [capture] the capture build (14_capture.js) */}
@@ -904,6 +907,7 @@ function renderMenu(tab) {
     $('set-q').onclick = (e) => { const b = e.target.closest('button'); if (!b) return; setQuality(b.dataset.v); renderMenu('settings'); saveSoon(); };
     $('set-t').onclick = (e) => { const b = e.target.closest('button'); if (!b) return; setTimeMode(b.dataset.v); renderMenu('settings'); saveSoon(); };
     $('set-w').onclick = (e) => { const b = e.target.closest('button'); if (!b) return; setWeatherMode(b.dataset.v); renderMenu('settings'); saveSoon(); };
+    $('set-motion').onclick = (e) => { const b = e.target.closest('button'); if (!b) return; setMotionMode(b.dataset.v); renderMenu('settings'); };
     captureSettingsWire(); // [capture] (14_capture.js)
     soundSettingsWire(); // [audio2] the Volume, Effects and Ambience rows (11c_sound.js)
     $('set-m').onclick = (e) => { const b = e.target.closest('button'); if (!b) return; const L = MUSIC_LEVELS.find((x) => x[0] === b.dataset.v); if (L) setMusicVolume(L[2]); renderMenu('settings'); saveSoon(); }; // [music] the score's volume (11b_music.js)

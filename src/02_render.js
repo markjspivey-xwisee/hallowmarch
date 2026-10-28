@@ -3,7 +3,22 @@
 /* ================================================================== */
 const canvas = document.getElementById('scene');
 const IS_TOUCH = matchMedia('(pointer: coarse)').matches || ('ontouchstart' in window && navigator.maxTouchPoints > 0);
-const REDUCE_MOTION = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const MOTION_QUERY = matchMedia('(prefers-reduced-motion: reduce)');
+const MOTION_PREF_KEY = 'hallowmarch.motion.v1';
+let MOTION_MODE = 'system';
+try { if (localStorage.getItem(MOTION_PREF_KEY) === 'reduced') MOTION_MODE = 'reduced'; } catch (e) { /* a device preference must not block play */ }
+let REDUCE_MOTION = MOTION_MODE === 'reduced' || MOTION_QUERY.matches;
+function syncMotionPreference() {
+  REDUCE_MOTION = MOTION_MODE === 'reduced' || MOTION_QUERY.matches;
+  document.documentElement?.setAttribute('data-reduced-motion', String(REDUCE_MOTION));
+}
+function setMotionMode(mode) {
+  if (mode !== 'system' && mode !== 'reduced') return;
+  MOTION_MODE = mode; syncMotionPreference();
+  try { localStorage.setItem(MOTION_PREF_KEY, mode); } catch (e) { /* private browsing can refuse preferences */ }
+}
+syncMotionPreference();
+MOTION_QUERY.addEventListener?.('change', syncMotionPreference);
 
 const GRAPHICS_TRACE_KEY = 'hallowmarch.graphics.trace.v1';
 const GRAPHICS_RECOVERY_KEY = 'hallowmarch.graphics.recovery.v1';

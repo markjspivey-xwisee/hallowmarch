@@ -370,6 +370,7 @@ function updatePlayer(dt) {
 /* camera                                                              */
 /* ------------------------------------------------------------------ */
 function cameraShake(amount, x, z) {
+  if (REDUCE_MOTION) { CAM.shake = 0; return; }
   const P = GAME.player;
   const d = P ? dist(P.x, P.z, x, z) : 0;
   CAM.shake = Math.max(CAM.shake, amount * clamp(1 - d / 40, 0, 1));
@@ -397,7 +398,7 @@ function updateCamera(dt) {
   if (typeof throneRtsUpdateCamera === 'function' && throneRtsUpdateCamera(dt)) return;
   if (CAM.mode === 'fixed') return; // test and photo views place the camera themselves
   if (CAM.mode === 'title') {
-    CAM.orbitT += dt * 0.035;
+    if (!REDUCE_MOTION) CAM.orbitT += dt * 0.035;
     const a = CAM.orbitT + 2.2;
     const T = W.heroTree;
     const r = 34;
@@ -435,6 +436,7 @@ function updateCamera(dt) {
   if (hc) { cx = hc.x; cy = hc.y; cz = hc.z; }
   CAM.pos.set(cx, cy, cz);
   camera.position.copy(CAM.pos);
+  if (REDUCE_MOTION) CAM.shake = 0;
   if (CAM.shake > 0) {
     camera.position.x += (Math.random() - 0.5) * CAM.shake;
     camera.position.y += (Math.random() - 0.5) * CAM.shake;
