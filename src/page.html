@@ -27,7 +27,7 @@
   #scene { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; outline: none; }
   button { font: inherit; color: inherit; touch-action: manipulation; }
   button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, summary:focus-visible { outline: 2px solid var(--bronze-hi); outline-offset: 2px; }
-  :root[data-reduced-motion="true"] *, :root[data-reduced-motion="true"] *::before, :root[data-reduced-motion="true"] *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
+  :root[data-reduced-motion="true"] *, :root[data-reduced-motion="true"] *::before, :root[data-reduced-motion="true"] *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition: none !important; scroll-behavior: auto !important; }
   .panel { background: var(--slate); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 6px 22px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.04); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
   .caps { font-family: var(--caps); letter-spacing: 0.06em; }
   .num { font-variant-numeric: tabular-nums; }
