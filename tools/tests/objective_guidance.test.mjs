@@ -4,6 +4,25 @@ import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import { parse } from 'acorn';
 
+test('closing the prologue forwards the original key through the existing trusted-input guards',()=>{
+  const source=readFileSync(new URL('../../src/10c_lore.js',import.meta.url),'utf8');
+  const start=source.indexOf("window.addEventListener('keydown', (e) => {");
+  const end=source.indexOf('\n}, true);',start)+'\n}, true);'.length;
+  for(const trusted of [false,true]) {
+    let listener;const tasks=[];
+    const context=vm.createContext({UI:{modal:'prologue'},LORE:{pro:{}},NET_HUMAN_PLAY:{focused:false,activity:0,pendingAt:null},
+      document:{hidden:false,hasFocus:()=>true,activeElement:null},performance:{now:()=>100},
+      window:{addEventListener:(type,fn)=>{listener=fn;}},queueMicrotask:fn=>tasks.push(fn),netHumanSuspend(){},
+      closePrologue(){context.UI.modal=null;},prologueGo(){},netHumanSync(){assert.equal(context.UI.modal,null);}});
+    vm.runInContext(declarations('14m_liveplay.js',['netHumanInput']),context);
+    vm.runInContext(source.slice(start,end),context);
+    const event={type:'keydown',code:'Escape',isTrusted:trusted,preventDefault(){},stopPropagation(){}};
+    listener(event);assert.equal(context.UI.modal,null);
+    assert.equal(context.NET_HUMAN_PLAY.activity,trusted?1:0);
+    assert.equal(tasks.length,trusted?1:0);tasks.forEach(fn=>fn());
+  }
+});
+
 function declarations(file, names) {
   const source = readFileSync(new URL('../../src/' + file, import.meta.url), 'utf8');
   const nodes = parse(source, { ecmaVersion: 'latest' }).body;

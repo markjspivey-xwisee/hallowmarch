@@ -994,6 +994,7 @@ function closePrologue() {
 // the prologue's keys come first, and the game never sees them
 window.addEventListener('keydown', (e) => {
   if (UI.modal !== 'prologue' || !LORE.pro) return;
+  if (typeof netHumanInput === 'function') netHumanInput(e); // window capture stops the document's trusted-input listener
   const k = e.code;
   const onBtn = !!(document.activeElement && document.activeElement.closest && document.activeElement.closest('#lore-pro button'));
   if (k === 'Escape') { e.preventDefault(); closePrologue(); }
