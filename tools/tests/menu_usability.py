@@ -147,7 +147,7 @@ window.__menuQA=(()=>{
       stored:localStorage.getItem(MOTION_PREF_KEY),unchanged:P.level===before.level&&GAME.prog.xp===before.xp};
   }
   return {title,play,open,close,progress,inspect,picker,active,focusEdge,replacementTransitions,scrollState,effectsProbe,
-    chronicleKeys:()=>CHRON_SECTIONS.map(([key])=>key)};
+    chronicleKeys:()=>CHRON_SECTIONS.map(([key])=>key).filter(key=>key!=='coach')};
 })();
 """
 
@@ -370,6 +370,7 @@ async def audit(args):
                     await page.keyboard.press('Escape')
                 if not touch or viewport['width']==320:
                     await page.evaluate("__menuQA.open('chronicle')")
+                    report['checks'].append({'task':label+'-progress-has-one-menu-destination','passed':await page.locator('#menu-tab-progress').is_visible() and await page.locator('.chron-nav [data-sec="coach"]').count()==0})
                     groups=await page.locator('.chron-grps [data-grp]').evaluate_all('(els)=>els.map(e=>e.dataset.grp)')
                     expected=set(await page.evaluate('__menuQA.chronicleKeys()'));seen=set()
                     for group in groups:

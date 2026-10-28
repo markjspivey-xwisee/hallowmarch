@@ -44,7 +44,7 @@
     },
     {
       "path": "src/10c_lore.js",
-      "digest": "sha256:dd463f541b331b36c9df8595242e577afc5573da17732db1cc40ff5e80d9e01b"
+      "digest": "sha256:ee16bca536f5e54f99bdde115dcb5752f1c1b77b34c50a805ea25dca9e1b532f"
     },
     {
       "path": "src/10e_guide.js",
@@ -136,7 +136,7 @@
       ],
       "source": {
         "path": "src/10c_lore.js",
-        "digest": "sha256:dd463f541b331b36c9df8595242e577afc5573da17732db1cc40ff5e80d9e01b",
+        "digest": "sha256:ee16bca536f5e54f99bdde115dcb5752f1c1b77b34c50a805ea25dca9e1b532f",
         "selector": "FIELD_NOTES.barrow",
         "lines": {
           "start": 449,
@@ -153,7 +153,7 @@
         "note": "barrow",
         "availability": "Collected in the game when relevant"
       },
-      "revisionDigest": "sha256:4745d43eae2abb7cccec433544049369d84e42027cd5a5f7b720df219ba0a804"
+      "revisionDigest": "sha256:a4c780b868498bbf2c03294c1061f8a88e7efa71243a84c6ca2339ece191776d"
     },
     {
       "id": "field-note:battered",
@@ -344,7 +344,7 @@
       ],
       "source": {
         "path": "src/10c_lore.js",
-        "digest": "sha256:dd463f541b331b36c9df8595242e577afc5573da17732db1cc40ff5e80d9e01b",
+        "digest": "sha256:ee16bca536f5e54f99bdde115dcb5752f1c1b77b34c50a805ea25dca9e1b532f",
         "selector": "FIELD_NOTES.campaign",
         "lines": {
           "start": 457,
@@ -361,7 +361,7 @@
         "note": "campaign",
         "availability": "Collected in the game when relevant"
       },
-      "revisionDigest": "sha256:37c93cd91dd1228a55e41e1fe2b5a95da28e4051b50025c0d09eafc923f4500f"
+      "revisionDigest": "sha256:a3cfc006956987bddc059ab859038f09310032630a8eda0dcc299cc9ed3659a5"
     },
     {
       "id": "field-note:carry",
@@ -374,7 +374,7 @@
       ],
       "source": {
         "path": "src/10c_lore.js",
-        "digest": "sha256:dd463f541b331b36c9df8595242e577afc5573da17732db1cc40ff5e80d9e01b",
+        "digest": "sha256:ee16bca536f5e54f99bdde115dcb5752f1c1b77b34c50a805ea25dca9e1b532f",
         "selector": "FIELD_NOTES.carry",
         "lines": {
           "start": 454,
@@ -390,7 +390,7 @@
         "note": "carry",
         "availability": "Collected in the game when relevant"
       },
-      "revisionDigest": "sha256:eadefd9ca4a4b6da5bdf7ed2b746bcc484705a1746471a661c63cc619b21e251"
+      "revisionDigest": "sha256:2361fa11d4cd5a33e7fb75d255f976700aee548a15602a151580ab1e74707985"
     },
     {
       "id": "field-note:champion",
@@ -492,7 +492,7 @@
       ],
       "source": {
         "path": "src/10c_lore.js",
-        "digest": "sha256:dd463f541b331b36c9df8595242e577afc5573da17732db1cc40ff5e80d9e01b",
+        "digest": "sha256:ee16bca536f5e54f99bdde115dcb5752f1c1b77b34c50a805ea25dca9e1b532f",
         "selector": "FIELD_NOTES.claim",
         "lines": {
           "start": 456,
@@ -509,7 +509,7 @@
         "note": "claim",
         "availability": "Collected in the game when relevant"
       },
-      "revisionDigest": "sha256:bf48605a7b41db1c40f95f01050cb5e30a195cfc90b9d0262f0b2dfb1c273fef"
+      "revisionDigest": "sha256:fd3f55c3e28faf0fd61fafbf67ec81a73686d3f6cdfa1260b8aea616337fcf42"
     },
     {
       "id": "field-note:command",
@@ -522,7 +522,7 @@
       ],
       "source": {
         "path": "src/10c_lore.js",
-        "digest": "sha256:dd463f541b331b36c9df8595242e577afc5573da17732db1cc40ff5e80d9e01b",
+        "digest": "sha256:ee16bca536f5e54f99bdde115dcb5752f1c1b77b34c50a805ea25dca9e1b532f",
         "selector": "FIELD_NOTES.command",
         "lines": {
           "start": 455,
@@ -539,7 +539,7 @@
         "note": "command",
         "availability": "Collected in the game when relevant"
       },
-      "revisionDigest": "sha256:38c5984ae82b700ec539b722bdb36fa23d3a0994d429305f676fe3afc74e3a5c"
+      "revisionDigest": "sha256:6961e0d9dbc0be9ab48aa76ca6847e16912617246dc8a4e2d97462f8e783e2bf"
     },
     {
       "id": "field-note:crops",
@@ -672,7 +672,7 @@
       ],
       "source": {
         "path": "src/10c_lore.js",
-        "digest": "sha256:dd463f541b331b36c9df8595242e577afc5573da17732db1cc40ff5e80d9e01b",
+        "digest": "sha256:ee16bca536f5e54f99bdde115dcb5752f1c1b77b34c50a805ea25dca9e1b532f",
         "selector": "FIELD_NOTES.death",
         "lines": {
           "start": 458,
@@ -688,7 +688,7 @@
         "note": "death",
         "availability": "Collected in the game when relevant"
       },
-      "revisionDigest": "sha256:8551826e385dd28229b354dc84dbdc09f8272c495ac7c774f2b6376b43f1eece"
+      "revisionDigest": "sha256:a0281e4f6d8e6715627b7f9be72714e81127ee094f5f7eb95a4fde66211d7c48"
     },
     {
       "id": "field-note:dive",
@@ -760,7 +760,7 @@
       ],
       "source": {
         "path": "src/10c_lore.js",
-        "digest": "sha256:dd463f541b331b36c9df8595242e577afc5573da17732db1cc40ff5e80d9e01b",
+        "digest": "sha256:ee16bca536f5e54f99bdde115dcb5752f1c1b77b34c50a805ea25dca9e1b532f",
         "selector": "FIELD_NOTES.dragon",
         "lines": {
           "start": 452,
@@ -777,7 +777,7 @@
         "note": "dragon",
         "availability": "Collected in the game when relevant"
       },
-      "revisionDigest": "sha256:0a9d92a70fb0e71d943dd4dbed66d5da3412f0d50f488113baac150df105af37"
+      "revisionDigest": "sha256:6d2b12922d95e39600b9e5cc1296ff83e6e75a44fc234dd5375c38465cfb52ae"
     },
     {
       "id": "field-note:engine",
@@ -906,7 +906,7 @@
       ],
       "source": {
         "path": "src/10c_lore.js",
-        "digest": "sha256:dd463f541b331b36c9df8595242e577afc5573da17732db1cc40ff5e80d9e01b",
+        "digest": "sha256:ee16bca536f5e54f99bdde115dcb5752f1c1b77b34c50a805ea25dca9e1b532f",
         "selector": "FIELD_NOTES.frontier",
         "lines": {
           "start": 445,
@@ -922,7 +922,7 @@
         "note": "frontier",
         "availability": "Collected in the game when relevant"
       },
-      "revisionDigest": "sha256:3e513fe1e7d182eeae5594ad24a24887a0ea9a40a610dd3dbbaff75a31e7e2a5"
+      "revisionDigest": "sha256:874ba23b05ed46288c61f1c34ab25d4ea93ad51b0af4b7e0f705452ae465a312"
     },
     {
       "id": "field-note:gatemend",
@@ -1139,7 +1139,7 @@
       ],
       "source": {
         "path": "src/10c_lore.js",
-        "digest": "sha256:dd463f541b331b36c9df8595242e577afc5573da17732db1cc40ff5e80d9e01b",
+        "digest": "sha256:ee16bca536f5e54f99bdde115dcb5752f1c1b77b34c50a805ea25dca9e1b532f",
         "selector": "FIELD_NOTES.keep",
         "lines": {
           "start": 446,
@@ -1156,7 +1156,7 @@
         "note": "keep",
         "availability": "Collected in the game when relevant"
       },
-      "revisionDigest": "sha256:37bfc0bb2f703e092c0ffe4dfa48b3a693c066aa3bb41a6ffe5d2efec995dc0f"
+      "revisionDigest": "sha256:923463bebcf171816979484f5a40d3372ac9ea50c2c5e70d779240eed14b8988"
     },
     {
       "id": "field-note:keepheld",
@@ -1788,7 +1788,7 @@
       ],
       "source": {
         "path": "src/10c_lore.js",
-        "digest": "sha256:dd463f541b331b36c9df8595242e577afc5573da17732db1cc40ff5e80d9e01b",
+        "digest": "sha256:ee16bca536f5e54f99bdde115dcb5752f1c1b77b34c50a805ea25dca9e1b532f",
         "selector": "FIELD_NOTES.loot",
         "lines": {
           "start": 448,
@@ -1804,7 +1804,7 @@
         "note": "loot",
         "availability": "Collected in the game when relevant"
       },
-      "revisionDigest": "sha256:a03906c7e073738b910978bf620a106113bb8cd0e5231b5fdb9cd4f8c289fb7b"
+      "revisionDigest": "sha256:5743a896eb15678a0dd2b1ceb7bc54cc18a909b176e1c9051340465282413d0b"
     },
     {
       "id": "field-note:lowhp",
@@ -1817,7 +1817,7 @@
       ],
       "source": {
         "path": "src/10c_lore.js",
-        "digest": "sha256:dd463f541b331b36c9df8595242e577afc5573da17732db1cc40ff5e80d9e01b",
+        "digest": "sha256:ee16bca536f5e54f99bdde115dcb5752f1c1b77b34c50a805ea25dca9e1b532f",
         "selector": "FIELD_NOTES.lowhp",
         "lines": {
           "start": 453,
@@ -1833,7 +1833,7 @@
         "note": "lowhp",
         "availability": "Collected in the game when relevant"
       },
-      "revisionDigest": "sha256:233b023259821010b5f6055cb2c5a3eaefc20937e0288e1981ddc246200d2f75"
+      "revisionDigest": "sha256:db3eb2c3c5e51d7ad34daaa26d3cdb1911a6bdc7ae155b4e54810804753ddb29"
     },
     {
       "id": "field-note:lseason",
@@ -1933,7 +1933,7 @@
       ],
       "source": {
         "path": "src/10c_lore.js",
-        "digest": "sha256:dd463f541b331b36c9df8595242e577afc5573da17732db1cc40ff5e80d9e01b",
+        "digest": "sha256:ee16bca536f5e54f99bdde115dcb5752f1c1b77b34c50a805ea25dca9e1b532f",
         "selector": "FIELD_NOTES.mount",
         "lines": {
           "start": 447,
@@ -1949,7 +1949,7 @@
         "note": "mount",
         "availability": "Collected in the game when relevant"
       },
-      "revisionDigest": "sha256:2ea30eaa1d83f944870e0e9cad3f0c3a4aa16663a01a9de173a913582ce20c58"
+      "revisionDigest": "sha256:63d43ac6821a55f7ec84e868b565e8a8c169d9ee17c35204928528fc912f9b9a"
     },
     {
       "id": "field-note:needs",
@@ -2078,7 +2078,7 @@
       ],
       "source": {
         "path": "src/10c_lore.js",
-        "digest": "sha256:dd463f541b331b36c9df8595242e577afc5573da17732db1cc40ff5e80d9e01b",
+        "digest": "sha256:ee16bca536f5e54f99bdde115dcb5752f1c1b77b34c50a805ea25dca9e1b532f",
         "selector": "FIELD_NOTES.news",
         "lines": {
           "start": 444,
@@ -2094,7 +2094,7 @@
         "note": "news",
         "availability": "Collected in the game when relevant"
       },
-      "revisionDigest": "sha256:bd49a4e49e973a58aa84f1b80c32212c999721b2d86a76f93b7e10b9a8136edd"
+      "revisionDigest": "sha256:4ee4d19f16cba8d5690e1ccb4e375ff41277c5990a5074d8346cbd5813d4c905"
     },
     {
       "id": "field-note:pathnew",
@@ -2226,7 +2226,7 @@
       ],
       "source": {
         "path": "src/10c_lore.js",
-        "digest": "sha256:dd463f541b331b36c9df8595242e577afc5573da17732db1cc40ff5e80d9e01b",
+        "digest": "sha256:ee16bca536f5e54f99bdde115dcb5752f1c1b77b34c50a805ea25dca9e1b532f",
         "selector": "FIELD_NOTES.rain",
         "lines": {
           "start": 450,
@@ -2243,7 +2243,7 @@
         "note": "rain",
         "availability": "Collected in the game when relevant"
       },
-      "revisionDigest": "sha256:6ccd8d6d83e211db6504308b0a92019bd8144215cea753c1890dbe720c750e56"
+      "revisionDigest": "sha256:2427c08b9453fbe51527ce09718f0f3aa7e429aadf09a016ab1507f04340b48d"
     },
     {
       "id": "field-note:ranks",
@@ -2462,7 +2462,7 @@
       ],
       "source": {
         "path": "src/10c_lore.js",
-        "digest": "sha256:dd463f541b331b36c9df8595242e577afc5573da17732db1cc40ff5e80d9e01b",
+        "digest": "sha256:ee16bca536f5e54f99bdde115dcb5752f1c1b77b34c50a805ea25dca9e1b532f",
         "selector": "FIELD_NOTES.snow",
         "lines": {
           "start": 451,
@@ -2479,7 +2479,7 @@
         "note": "snow",
         "availability": "Collected in the game when relevant"
       },
-      "revisionDigest": "sha256:c9d68ed14fc56f29d0080e9e5b499106662a56ee0eb122128dc557acee46fe4a"
+      "revisionDigest": "sha256:2661e45f2f9cd516bb185b884f4fc281a8972880789288c020c76fc557b6c7d1"
     },
     {
       "id": "field-note:snowlies",
@@ -2522,7 +2522,7 @@
       ],
       "source": {
         "path": "src/10c_lore.js",
-        "digest": "sha256:dd463f541b331b36c9df8595242e577afc5573da17732db1cc40ff5e80d9e01b",
+        "digest": "sha256:ee16bca536f5e54f99bdde115dcb5752f1c1b77b34c50a805ea25dca9e1b532f",
         "selector": "FIELD_NOTES.start",
         "lines": {
           "start": 443,
@@ -2538,7 +2538,7 @@
         "note": "start",
         "availability": "Collected in the game when relevant"
       },
-      "revisionDigest": "sha256:d5caa9ef90fb873077be1cf77057883c54fce84d74b60040bc268ffc29d3b661"
+      "revisionDigest": "sha256:98ef2010c3bed68d72c6846504ef42fb1e163e95517616b8ab48715d54456e6a"
     },
     {
       "id": "field-note:station",
@@ -2909,7 +2909,7 @@
       ],
       "source": {
         "path": "src/10c_lore.js",
-        "digest": "sha256:dd463f541b331b36c9df8595242e577afc5573da17732db1cc40ff5e80d9e01b",
+        "digest": "sha256:ee16bca536f5e54f99bdde115dcb5752f1c1b77b34c50a805ea25dca9e1b532f",
         "selector": "prologuePages()[0]",
         "lines": {
           "start": 895,
@@ -2925,7 +2925,7 @@
         "destination": "Chronicle → The March → Replay the prologue",
         "page": 1
       },
-      "revisionDigest": "sha256:b2eca107932c8ecc8aba101dcb573d15019f4e6d8b4b31703b197efdd3a83318"
+      "revisionDigest": "sha256:7d4733779fbd03ea75af67a43c5138a576b2187867e9361ff6b937b0d2195381"
     },
     {
       "id": "lore:2",
@@ -2938,7 +2938,7 @@
       ],
       "source": {
         "path": "src/10c_lore.js",
-        "digest": "sha256:dd463f541b331b36c9df8595242e577afc5573da17732db1cc40ff5e80d9e01b",
+        "digest": "sha256:ee16bca536f5e54f99bdde115dcb5752f1c1b77b34c50a805ea25dca9e1b532f",
         "selector": "prologuePages()[1]",
         "lines": {
           "start": 899,
@@ -2954,7 +2954,7 @@
         "destination": "Chronicle → The March → Replay the prologue",
         "page": 2
       },
-      "revisionDigest": "sha256:83a6d294e111c3841de7e6de336b126354641aa5b4f27385ab24071ff8154e35"
+      "revisionDigest": "sha256:645d3486a6f205aeb3395743ee95e1943c29d80bc754dd67f0fc052e87366222"
     },
     {
       "id": "lore:3",
@@ -2967,7 +2967,7 @@
       ],
       "source": {
         "path": "src/10c_lore.js",
-        "digest": "sha256:dd463f541b331b36c9df8595242e577afc5573da17732db1cc40ff5e80d9e01b",
+        "digest": "sha256:ee16bca536f5e54f99bdde115dcb5752f1c1b77b34c50a805ea25dca9e1b532f",
         "selector": "prologuePages()[2]",
         "lines": {
           "start": 904,
@@ -2983,7 +2983,7 @@
         "destination": "Chronicle → The March → Replay the prologue",
         "page": 3
       },
-      "revisionDigest": "sha256:476c9d814ca963dd26dbedf2dbf49c318c1c3bacb29e24f858a2b0273cd16caf"
+      "revisionDigest": "sha256:6bbdbd86488399c272f7fcdf435f74edc32b7daf0ce51a921cd44dc09cb0b29b"
     },
     {
       "id": "lore:4",
@@ -2996,7 +2996,7 @@
       ],
       "source": {
         "path": "src/10c_lore.js",
-        "digest": "sha256:dd463f541b331b36c9df8595242e577afc5573da17732db1cc40ff5e80d9e01b",
+        "digest": "sha256:ee16bca536f5e54f99bdde115dcb5752f1c1b77b34c50a805ea25dca9e1b532f",
         "selector": "prologuePages()[3]",
         "lines": {
           "start": 909,
@@ -3012,7 +3012,7 @@
         "destination": "Chronicle → The March → Replay the prologue",
         "page": 4
       },
-      "revisionDigest": "sha256:b384e4ba1dfaeb083b10838a6c3234e09aa7e3df17e58f1a0c31e09817b9e563"
+      "revisionDigest": "sha256:22d2bc44b39bf8fa1fd74d912184c32ccc9f27bc6e3a8caf72c8120b62656112"
     },
     {
       "id": "lore:5",
@@ -3025,7 +3025,7 @@
       ],
       "source": {
         "path": "src/10c_lore.js",
-        "digest": "sha256:dd463f541b331b36c9df8595242e577afc5573da17732db1cc40ff5e80d9e01b",
+        "digest": "sha256:ee16bca536f5e54f99bdde115dcb5752f1c1b77b34c50a805ea25dca9e1b532f",
         "selector": "prologuePages()[4]",
         "lines": {
           "start": 914,
@@ -3042,7 +3042,7 @@
         "destination": "Chronicle → The March → Replay the prologue",
         "page": 5
       },
-      "revisionDigest": "sha256:9ce38cd7a05fc36e4c99eb973ab2c40274e52e34ca7b6258fc9843a876e4248d"
+      "revisionDigest": "sha256:49b23be4b814395468b4d859d28c56d76e98768c23403ea44d4c1b7386c450dc"
     },
     {
       "id": "map:legend",
@@ -3093,5 +3093,5 @@
       "assessment": null
     }
   ],
-  "revisionDigest": "sha256:b07b2b29da39941ba3ea020a7ac741d08006acd91db18f33fe1726ff5736861a"
+  "revisionDigest": "sha256:e92d59561974ca8e500619f9a99d5a02749e20ab6d6d66cf2fe76195ed61a6a4"
 }

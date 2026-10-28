@@ -715,14 +715,21 @@ vec4 cloudDome(vec3 dir){
   if (uCloudDomeOn.x < 0.5 || dir.y < -0.03) return vec4(0.0, 0.0, 0.0, 1.0);
   return cloudLitDir(dir, texture(uCloudDome, cloudDomeUV(dir)));
 }
-// the sky of the main view: its own pixel of the screen's clouds (wxCloudsScreen), else the dome
+// The cloud render targets have no mipmaps. Select the sample first, then light
+// it once: duplicating this call through cloudDome also failed on native D3D11.
+// The main view uses its own screen clouds (wxCloudsScreen), else the dome.
 vec4 cloudScreen(vec3 dir, vec2 fc){
-  if (uCloudScrP.z < 0.5) return cloudDome(dir);
   if (uCloudDomeOn.x < 0.5 || dir.y < -0.03) return vec4(0.0, 0.0, 0.0, 1.0);
-  // (four taps half a texel of the pass apart: a tent over its texels, so the steps' spread reads as soft, not as grain)
-  vec2 o = 0.5 * uCloudScrP.w * uCloudScrP.xy, uv = fc * uCloudScrP.xy;
-  vec4 c = texture(uCloudScr, uv + vec2(-o.x, -o.y)) + texture(uCloudScr, uv + vec2(o.x, -o.y)) + texture(uCloudScr, uv + vec2(-o.x, o.y)) + texture(uCloudScr, uv + o);
-  return cloudLitDir(dir, c * 0.25);
+  vec4 c;
+  if (uCloudScrP.z < 0.5) {
+    c = texture(uCloudDome, cloudDomeUV(dir));
+  } else {
+    // Same four taps and averaging as the original screen path.
+    vec2 o = 0.5 * uCloudScrP.w * uCloudScrP.xy, uv = fc * uCloudScrP.xy;
+    c = texture(uCloudScr, uv + vec2(-o.x, -o.y)) + texture(uCloudScr, uv + vec2(o.x, -o.y)) + texture(uCloudScr, uv + vec2(-o.x, o.y)) + texture(uCloudScr, uv + o);
+    c *= 0.25;
+  }
+  return cloudLitDir(dir, c);
 }
 `;
 /* ------------------------------------------------------------------ */

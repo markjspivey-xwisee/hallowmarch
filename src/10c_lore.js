@@ -1247,7 +1247,9 @@ function renderChronicle(body, fromNav = false) {
   // two rows: the four parts of the Chronicle, then the pages of the part you are in (every page is in the row; the
   // other parts' pages are hidden until you turn to them)
   const grps = CHRON_GROUPS.map(([gk, gl]) => `<button type="button" data-grp="${gk}" aria-current="${gk === G[0]}">${gl}</button>`).join('');
-  const secs = CHRON_GROUPS.flatMap(([gk, , ks]) => ks.filter((k) => label[k]).map((k) => `<button type="button" data-sec="${k}" aria-current="${k === sec}"${gk === G[0] ? '' : ' hidden'}>${label[k]}</button>`)).join('');
+  // Progress has its own persistent menu tab. Keep old coach links routable,
+  // without repeating the same destination in the Chronicle's page controls.
+  const secs = CHRON_GROUPS.flatMap(([gk, , ks]) => ks.filter((k) => label[k] && k !== 'coach').map((k) => `<button type="button" data-sec="${k}" aria-current="${k === sec}"${gk === G[0] ? '' : ' hidden'}>${label[k]}</button>`)).join('');
   body.innerHTML = `<div class="chron"><nav class="chron-nav" aria-label="Chronicle"><div class="chron-grps">${grps}</div><div class="chron-secs">${secs}</div></nav><div class="chron-body">${fn()}</div></div>`;
   chronFold(sec); // [guide2] a long page folds into its summaries on a phone (10f_guide2.js)
   const nav = body.querySelector('.chron-nav'), row = nav.querySelector('.chron-secs'), cur = row.querySelector('[aria-current="true"]');

@@ -43,12 +43,27 @@ visible, hit-testable gameplay controls. The exact timing mechanism behind the
 recurring phone CI transition remains unconfirmed; persistent failures must
 retain bounded state diagnostics.
 
+## Native graphics verification
+
+The normal sky reproduced a graphics-context loss in an isolated 64 × 64 RGBA8
+view on a GTX 980 Ti / ANGLE D3D11, without world geometry, HDR or MSAA.
+Base sky, cosmos and the direct cloud-dome path passed separately; the screen
+cloud helper reproduced the failure. Explicit texture LOD alone did not fix it.
+
+`cloudScreen` now selects its original dome sample or four screen samples before
+calling `cloudLitDir` once. The cloud lighting, coordinates, averaging, filtering,
+original procedural noise and recovery sky remain intact. The original full
+normal sky with only this refactor compiled, linked, drew and completed a GPU
+fence in a fresh native Edge process with default protections and no overrides.
+The before/after result supports this small compiler-path workaround; it does
+not identify a specific driver/compiler defect. Experimental noise-texture and
+shared-helper rewrites were discarded.
+
 ## Release limits
 
-Native graphics startup on the tested Windows/NVIDIA path remains a release
-blocker under diagnosis. A working reduced-graphics launch does not establish
-that normal graphics are fixed. Fresh full CI and desktop/phone verification
-must run on the final frozen build, with its exact hash and inspected screenshots.
+Fresh full CI and desktop/phone verification must run on the final frozen build,
+with its exact hash and inspected screenshots. The isolated shader result must
+also be followed by native full-game startup and weather/day/night checks.
 
 These are engineering and agent playability checks. They are not a human player
 study, independent reviewer approval, or AAA certification.
