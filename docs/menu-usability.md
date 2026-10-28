@@ -46,6 +46,9 @@ synthetic records and blocked external services:
 - `tools/tests/players_navigation.browser.test.mjs` and
   `tools/tests/companion_navigation.browser.test.mjs` cover their connected,
   paused, disconnected and error actions without live messages or grants.
+- `tools/tests/menu_font_fit.browser.test.mjs` checks full labels and touch
+  targets with a wide fallback font across phone layouts and large text/control
+  preferences, including caption height and icon separation.
 
 `tools/tests/menu_usability.py --strict --screenshots` loads the compiled game
 with local assets and synthetic scenarios. It exercises desktop, narrow phone,

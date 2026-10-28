@@ -224,7 +224,7 @@
   #menu-title { min-width: 0; }
   #menu-close { flex: none; min-height: 48px; font-size: 14px; }
   #menu-tabs { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 4px; margin: 0 var(--menu-pad); padding: 0; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: none; }
-  #menu-tabs button { min-width: 0; min-height: 44px; padding: 10px 6px; border: 0; border-radius: 4px 4px 0 0; background: transparent; color: var(--ink-dim); font: 600 15px/1.2 var(--ui); cursor: pointer; }
+  #menu-tabs button { min-width: 0; min-height: 44px; padding: 10px 6px; border: 0; border-radius: 4px 4px 0 0; background: transparent; color: var(--ink-dim); font: 600 15px/1.2 var(--ui); overflow-wrap: anywhere; hyphens: auto; cursor: pointer; }
   #menu-tabs button:hover { color: var(--ink); background: rgba(223, 193, 136, 0.06); }
   #menu-tabs button[aria-selected="true"] { color: var(--bronze-hi); background: rgba(223, 193, 136, 0.1); box-shadow: inset 0 -2px var(--bronze-hi); }
   #menu-tabs button:focus-visible { outline-offset: -3px; }
@@ -250,6 +250,9 @@
     #menu-body { padding-block: 16px; }
     #menu-body > .stats, #menu-body .statsum { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     #menu .menu-confirm .acts { display: grid; gap: 12px; }
+  }
+  @media (max-width: 359px) {
+    #menu-tabs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   }
   .setrow { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
   .keys { display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px; font-size: 14px; }
@@ -1290,7 +1293,7 @@
   /* Mobile navigation and viewport: one safe rectangle in browser tabs, with
      essential destinations visible instead of nested inside the game menu. */
   #mobile-nav { display: none; }
-  body.touch { --mobile-nav-h: 48px; --mobile-nav-space: calc(var(--mobile-nav-h) + 16px); }
+  body.touch { --mobile-nav-h: 64px; --mobile-nav-space: calc(var(--mobile-nav-h) + 16px); }
   body.touch #scene { height: var(--mobile-vh, 100dvh); }
   body.touch #hud #pf { top: calc(8px + var(--safe-t)); padding: 5px 8px; gap: 2px; width: min(184px, calc(100vw - var(--safe-l) - var(--safe-r) - 100px)); }
   body.touch #pf .head .nm { font-size: 13px; }
@@ -1312,6 +1315,7 @@
     color: #fff3db; background: #15191ff2; font: 700 var(--mobile-small-text)/1.1 var(--ui); touch-action: manipulation;
   }
   body.touch #mobile-nav svg { width: 20px; height: 20px; flex: none; }
+  body.touch #mobile-nav button > span:not(#mobile-notice) { display: block; flex: none; width: 100%; min-width: 0; max-width: 100%; white-space: normal; overflow-wrap: anywhere; hyphens: auto; text-align: center; }
   body.touch #hud #tpad { bottom: calc(var(--mobile-nav-space) + var(--safe-b)); }
   body.touch #joyhint { bottom: calc(var(--mobile-nav-space) + var(--safe-b)); }
   body.touch.mobile-modal-open #mobile-nav { visibility: hidden; pointer-events: none; }
