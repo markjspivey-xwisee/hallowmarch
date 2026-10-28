@@ -36,14 +36,18 @@ async def main():
                 await human_play(page)
                 result=await page.evaluate("""(() => {
                   const H=__hm,F=H.fn,P=H.GAME.player,{hidden,visible}=__targetTest;
-                  H.simulate(.05);H.UI.modal='menu';H.CAM.mode='fixed';
+                  // Keep the real human-play lease eligible while this fixed-camera frame refreshes the HUD.
+                  H.simulate(.05);H.UI.modal=null;H.CAM.mode='fixed';
                   hidden._losT=visible._losT=-1;
                   const blocked=H.ladders.towerSightBlocked(P,hidden);
                   const visibleBlocked=H.ladders.towerSightBlocked(P,visible);
                   const seenHidden=H.towers.seen(hidden),seenVisible=H.towers.seen(visible);
                   P.target=null;F.cycleTarget();const forward=P.target;
                   P.target=null;F.cycleTarget(true);const reverse=P.target;
-                  P.target=hidden.id;H.frame(1/30);
+                  P.target=hidden.id;
+                  // This frame must refresh each name; ignore any pool left by an intervening RAF.
+                  for(const e of H.UI.npPool)e.style.display='none';
+                  H.frame(1/30);
                   const names=H.UI.npPool.filter(e=>e.style.display!=='none').map(e=>e._txt);
                   return {blocked,visibleBlocked,seenHidden,seenVisible,forward,reverse,
                     hidden:hidden.id,visible:visible.id,names,errors:H.errors.slice()};
