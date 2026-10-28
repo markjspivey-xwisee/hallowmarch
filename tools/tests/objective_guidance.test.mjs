@@ -240,13 +240,28 @@ test('cancelled, changed-owner, changed-character and recovered-old-character st
 test('a first temporary bootstrap retains only the exact fresh request after verified owner readback', () => {
   const { c, save } = beginIntent();
   c.NETWS.acct = null;
-  c.NATIVE_PLAYER = { status: { verified: true } }; c.SAVE = { native: true, readConfirmed: true };
+  c.NATIVE_PLAYER = { status: { verified: false } }; c.SAVE = { native: true, readConfirmed: true };
   c.loreRequestBegin(save);
   c.NETWS.acct = { id: 'new-temporary-owner' };
+  c.NATIVE_PLAYER.status = { verified: true, account: { id: 'new-temporary-owner' } };
   assert.equal(c.loreConsumeBegin(save), true);
   for (const flags of [{ verified: false, read: true, exact: true }, { verified: true, read: false, exact: true }, { verified: true, read: true, exact: false }]) {
-    c.NETWS.acct = null; c.NATIVE_PLAYER.status.verified = flags.verified; c.SAVE.readConfirmed = flags.read;
+    c.NETWS.acct = null; c.NATIVE_PLAYER.status = { verified: false }; c.SAVE.readConfirmed = flags.read;
     c.loreRequestBegin(save); c.NETWS.acct = { id: 'new-temporary-owner' };
+    c.NATIVE_PLAYER.status = { verified: flags.verified, account: { id: 'new-temporary-owner' } };
     assert.equal(c.loreConsumeBegin(flags.exact ? save : { ...save }), false, JSON.stringify(flags));
+  }
+});
+
+test('an unbound transport account can bootstrap, while an already bound owner cannot be replaced', () => {
+  for (const initiallyBound of [false, true]) {
+    const { c, save } = beginIntent();
+    c.NETWS.acct = { id: 'transport-owner', nativeBound: initiallyBound };
+    c.NATIVE_PLAYER = { status: { bound: initiallyBound, verified: initiallyBound, account: { id: 'transport-owner' } } };
+    c.SAVE = { native: true, readConfirmed: true };
+    c.loreRequestBegin(save);
+    c.NETWS.acct = { id: 'new-temporary-owner', nativeBound: true };
+    c.NATIVE_PLAYER.status = { bound: true, verified: true, account: { id: 'new-temporary-owner' } };
+    assert.equal(c.loreConsumeBegin(save), !initiallyBound);
   }
 });
