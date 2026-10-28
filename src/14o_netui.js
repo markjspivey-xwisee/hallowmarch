@@ -7,7 +7,8 @@
 // line; on a phone the sheet holds it. The party's frames sit with the other panels (#netparty: name, level, health; a tap
 // targets), its members and the others show on the minimap and the map, and what is said shows over the speaker's head
 // and in the log. Every name and line another page sent is set as text (textContent), never as markup.
-const NETUI = { on: false, open: false, chan: 'r', bubbles: [], lines: [], sayAt: 0, lastCount: -1, noted: false, chatOpen: false };
+const NETUI = { on: false, open: false, chan: 'r', bubbles: [], lines: [], sayAt: 0, lastCount: -1, noted: false, chatOpen: false,
+  returnFocus: null, renderKey: '', rosterAt: 0, chatReturnFocus: null, chatScope: null, chatConnected: false, draftOwner: null, drafts: {} };
 function netUiOn() {
   if (NETUI.on) return;
   NETUI.on = true;
@@ -29,11 +30,15 @@ function netUiOn() {
     const bb = document.createElement('div'); bb.id = 'netbubbles'; hud.appendChild(bb);
     const cb = document.createElement('div');
     cb.className = 'panel'; cb.id = 'netchat'; cb.hidden = true;
-    cb.innerHTML = '<button type="button" class="btn" id="netchat-ch"></button><input id="netchat-in" type="text" maxlength="140" autocomplete="off" enterkeyhint="send" aria-label="Say something"><button type="button" class="btn primary" id="netchat-go">Say</button>';
+    cb.style.flexWrap = 'wrap';
+    cb.innerHTML = '<button type="button" class="btn" id="netchat-ch"></button><input id="netchat-in" type="text" maxlength="140" autocomplete="off" enterkeyhint="send" aria-label="Say something"><button type="button" class="btn primary" id="netchat-go">Say</button><button type="button" class="btn" id="netchat-close" aria-label="Close chat">Close</button><p id="netchat-status" role="status" hidden style="flex-basis:100%;margin:0;font-size:13px"></p>';
     document.body.appendChild(cb);
-    $('netchat-ch').onclick = () => { NETUI.chan = NETUI.chan === 'r' ? (NET.party ? 'p' : 'r') : 'r'; netChatLabel(); $('netchat-in').focus(); };
+    for (const control of cb.querySelectorAll('button, input')) control.style.minHeight = '44px';
+    $('netchat-ch').onclick = () => netChatOpen(NETUI.chan === 'r' && NET.party ? 'p' : 'r');
     $('netchat-go').onclick = () => netChatGo();
+    $('netchat-close').onclick = () => netChatClose();
     $('netchat-in').addEventListener('keydown', (e) => {
+      if (e.isComposing || e.keyCode === 229) return;
       if (e.key === 'Enter') { e.preventDefault(); netChatGo(); }
       else if (e.key === 'Escape') { e.preventDefault(); netChatClose(); }
       e.stopPropagation();
@@ -42,7 +47,7 @@ function netUiOn() {
   if (!$('netsheet')) {
     const o = document.createElement('div');
     o.className = 'overlay'; o.id = 'netsheet'; o.hidden = true;
-    o.innerHTML = '<div class="sheet panel" role="dialog" aria-labelledby="netsheet-title"><div class="kithead"><h2 id="netsheet-title">In the March</h2><button class="btn" id="netsheet-close" type="button">Close</button></div><div id="netsheet-body"></div><div id="netsheet-acct" hidden></div></div>';
+    o.innerHTML = '<div class="sheet panel" role="dialog" aria-modal="true" aria-labelledby="netsheet-title"><div class="kithead"><h2 id="netsheet-title">In the March</h2><button class="btn" id="netsheet-close" type="button">Back to game</button></div><div id="netsheet-body"></div><div id="netsheet-acct" hidden></div></div>';
     document.body.appendChild(o);
     $('netsheet-close').onclick = () => netSheetToggle(false);
     o.addEventListener('click', (e) => {
@@ -65,10 +70,14 @@ function netUiOn() {
   }
 }
 addEventListener('keydown', (e) => {
-  if (!NETUI.on || !GAME.started || typing() || gameplayKeyIgnored(e) || gameplayControlKey(e)) return;
+  if (e.isComposing || e.keyCode === 229) return;
+  if (!NETUI.on || !GAME.started || gameplayKeyIgnored(e) || gameplayControlKey(e)) return;
+  if (e.code === 'Escape' && UI.modal === 'net') {
+    e.preventDefault(); e.stopImmediatePropagation(); netSheetToggle(false); return;
+  }
+  if (typing()) return;
   if (e.code === 'KeyP' && !e.repeat && (!UI.modal || UI.modal === 'net')) { e.preventDefault(); netSheetToggle(); }
   else if ((e.code === 'Enter' || e.code === 'NumpadEnter') && !UI.modal && !BUILD.mode && netPeopleCount() > 0) { e.preventDefault(); netChatOpen(NETUI.chan); }
-  else if (e.code === 'Escape' && UI.modal === 'net') { e.preventDefault(); e.stopImmediatePropagation(); netSheetToggle(false); }
 }, true);
 const netPeopleCount = () => { let n = 0; for (const R of NET.peers.values()) if (R.slow && R.slow.on) n++; return n; };
 const netPartyPeers = () => (NET.party ? [...NET.peers.values()].filter((R) => R.slow && R.slow.on && R.slow.pt === NET.party) : []);
@@ -82,10 +91,33 @@ function netSheetToggle(force) {
   const open = force === undefined ? o.hidden : force;
   if (open && UI.modal === 'menu') closeMenu();
   if (open && UI.modal && UI.modal !== 'net') return;
+  const opening = open && o.hidden, closing = !open && !o.hidden && UI.modal === 'net';
+  if (opening) {
+    if (NETUI.chatOpen) netChatClose();
+    NETUI.returnFocus = document.activeElement;
+  }
   o.hidden = !open;
   UI.modal = open ? 'net' : UI.modal === 'net' ? null : UI.modal;
   NETUI.open = open;
-  if (open) { netSheetRender(); netAcctRender(); }
+  if (open) {
+    netSheetRender();
+    if (opening) $('netsheet-close').focus({ preventScroll: true });
+  } else if (closing) {
+    const prior = NETUI.returnFocus; NETUI.returnFocus = null;
+    const target = netUiFocusable(prior) ? prior : [$('btn-net'), $('btn-menu'), $('mobile-menu-toggle')].find(netUiFocusable);
+    target?.focus({ preventScroll: true });
+  }
+}
+const netUiFocusable = node => !!node && node !== document.body && node.isConnected && !node.disabled
+  && !node.closest('[hidden], [inert]') && node.getClientRects().length > 0;
+function netSheetKey() {
+  const P = GAME.player;
+  return JSON.stringify([netOn(), NET.state, NETWS.state, NETWS.worldPauseReason, NET.party, NET.partyMax, NET.host,
+    NET.invites.map(I => [I.peer, I.pt]), [...NET.peers.values()].map(R => {
+      const s = R.slow, f = R.fast;
+      return [R.peer, s?.on, s?.dn, s?.r, s?.c, s?.l, s?.pt, s?.co, !!R.ghost,
+        f && P ? Math.round(dist(f.x, f.z, P.x, P.z)) : null];
+    }), typeof NETS !== 'undefined' ? NETS.roster : null]);
 }
 // your account on the March's own server (rung 2: 14p_netws.js), in its own part of the sheet so what you type stays while
 // the rest is drawn again: a guest names its account (and keeps its character), or signs in to another (the page loads
@@ -139,10 +171,20 @@ async function netAcctClick(act) {
 function netSheetRender() {
   const body = $('netsheet-body'), P = GAME.player;
   if (!body || !P) return;
+  const focused = body.contains(document.activeElement) ? document.activeElement.closest('button[data-act]') : null;
+  const focusKey = focused ? [focused.dataset.act, focused.dataset.peer || '', focused.dataset.ch || ''] : null;
+  const sheet = $('netsheet').querySelector('.sheet'), scroll = sheet.scrollTop;
+  const connected = netOn();
   body.textContent = '';
   const el = (tag, cls, txt) => { const d = document.createElement(tag); if (cls) d.className = cls; if (txt != null) d.textContent = txt; return d; };
   const btn = (label, act, peer, extra) => { const b = el('button', 'btn' + (extra || ''), label); b.type = 'button'; b.dataset.act = act; if (peer) b.dataset.peer = peer; return b; };
   if (NETWS.worldPauseReason) body.appendChild(el('p', 'net-quiet', NETWS.worldPauseReason));
+  if (!connected) {
+    const status = el('p', 'net-quiet', NET.state === 'connecting' || NETWS.state === 'connecting'
+      ? 'Connecting to the March. Chat and party invitations are unavailable until connected.'
+      : 'Not connected to the March. Unsent chat stays in this browser; reconnecting does not send it.');
+    status.setAttribute('role', 'status'); body.appendChild(status);
+  }
   const navigation = el('div', 'net-acts');
   navigation.appendChild(btn('Companion', 'companion', ''));
   navigation.appendChild(btn('Progress', 'progress', ''));
@@ -153,19 +195,20 @@ function netSheetRender() {
     if (!R || !R.slow) continue;
     const row = el('div', 'net-row net-inv');
     row.appendChild(el('span', 'net-nm', `${R.slow.dn} invites you to their party.`));
-    const acts = el('span', 'net-acts'); acts.appendChild(btn('Join', 'join', I.peer, ' primary')); acts.appendChild(btn('Decline', 'no', I.peer)); row.appendChild(acts);
+    const acts = el('span', 'net-acts'), join = btn('Join', 'join', I.peer, ' primary'); join.disabled = !connected;
+    acts.appendChild(join); acts.appendChild(btn('Decline', 'no', I.peer)); row.appendChild(acts);
     body.appendChild(row);
   }
   // your party
   const mates = netPartyPeers();
   if (NET.party) {
     body.appendChild(el('h3', '', `Players in your party (${mates.length + 1} of ${NET.partyMax})`));
-    const row = el('div', 'net-row'); row.appendChild(el('span', 'net-nm', mates.length ? mates.map((R) => R.slow.dn).join(', ') : 'Only you, for now.')); const acts = el('span', 'net-acts'); acts.appendChild(btn('Party chat', 'say', '', '')); acts.lastChild.dataset.ch = 'p'; acts.appendChild(btn('Leave', 'leave', '')); row.appendChild(acts); body.appendChild(row);
+    const row = el('div', 'net-row'); row.appendChild(el('span', 'net-nm', mates.length ? mates.map((R) => R.slow.dn).join(', ') : 'Only you, for now.')); const acts = el('span', 'net-acts'); acts.appendChild(btn('Leave party', 'leave', '')); row.appendChild(acts); body.appendChild(row);
   }
   // everyone here
   const list = [...NET.peers.values()].filter((R) => R.slow && R.slow.on);
-  body.appendChild(el('h3', '', list.length ? `Others in the March (${list.length})` : 'No one else is in the March right now'));
-  if (!list.length) body.appendChild(el('p', 'net-quiet', 'Whoever opens the March while you are here walks it with you: their realm, their calling and their deeds, beside you or against you.'));
+  body.appendChild(el('h3', '', !connected ? 'Players are unavailable while disconnected' : list.length ? `Others in the March (${list.length})` : 'No one else is in the March right now'));
+  if (connected && !list.length) body.appendChild(el('p', 'net-quiet', 'Whoever opens the March while you are here walks it with you: their realm, their calling and their deeds, beside you or against you.'));
   list.sort((a, b) => (a.slow.r === P.faction ? 0 : 1) - (b.slow.r === P.faction ? 0 : 1) || (a.slow.dn < b.slow.dn ? -1 : 1));
   for (const R of list) {
     const s = R.slow, f = R.fast;
@@ -175,7 +218,9 @@ function netSheetRender() {
     row.appendChild(nm);
     const acts = el('span', 'net-acts');
     if (R.ghost) acts.appendChild(btn('Target', 'tgt', R.peer));
-    if (s.r === P.faction && !(s.pt && s.pt === NET.party) && (!NET.party || mates.length + 1 < NET.partyMax)) acts.appendChild(btn('Invite', 'inv', R.peer));
+    if (s.r === P.faction && !(s.pt && s.pt === NET.party) && (!NET.party || mates.length + 1 < NET.partyMax)) {
+      const invite = btn('Invite', 'inv', R.peer); invite.disabled = !connected; acts.appendChild(invite);
+    }
     row.appendChild(acts);
     body.appendChild(row);
   }
@@ -201,12 +246,20 @@ function netSheetRender() {
   chat.appendChild(acts);
   body.appendChild(chat);
   netAcctRender(); // (drawn again only when the account changes: what you type stays)
+  NETUI.renderKey = netSheetKey(); NETUI.rosterAt = performance.now() + 500;
+  if (focusKey) {
+    const replacement = [...body.querySelectorAll('button[data-act]')].find(button =>
+      button.dataset.act === focusKey[0] && (button.dataset.peer || '') === focusKey[1] && (button.dataset.ch || '') === focusKey[2]);
+    if (netUiFocusable(replacement)) { replacement.focus({ preventScroll: true }); sheet.scrollTop = scroll; }
+    else { sheet.scrollTop = 0; $('netsheet-close').focus({ preventScroll: true }); }
+  }
 }
 
 /* ------------------------------------------------------------------ */
 /* party                                                               */
 /* ------------------------------------------------------------------ */
 function netInvite(peer) {
+  if (!netOn()) { uiError('Not connected. Wait before inviting a player.'); return false; }
   const R = NET.peers.get(peer), P = GAME.player;
   if (!R || !R.slow || !P || R.slow.r !== P.faction) return false;
   if (!NET.party) { NET.party = netStubId(10); NET.partyLead = true; NET.slowKey = ''; }
@@ -216,6 +269,7 @@ function netInvite(peer) {
   return true;
 }
 function netInviteAnswer(peer, yes) {
+  if (yes && !netOn()) { uiError('Not connected. Wait before joining this party.'); return false; }
   const I = NET.invites.find((x) => x.peer === peer);
   NET.invites = NET.invites.filter((x) => x.peer !== peer);
   const R = NET.peers.get(peer);
@@ -256,22 +310,68 @@ function netPartyIn(R, kind, d) {
 /* ------------------------------------------------------------------ */
 /* chat                                                                */
 /* ------------------------------------------------------------------ */
+function netChatAudience(ch) {
+  return { player: GAME.player, account: NETWS.acct?.id || '', host: NETWS.host || '', realm: GAME.player?.faction,
+    room: NET.link?.kind === 'ws' ? NETWS.worldRoom || '' : NET.link?.room || NET.link,
+    party: ch === 'p' ? NET.party : '' };
+}
+const netChatSameAudience = (a, b) => !!a && !!b && a.player === b.player && a.account === b.account
+  && a.host === b.host && a.realm === b.realm && a.room === b.room && a.party === b.party;
+function netChatDraftOwner() {
+  const owner = netChatAudience('r');
+  if (!netChatSameAudience(NETUI.draftOwner, owner)) { NETUI.drafts = {}; NETUI.draftOwner = owner; }
+}
+function netChatRemember() {
+  if (NETUI.chatOpen && netChatSameAudience(NETUI.chatScope, netChatAudience(NETUI.chan))) {
+    NETUI.drafts[NETUI.chan] = { audience: NETUI.chatScope, text: $('netchat-in').value };
+  }
+}
+function netChatStatus(text) {
+  const status = $('netchat-status');
+  if (status) { status.textContent = text; status.hidden = !text; }
+}
 function netChatLabel() { const b = $('netchat-ch'); if (b) b.textContent = NETUI.chan === 'p' ? 'Party' : 'Realm'; }
 function netChatOpen(ch) {
   const c = $('netchat');
   if (!c || !GAME.player) return;
+  netChatRemember(); netChatDraftOwner();
+  if (!NETUI.chatOpen) NETUI.chatReturnFocus = document.activeElement;
   NETUI.chan = ch === 'p' && NET.party ? 'p' : 'r';
+  NETUI.chatScope = netChatAudience(NETUI.chan);
+  NETUI.chatConnected = netOn();
   netChatLabel();
   c.hidden = false; NETUI.chatOpen = true;
   INPUT.keys.clear();
-  const i = $('netchat-in'); i.value = ''; i.focus();
+  const draft = NETUI.drafts[NETUI.chan];
+  const i = $('netchat-in'); i.value = netChatSameAudience(draft?.audience, NETUI.chatScope) ? draft.text : ''; i.focus();
+  netChatStatus(netOn() ? '' : 'Not sent. You are disconnected. Your draft stays here until you explicitly send it.');
 }
-function netChatClose() { const c = $('netchat'); if (c) c.hidden = true; NETUI.chatOpen = false; const i = $('netchat-in'); if (i) i.blur(); }
+function netChatClose() {
+  const wasOpen = NETUI.chatOpen;
+  netChatRemember();
+  const c = $('netchat'); if (c) c.hidden = true; NETUI.chatOpen = false;
+  const i = $('netchat-in'); if (i) i.blur();
+  if (!wasOpen) return;
+  const prior = NETUI.chatReturnFocus; NETUI.chatReturnFocus = null;
+  const target = netUiFocusable(prior) ? prior : [$('btn-net'), $('btn-menu'), $('mobile-menu-toggle')].find(netUiFocusable);
+  target?.focus({ preventScroll: true });
+}
 function netChatGo() {
   const i = $('netchat-in');
   const t = i ? i.value : '';
-  if (netChatSend(NETUI.chan, t)) i.value = '';
-  netChatClose();
+  if (!netChatSameAudience(NETUI.chatScope, netChatAudience(NETUI.chan))) {
+    if (i) i.value = '';
+    NETUI.chatScope = null; netChatDraftOwner(); netChatClose();
+    uiError('Your chat audience changed. Reopen chat before sending.'); return;
+  }
+  if (netChatSend(NETUI.chan, t)) {
+    i.value = ''; delete NETUI.drafts[NETUI.chan]; netChatClose();
+  } else {
+    netChatRemember();
+    netChatStatus(!netOn() ? 'Not sent. You are disconnected. Your draft stays here until you explicitly send it.'
+      : !netStr(String(t || ''), 140) ? 'Not sent. Enter a message first.' : 'Not sent yet. Wait a moment, then choose Say again.');
+    i?.focus();
+  }
 }
 function netChatSend(ch, text) {
   const P = GAME.player;
@@ -331,6 +431,19 @@ function netUiFrame() {
   const P = GAME.player;
   if ((UI.frame & 7) === 0) netSheetBadge();
   if (typeof marchConsultingStep === 'function') marchConsultingStep();
+  if (NETUI.open && (UI.frame & 7) === 0 && performance.now() >= NETUI.rosterAt) {
+    NETUI.rosterAt = performance.now() + 500;
+    if (NETUI.renderKey !== netSheetKey()) netSheetRender();
+  }
+  if (NETUI.chatOpen && !netChatSameAudience(NETUI.chatScope, netChatAudience(NETUI.chan))) {
+    $('netchat-in').value = ''; NETUI.chatScope = null; netChatDraftOwner(); netChatClose();
+    uiError('Your chat audience changed. Reopen chat before sending.');
+  }
+  if (NETUI.chatOpen && NETUI.chatConnected !== netOn()) {
+    NETUI.chatConnected = netOn();
+    netChatStatus(NETUI.chatConnected ? 'Connected. Your draft has not been sent. Choose Say when ready.'
+      : 'Not sent. You are disconnected. Your draft stays here until you explicitly send it.');
+  }
   if (NETUI.open && (UI.frame & 31) === 0) netAcctRender(); // the server's link may come up while the sheet is open
   // the party's frames
   const pp = $('netparty');

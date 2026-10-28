@@ -150,10 +150,23 @@ function mobileBind() {
   Object.defineProperty(UI, 'modal', { configurable: true, enumerable: true,
     get() { return modal; }, set(value) {
       if (modal === value) return;
+      if (value === 'dialog' && typeof dialogFocusStart === 'function') dialogFocusStart();
       modal = value;
       if (IS_TOUCH && $('mobile-tray')) mobileModalChanged(value);
       else if (value) cancelPlayerInput();
     } });
+  // These are modal game screens on keyboard desktops as well as phones.
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Tab' || !['kit', 'map', 'dialog', 'death', 'net'].includes(UI.modal)) return;
+    const panel = $(UI.modal === 'map' ? 'mapov' : UI.modal === 'net' ? 'netsheet' : UI.modal);
+    const fs = [...panel.querySelectorAll('button, input, select, textarea, summary, a[href], [tabindex]')]
+      .filter((el) => !el.disabled && el.tabIndex >= 0 && !el.closest('[hidden], [inert]') && el.getClientRects().length);
+    if (!fs.length) return;
+    const first = fs[0], last = fs[fs.length - 1];
+    if (!fs.includes(document.activeElement)) { e.preventDefault(); (e.shiftKey ? last : first).focus(); }
+    else if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+  });
   if (!IS_TOUCH || !$('mobile-tray')) { if (modal) cancelPlayerInput(); return; }
   mobileModalChanged(modal);
   mobilePreferences();
@@ -206,17 +219,6 @@ function mobileBind() {
     if (!fs.length) return;
     const first = fs[0], last = fs[fs.length - 1];
     if (!tray.contains(document.activeElement)) { e.preventDefault(); (e.shiftKey ? last : first).focus(); }
-    else if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
-    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
-  });
-  document.addEventListener('keydown', (e) => {
-    if (e.key !== 'Tab' || !['kit', 'map'].includes(UI.modal)) return;
-    const panel = UI.modal === 'kit' ? $('kit') : $('mapov');
-    const fs = [...panel.querySelectorAll('button, input, select, a[href], [tabindex="0"]')]
-      .filter((el) => !el.disabled && el.tabIndex >= 0 && el.getClientRects().length);
-    if (!fs.length) return;
-    const first = fs[0], last = fs[fs.length - 1];
-    if (!panel.contains(document.activeElement)) { e.preventDefault(); (e.shiftKey ? last : first).focus(); }
     else if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
     else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
   });

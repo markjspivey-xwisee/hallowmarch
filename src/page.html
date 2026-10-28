@@ -26,7 +26,7 @@
   body { margin: 0; overflow: hidden; background: var(--void); color: var(--ink); font: 15px/1.35 var(--ui); -webkit-font-smoothing: antialiased; user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; }
   #scene { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; outline: none; }
   button { font: inherit; color: inherit; touch-action: manipulation; }
-  button:focus-visible, input:focus-visible { outline: 2px solid var(--bronze-hi); outline-offset: 2px; }
+  button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, summary:focus-visible { outline: 2px solid var(--bronze-hi); outline-offset: 2px; }
   .panel { background: var(--slate); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 6px 22px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.04); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
   .caps { font-family: var(--caps); letter-spacing: 0.06em; }
   .num { font-variant-numeric: tabular-nums; }
@@ -218,24 +218,29 @@
   .seg { display: inline-flex; gap: 3px; padding: 3px; border-radius: 999px; background: rgba(0, 0, 0, 0.35); border: 1px solid var(--line); flex-wrap: wrap; }
   .seg button { border: 0; background: none; padding: 6px 12px; border-radius: 999px; cursor: pointer; color: var(--ink-dim); font-weight: 500; }
   .seg button[aria-checked="true"], .seg button[aria-selected="true"] { background: var(--bronze-hi); color: #1b140b; }
-  /* One menu frame; only its content scrolls between the navigation and actions. */
-  #menu .sheet { --menu-pad: 24px; width: min(800px, 100%); height: min(820px, 100%); min-height: 0; padding: 0; gap: 0; grid-template-rows: auto auto minmax(0, 1fr) auto; overflow: hidden; border-radius: 12px; background: #1a1c21; }
+  /* One quiet, pinned return action; the current page owns its task action. */
+  #menu .sheet { --menu-pad: 24px; width: min(800px, 100%); height: min(820px, 100%); min-height: 0; padding: 0; gap: 0; grid-template-rows: auto auto minmax(0, 1fr); overflow: hidden; border-radius: 12px; background: #1a1c21; }
   #menu .menu-heading { position: static; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 18px var(--menu-pad) 12px; background: transparent; }
   #menu-title { min-width: 0; }
-  #menu-close { flex: none; min-height: 44px; }
+  #menu-close { flex: none; min-height: 48px; font-size: 14px; }
   #menu-tabs { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 4px; margin: 0 var(--menu-pad); padding: 0; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: none; }
-  #menu-tabs button { min-width: 0; min-height: 44px; padding: 10px 6px; border: 0; border-radius: 4px 4px 0 0; background: transparent; color: var(--ink-dim); font: 600 15px/1.2 var(--ui); cursor: pointer; }
+  #menu-tabs button { min-width: 0; min-height: 44px; padding: 10px 6px; border: 0; border-radius: 4px 4px 0 0; background: transparent; color: var(--ink-dim); font: 600 15px/1.2 var(--ui); overflow-wrap: anywhere; hyphens: auto; cursor: pointer; }
   #menu-tabs button:hover { color: var(--ink); background: rgba(223, 193, 136, 0.06); }
   #menu-tabs button[aria-selected="true"] { color: var(--bronze-hi); background: rgba(223, 193, 136, 0.1); box-shadow: inset 0 -2px var(--bronze-hi); }
   #menu-tabs button:focus-visible { outline-offset: -3px; }
   #menu-body { min-width: 0; min-height: 0; display: grid; align-content: start; gap: 16px; padding: 20px var(--menu-pad); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; scroll-padding-block: 16px; }
   #menu-body > * { min-width: 0; }
+  #menu-body:focus-visible { outline: 2px solid var(--bronze-hi); outline-offset: -4px; }
   #menu-body .seg { border-radius: 8px; }
   #menu-body .seg button { border-radius: 4px; }
-  #menu .sheet > .actions { align-items: center; gap: 12px; padding: 14px var(--menu-pad); background: #17191e; border-top: 1px solid var(--line); }
-  #menu #btn-newchar { margin-right: auto; background: transparent; border-color: transparent; color: var(--ink-dim); }
-  #menu #btn-newchar:hover { background: rgba(223, 193, 136, 0.06); color: var(--ink); }
-  #menu #btn-resume { min-width: 128px; }
+  #menu .character-milestones { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px; }
+  #menu .menu-options { margin-top: 8px; padding-top: 12px; border-top: 1px solid var(--line); }
+  #menu .menu-options summary { display: flex; align-items: center; min-height: 48px; cursor: pointer; color: var(--ink-dim); }
+  #menu .menu-options summary::before { content: '▸'; margin-right: 8px; }
+  #menu .menu-options[open] summary::before { content: '▾'; }
+  #menu .menu-options > p { margin-block: 8px 12px; }
+  #menu .menu-confirm { display: grid; gap: 16px; max-width: 560px; }
+  .btn.danger { border-color: #ce8174; color: #ffd1c8; background: rgba(156, 51, 39, 0.16); }
   body.touch #menu-tabs button, body.touch #menu-close { min-height: var(--mobile-target, 48px); }
   @media (max-width: 620px) {
     #menu .sheet { --menu-pad: 16px; }
@@ -244,9 +249,10 @@
     #menu-tabs { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; }
     #menu-body { padding-block: 16px; }
     #menu-body > .stats, #menu-body .statsum { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    #menu .sheet > .actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); padding-block: 12px; }
-    #menu #btn-newchar { margin: 0; }
-    #menu #btn-resume { min-width: 0; }
+    #menu .menu-confirm .acts { display: grid; gap: 12px; }
+  }
+  @media (max-width: 359px) {
+    #menu-tabs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   }
   .setrow { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
   .keys { display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px; font-size: 14px; }
@@ -1287,7 +1293,7 @@
   /* Mobile navigation and viewport: one safe rectangle in browser tabs, with
      essential destinations visible instead of nested inside the game menu. */
   #mobile-nav { display: none; }
-  body.touch { --mobile-nav-h: 48px; --mobile-nav-space: calc(var(--mobile-nav-h) + 16px); }
+  body.touch { --mobile-nav-h: 64px; --mobile-nav-space: calc(var(--mobile-nav-h) + 16px); }
   body.touch #scene { height: var(--mobile-vh, 100dvh); }
   body.touch #hud #pf { top: calc(8px + var(--safe-t)); padding: 5px 8px; gap: 2px; width: min(184px, calc(100vw - var(--safe-l) - var(--safe-r) - 100px)); }
   body.touch #pf .head .nm { font-size: 13px; }
@@ -1309,6 +1315,7 @@
     color: #fff3db; background: #15191ff2; font: 700 var(--mobile-small-text)/1.1 var(--ui); touch-action: manipulation;
   }
   body.touch #mobile-nav svg { width: 20px; height: 20px; flex: none; }
+  body.touch #mobile-nav button > span:not(#mobile-notice) { display: block; flex: none; width: 100%; min-width: 0; max-width: 100%; white-space: normal; overflow-wrap: anywhere; hyphens: auto; text-align: center; }
   body.touch #hud #tpad { bottom: calc(var(--mobile-nav-space) + var(--safe-b)); }
   body.touch #joyhint { bottom: calc(var(--mobile-nav-space) + var(--safe-b)); }
   body.touch.mobile-modal-open #mobile-nav { visibility: hidden; pointer-events: none; }
@@ -1350,7 +1357,7 @@
       <p id="continue-desc"></p>
       <p id="season-title" class="season-title"></p><!-- [loops] -->
       <button class="btn primary" id="btn-continue" type="button">Return to the march</button>
-      <p class="fineprint">To start over later, choose Menu → New character.</p>
+      <p class="fineprint">To start over later, open Menu → Character → Character options.</p>
     </div>
     <div id="character-create-fields">
     <div class="step">
@@ -1431,7 +1438,7 @@
     <div id="tpad"></div>
   </div>
   <nav id="mobile-nav" aria-label="Game screens">
-    <button class="panel" id="mobile-inventory" type="button" aria-label="Open inventory"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path d="M8 8h8l3 12H5L8 8Z M9 8V6a3 3 0 0 1 6 0v2"/></svg><span>Inventory</span></button>
+    <button class="panel" id="mobile-inventory" type="button" aria-label="Open inventory"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path d="M8 8h8l3 12H5L8 8Z M9 8V6a3 3 0 0 1 6 0v2"/></svg><span>Inven<wbr>tory</span></button>
     <button class="panel" id="mobile-skills" type="button" aria-label="Open skills" aria-controls="mobile-tray"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" aria-hidden="true"><path d="m13 2-8 12h6l-1 8 9-13h-6l0-7Z"/></svg><span>Skills</span></button>
     <button class="panel" id="mobile-map" type="button" aria-label="Open map"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" aria-hidden="true"><path d="m3 6 6-2 6 2 6-2v14l-6 2-6-2-6 2V6Z M9 4v14 M15 6v14"/></svg><span>Map</span></button>
     <button class="panel" id="mobile-notes" type="button" aria-label="Read field notes"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" aria-hidden="true"><path d="M5 3h14v18H5Z M8 7h8 M8 11h8 M8 15h5"/></svg><span>Notes</span></button>
@@ -1470,7 +1477,7 @@
 </div>
 <div class="overlay" id="menu" hidden>
   <div class="sheet panel" role="dialog" aria-modal="true" aria-labelledby="menu-title">
-    <div class="menu-heading"><h2 id="menu-title">Hallowmarch</h2><button type="button" class="btn" id="menu-close" aria-label="Close menu">Close ×</button></div>
+    <div class="menu-heading"><h2 id="menu-title">Game menu</h2><button type="button" class="btn" id="menu-close">Back to game</button></div>
     <div role="tablist" id="menu-tabs" aria-label="Game menu">
       <button type="button" role="tab" id="menu-tab-char" data-tab="char" aria-controls="menu-body" aria-selected="true">Character</button>
       <button type="button" role="tab" id="menu-tab-companion" data-tab="companion" aria-controls="menu-body" aria-selected="false" tabindex="-1">Companion</button>
@@ -1479,8 +1486,7 @@
       <button type="button" role="tab" id="menu-tab-settings" data-tab="settings" aria-controls="menu-body" aria-selected="false" tabindex="-1">Settings</button>
       <button type="button" role="tab" id="menu-tab-help" data-tab="help" aria-controls="menu-body" aria-selected="false" tabindex="-1">How to play</button>
     </div>
-    <div id="menu-body" role="tabpanel" aria-labelledby="menu-tab-char"></div>
-    <div class="actions"><button class="btn" id="btn-newchar" type="button">New character</button><button class="btn primary" id="btn-resume" type="button">Resume</button></div>
+    <div id="menu-body" role="tabpanel" aria-labelledby="menu-tab-char" tabindex="0"></div>
   </div>
 </div>
 <div class="overlay" id="kit" hidden>
@@ -1491,7 +1497,7 @@
   </div>
 </div>
 <div class="overlay" id="death" hidden>
-  <div class="sheet panel" role="dialog" aria-labelledby="death-title">
+  <div class="sheet panel" role="dialog" aria-modal="true" aria-labelledby="death-title">
     <h2 id="death-title">You have fallen</h2>
     <p id="death-by"></p>
     <div id="death-raise" hidden><p id="death-raise-who"></p><button class="btn" id="btn-raise" type="button">Accept the prayer</button></div><!-- [balance] an allied priest offers to raise you (07c_balance.js) -->
@@ -1499,7 +1505,7 @@
   </div>
 </div>
 <div class="overlay" id="dialog" hidden>
-  <div class="sheet panel" role="dialog" aria-labelledby="dlg-title">
+  <div class="sheet panel" role="dialog" aria-modal="true" aria-labelledby="dlg-title">
     <h2 id="dlg-title"></h2>
     <div id="dlg-body"></div>
     <div class="actions" id="dlg-actions"></div>

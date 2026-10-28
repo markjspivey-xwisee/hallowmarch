@@ -13,8 +13,8 @@ const REALM_BLURB = [
 /* title screen                                                        */
 /* ------------------------------------------------------------------ */
 function syncTitle() {
-  $('realm-pick').querySelectorAll('.realm-card').forEach((b) => b.setAttribute('aria-checked', String(+b.dataset.realm === UI.realm)));
-  $('class-pick').querySelectorAll('.class-card').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.cls === UI.cls)));
+  $('realm-pick').querySelectorAll('.realm-card').forEach((b) => { const selected = +b.dataset.realm === UI.realm; b.setAttribute('aria-checked', String(selected)); b.tabIndex = selected ? 0 : -1; });
+  $('class-pick').querySelectorAll('.class-card').forEach((b) => { const selected = b.dataset.cls === UI.cls; b.setAttribute('aria-checked', String(selected)); b.tabIndex = selected ? 0 : -1; });
   $('realm-blurb').textContent = REALM_BLURB[UI.realm];
   $('class-blurb').textContent = CLASSES[UI.cls].blurb;
 }
@@ -24,6 +24,8 @@ function bindTitle() {
   cp.innerHTML = Object.entries(CLASSES).map(([k, C]) => `<button class="class-card" type="button" role="radio" data-cls="${k}" aria-checked="false"><span class="row">${iconSvg(C.icon, 20)}<b>${C.name}</b></span><span class="role">${C.role}</span></button>`).join('');
   rp.addEventListener('click', (e) => { const b = e.target.closest('.realm-card'); if (!b) return; audioUnlock(); UI.realm = +b.dataset.realm; if (!UI.nameTouched) $('name-input').value = randomName(UI.realm); syncTitle(); sfx('click'); });
   cp.addEventListener('click', (e) => { const b = e.target.closest('.class-card'); if (!b) return; audioUnlock(); UI.cls = b.dataset.cls; syncTitle(); sfx('click'); });
+  rp.addEventListener('keydown', menuRadioKey);
+  cp.addEventListener('keydown', menuRadioKey);
   $('btn-dice').onclick = () => { $('name-input').value = randomName(UI.realm); UI.nameTouched = false; };
   $('name-input').addEventListener('input', () => { UI.nameTouched = true; });
   $('name-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('btn-begin').click(); });
@@ -167,6 +169,7 @@ function nameColor(e, P) {
   return REALMS[e.faction].light;
 }
 function updateHUD(dt) {
+  if (UI.confirmNew) menuReplacementSync();
   const P = GAME.player, prog = GAME.prog;
   UI.frame++;
   // player frame
@@ -535,6 +538,7 @@ function bgClose(id, fn) {
   ov.addEventListener('pointerdown', (e) => { ov._bg = e.target === ov; });
   ov.addEventListener('click', (e) => { if (e.target === ov && ov._bg) fn(); ov._bg = false; });
 }
+let mapReturnFocus = null;
 function toggleMap(force) {
   if (typeof THRONE_RTS !== 'undefined' && THRONE_RTS.active && force !== false) closeThroneRTS(false);
   const ov = $('mapov');
@@ -542,9 +546,20 @@ function toggleMap(force) {
   if (!open && HALL.sit) hallLeave();
   ov.classList.toggle('throne-mode', !!HALL.sit);
   if (open && UI.modal && UI.modal !== 'map') return;
+  const opening = open && ov.hidden, closing = !open && !ov.hidden;
+  if (opening) mapReturnFocus = document.activeElement;
   ov.hidden = !open;
   UI.modal = open ? 'map' : null;
-  if (open) drawWorldMap();
+  if (open) {
+    drawWorldMap();
+    if (opening) $('btn-mapclose')?.focus({ preventScroll: true });
+  } else if (closing) {
+    const available = el => el?.isConnected && !el.disabled && !el.closest('[hidden], [inert]') && el.getClientRects().length;
+    const prior = mapReturnFocus; mapReturnFocus = null;
+    const target = available(prior) && prior !== document.body ? prior
+      : [$('btn-map'), $('mobile-map')].find(available);
+    target?.focus({ preventScroll: true });
+  }
 }
 bgClose('mapov', () => toggleMap(false));
 
@@ -737,6 +752,49 @@ function hideJoystick() {
 /* menus                                                               */
 /* ------------------------------------------------------------------ */
 let menuReturnFocus = null;
+function menuRadioKey(e) {
+  const current = e.target.closest('[role="radio"]');
+  if (!current || e.altKey || e.ctrlKey || e.metaKey || e.isComposing) return;
+  if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(e.key)) return;
+  const choices = [...current.parentElement.querySelectorAll('[role="radio"]')], index = choices.indexOf(current);
+  if (index < 0 || !choices.length) return;
+  const next = e.key === 'Home' ? 0 : e.key === 'End' ? choices.length - 1
+    : (index + (e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : -1) + choices.length) % choices.length;
+  e.preventDefault(); e.stopPropagation(); choices[next].focus({ preventScroll: true }); choices[next].click();
+}
+function menuReplacementBlocked() {
+  if (typeof SAVE !== 'undefined' && (SAVE.pending || SAVE.nativeFlight || SAVE.loading && !SAVE.loading.settled || SAVE.wiping)) return true;
+  return typeof NATIVE_PLAYER !== 'undefined' && (NATIVE_PLAYER.busy || NATIVE_PLAYER.switching);
+}
+function menuReplacementSync() {
+  if (UI.modal !== 'menu' || UI.menuTab !== 'char' || !UI.confirmNew) return;
+  const changed = UI.confirmNew.player !== GAME.player || typeof SAVE !== 'undefined' && SAVE.ref !== UI.confirmNew.ref;
+  const blocked = changed || menuReplacementBlocked();
+  const button = $('menu-new-confirm'), status = $('menu-new-status');
+  if (button) {
+    const wasFocused = document.activeElement === button;
+    button.disabled = !!blocked;
+    if (blocked && wasFocused) $('menu-new-cancel')?.focus({ preventScroll: true });
+  }
+  if (status) {
+    const text = changed ? 'Your character connection changed. Keep this character and review the choice again.'
+      : blocked ? 'Your character connection or save is still pending. Keep this character and finish reconnecting before starting over.' : '';
+    if (status.textContent !== text) status.textContent = text;
+    status.hidden = !text;
+  }
+}
+function menuSettingsChoices(body) {
+  for (const group of body.querySelectorAll('.seg')) {
+    const choices = [...group.querySelectorAll('button[aria-checked]')];
+    if (!choices.length) continue;
+    group.setAttribute('role', 'radiogroup');
+    group.setAttribute('aria-label', group.parentElement.querySelector('span')?.textContent || 'Setting');
+    for (const button of choices) {
+      button.setAttribute('role', 'radio');
+      button.tabIndex = button.getAttribute('aria-checked') === 'true' ? 0 : -1;
+    }
+  }
+}
 function onEscape() {
   if (UI.modal === 'mobile') { mobileTray(false); return; }
   if (UI.modal === 'map') { toggleMap(false); return; }
@@ -774,7 +832,7 @@ function openPlayerIdentity() {
 }
 function closeMenu() {
   const wasOpen = !$('menu').hidden;
-  $('menu').hidden = true; UI.modal = null; UI.confirmNew = false; $('btn-newchar').textContent = 'New character';
+  $('menu').hidden = true; UI.modal = null; UI.confirmNew = false;
   if (!wasOpen) return;
   const available = el => el?.isConnected && !el.disabled && !el.closest('[hidden], [inert]') && el.getClientRects().length;
   const prior = menuReturnFocus; menuReturnFocus = null;
@@ -784,6 +842,9 @@ function closeMenu() {
 }
 function renderMenu(tab) {
   const tabChanged = UI.menuTab !== tab;
+  const body = $('menu-body'), active = document.activeElement;
+  const settingsFocus = !tabChanged && tab === 'settings' && body.contains(active)
+    ? { group: active.closest('.seg')?.id, id: active.id, scroll: body.scrollTop } : null;
   UI.menuTab = tab;
   document.querySelectorAll('#menu-tabs button').forEach((b) => {
     const selected = b.dataset.tab === tab;
@@ -791,8 +852,7 @@ function renderMenu(tab) {
     if (selected) $('menu-body').setAttribute('aria-labelledby', b.id);
   });
   const P = GAME.player, prog = GAME.prog;
-  const body = $('menu-body');
-  if (tabChanged) body.scrollTop = 0;
+  if (tabChanged) { body.scrollTop = 0; UI.confirmNew = false; }
   if (tab === 'companion') {
     body.innerHTML = '<div id="world-agent-mount"></div>';
     queueMicrotask(() => { if (UI.modal === 'menu' && UI.menuTab === 'companion' && typeof mainWorldAgentRender === 'function') mainWorldAgentRender(); });
@@ -800,6 +860,17 @@ function renderMenu(tab) {
     body.innerHTML = '<div id="march-coach-mount"></div>';
     queueMicrotask(() => { if (UI.modal === 'menu' && UI.menuTab === 'progress' && typeof marchConsultingRender === 'function') marchConsultingRender(); });
   } else if (tab === 'char') {
+    if (UI.confirmNew && UI.confirmNew.player === P) {
+      const blocked = menuReplacementBlocked();
+      body.innerHTML = `<section class="menu-confirm" aria-labelledby="menu-new-title"><h3 id="menu-new-title">Replace ${esc(P.name)}?</h3>
+        <p>This replaces your current character save. Your new character starts at level 1. You cannot undo this from the game menu.</p>
+        <p id="menu-new-status" role="status" ${blocked ? '' : 'hidden'}>${blocked ? 'Your character connection or save is still pending. Keep this character and finish reconnecting before starting over.' : ''}</p>
+        <div class="acts"><button class="btn primary" type="button" id="menu-new-cancel" data-menu-action="cancel-new">Keep current character</button>
+        <button class="btn danger" type="button" id="menu-new-confirm" data-menu-action="confirm-new" ${blocked ? 'disabled' : ''}>Replace character</button></div></section>`;
+      menuReplacementSync();
+      return;
+    }
+    UI.confirmNew = false;
     const rr = realmRank(prog.rp);
     const nextRR = REALM_RANKS[rr] ?? null;
     const mins = Math.floor(prog.played / 60);
@@ -811,12 +882,14 @@ function renderMenu(tab) {
         <div class="stat"><small>Creatures slain</small><b>${fmtInt(prog.kills)}</b></div>
         <div class="stat"><small>Foes slain</small><b>${fmtInt(prog.realmKills)}</b></div>
         <div class="stat"><small>Deaths</small><b>${fmtInt(prog.deaths)}</b></div>
-        ${late2CharStats() /* [late2] names and veterancy (10l_late.js) */}
       </div>
+      <div class="character-milestones">${late2CharStats() /* [late2] names and veterancy (10l_late.js) */}</div>
       ${gsCharHTML() /* [gearstats] the stats in a fight and what they do (10g_gearstats.js) */}
       <p>${nextRR !== null ? `${fmtInt(nextRR - prog.rp)} realm points to rank ${rr + 1}.` : 'You hold the highest realm rank.'} Each rank adds 1.5% health and damage. Each foreign hallow your realm holds adds 10% damage for everyone in it.</p>
       <p>Played for ${mins} minute${mins === 1 ? '' : 's'}.</p>
-      <div class="acts"><button type="button" class="btn" data-lore="sec:coach">Your progress &amp; coach</button><button type="button" class="btn" data-lore="sec:path">Your path &amp; next steps</button></div>`;
+      <div class="acts"><button type="button" class="btn primary" data-lore="sec:coach">View progress</button></div>
+      <details class="menu-options"><summary>Character options</summary><p>Start over only when you want to replace this character.</p>
+      <button class="btn" id="btn-newchar" type="button" data-menu-action="new">New character…</button></details>`;
     gsCharWire(body); // [gearstats] the kit and the Gear page a tap away
   } else if (tab === 'settings') {
     const q = quality.level, m = tod.mode;
@@ -826,6 +899,7 @@ function renderMenu(tab) {
       ${soundSettingsHTML() /* [audio2] Volume, Effects, Ambience (11c_sound.js) */}
       <div class="setrow"><span>Music</span><div class="seg" id="set-m">${MUSIC_LEVELS.map(([k, l]) => `<button type="button" data-v="${k}" aria-checked="${musicLevelKey() === k}">${l}</button>`).join('')}</div></div>
       ${captureSettingsHTML() /* [capture] the capture build (14_capture.js) */}
+      <p class="fineprint">Changes apply immediately.</p>
       <p>${IS_TOUCH ? 'Lower graphics settings help on older phones.' : 'If the frame rate drops, the game lowers its own detail first.'}</p>`;
     $('set-q').onclick = (e) => { const b = e.target.closest('button'); if (!b) return; setQuality(b.dataset.v); renderMenu('settings'); saveSoon(); };
     $('set-t').onclick = (e) => { const b = e.target.closest('button'); if (!b) return; setTimeMode(b.dataset.v); renderMenu('settings'); saveSoon(); };
@@ -833,11 +907,17 @@ function renderMenu(tab) {
     captureSettingsWire(); // [capture] (14_capture.js)
     soundSettingsWire(); // [audio2] the Volume, Effects and Ambience rows (11c_sound.js)
     $('set-m').onclick = (e) => { const b = e.target.closest('button'); if (!b) return; const L = MUSIC_LEVELS.find((x) => x[0] === b.dataset.v); if (L) setMusicVolume(L[2]); renderMenu('settings'); saveSoon(); }; // [music] the score's volume (11b_music.js)
+    menuSettingsChoices(body);
+    if (settingsFocus) {
+      const focus = settingsFocus.group ? $(settingsFocus.group)?.querySelector('[aria-checked="true"]') : $(settingsFocus.id);
+      focus?.focus({ preventScroll: true }); body.scrollTop = settingsFocus.scroll;
+    }
   } else if (tab === 'chronicle') {
     renderChronicle(body);
   } else {
     body.innerHTML = guideHelpHTML(); // [guide] the keys and every system's own lines, in the order a player meets them (10e_guide.js GUIDE_HELP)
   }
+  if (tabChanged) $('menu-tabs').querySelector('[aria-selected="true"]')?.focus({ preventScroll: true });
 }
 $('menu-tabs').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) renderMenu(b.dataset.tab); });
 $('menu-tabs').addEventListener('keydown', (e) => {
@@ -858,13 +938,29 @@ $('menu').addEventListener('keydown', (e) => {
   else if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
   else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
 });
-$('btn-resume').onclick = () => closeMenu();
 $('menu-close').onclick = () => closeMenu();
-$('btn-newchar').onclick = () => {
-  if (!UI.confirmNew) { UI.confirmNew = true; $('btn-newchar').textContent = 'Press again to start over'; return; }
-  closeMenu();
-  newCharacter();
-};
+$('menu-body').addEventListener('click', (e) => {
+  const action = e.target.closest('[data-menu-action]')?.dataset.menuAction;
+  if (!action || UI.menuTab !== 'char') return;
+  if (action === 'new') {
+    UI.confirmNew = { player: GAME.player, ref: typeof SAVE === 'undefined' ? null : SAVE.ref };
+    renderMenu('char'); $('menu-body').scrollTop = 0; $('menu-new-cancel')?.focus({ preventScroll: true });
+  } else if (action === 'cancel-new') {
+    UI.confirmNew = false; renderMenu('char');
+    const options = $('menu-body').querySelector('.menu-options'); if (options) options.open = true;
+    $('btn-newchar')?.focus();
+  } else if (action === 'confirm-new' && UI.confirmNew?.player === GAME.player && !menuReplacementBlocked()) {
+    if (typeof SAVE !== 'undefined' && SAVE.ref !== UI.confirmNew.ref) {
+      menuReplacementSync(); return;
+    }
+    closeMenu(); newCharacter();
+  } else if (action === 'confirm-new') {
+    menuReplacementSync();
+  }
+});
+$('menu-body').addEventListener('keydown', (e) => {
+  if (UI.menuTab === 'settings') menuRadioKey(e);
+});
 bgClose('menu', () => closeMenu());
 
 function uiDeathDamage(killer) {
@@ -925,6 +1021,23 @@ function openHerald() {
   box.innerHTML = '';
   acts.forEach(([l, fn], i) => { const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'btn' + (i === 0 && acts.length > 1 ? ' primary' : ''); btn.textContent = l; btn.onclick = fn; box.appendChild(btn); });
 }
-function closeDialog() { $('dialog').hidden = true; UI.modal = null; }
+let dialogReturnFocus = null;
+function dialogFocusStart() {
+  dialogReturnFocus = document.activeElement;
+  queueMicrotask(() => {
+    if (UI.modal !== 'dialog' || $('dialog').hidden) return;
+    const title = $('dlg-title'); title.tabIndex = -1; title.focus({ preventScroll: true });
+  });
+}
+function closeDialog() {
+  const wasOpen = !$('dialog').hidden, active = UI.modal === 'dialog';
+  $('dialog').hidden = true;
+  if (active) UI.modal = null;
+  if (!wasOpen || !active) return;
+  const available = el => el?.isConnected && !el.disabled && !el.closest('[hidden], [inert]') && el.getClientRects().length;
+  const prior = dialogReturnFocus; dialogReturnFocus = null;
+  const target = available(prior) && prior !== document.body ? prior : [$('btn-menu'), $('mobile-menu-toggle')].find(available);
+  target?.focus({ preventScroll: true });
+}
 bgClose('dialog', () => closeDialog());
 

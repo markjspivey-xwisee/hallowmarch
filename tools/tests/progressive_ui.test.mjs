@@ -131,7 +131,8 @@ function boundTitle(f) {
     randomName: () => 'Random stranger', emblemSvg: () => '', iconSvg: () => '', audioUnlock() {}, sfx() {},
     realmRank: () => 3, seasonTitleText: () => '' });
   const title = titleUI.slice(titleUI.indexOf('function syncTitle()'), titleUI.indexOf('function bindHUD()'));
-  vm.runInContext(title + `
+  const radioKeys = titleUI.slice(titleUI.indexOf('function menuRadioKey('), titleUI.indexOf('function menuReplacementBlocked('));
+  vm.runInContext(radioKeys + '\n' + title + `
     const actualBoundTitleBegin = nativePlayerBegin;
     nativePlayerBegin = value => { titleEntry = actualBoundTitleBegin(value); return titleEntry; };
   `, f.context);

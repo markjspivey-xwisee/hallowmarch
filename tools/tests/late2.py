@@ -358,7 +358,8 @@ async def main():
             await page.wait_for_function("window.__hm && window.__hm.ready", timeout=240000, polling=500)
             await page.evaluate("__hm.fn.setQuality('low')")
             await page.evaluate("() => {" + HELPERS + "; return 0; }")
-            await page.evaluate("document.getElementById('btn-continue').click()")
+            assert await page.evaluate('!!__hm.UI.titleSave?.char'), 'Reload must offer the retained character.'
+            await page.locator('#btn-begin').click()
             await page.wait_for_function("""() => {
               const H = window.__hm, S = window.__hmStartup;
               if (S?.stopped || S?.titleError || H?.errors?.length) throw new Error(S?.titleError || H?.errors?.join('; ') || 'Title graphics stopped');
