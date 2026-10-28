@@ -95,7 +95,8 @@ function activitySnapshot() {
   const profile = activityEnsure();
   const snapshot = profile ? profile.snapshot() : { revision: 0, eventCount: 0, lastEventAt: null, milestones: [], current: null,
     history: { recent: [], pendingEvents: 0, complete: false }, summary: { counters: {}, observationAuthority: 'owner-browser-observation', competencyStatus: 'not-assessed' } };
-  const path = GAME.started && GAME.prog?.lore && typeof pathNext === 'function' ? pathNext() : null;
+  const path = GAME.started && GAME.prog?.lore && typeof pathNext === 'function'
+    ? (typeof pathSuggested === 'function' ? pathSuggested() : pathNext()) : null;
   return { ...snapshot, available: !!profile, blocked: GAME_ACTIVITY.blocked, code: GAME_ACTIVITY.code,
     nativeOwned: !!GAME_ACTIVITY.scope?.native, canonicalPath: path ? { id: path.id, title: path.title } : null,
     archive: { pending: !!GAME_ACTIVITY.archivePage || GAME_ACTIVITY.archiveNeedsSave, busy: !!GAME_ACTIVITY.archiveFlight,

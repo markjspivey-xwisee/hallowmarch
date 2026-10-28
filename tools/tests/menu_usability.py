@@ -139,7 +139,14 @@ window.__menuQA=(()=>{
     }
     document.body.append(controls);return true;
   }
-  return {title,play,open,close,progress,inspect,picker,active,focusEdge,replacementTransitions,scrollState,
+  function effectsProbe(){
+    const P=GAME.player, before={level:P.level,xp:GAME.prog.xp};
+    CAM.shake=1;cameraShake(1,P.x,P.z);
+    composite.uniforms.uFlash.value.w=1;flashScreen([1,1,1],1);
+    return {reduced:REDUCE_MOTION,mode:MOTION_MODE,shake:CAM.shake,flash:composite.uniforms.uFlash.value.w,
+      stored:localStorage.getItem(MOTION_PREF_KEY),unchanged:P.level===before.level&&GAME.prog.xp===before.xp};
+  }
+  return {title,play,open,close,progress,inspect,picker,active,focusEdge,replacementTransitions,scrollState,effectsProbe,
     chronicleKeys:()=>CHRON_SECTIONS.map(([key])=>key)};
 })();
 """
@@ -306,6 +313,13 @@ async def audit(args):
                 if await weather.count():
                     await weather.click();state=await capture('setting-changed')
                     report['checks'].append({'task':label+'-setting-retains-focus','passed':bool(state['focusInside'] and state['focus']['tag']=='BUTTON'),'focus':state['focus']})
+                reduced=page.get_by_role('radio',name='Reduce effects',exact=True)
+                await reduced.click();state=await capture('reduced-effects')
+                effects=await page.evaluate('__menuQA.effectsProbe()')
+                report['checks'].append({'task':label+'-reduced-effects-applies-and-retains-focus','passed':effects['reduced'] and effects['mode']=='reduced' and effects['stored']=='reduced' and effects['shake']==0 and effects['flash']==0 and effects['unchanged'] and state['focusInside'] and state['focus']['tag']=='BUTTON','effects':effects})
+                await page.keyboard.press('ArrowLeft')
+                checked=await page.get_by_role('radio',name='Use device setting',exact=True).get_attribute('aria-checked')
+                report['checks'].append({'task':label+'-effects-keyboard-restores-device-setting','passed':checked=='true'})
                 await page.keyboard.press('Escape');await capture('menu-escaped')
                 for destination in ['inventory','map','herald']:
                     trigger=page.locator(('#mobile-inventory' if touch else '#btn-kit') if destination=='inventory' else ('#mobile-map' if touch else '#btn-map'))
