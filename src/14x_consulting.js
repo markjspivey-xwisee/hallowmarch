@@ -426,7 +426,10 @@ function marchConsultingRender() {
     const ready = marchConsultingSetupReady();
     $('march-progress-prerequisite').hidden = ready;
     $('march-progress-options').hidden = !ready;
-    const pending = !!(s.journal?.status().pending || MARCH_COACH_DELIVERY.pending || MARCH_COACH_DELIVERY.blocked || s.reviewed);
+    const cancelledBeforeDelivery = s.reviewed?.cancelled && !s.reviewed.progress.requestAttempted
+      && !s.journal?.status().pending && !MARCH_COACH_DELIVERY.pending && !MARCH_COACH_DELIVERY.blocked;
+    const pendingReview = s.reviewed && !cancelledBeforeDelivery;
+    const pending = !!(s.journal?.status().pending || MARCH_COACH_DELIVERY.pending || MARCH_COACH_DELIVERY.blocked || pendingReview);
     const recording = typeof activityDashboardRecording === 'function' ? activityDashboardRecording(activityScope()) : null;
     const attention = pending || s.issue || recording?.scoped && (recording.pending || recording.blocked);
     const optional = $('march-progress-optional');
@@ -504,12 +507,12 @@ function marchConsultingRender() {
     $('march-consulting-quiet').disabled = false;
     $('march-consulting-withdraw').hidden = !s.enabled;
     $('march-consulting-withdraw').disabled = !s.enabled;
-    $('march-coach-recovery').hidden = s.busy || !(s.journal?.status().pending || MARCH_COACH_DELIVERY.pending || MARCH_COACH_DELIVERY.blocked || s.reviewed);
+    $('march-coach-recovery').hidden = s.busy || !pending;
     $('march-consulting-retry').hidden = !s.journal?.status().pending;
     $('march-consulting-retry').disabled = s.busy;
     $('march-coach-continue').hidden = !s.reviewed || s.reviewed.cancelled || !s.enabled;
     $('march-coach-continue').disabled = s.busy || !!s.journal?.status().pending;
-    $('march-coach-close-pending').hidden = !MARCH_COACH_DELIVERY.pending && !MARCH_COACH_DELIVERY.blocked && !s.reviewed;
+    $('march-coach-close-pending').hidden = !MARCH_COACH_DELIVERY.pending && !MARCH_COACH_DELIVERY.blocked && !pendingReview;
     $('march-coach-preview').textContent = JSON.stringify(s.reviewed?.prepared?.payload || { sharing: s.enabled ? 'Current milestone and owner-browser gameplay summary' : 'off' }, null, 2);
     if (typeof marchLearningRender === 'function') marchLearningRender();
   } finally {

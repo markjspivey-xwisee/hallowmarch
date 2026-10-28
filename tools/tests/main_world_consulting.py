@@ -392,7 +392,16 @@ async def main():
             await page.evaluate('window.__holdFrame=true;Object.assign(__consultingFixture,__coachFixtureRestore);__consultingFixture.bind({restore:true}).then(()=>__consultingFixture.open())')
             await page.wait_for_selector('#march-consulting');assert await page.evaluate('!!__consultingFixture.info().privateIntent&&!__hm.consulting.status.enabled')
             assert await page.evaluate('__consultingFixture.external')==1
-            await enable();await settled();assert await page.evaluate('__consultingFixture.external===1&&__consultingFixture.requests===1')
+            await options()
+            assert await page.locator('#march-consulting-connect').is_disabled()
+            assert await page.locator('#march-coach-recovery').is_visible()
+            blocked_before=await page.evaluate('({intent:__consultingFixture.info().privateIntent,calls:[...__consultingFixture.calls],enabled:__hm.consulting.status.enabled,reviewed:__hm.consulting.status.reviewed})')
+            # A synthetic direct invocation also exercises Enable's pending fence;
+            # a real user cannot click this disabled Start control.
+            await page.locator('#march-consulting-connect').evaluate('(button)=>button.onclick()')
+            await settled()
+            assert await page.evaluate('__consultingFixture.external===1&&__consultingFixture.requests===1')
+            assert await page.evaluate('({intent:__consultingFixture.info().privateIntent,calls:[...__consultingFixture.calls],enabled:__hm.consulting.status.enabled,reviewed:__hm.consulting.status.reviewed})')==blocked_before
             await page.locator('#march-coach-close-pending').click();await settled()
             assert await page.evaluate('!__consultingFixture.info().privateIntent&&!__hm.consulting.status.enabled')
             print('PASS actual page reload retains unknown delivery intent, never resends it automatically, and explicit close retires it without replay',flush=True)

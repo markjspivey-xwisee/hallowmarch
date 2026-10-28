@@ -133,6 +133,57 @@ test('a guidance failure stays visible without freezing local play navigation', 
   assert.deepEqual(requests, []); assert.deepEqual(errors, []);
 });
 
+test('a stopped review before delivery permits a fresh explicit Start without clearing or restarting anything on render', async t => {
+  const { page, requests, errors } = await fixture(t,390);
+  await page.evaluate(() => {
+    SAVE.native=true;SAVE.readConfirmed=true;NATIVE_PLAYER.status={verified:true,bound:true,binding:{subjectDid:'did:example:fixture'}};
+    MARCH_CONSULTING.journal={status:()=>({pending:false})};
+    MARCH_CONSULTING.reviewed={cancelled:true,progress:{requestAttempted:false}};
+    window.__stoppedReview=MARCH_CONSULTING.reviewed;
+    document.getElementById('march-progress-optional').open=true;
+    marchConsultingRender();
+  });
+  assert.equal(await page.locator('#march-consulting-connect').isVisible(),true);
+  assert.equal(await page.locator('#march-consulting-connect').isEnabled(),true);
+  assert.equal(await page.locator('#march-coach-recovery').isVisible(),false);
+  assert.equal(await page.locator('#march-coach-close-pending').isVisible(),false);
+  assert.doesNotMatch(await page.locator('#march-progress-optional > summary').innerText(),/needs attention/);
+  assert.equal(await page.locator('#march-progress-path').isEnabled(),true);
+  assert.equal(await page.evaluate(() => MARCH_CONSULTING.reviewed===__stoppedReview
+    && MARCH_CONSULTING.reviewed.cancelled && !MARCH_CONSULTING.enabled),true);
+  await page.evaluate(() => {MARCH_CONSULTING.issue=true;MARCH_CONSULTING.note='Fixture error remains visible.';marchConsultingRender()});
+  assert.match(await page.locator('#march-progress-optional > summary').innerText(),/needs attention/);
+  assert.equal(await page.locator('#march-consulting-note').innerText(),'Fixture error remains visible.');
+  assert.equal(await page.locator('#march-coach-recovery').isVisible(),false);
+  assert.deepEqual(await page.evaluate(() => __calls),{path:[],identity:0,network:0,saves:0});
+  assert.deepEqual(requests,[]);assert.deepEqual(errors,[]);
+});
+
+for (const blocker of ['uncancelled-review','attempted-delivery','journal-pending','delivery-pending','delivery-blocked']) {
+  test(`${blocker} still blocks a fresh Start and cannot be cleared by a cancelled-review render`,async t => {
+    const { page, requests, errors } = await fixture(t,390);
+    await page.evaluate(blocker => {
+      SAVE.native=true;SAVE.readConfirmed=true;NATIVE_PLAYER.status={verified:true,bound:true,binding:{subjectDid:'did:example:fixture'}};
+      MARCH_CONSULTING.journal={status:()=>({pending:blocker==='journal-pending'})};
+      MARCH_CONSULTING.reviewed={cancelled:blocker!=='uncancelled-review',progress:{requestAttempted:blocker==='attempted-delivery'}};
+      MARCH_COACH_DELIVERY.pending=blocker==='delivery-pending'?{id:'urn:fixture:pending',stage:'intent'}:null;
+      MARCH_COACH_DELIVERY.blocked=blocker==='delivery-blocked';
+      window.__guardedReview=MARCH_CONSULTING.reviewed;window.__guardedPending=MARCH_COACH_DELIVERY.pending;
+      window.__guardedBlocked=MARCH_COACH_DELIVERY.blocked;
+      marchConsultingRender();marchConsultingRender();
+    },blocker);
+    assert.equal(await page.locator('#march-consulting-connect').isDisabled(),true);
+    assert.equal(await page.locator('#march-coach-recovery').isVisible(),true);
+    assert.equal(await page.locator('#march-coach-close-pending').isVisible(),true);
+    assert.match(await page.locator('#march-progress-optional > summary').innerText(),/needs attention/);
+    assert.equal(await page.locator('#march-progress-path').isEnabled(),true);
+    assert.equal(await page.evaluate(() => MARCH_CONSULTING.reviewed===__guardedReview
+      && MARCH_COACH_DELIVERY.pending===__guardedPending && MARCH_COACH_DELIVERY.blocked===__guardedBlocked && !MARCH_CONSULTING.enabled),true);
+    assert.deepEqual(await page.evaluate(() => __calls),{path:[],identity:0,network:0,saves:0});
+    assert.deepEqual(requests,[]);assert.deepEqual(errors,[]);
+  });
+}
+
 test('one sticky back action returns from a long history to a visible focused Progress entry', async t => {
   const { page, requests, errors } = await fixture(t, 320);
   await page.evaluate(() => {
