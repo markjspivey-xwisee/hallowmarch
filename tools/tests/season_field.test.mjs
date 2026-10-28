@@ -16,7 +16,7 @@ function extract(source, name) {
 }
 function modelFixture() {
   // Match the production server loader's realm, including strict receipt-data prototypes.
-  const api = new Function(realmSource + '\n' + managementSource + '\nreturn { RSM,RSM_GEO,RSM_GOODS,rsmProjectCost,rsmProject,realmSimInit,realmSimStep,realmSimSanitize,realmSimFieldTake,realmSimFieldReport,realmSimFieldFold,realmManageInit,realmManageStep,realmManageAction,realmManageView,realmSimOrder,rsmArmy,rsmEconomy,rsmFieldDesc };')();
+  const api = new Function(realmSource + '\n' + managementSource + '\nreturn { RSM,RSM_GEO,RSM_GOODS,RM_PLOT_LAYOUT_V2,rmBuilding,rsmProjectCost,rsmProject,realmSimInit,realmSimStep,realmSimSanitize,realmSimFieldTake,realmSimFieldReport,realmSimFieldFold,realmManageInit,realmManageStep,realmManageAction,realmManageView,realmSimOrder,rsmArmy,rsmEconomy,rsmFieldDesc };')();
   const RS = api.realmSimInit(987654, { days: 28 });
   api.realmManageInit(RS);
   return { api, RS,
@@ -376,15 +376,36 @@ test('convoy escort reservations count against levy capacity and eat canonical p
   const before=plain(active.RS);assert.equal(active.action(0,{type:'recruit',units:1}).ok,false);assert.deepEqual(plain(active.RS),before);
   assert.equal(old.action(0,{type:'recruit',units:1}).ok,true,'expired season reservations cannot block new recruitment');
 });
-test('all six keep centers and owned plots use the physical world index order', () => {
+test('all six keep centers keep physical index order while current sites and historical symmetric plots retain their own placement contracts', () => {
   const f=modelFixture();
   for(let k=0;k<6;k++){
     const home=Math.floor(k/2),a=[150,270,30][home]*Math.PI/180,lat=k%2===0?64:-64;
     const x=Math.sin(a)*118+Math.cos(a)*lat,z=-Math.cos(a)*118+Math.sin(a)*lat;
     assert.ok(Math.abs(f.api.RSM_GEO.keep[k][0]-x)<1e-9);assert.ok(Math.abs(f.api.RSM_GEO.keep[k][1]-z)<1e-9);
+    assert.equal(f.RS.keeps[k].home,home);
     const owner=(home+1)%3;f.RS.keeps[k].h=owner;
-    const plots=f.api.realmManageView(f.RS,owner).plots.filter(p=>p.site==='keep:'+k);assert.equal(plots.length,4);
-    assert.ok(plots.every(p=>p.owner===owner));assert.ok(Math.abs(plots.reduce((n,p)=>n+p.x,0)/4-x)<0.011);assert.ok(Math.abs(plots.reduce((n,p)=>n+p.z,0)/4-z)<0.011);
+    const current=f.api.realmManageView(f.RS,owner).plots.filter(p=>p.site==='keep:'+k);
+    assert.deepEqual(current.map(p=>p.id),[0,1,2,3].map(i=>'keep:'+k+':'+i));
+    for(const plot of current){
+      const authored=f.api.RM_PLOT_LAYOUT_V2[plot.id];assert.ok(authored,plot.id);
+      assert.equal(plot.placementVersion,2);assert.equal(plot.placementAvailable,true);
+      assert.equal(plot.owner,owner);assert.equal(plot.home,home);assert.equal(plot.yaw,Math.atan2(-Math.sin(a),Math.cos(a)));
+      assert.deepEqual({x:plot.x,z:plot.z},{x:authored.x,z:authored.z},'the physical keep index selects its exact authored site');
+      assert.ok(Math.hypot(plot.x-x,plot.z-z)<100,'a current site remains in its physical keep outskirts');
+    }
+    // Paid historical works deliberately use their original symmetric layout,
+    // including old saves with no explicit placementVersion. Capture changes control.
+    for(let i=0;i<4;i++)f.RS.realms[owner].management.buildings.push({...f.api.rmBuilding('keep:'+k+':'+i,'house',true),...(i===0?{placementVersion:1}:{})});
+    const historical=f.api.realmManageView(f.RS,owner).plots.filter(p=>p.site==='keep:'+k);assert.equal(historical.length,4);
+    for(let i=0;i<4;i++){
+      const along=[-28,-28,28,28][i],across=[-26,26,-26,26][i],plot=historical[i];
+      assert.equal(plot.owner,owner);assert.equal(plot.home,home);assert.equal(plot.placementVersion,1);
+      assert.equal(plot.yaw,Math.atan2(-Math.sin(a),Math.cos(a)),'the home frame remains stable under another realm’s control');
+      assert.equal(plot.x,Math.round((x+Math.sin(a)*along+Math.cos(a)*across)*100)/100);
+      assert.equal(plot.z,Math.round((z-Math.cos(a)*along+Math.sin(a)*across)*100)/100);
+    }
+    assert.ok(Math.abs(historical.reduce((n,p)=>n+p.x,0)/4-x)<0.011);
+    assert.ok(Math.abs(historical.reduce((n,p)=>n+p.z,0)/4-z)<0.011);
   }
 });
 test('public works quotes and actual project spending share one canonical cost helper', () => {
