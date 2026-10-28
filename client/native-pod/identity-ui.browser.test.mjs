@@ -61,6 +61,9 @@ async function fixturePage(view) {
   const title = page.slice(page.indexOf('<div id="title" hidden>'), page.indexOf('<div id="hud" hidden>'))
     .replace('<div id="title" hidden>', '<div id="title">');
   const native = await fs.readFile(path.join(root, 'src/14v_nativeidentity.js'), 'utf8');
+  const titleSource = await fs.readFile(path.join(root, 'src/10_ui.js'), 'utf8');
+  const titleFlow = titleSource.slice(titleSource.indexOf('function syncTitle()'), titleSource.indexOf('function bindHUD()'));
+  const titleRadioFlow = titleSource.slice(titleSource.indexOf('function menuRadioKey('), titleSource.indexOf('function menuReplacementBlocked('));
   const saves = await fs.readFile(path.join(root, 'src/12_save.js'), 'utf8');
   const nativeSaveStart = saves.indexOf('function nativeSavePending(');
   const nativeSaveEnd = saves.indexOf('// a slow heartbeat:', nativeSaveStart);
@@ -82,8 +85,13 @@ ${coldTransport || `const NETWS={token:${JSON.stringify(GAME_TOKEN)},host:locati
 const fixtureMemory={v:1,char:{name:'Kept in-memory character',n:9,inventory:['unsaved item']}};
 const SAVE={native:${bound || cold},backend:'local',loaded:null,pending:${live} ? structuredClone(fixtureMemory):null,readConfirmed:${bound},chain:Promise.resolve(),nativeFlight:null,nativePaused:false,lastBody:'',lastCore:'',ref:null};
 const GAME={started:${live},ready:true,player:${live}?{name:fixtureMemory.char.name}:null};
-const NET={link:{kind:'ws'},peers:new Map(),party:null};const UI={modal:null};const BUILD={mode:false};
-const identityCalls={retry:0,save:0,load:0,reauthenticate:0,saved:[],links:[],hellos:[],reloadMarker:crypto.randomUUID()};
+const NET={link:{kind:'ws'},peers:new Map(),party:null};const UI={modal:null,realm:0,cls:'warrior'};const BUILD={mode:false};
+const REALMS=[{id:0,name:'Logres',color:'#c00'},{id:1,name:'Ériu',color:'#0c0'},{id:2,name:'Thule',color:'#00c'}];
+const REALM_BLURB=['Fixture realm one','Fixture realm two','Fixture realm three'];
+const CLASSES={warrior:{name:'Warrior',role:'Fighter',blurb:'Fixture calling',icon:'sword'},mage:{name:'Mage',role:'Caster',blurb:'Second fixture calling',icon:'staff'}};
+const randomName=()=> 'New fixture recruit',emblemSvg=()=>'',iconSvg=()=>'',audioUnlock=()=>{},sfx=()=>{},realmRank=()=>3,seasonTitleText=()=>'';
+const identityCalls={retry:0,save:0,load:0,reauthenticate:0,saved:[],entries:[],links:[],hellos:[],reloadMarker:crypto.randomUUID()};
+const startGame=async(value,allowed)=>{if(allowed())identityCalls.entries.push(structuredClone(value))};
 let resumeRelease=null,resumeGate=null,writeRelease=null,writeGate=null,reauthConflict=false;
 let coldHelloHold=false;const coldHelloReplies=[];
 const typing=()=>true,validSave=value=>value,loadSave=async()=>{identityCalls.load++;SAVE.readConfirmed=true};
@@ -97,6 +105,8 @@ ${nativeSaves}
 if(!${live})saveNow=async()=>{identityCalls.save++};
 ${players}
 ${native}
+${titleRadioFlow}
+${titleFlow}
 ${logout}
 NATIVE_PLAYER.status={enabled:true,bound:${bound},verified:${bound},recordLinks:{},binding:${JSON.stringify(owner)}};
 if(${bound}&&${JSON.stringify(view)}!=='players-uninitialized')NATIVE_PLAYER.profile={status:()=>({hasRecord:${live},keyPresent:true,pending:false,linked:false}),retry:async()=>{identityCalls.retry++},exportRecovery:async()=>({}),close:()=>{},
@@ -105,7 +115,7 @@ set:async value=>{identityCalls.save++;identityCalls.saved.push(structuredClone(
 SAVE.ref={set:value=>NATIVE_PLAYER.profile.set(value)};
 netUiOn();netAcctRender();nativePlayerRender();
 if(${JSON.stringify(view)}.startsWith('players')){$('title').hidden=true;$('netsheet').hidden=false;NETUI.open=true;UI.modal='net'}
-window.identityTest={ready:true,render(){nativePlayerRender()},changed(){NATIVE_PLAYER.state='saving';NATIVE_PLAYER.message='Native save status updated';nativePlayerRender()},
+window.identityTest={ready:true,render(){nativePlayerRender()},showTitle(save){setupTitle(save)},changed(){NATIVE_PLAYER.state='saving';NATIVE_PLAYER.message='Native save status updated';nativePlayerRender()},
 async coldBoot(token=${JSON.stringify(GAME_TOKEN)}){localStorage.setItem('hallowmarch.token.'+location.host,token);return netLinkWS()},
 holdColdHello(){coldHelloHold=true},releaseColdHellos(){coldHelloHold=false;for(const reply of coldHelloReplies.splice(0))reply()},
 status:()=>(${live}?{cacheInitialized:!!NATIVE_PLAYER.cache,profileInitialized:!!NATIVE_PLAYER.profile,calls:identityCalls,memory:fixtureMemory,pending:SAVE.pending,paused:SAVE.nativePaused,token:NETWS.token,reload:NETWS.reload||false,message:NATIVE_PLAYER.message}:{cacheInitialized:!!NATIVE_PLAYER.cache,profileInitialized:!!NATIVE_PLAYER.profile}),
@@ -165,8 +175,8 @@ const browser = await chromium.launch({ headless: true, executablePath: process.
 const failures = [];
 async function check(name, run) { try { await run(); console.log('PASS ' + name); } catch (error) { failures.push({ name, message: error.message }); console.error('FAIL ' + name + ': ' + error.message); }
   finally { if(startHold){startHold.release();startHold=null;} } }
-async function contextForMobile() {
-  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+async function contextForMobile(width = 390) {
+  const context = await browser.newContext({ viewport: { width, height: 844 }, hasTouch: true, isMobile: true });
   await context.exposeFunction('__identityObservedBroadcast', data => broadcastMessages.push(data));
   await context.addInitScript(() => {
     const Native = window.BroadcastChannel;
@@ -229,6 +239,217 @@ async function reconnectPopup(page) {
   await page.locator('#netsheet .native-player button').filter({hasText:'Reconnect identity'}).click();return popup;
 }
 try {
+  for (const width of [320, 390, 1280]) await check(width + 'px first-player title has one entry action and optional sign-in', async () => {
+    const context = await contextForMobile(width), page = await openFixture(context, 'connect');
+    const before = calls.length;
+    await page.evaluate(() => {
+      SAVE.native = true; SAVE.readConfirmed = false;
+      NATIVE_PLAYER.status = { enabled: true, bound: false, provisionalPlay: { enabled: true } };
+      identityTest.showTitle(null);
+    });
+    assert(await page.locator('#btn-begin').isEnabled());
+    assert.equal(await page.locator('#btn-begin').innerText(), 'Play now');
+    assert(await page.locator('#btn-continue').isHidden());
+    assert(await page.locator('#character-create-fields').isVisible());
+    assert.equal(await page.locator('#title button.primary:visible').count(), 1);
+    assert(await page.locator('#title .native-player').getByRole('button', { name: 'I already have an identity', exact: true }).isVisible());
+    await page.locator('#realm-pick [data-realm="0"]').focus(); await page.keyboard.press('ArrowRight');
+    assert.equal(await page.locator('#realm-pick [data-realm="1"]').getAttribute('aria-checked'), 'true');
+    await page.keyboard.press('Home'); assert.equal(await page.locator('#realm-pick [data-realm="0"]').getAttribute('aria-checked'), 'true');
+    await page.locator('#class-pick [data-cls="warrior"]').focus(); await page.keyboard.press('ArrowRight');
+    assert.equal(await page.locator('#class-pick [data-cls="mage"]').getAttribute('aria-checked'), 'true');
+    await page.keyboard.press('Home'); assert.equal(await page.locator('#class-pick [data-cls="warrior"]').getAttribute('aria-checked'), 'true');
+    assert.equal(calls.length, before, 'rendering must never start sign-in, create a character or write a save');
+    assert.deepEqual(await page.evaluate(() => ({ saves: identityCalls.save, entries: identityCalls.entries.length, loads: identityCalls.load })), { saves: 0, entries: 0, loads: 0 });
+    assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+    await context.close();
+  });
+  for (const width of [320, 390, 1280]) await check(width + 'px verified returning title has one exact saved-character entry and keyboard-accessible optional controls', async () => {
+    const context = await contextForMobile(width), page = await openFixture(context, 'title');
+    const saved = { v: 1, char: { name: 'Kept fixture hero', realm: 1, cls: 'warrior', level: 15, xp: 7913, rp: 132, inventory: ['earned fixture item'] } };
+    await page.evaluate(save => {
+      SAVE.loaded = save; NATIVE_PLAYER.state = 'ready';
+      NATIVE_PLAYER.profile.status = () => ({ hasRecord: true, keyPresent: true, pending: false });
+      identityTest.showTitle(save);
+    }, saved);
+    assert.equal(await page.locator('#btn-begin').innerText(), 'Continue as Kept fixture hero');
+    assert(await page.locator('#btn-begin').isEnabled()); assert(await page.locator('#btn-continue').isHidden());
+    assert(await page.locator('#character-create-fields').isHidden());
+    assert.equal(await page.locator('#title button.primary:visible').count(), 1);
+    const details = page.locator('#title details.native-player-more'), summary = details.locator('summary');
+    assert.equal(await details.getAttribute('open'), null);
+    assert(await details.getByRole('button', { name: 'Reconnect identity', exact: true }).isHidden());
+    await summary.focus(); await page.keyboard.press('Tab');
+    assert(await page.locator('#btn-begin').evaluate(node => node === document.activeElement), 'closed identity controls must leave the keyboard path');
+    await summary.focus(); await page.keyboard.press('Enter');
+    assert(await details.getByRole('button', { name: 'Reconnect identity', exact: true }).isVisible());
+    await page.keyboard.press('Tab');
+    assert(await details.getByRole('button', { name: 'Reconnect identity', exact: true }).evaluate(node => node === document.activeElement));
+    await details.getByRole('button', { name: 'Recovery options', exact: true }).click();
+    const recovery = details.locator('.native-source-recovery'); await recovery.fill('fixture private recovery phrase');
+    await page.evaluate(() => identityTest.changed());
+    assert.equal(await recovery.inputValue(), 'fixture private recovery phrase');
+    assert(await recovery.evaluate(node => node === document.activeElement), 'status refresh preserves the focused recovery field');
+    assert(await details.evaluate(node => node.open), 'status refresh preserves an explicitly opened disclosure');
+    assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+    await page.locator('#btn-begin').click(); await page.waitForFunction(() => identityCalls.entries.length === 1);
+    assert.deepEqual(await page.evaluate(() => identityCalls.entries[0]), { ...saved.char, fresh: false });
+    assert.deepEqual(await page.evaluate(() => SAVE.loaded), saved, 'continuing must preserve the original save');
+    assert.equal(await page.evaluate(() => identityCalls.save), 0, 'entry never substitutes an automatic identity/save operation');
+    await context.close();
+  });
+  await check('expired access, unread connection and pending states surface recovery without authorizing entry', async () => {
+    const context = await contextForMobile(), page = await openFixture(context, 'title');
+    await page.evaluate(() => {
+      const save = { v: 1, char: { name: 'Unread fixture hero', realm: 0, cls: 'warrior', level: 8 } };
+      SAVE.loaded = save; SAVE.readConfirmed = false;
+      NATIVE_PLAYER.profile = null; NATIVE_PLAYER.state = 'native_signin_required';
+      NATIVE_PLAYER.status.verified = false; identityTest.showTitle(save);
+    });
+    assert(await page.locator('#btn-begin').isDisabled()); assert(await page.locator('#btn-continue').isHidden());
+    assert.equal(await page.locator('#title details.native-player-more').count(), 0);
+    assert.equal(await page.locator('#title button.primary:visible').innerText(), 'Reconnect identity');
+    await page.evaluate(() => {
+      NATIVE_PLAYER.status.verified = true; NATIVE_PLAYER.state = 'ready';
+      NATIVE_PLAYER.profile = { status: () => ({ hasRecord: true, keyPresent: false, pending: false }) };
+      nativePlayerRender();
+    });
+    assert.equal(await page.locator('#title button.primary:visible').innerText(), 'Restore recovery file');
+    assert(await page.locator('#title .native-source-recovery').isVisible(), 'missing held key exposes recovery without another hidden setup step');
+    assert(await page.locator('#btn-begin').isDisabled());
+    await page.evaluate(() => {
+      NATIVE_PLAYER.status.verified = true; NATIVE_PLAYER.profile = { status: () => ({ hasRecord: true, keyPresent: true, pending: false }) };
+      NATIVE_PLAYER.state = 'uncertain'; nativePlayerRender();
+    });
+    assert.equal(await page.locator('#title button.primary:visible').innerText(), 'Retry connection');
+    await page.evaluate(() => { NATIVE_PLAYER.busy = true; NATIVE_PLAYER.busyMessage = 'Opening your character…'; nativePlayerRender(); });
+    assert(await page.locator('#btn-begin').isDisabled());
+    assert.equal(await page.locator('#title .native-player button:enabled').count(), 0);
+    assert.equal(await page.locator('#btn-begin').getAttribute('aria-busy'), 'true');
+    assert.match(await page.locator('#save-note').innerText(), /Keep this page open/);
+    assert.deepEqual(await page.evaluate(() => ({ saves: identityCalls.save, loads: identityCalls.load, entries: identityCalls.entries.length })), { saves: 0, loads: 0, entries: 0 });
+    await context.close();
+  });
+  await check('expired temporary title preserves its exact owner, profile, key and deadline until an explicit choice', async () => {
+    const context = await contextForMobile(), page = await openFixture(context, 'connect');
+    await page.evaluate(() => {
+      SAVE.native = true; SAVE.readConfirmed = false; SAVE.loaded = null;
+      NATIVE_PLAYER.state = 'guest_expired'; NATIVE_PLAYER.status = { enabled: true, bound: false, provisional: true, provisionalPlay: { enabled: true } };
+      const guest = { provisional: true, guestExpiresAt: Date.now() - 60000, keyId: 'fixture-retained-key' };
+      NATIVE_PLAYER.provisional = { status: () => guest, claimProfile: () => null };
+      window.retainedMenuState = { session: NATIVE_PLAYER.provisional, guest, token: NETWS.token, owner: NETWS.acct };
+      identityTest.showTitle(null);
+    });
+    assert(await page.locator('#btn-begin').isDisabled());
+    assert.equal(await page.locator('#title button.primary:visible').innerText(), 'Open my saved character');
+    assert(await page.locator('#title').getByRole('button', { name: 'Start a new character', exact: true }).isVisible());
+    await page.evaluate(() => { identityTest.render(); identityTest.render(); });
+    assert.deepEqual(await page.evaluate(() => ({ sameSession: retainedMenuState.session === NATIVE_PLAYER.provisional, sameKey: retainedMenuState.guest.keyId === NATIVE_PLAYER.provisional.status().keyId,
+      sameDeadline: retainedMenuState.guest.guestExpiresAt === NATIVE_PLAYER.provisional.status().guestExpiresAt, sameOwner: retainedMenuState.owner === NETWS.acct, sameToken: retainedMenuState.token === NETWS.token,
+      saves: identityCalls.save, loads: identityCalls.load, entries: identityCalls.entries.length })),
+      { sameSession: true, sameKey: true, sameDeadline: true, sameOwner: true, sameToken: true, saves: 0, loads: 0, entries: 0 });
+    assert.match(await page.locator('#title .native-player').innerText(), /Existing saves and browser keys are kept/);
+    await context.close();
+  });
+  await check('owner mismatch and disconnected reads keep the original character intact and make reconnection an explicit choice', async () => {
+    const context = await contextForMobile(), page = await openFixture(context, 'title');
+    await page.evaluate(() => {
+      const save = { v: 1, char: { name: 'Original fixture hero', realm: 2, cls: 'warrior', level: 10, inventory: ['earned fixture item'] } };
+      SAVE.loaded = save; SAVE.readConfirmed = true;
+      NATIVE_PLAYER.profile.status = () => ({ hasRecord: true, keyPresent: true, pending: false });
+      window.originalMenuState = { save, profile: NATIVE_PLAYER.profile, token: NETWS.token, owner: NETWS.acct };
+      identityTest.showTitle(save);
+      SAVE.readConfirmed = false; NETWS.state = 'off';
+      NATIVE_PLAYER.authRefusal = { host: NETWS.host, token: NETWS.token, reason: 'native_owner_mismatch' };
+      NATIVE_PLAYER.message = 'This sign-in belongs to a different account. Reconnect the original identity.';
+      nativePlayerRender();
+    });
+    assert(await page.locator('#btn-begin').isDisabled());
+    assert.equal(await page.locator('#title details.native-player-more').count(), 0);
+    assert.equal(await page.locator('#title button.primary:visible').innerText(), 'Reconnect identity');
+    assert(await page.locator('#title').getByRole('button', { name: 'Sign in with a different account', exact: true }).isVisible());
+    assert.equal(await page.locator('#title').getByRole('button', { name: /^(Start a new character|Play with a new character)$/ }).count(), 0);
+    assert.match(await page.locator('#title .native-player').innerText(), /Reconnect the original identity/);
+    await page.evaluate(() => { identityTest.render(); identityTest.render(); });
+    assert.deepEqual(await page.evaluate(() => ({ sameSave: originalMenuState.save === SAVE.loaded, sameProfile: originalMenuState.profile === NATIVE_PLAYER.profile,
+      sameOwner: originalMenuState.owner === NETWS.acct, sameToken: originalMenuState.token === NETWS.token,
+      saves: identityCalls.save, loads: identityCalls.load, links: identityCalls.links.length, entries: identityCalls.entries.length })),
+      { sameSave: true, sameProfile: true, sameOwner: true, sameToken: true, saves: 0, loads: 0, links: 0, entries: 0 });
+    await context.close();
+  });
+  await check('legacy and local titles use the same single visible entry without changing resume or new-character arguments', async () => {
+    for (const backend of ['local', 'db']) {
+      const context = await contextForMobile(), page = await openFixture(context, 'title');
+      const saved = { v: 1, char: { name: 'Retained ' + backend + ' hero', realm: 2, cls: 'warrior', level: 19, xp: 13317, rp: 190, inventory: ['legacy earned item'] } };
+      await page.evaluate(({ save, backend }) => {
+        SAVE.native = false; SAVE.backend = backend; SAVE.loaded = save;
+        NATIVE_PLAYER.status = { enabled: false }; NATIVE_PLAYER.profile = null; identityTest.showTitle(save);
+      }, { save: saved, backend });
+      assert(await page.locator('#btn-continue').isHidden()); assert(await page.locator('#btn-begin').isEnabled());
+      assert.equal(await page.locator('#btn-begin').innerText(), 'Continue as ' + saved.char.name);
+      assert.equal(await page.locator('#title button.primary:visible').count(), 1);
+      assert.equal(await page.locator('#title .native-player').count(), 0);
+      assert(await page.locator('#character-create-fields').isHidden());
+      await page.locator('#btn-begin').click(); await page.waitForFunction(() => identityCalls.entries.length === 1);
+      assert.deepEqual(await page.evaluate(() => identityCalls.entries[0]), { ...saved.char, fresh: false });
+      assert.deepEqual(await page.evaluate(() => SAVE.loaded), saved);
+      await page.evaluate(() => { identityTest.showTitle(null); document.getElementById('name-input').value = 'Explicit new fixture recruit'; });
+      assert(await page.locator('#character-create-fields').isVisible()); assert(await page.locator('#continue').isHidden());
+      assert.equal(await page.locator('#title button.primary:visible').count(), 1);
+      await page.locator('#btn-begin').click(); await page.waitForFunction(() => identityCalls.entries.length === 2);
+      assert.deepEqual(await page.evaluate(() => identityCalls.entries[1]), { v: 1, name: 'Explicit new fixtu', realm: 2, cls: 'warrior', level: 1, xp: 0, rp: 0, fresh: true });
+      assert.equal(await page.evaluate(() => identityCalls.save), 0);
+      await context.close();
+    }
+  });
+  await check('native recovery, unread and expired states conceal creation without clearing a draft, then restore only a confirmed empty or fresh path', async () => {
+    const context = await contextForMobile(), page = await openFixture(context, 'connect');
+    await page.evaluate(() => identityTest.showTitle(null));
+    await page.locator('#name-input').fill('Kept draft name');
+    await page.locator('#realm-pick [data-realm="2"]').click();
+    await page.locator('#class-pick [data-cls="mage"]').click();
+    await page.evaluate(() => {
+      SAVE.native = true; SAVE.readConfirmed = false;
+      NATIVE_PLAYER.status = { enabled: true, bound: true, verified: true, recordLinks: { character: 'urn:fixture:existing-record' } };
+      NATIVE_PLAYER.state = 'key_required';
+      NATIVE_PLAYER.profile = { status: () => ({ hasRecord: true, keyPresent: false, pending: false }) };
+      window.draftRecoveryProfile = NATIVE_PLAYER.profile; nativePlayerRender();
+    });
+    assert(await page.locator('#character-create-fields').isHidden()); assert(await page.locator('#btn-begin').isDisabled());
+    assert.equal(await page.locator('#title button.primary:visible').innerText(), 'Restore recovery file');
+    await page.evaluate(() => { nativePlayerRender(); nativePlayerRender(); });
+    assert(await page.evaluate(() => NATIVE_PLAYER.profile === draftRecoveryProfile));
+    await page.evaluate(() => { NATIVE_PLAYER.profile = null; NATIVE_PLAYER.state = 'uncertain'; nativePlayerRender(); });
+    assert(await page.locator('#character-create-fields').isHidden());
+    await page.evaluate(() => { NATIVE_PLAYER.state = 'guest_expired'; NATIVE_PLAYER.status = { enabled: true, bound: false, provisionalPlay: { enabled: true } }; nativePlayerRender(); });
+    assert(await page.locator('#character-create-fields').isHidden()); assert(await page.locator('#btn-begin').isDisabled());
+    await page.evaluate(() => {
+      NATIVE_PLAYER.state = 'ready'; NATIVE_PLAYER.status = { enabled: true, bound: true, verified: true };
+      NATIVE_PLAYER.profile = { status: () => ({ hasRecord: false, keyPresent: false, pending: false }) }; SAVE.readConfirmed = true; nativePlayerRender();
+    });
+    assert(await page.locator('#character-create-fields').isVisible()); assert(await page.locator('#btn-begin').isEnabled());
+    assert.equal(await page.locator('#name-input').inputValue(), 'Kept draft name');
+    assert.equal(await page.locator('#realm-pick [data-realm="2"]').getAttribute('aria-checked'), 'true');
+    assert.equal(await page.locator('#class-pick [data-cls="mage"]').getAttribute('aria-checked'), 'true');
+    await page.evaluate(() => {
+      SAVE.loaded = { v: 1, char: null }; NATIVE_PLAYER.profile = { status: () => ({ hasRecord: true, keyPresent: true, pending: false }) };
+      nativePlayerRender();
+    });
+    assert(await page.locator('#character-create-fields').isVisible(), 'a confirmed encrypted document with char:null is an empty character, not an unread record');
+    assert(await page.locator('#btn-begin').isEnabled()); assert.equal(await page.locator('#name-input').inputValue(), 'Kept draft name');
+    await page.evaluate(() => identityTest.showTitle(SAVE.loaded));
+    assert(await page.locator('#character-create-fields').isVisible(), 'the explicit empty-title return must also permit creation');
+    assert.deepEqual(await page.evaluate(() => SAVE.loaded), { v: 1, char: null });
+    await page.locator('#name-input').fill('Kept draft name');
+    await page.evaluate(() => {
+      SAVE.readConfirmed = false; NATIVE_PLAYER.profile = null;
+      NATIVE_PLAYER.status = { enabled: true, bound: false, provisionalPlay: { enabled: true } }; nativePlayerRender();
+    });
+    assert(await page.locator('#character-create-fields').isVisible()); assert(await page.locator('#btn-begin').isEnabled());
+    assert.equal(await page.locator('#name-input').inputValue(), 'Kept draft name');
+    assert.deepEqual(await page.evaluate(() => ({ saves: identityCalls.save, loads: identityCalls.load, entries: identityCalls.entries.length })), { saves: 0, loads: 0, entries: 0 });
+    await context.close();
+  });
   await check('verified foreign-owner callback explains refusal and only an explicit title action restores the selected existing owner', async () => {
     claimMode='callback-mismatch';const {context,page}=await callbackFixture('connect-expired');await prepareLive(page);await page.evaluate(()=>identityTest.coldBoot());
     await page.evaluate(()=>{SAVE.readConfirmed=true;SAVE.loaded={v:1,char:{name:'Original loaded character'}};window.originalLoaded=SAVE.loaded;

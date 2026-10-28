@@ -16,7 +16,9 @@ function fixture() {
     emblemSvg: () => '', iconSvg: () => '', audioUnlock() {}, randomName: () => 'Aldric', sfx() {},
     nativePlayerBegin: save => saves.push(save), nativePlayerRender() {}, nativePlayerSaveMessage: () => 'Saved',
     realmRank: () => 1, seasonTitleText: () => '' });
-  vm.runInContext(read('10_ui.js').split('/* HUD construction')[0], c);
+  const ui = read('10_ui.js');
+  const radio = ui.slice(ui.indexOf('function menuRadioKey('), ui.indexOf('function menuReplacementBlocked('));
+  vm.runInContext(radio + ui.split('/* HUD construction')[0], c);
   return { c, nodes, saves, run: code => vm.runInContext(code, c) };
 }
 

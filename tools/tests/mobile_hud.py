@@ -291,8 +291,8 @@ async def flows(page, tag):
     check(not await page.locator('#mobile-needs-alert').is_visible(),tag+': needs warning clears when fed and hydrated')
     await tap(page,'#mobile-character')
     check(await page.locator('#menu').is_visible(),tag+': compact character frame opens the full character sheet')
-    await tap(page,'#btn-resume')
-    for section,control,panel,close in [('world','#btn-map','#mapov','#btn-mapclose'),('character','#btn-kit','#kit','#kit-close'),('character','#btn-menu','#menu','#btn-resume')]:
+    await tap(page,'#menu-close')
+    for section,control,panel,close in [('world','#btn-map','#mapov','#btn-mapclose'),('character','#btn-kit','#kit','#kit-close'),('character','#btn-menu','#menu','#menu-close')]:
         await tap(page,'#mobile-menu-toggle')
         await more_tab(page,section)
         await page.locator(control).scroll_into_view_if_needed()

@@ -51,8 +51,7 @@ function fixture() {
   tabs.append(...buttons);
   const input = new Node('menu-input', 'input'), hidden = new Node('hidden-menu-control'), disabled = new Node('disabled-menu-control');
   hidden.hidden = true; disabled.disabled = true; body.append(input, hidden, disabled);
-  const newCharacter = new Node('btn-newchar'), resume = new Node('btn-resume');
-  menu.append(close, tabs, body, newCharacter, resume);
+  menu.append(close, tabs, body);
   const trigger = new Node('btn-menu'), mobileTrigger = new Node('mobile-menu-toggle');
   const external = new Node('external-trigger'); document.body = new Node('body', 'body'); document.activeElement = external;
   for (const id of ['set-q', 'set-t', 'set-w', 'set-m']) new Node(id, 'div');
@@ -78,7 +77,7 @@ function fixture() {
     return event;
   }
   const selected = () => buttons.filter(button => button.getAttribute('aria-selected') === 'true');
-  return { ...context.handlers, UI: context.UI, document, menu, buttons, body, close, input, hidden, disabled, resume, trigger, mobileTrigger, external, dispatch, selected };
+  return { ...context.handlers, UI: context.UI, document, menu, buttons, body, close, input, hidden, disabled, trigger, mobileTrigger, external, dispatch, selected };
 }
 
 test('menu markup exposes one labelled modal dialog, a tablist and a controlled panel', () => {
@@ -116,10 +115,10 @@ test('Arrow keys wrap through the actual tabs and Home/End select and focus thei
 
 test('Tab stays inside the open menu while hidden, disabled and inactive tabs are skipped', () => {
   const f = fixture(); f.openMenu('progress');
-  f.resume.focus(); const forward = f.dispatch(f.resume, 'keydown', { key: 'Tab' });
+  f.input.focus(); const forward = f.dispatch(f.input, 'keydown', { key: 'Tab' });
   assert.equal(forward.prevented, true); assert.equal(f.document.activeElement, f.close);
   const backward = f.dispatch(f.close, 'keydown', { key: 'Tab', shiftKey: true });
-  assert.equal(backward.prevented, true); assert.equal(f.document.activeElement, f.resume);
+  assert.equal(backward.prevented, true); assert.equal(f.document.activeElement, f.input);
   f.buttons[2].focus(); const interior = f.dispatch(f.buttons[2], 'keydown', { key: 'Tab' }); assert.equal(interior.prevented, false);
   f.external.focus(); const escaped = f.dispatch(f.menu, 'keydown', { key: 'Tab' });
   assert.equal(escaped.prevented, true); assert.equal(f.document.activeElement, f.close);

@@ -186,7 +186,7 @@ async def phone(p):
     check(await tap(page, '#mobile-notes'), 'Notes opens on request')
     check(await ev(page, "__hm.UI.modal === 'menu' && document.querySelector('#menu-body').textContent.includes('Food and water')"), 'collected notes can be read in the Chronicle')
     # every new note's watch, through the world's own state
-    await ev(page, "(() => { if (!document.getElementById('menu').hidden) document.getElementById('btn-resume').click(); __hm.UI.modal = null; return 0; })()")  # a tap on a note shrunk to its title opens the Chronicle
+    await ev(page, "(() => { if (!document.getElementById('menu').hidden) document.getElementById('menu-close').click(); __hm.UI.modal = null; return 0; })()")  # a tap on a note shrunk to its title opens the Chronicle
     r = await ev(page, """(() => { const H = __hm, G = H.guide, P = GD.P(), seen = () => H.LORE.progress().seen, out = {};
       const want = (id, set, unset) => { set(); G.GUIDE.scanT = 0; for (let i = 0; i < 3; i++) { H.LORE.check(); H.LORE.state.noteUntil = 0; H.frame(1/30); } out[id] = seen().includes(id); if (unset) unset(); };
       want('brand', () => { P.brand = { until: H.GAME.t + 30, wet: 0, x: P.x, y: P.y + 1.4, z: P.z, emitAcc: 0 }; }, () => { P.brand = null; });
@@ -220,7 +220,7 @@ async def phone(p):
     check(all(w in r['t'] for w in want) and r['o'] <= 1, f'How to play gives a phone\'s controls and every system\'s lines ({[w for w in want if w not in r["t"]]})')
     check('press E' not in r['t'] and 'Press V' not in r['t'], 'and speaks of taps, not keys')
     await shot(page, 'guide_phone_help')
-    check(await tap(page, '#btn-resume'), 'Resume closes the menu')
+    check(await tap(page, '#menu-close'), 'Back to game closes the menu')
 
     # ---- every new step of the path, through the world's own state, each paid ----
     r = await ev(page, """(() => { const H = __hm, F = H.fn, P = GD.P(), L = H.LORE, out = {};

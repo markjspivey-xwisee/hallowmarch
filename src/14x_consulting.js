@@ -3,7 +3,7 @@
 const MARCH_CONSULTING = { ownerKey: '', sessionId: '', journal: null, consultant: null,
   current: null, openConsultant: null, openLearning: null, busy: false, note: '', reviewed: null, result: null,
   observationId: null, consultationId: null, baseline: null, evaluation: null, rendering: false, enabled: false, coachUntil: 0, epoch: 0, snoozeUntil: 0,
-  lastRequestAt: 0, lastEvidence: '', baselineFocus: null, tried: null, lastTip: '' };
+  lastRequestAt: 0, lastEvidence: '', baselineFocus: null, tried: null, lastTip: '', issue: false };
 const marchConsultingCopy = value => JSON.parse(JSON.stringify(value));
 const marchConsultingCanonical = value => Array.isArray(value) ? '[' + value.map(marchConsultingCanonical).join(',') + ']'
   : value && typeof value === 'object' ? '{' + Object.keys(value).sort().map(key => JSON.stringify(key) + ':' + marchConsultingCanonical(value[key])).join(',') + '}' : JSON.stringify(value);
@@ -41,7 +41,7 @@ function marchConsultingClose() {
   MARCH_CONSULTING.consultant?.close?.(); MARCH_CONSULTING.journal?.close?.();
   Object.assign(MARCH_CONSULTING, { journal: null, consultant: null, current: null, openConsultant: null, openLearning: null, reviewed: null,
     result: null, observationId: null, consultationId: null, baseline: null, sessionId: '', evaluation: null,
-    tried: null, baselineFocus: null, lastEvidence: '', lastRequestAt: 0 });
+    tried: null, baselineFocus: null, lastEvidence: '', lastRequestAt: 0, issue: false });
 }
 
 function marchConsultingObservation() {
@@ -66,13 +66,15 @@ function marchConsultingNode(tag, text, className) {
 }
 function marchConsultingButton(text, action) {
   const button = marchConsultingNode('button', text, 'btn'); button.type = 'button'; button.style.minHeight = '44px';
+  button.style.maxWidth = '100%'; button.style.whiteSpace = 'normal'; button.style.overflowWrap = 'anywhere';
   button.onclick = action; return button;
 }
 async function marchConsultingRun(action) {
   const state = MARCH_CONSULTING; if (state.busy) return;
-  state.busy = true; state.note = ''; marchConsultingRender();
+  state.busy = true; state.note = ''; state.issue = false; marchConsultingRender();
   try { await action(); }
   catch (error) {
+    state.issue = true;
     state.note = error?.message || 'Coaching could not be confirmed. Keep this page open and retry the pending private step.';
     if (error?.code === 'pod_pending') state.note = 'Your private save is awaiting confirmation. Keep this page open and confirm that same save before continuing.';
   } finally { state.busy = false; marchConsultingRender(); }
@@ -295,7 +297,7 @@ async function marchConsultingRequest() {
 }
 async function marchConsultingWithdraw() {
   const state = MARCH_CONSULTING, taskId = state.reviewed?.input.task.id || state.baseline?.task.id;
-  state.enabled = false; state.coachUntil = 0; state.epoch++;
+  state.enabled = false; state.coachUntil = 0; state.epoch++; state.issue = false;
   if (state.reviewed) state.reviewed.cancelled = true;
   state.note = 'Live sharing stopped. Your private game journal and local guidance continue.'; marchConsultingRender();
   if (taskId && state.journal && state.consultant) {
@@ -354,37 +356,42 @@ async function marchConsultingCompare() {
 function marchConsultingCreate(parent) {
   const box = marchConsultingNode('section'); box.id = 'march-consulting'; box.style.cssText = 'display:grid;gap:14px;overflow-wrap:anywhere';
   box.append(marchConsultingNode('h2', 'Progress'), marchConsultingNode('p',
-    'Your progress and practical tips update as you play. No LLM setup or API key is needed.'));
+    'Follow your path, review what happened, or find help with your next game action.'));
+  const navigation = marchConsultingNode('div'); navigation.id = 'march-progress-navigation';
+  navigation.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;min-width:0';
+  const path = marchConsultingButton('Continue your path', () => openChronicle('path')); path.id = 'march-progress-path'; path.classList.add('primary');
+  navigation.append(path); box.append(navigation);
   const milestones = marchConsultingNode('div'); milestones.id = 'march-coach-milestones'; box.append(milestones);
   const interventions = marchConsultingNode('section'); interventions.id = 'march-coach-interventions'; box.append(interventions);
-  const optional = marchConsultingNode('section'); optional.id = 'march-progress-optional';
-  optional.append(marchConsultingNode('h3', 'Optional support'));
+  const optional = marchConsultingNode('details'); optional.id = 'march-progress-optional';
+  optional.append(marchConsultingNode('summary', 'Optional guidance and recording'));
+  optional.append(marchConsultingNode('p', 'Choose these separately if you want extra guidance or an account activity record. Ordinary character progress already saves as you play.'));
   const prerequisite = marchConsultingNode('div'); prerequisite.id = 'march-progress-prerequisite';
-  prerequisite.append(marchConsultingNode('p', 'Connect your identity and open your private character to use these options.'),
-    marchConsultingButton('Open identity settings', () => openPlayerIdentity())); optional.append(prerequisite);
+  const identity = marchConsultingButton('Open identity settings', () => openPlayerIdentity()); identity.id = 'march-progress-identity';
+  prerequisite.append(marchConsultingNode('p', 'Connect your identity and open your private character to use these options. Your path and character history remain available.'),identity); optional.append(prerequisite);
   const cards = marchConsultingNode('div'); cards.id = 'march-progress-options';
   cards.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,19rem),1fr));gap:14px;align-items:start';
   const guidance = marchConsultingNode('section'); guidance.id = 'march-coach-guidance';
   guidance.style.cssText = 'display:grid;gap:10px;min-width:0;border:1px solid #806f4d;border-radius:10px;padding:14px';
-  guidance.append(marchConsultingNode('h3', 'Foxxi guidance'), marchConsultingNode('p', 'Optional rules-based review of your current play. No model connection is required.'));
+  guidance.append(marchConsultingNode('h3', 'Gameplay guidance'), marchConsultingNode('p', 'Ask Foxxi for practical suggestions based on a small summary of your current play.'));
   const note = marchConsultingNode('p'); note.id = 'march-consulting-note'; note.setAttribute('role', 'status'); guidance.append(note);
   const actions = marchConsultingNode('div'); actions.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap';
   const ask = marchConsultingButton('Review current play', () => {
     void marchConsultingRun(async () => { await marchConsultingReview(); await marchConsultingRequest(); });
   }); ask.id = 'march-consulting-request';
-  const later = marchConsultingButton('Quiet for 10 minutes', () => { MARCH_CONSULTING.snoozeUntil = Date.now() + 600000; MARCH_CONSULTING.note = 'Suggestions are quiet for ten minutes. Your progress still records.'; marchConsultingRender(); });
+  const later = marchConsultingButton('Quiet for 10 minutes', () => { MARCH_CONSULTING.snoozeUntil = Date.now() + 600000; MARCH_CONSULTING.issue = false; MARCH_CONSULTING.note = 'Suggestions are quiet for ten minutes. Your progress still records.'; marchConsultingRender(); });
   later.id = 'march-consulting-quiet';
   const stop = marchConsultingButton('Stop Foxxi sharing', () => {
-    void marchConsultingWithdraw().catch(error => { MARCH_CONSULTING.note = error.message; marchConsultingRender(); });
+    void marchConsultingWithdraw().catch(error => { MARCH_CONSULTING.note = error.message; MARCH_CONSULTING.issue = true; marchConsultingRender(); });
   }); stop.id = 'march-consulting-withdraw';
-  actions.append(ask, later, stop); guidance.append(actions);
+  const enable = marchConsultingButton('Start guidance · 15 minutes', () => marchConsultingRun(marchConsultingEnable)); enable.id = 'march-consulting-connect';
+  actions.append(enable, ask, stop); guidance.append(actions);
   const result = marchConsultingNode('section'); result.id = 'march-consulting-result'; guidance.append(result);
   const privacy = marchConsultingNode('details'); privacy.id = 'march-coach-options';
-  privacy.append(marchConsultingNode('summary', 'Start a 15-minute guidance session'));
+  privacy.append(marchConsultingNode('summary', 'Guidance privacy and options'));
   privacy.append(marchConsultingNode('p', 'Shares your current milestone and a small gameplay summary with Foxxi. Chat, inventory contents and other players’ private records are excluded.'));
   privacy.append(marchConsultingNode('p', 'Enable a 15-minute guidance session to review new observations automatically and keep its plans privately in your pod. You can stop sharing at any time.'));
-  const enable = marchConsultingButton('Start Foxxi guidance for 15 minutes', () => marchConsultingRun(marchConsultingEnable)); enable.id = 'march-consulting-connect';
-  privacy.append(enable);
+  privacy.append(later);
   const preview = marchConsultingNode('details'); preview.append(marchConsultingNode('summary', 'Technical sharing details'));
   const pre = marchConsultingNode('pre'); pre.id = 'march-coach-preview'; pre.style.cssText = 'white-space:pre-wrap;font-size:12px'; preview.append(pre); privacy.append(preview);
   guidance.append(privacy);
@@ -394,7 +401,7 @@ function marchConsultingCreate(parent) {
   const resume = marchConsultingButton('Continue this saved request', () => marchConsultingRun(marchConsultingRequest)); resume.id = 'march-coach-continue';
   recovery.append(retry, resume);
   const dismiss = marchConsultingButton('Close unconfirmed request · do not resend', () => {
-    MARCH_CONSULTING.enabled = false; MARCH_CONSULTING.epoch++; MARCH_CONSULTING.reviewed = null;
+    MARCH_CONSULTING.enabled = false; MARCH_CONSULTING.epoch++; MARCH_CONSULTING.reviewed = null; MARCH_CONSULTING.issue = false;
     marchConsultingCloseDelivery('closed-unconfirmed'); MARCH_CONSULTING.note = 'The unconfirmed request was closed without resending. You can keep playing or explicitly start a new consultation.'; marchConsultingRender();
   }); dismiss.id = 'march-coach-close-pending'; recovery.append(dismiss); guidance.append(recovery);
   cards.append(guidance);
@@ -409,23 +416,38 @@ function marchConsultingSetupReady() {
 function marchConsultingRender() {
   const s = MARCH_CONSULTING, parent = $('march-coach-mount');
   if (!parent || !GAME.started || s.rendering) return;
+  const focused = document.activeElement, focusedId = parent.contains(focused) ? focused.id : '';
   s.rendering = true;
   try {
-    const box = $('march-consulting') || marchConsultingCreate(parent), snapshot = marchConsultingActivity();
-    for (const button of box.querySelectorAll('button')) button.disabled = s.busy;
-    $('march-consulting-note').textContent = s.note || (s.enabled ? 'On · reviewing meaningful changes for this 15-minute session.' : 'Off · automatic progress and practical tips remain available.');
+    if (!$('march-consulting')) marchConsultingCreate(parent);
+    const snapshot = marchConsultingActivity();
+    $('march-consulting-note').textContent = s.note || (!snapshot?.current ? 'Play a little before starting guidance. Your path is ready.'
+      : s.enabled ? 'On · reviewing meaningful changes for this 15-minute session.' : 'Off · automatic progress and practical tips remain available.');
     const ready = marchConsultingSetupReady();
     $('march-progress-prerequisite').hidden = ready;
+    $('march-progress-options').hidden = !ready;
+    const pending = !!(s.journal?.status().pending || MARCH_COACH_DELIVERY.pending || MARCH_COACH_DELIVERY.blocked || s.reviewed);
+    const recording = typeof activityDashboardRecording === 'function' ? activityDashboardRecording(activityScope()) : null;
+    const attention = pending || s.issue || recording?.scoped && (recording.pending || recording.blocked);
+    const optional = $('march-progress-optional');
+    if (attention && optional.dataset.attention !== 'yes') optional.open = true;
+    optional.dataset.attention = attention ? 'yes' : 'no';
+    optional.querySelector('summary').textContent = attention ? 'Optional guidance and recording · needs attention'
+      : s.enabled ? 'Optional guidance and recording · guidance on' : recording?.enabled ? 'Optional guidance and recording · recording on' : 'Optional guidance and recording';
     const milestones = $('march-coach-milestones'), revision = s.ownerKey + ':' + String(snapshot?.revision ?? 'opening');
     if (milestones.dataset.revision !== revision) {
       const expanded = milestones.querySelector('details')?.open;
       milestones.dataset.revision = revision; milestones.replaceChildren();
-      if (!snapshot) milestones.append(marchConsultingNode('p', 'Opening your activity journal…'));
+      if (!snapshot?.current || snapshot.available === false) milestones.append(marchConsultingNode('p',
+        'Your path is ready. Play a little to build a recent activity history and receive practical tips.'));
       else {
-        milestones.append(marchConsultingNode('h3', 'Current focus'), marchConsultingNode('h4', snapshot.current?.title || 'Opening your journal…'),
+        milestones.append(marchConsultingNode('h3', 'Next practice milestone'),
+          marchConsultingNode('p', 'These milestones track the game actions you practise. Continue your path opens your next guided objective.'),
+          marchConsultingNode('h4', snapshot.current?.title || 'Opening your journal…'),
           marchConsultingNode('p', snapshot.current?.desiredResult || ''), marchConsultingNode('p', snapshot.current?.observedResult || ''));
         const all = marchConsultingNode('details'); all.open = !!expanded;
-        all.append(marchConsultingNode('summary', 'Development milestones · ' + (snapshot.milestones || []).filter(x => x.completed).length + ' / ' + (snapshot.milestones || []).length));
+        const milestoneSummary = marchConsultingNode('summary', 'Development milestones · ' + (snapshot.milestones || []).filter(x => x.completed).length + ' / ' + (snapshot.milestones || []).length);
+        milestoneSummary.id = 'march-progress-milestones-summary'; all.append(milestoneSummary);
         for (const m of snapshot.milestones || []) {
           const card = marchConsultingNode('section'); card.style.cssText = 'padding:10px;border:1px solid #806f4d;border-radius:8px;margin:8px 0';
           card.append(marchConsultingNode('h4', (m.completed ? '✓ ' : '') + m.title), marchConsultingNode('p', m.description || m.criteria || ''));
@@ -447,12 +469,15 @@ function marchConsultingRender() {
     const current = snapshot?.current;
     const suggestions = $('march-coach-interventions'), suggestionsKey = JSON.stringify([current?.id, current?.interventions]);
     if (suggestions.dataset.key !== suggestionsKey) {
-      suggestions.dataset.key = suggestionsKey; suggestions.replaceChildren(); suggestions.append(marchConsultingNode('h3', 'Useful next steps'));
-      for (const intervention of (current?.interventions || []).slice(0, 3)) {
-        suggestions.append(marchConsultingButton(intervention.title || 'Try this support', () => marchConsultingIntervene(intervention.id)));
-        if (intervention.note) suggestions.append(marchConsultingNode('p', intervention.note));
+      suggestions.dataset.key = suggestionsKey; suggestions.replaceChildren();
+      if (current?.interventions?.length) suggestions.append(marchConsultingNode('h3', 'Help with this action'));
+      let extra = null;
+      for (const [index, intervention] of (current?.interventions || []).slice(0, 3).entries()) {
+        if (index === 2) { extra = marchConsultingNode('details'); extra.append(marchConsultingNode('summary', 'More help with this action')); suggestions.append(extra); }
+        const target = extra || suggestions;
+        target.append(marchConsultingButton(intervention.title || 'Try this support', () => marchConsultingIntervene(intervention.id)));
+        if (intervention.note) target.append(marchConsultingNode('p', intervention.note));
       }
-      suggestions.append(marchConsultingButton('Continue your path', () => openChronicle('path')));
     }
     const result = $('march-consulting-result'), resultKey = JSON.stringify([s.result?.response || null, s.evaluation?.saved?.id || null]);
     if (result.dataset.resultKey !== resultKey) {
@@ -471,20 +496,29 @@ function marchConsultingRender() {
       if (s.evaluation?.saved) result.append(marchConsultingNode('p', 'A later attempt is recorded for comparison.'));
     }
     $('march-consulting-connect').hidden = s.enabled;
-    $('march-consulting-connect').disabled = s.busy || !ready;
-    $('march-coach-options').querySelector('summary').textContent = s.enabled ? 'Guidance privacy' : 'Start a 15-minute guidance session';
+    $('march-consulting-connect').disabled = s.busy || !ready || pending || !snapshot?.current;
+    $('march-coach-options').querySelector('summary').textContent = 'Guidance privacy and options';
     $('march-consulting-request').hidden = !s.enabled;
-    $('march-consulting-request').disabled = s.busy || !!s.reviewed;
+    $('march-consulting-request').disabled = s.busy || !!s.reviewed || !snapshot?.current;
     $('march-consulting-quiet').hidden = !s.enabled;
+    $('march-consulting-quiet').disabled = false;
     $('march-consulting-withdraw').hidden = !s.enabled;
     $('march-consulting-withdraw').disabled = !s.enabled;
     $('march-coach-recovery').hidden = s.busy || !(s.journal?.status().pending || MARCH_COACH_DELIVERY.pending || MARCH_COACH_DELIVERY.blocked || s.reviewed);
     $('march-consulting-retry').hidden = !s.journal?.status().pending;
+    $('march-consulting-retry').disabled = s.busy;
     $('march-coach-continue').hidden = !s.reviewed || s.reviewed.cancelled || !s.enabled;
+    $('march-coach-continue').disabled = s.busy || !!s.journal?.status().pending;
     $('march-coach-close-pending').hidden = !MARCH_COACH_DELIVERY.pending && !MARCH_COACH_DELIVERY.blocked && !s.reviewed;
     $('march-coach-preview').textContent = JSON.stringify(s.reviewed?.prepared?.payload || { sharing: s.enabled ? 'Current milestone and owner-browser gameplay summary' : 'off' }, null, 2);
     if (typeof marchLearningRender === 'function') marchLearningRender();
-  } finally { s.rendering = false; }
+  } finally {
+    s.rendering = false;
+    if (focusedId && !focused.isConnected) {
+      const replacement = $(focusedId);
+      if (replacement?.isConnected && replacement.getClientRects().length) replacement.focus({ preventScroll: true });
+    }
+  }
 }
 function marchConsultingStep() {
   if (typeof netHumanLive === 'function' && !netHumanLive()) return;

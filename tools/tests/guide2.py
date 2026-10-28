@@ -204,7 +204,7 @@ async def phone(p):
         await shot(page, 'guide2_phone_notes')
     else:
         check(ok, f'the note shows whole on a 360x640 phone and a tap takes it away ({r2})')
-    await ev(page, "(() => { if (!document.getElementById('menu').hidden) document.getElementById('btn-resume').click(); __hm.UI.modal = null; for (const d of [...document.querySelectorAll('#banners > *')]) d.parentNode.removeChild(d); return 0; })()")  # (the note kept for the tap goes: a note up makes room for itself and the war panel waits)
+    await ev(page, "(() => { if (!document.getElementById('menu').hidden) document.getElementById('menu-close').click(); __hm.UI.modal = null; for (const d of [...document.querySelectorAll('#banners > *')]) d.parentNode.removeChild(d); return 0; })()")  # (the note kept for the tap goes: a note up makes room for itself and the war panel waits)
     await page.set_viewport_size({'width': 390, 'height': 780})
     await page.wait_for_timeout(250)
 
@@ -239,7 +239,7 @@ async def phone(p):
     ok = await tap(page, '#war')
     r2 = await ev(page, "({ modal: __hm.UI.modal, sec: __hm.LORE.state.chronSec })")
     check(ok and r2['modal'] == 'menu' and r2['sec'] in ('path', 'goals'), f'a tap on the war panel opens it in the Chronicle ({r2})')
-    await ev(page, "(() => { if (!document.getElementById('menu').hidden) document.getElementById('btn-resume').click(); __hm.UI.modal = null; return 0; })()")
+    await ev(page, "(() => { if (!document.getElementById('menu').hidden) document.getElementById('menu-close').click(); __hm.UI.modal = null; return 0; })()")
 
     # ---- Cinderwing: a real share, not a single arrow from afar ----
     r = await ev(page, """(() => { const H = __hm, P = G2T.P(), L = H.LORE, Dg = H.guide.dragon(); if (!H.guide.dragon()) return 'no dragon'; const out = {}; const lore = H.GAME.prog.lore; lore.done = lore.done.filter((x) => x !== 'dragon');

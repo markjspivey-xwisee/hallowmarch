@@ -1,6 +1,6 @@
 /* A player's observation dashboard. Viewing never starts recording or repairs
  * a delivery. Account reads use the current player's existing native session. */
-const ACTIVITY_DASHBOARD_UI = { opened: false, parent: null, overview: null, host: null, button: null,
+const ACTIVITY_DASHBOARD_UI = { opened: false, parent: null, overview: null, host: null, button: null, back: null, entry: null,
   view: null, module: null, loading: null, scopeKey: '', epoch: 0, reader: null, page: null, lastRender: '',
   account: { state: 'idle', statements: [] }, analysis: { state: 'idle' } };
 const activityDashboardCopy = value => JSON.parse(JSON.stringify(value));
@@ -87,10 +87,12 @@ function activityDashboardUpdate(force = false) {
 async function activityDashboardShow() {
   const state = ACTIVITY_DASHBOARD_UI;
   if (!state.parent?.isConnected) return;
-  if (state.opened) { activityDashboardHide(); return; }
+  if (state.opened) return;
   activityDashboardInvalidate(); state.opened = true; state.scopeKey = activityDashboardKey();
-  state.button.textContent = 'Return to Progress'; state.button.setAttribute('aria-expanded', 'true');
+  state.button.setAttribute('aria-expanded', 'true');
+  if (state.back) state.back.hidden = false;
   state.overview.hidden = true; state.host.hidden = false; state.host.textContent = 'Opening your activity dashboard…';
+  state.host.tabIndex = -1; state.host.focus?.({ preventScroll: true });
   const epoch = state.epoch, host = state.host;
   try {
     const module = await activityDashboardModules();
@@ -100,33 +102,49 @@ async function activityDashboardShow() {
       onLoadAccount: () => { void activityDashboardReadAccount(false); }, onMoreAccount: () => { void activityDashboardReadAccount(true); },
       onAnalyze: () => { void activityDashboardAnalyze(); }, onManageRecording: activityDashboardManageRecording });
     activityDashboardUpdate(true);
-  } catch { if (state.epoch === epoch && host.isConnected) host.textContent = 'The activity dashboard could not open. Return to Progress and try again.'; }
+    const heading = host.querySelector('h2'); if (heading) { heading.tabIndex = -1; heading.focus({ preventScroll: true }); }
+  } catch {
+    if (state.epoch === epoch && host.isConnected) {
+      host.replaceChildren(marchConsultingNode('p', 'Activity history could not open. Your saved progress is unchanged.'));
+      host.append(marchConsultingButton('Try opening history again', () => { state.opened = false; void activityDashboardShow(); }));
+    }
+  }
 }
-function activityDashboardHide() {
+function activityDashboardHide({ restoreFocus = true } = {}) {
   const state = ACTIVITY_DASHBOARD_UI;
   state.opened = false; activityDashboardInvalidate();
   if (state.overview) state.overview.hidden = false;
   if (state.host) state.host.hidden = true;
-  if (state.button) { state.button.textContent = 'View activity dashboard'; state.button.setAttribute('aria-expanded', 'false'); }
+  if (state.back) state.back.hidden = true;
+  if (state.button) {
+    state.button.setAttribute('aria-expanded', 'false');
+    if (restoreFocus && state.button.isConnected && !document.hidden && state.button.getClientRects?.().length) state.button.focus();
+  }
 }
 function activityDashboardManageRecording() {
-  activityDashboardHide();
+  activityDashboardHide({ restoreFocus: false });
+  const optional = $('march-progress-optional'); if (optional) optional.open = true;
   const control = $('march-learning-record');
   control?.scrollIntoView({ block: 'start', behavior: 'smooth' });
-  ['march-learning-stop', 'march-learning-enable', 'march-learning-check'].map(id => $(id))
-    .find(button => button && !button.hidden && !button.disabled)?.focus({ preventScroll: true });
+  ['march-learning-check', 'march-learning-stop', 'march-learning-enable', 'march-progress-identity'].map(id => $(id))
+    .find(button => button && !button.hidden && !button.disabled && button.getClientRects().length)?.focus({ preventScroll: true });
 }
 function activityDashboardProgressMount(parent, overview) {
   const state = ACTIVITY_DASHBOARD_UI;
   if (state.parent === parent && state.button?.isConnected) return;
-  activityDashboardHide();
+  activityDashboardHide({ restoreFocus: false });
+  state.entry?.remove(); state.button?.remove(); state.back?.remove(); state.host?.remove();
   const entry = marchConsultingNode('div'); entry.style.cssText = 'margin:0 0 14px;display:flex;gap:8px;flex-wrap:wrap';
-  const button = marchConsultingButton('View activity dashboard', () => { void activityDashboardShow(); });
+  const button = marchConsultingButton('View activity history', () => { void activityDashboardShow(); });
   button.id = 'march-activity-open'; button.setAttribute('aria-expanded', 'false'); button.setAttribute('aria-controls', 'march-activity-dashboard');
   entry.append(button);
   const host = marchConsultingNode('section'); host.id = 'march-activity-dashboard'; host.hidden = true; host.style.minWidth = '0';
-  parent.insertBefore(entry, overview); parent.insertBefore(host, overview);
-  Object.assign(state, { parent, overview, host, button });
+  const navigation = overview.querySelector('#march-progress-navigation');
+  if (navigation) navigation.append(button); else parent.insertBefore(entry, overview);
+  const back = marchConsultingButton('Back to Progress', () => activityDashboardHide()); back.id = 'march-activity-back'; back.hidden = true;
+  back.style.cssText = 'position:sticky;top:0;z-index:2;max-width:100%;align-self:start;margin-bottom:12px;min-height:44px;white-space:normal';
+  parent.append(back, host);
+  Object.assign(state, { parent, overview, host, button, back, entry });
 }
 async function activityDashboardReadAccount(more) {
   const state = ACTIVITY_DASHBOARD_UI, scope = activityScope();

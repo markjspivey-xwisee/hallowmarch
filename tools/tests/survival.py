@@ -327,7 +327,7 @@ async def checks(page):
           H.UI.modal = null; F.openMenu('chronicle'); H.LORE && (H.LORE.state.chronSec = 'living'); document.querySelector('.chron-nav [data-sec="living"]').click();
           out.chron = document.getElementById('menu-body').innerHTML.includes('Hunger and thirst');
           document.querySelector('#menu-tabs [data-tab="help"]').click(); out.help = document.getElementById('menu-body').innerHTML.includes('Food, water and crafting');
-          document.getElementById('btn-resume').click();
+          document.getElementById('menu-close').click();
           return out; })()""")
         check(r['chron'] and r['help'], 'the Chronicle has "Living off the land" and the help explains food, water and crafting')
 

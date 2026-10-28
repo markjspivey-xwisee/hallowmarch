@@ -1218,6 +1218,8 @@ const CHRON_SECTIONS = [['march', 'The March'], ['realms', 'Realms'], ['callings
 function renderChronicle(body, fromNav = false) {
   if (LORE.chronSec === 'coach') { LORE.chronSec = 'path'; renderMenu('progress'); return; }
   if (!CHRON_SECTIONS.some(([k]) => k === LORE.chronSec)) LORE.chronSec = 'march';
+  const focused = document.activeElement, restoreFocus = focused !== body && body.contains(focused);
+  const focusedGroup = restoreFocus && focused.closest('[data-grp]')?.dataset.grp;
   const sec = LORE.chronSec;
   const fn = { march: chronMarch, realms: chronRealms, callings: chronClasses, gifts: chronGifts, war: chronWar, orders: chronOrders, halls: chronHalls, wilds: chronWilds, dragon: chronDragon, barrow: chronBarrow, water: chronWater, living: chronLiving, fields: chronFields, herbal: chronHerbal, animals: chronAnimals, building: chronBuilding, path: chronPath, ...CHRON_FN }[sec]; // [guide] CHRON_FN: pages added with chronAdd
   const G = chronGroupOf(sec), label = Object.fromEntries(CHRON_SECTIONS);
@@ -1236,6 +1238,12 @@ function renderChronicle(body, fromNav = false) {
   if (cur && row.scrollWidth > row.clientWidth) row.scrollLeft = cur.offsetLeft - row.clientWidth / 2 + cur.offsetWidth / 2;
   const grow = nav.querySelector('.chron-grps'), gcur = grow.querySelector('[aria-current="true"]');
   if (gcur && grow.scrollWidth > grow.clientWidth) grow.scrollLeft = gcur.offsetLeft - grow.clientWidth / 2 + gcur.offsetWidth / 2;
+  if (restoreFocus) {
+    // Navigation replaces its buttons. Keep the reader in the chosen page,
+    // never on a removed action or a different item at the old list index.
+    const group = focusedGroup && [...grow.querySelectorAll('[data-grp]')].find(button => button.dataset.grp === focusedGroup);
+    (group || cur || body).focus({ preventScroll: true });
+  }
 }
 // the Chronicle's four parts; a page no part names falls under the first
 const CHRON_GROUPS = [

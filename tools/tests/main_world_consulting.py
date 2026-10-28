@@ -209,8 +209,13 @@ async def main():
             await page.wait_for_function('__hm.activity.snapshot().current',timeout=30000)
             assert await page.locator('#march-consulting input,#march-consulting textarea,#march-consulting form').count()==0
             assert await page.locator('#march-coach-interventions button').count()>=2
-            assert 'No LLM setup or API key is needed.' in await page.locator('#march-consulting').inner_text()
-            assert await page.get_by_role('heading',name='Foxxi guidance',exact=True).is_visible()
+            assert 'Follow your path, review what happened' in await page.locator('#march-consulting').inner_text()
+            assert await page.locator('#march-consulting .btn.primary:visible').count()==1
+            assert await page.locator('#march-progress-path').is_enabled()
+            assert await page.get_by_role('button',name='View activity history',exact=True).is_visible()
+            assert not await page.locator('#march-progress-optional').evaluate('(e)=>e.open')
+            await page.locator('#march-progress-optional > summary').click()
+            assert await page.get_by_role('heading',name='Gameplay guidance',exact=True).is_visible()
             assert await page.get_by_role('heading',name='Private learning record',exact=True).is_visible()
             assert await page.evaluate('document.getElementById("march-learning-record").parentElement===document.getElementById("march-coach-guidance").parentElement&&!document.getElementById("march-coach-options").contains(document.getElementById("march-learning-record"))')
             assert await page.locator('#march-learning-enable').is_visible()
@@ -235,10 +240,10 @@ async def main():
             assert not await page.locator('#march-coach-options').evaluate('(e)=>e.open')
             assert not await page.locator('#march-coach-preview').is_visible()
             discover=page.locator('#march-coach-options > summary')
-            assert await discover.inner_text()=='Start a 15-minute guidance session'
+            assert await discover.inner_text()=='Guidance privacy and options'
             await discover.click()
             assert await page.locator('#march-coach-options').evaluate('(e)=>e.open')
-            assert await page.get_by_role('button',name='Start Foxxi guidance for 15 minutes',exact=True).is_visible()
+            assert await page.get_by_role('button',name='Start guidance · 15 minutes',exact=True).is_visible()
             assert not await page.locator('#march-coach-preview').is_visible()
             assert await page.locator('#march-learning-enable').is_visible()
             assert await page.evaluate("__consultingFixture.external===0&&__consultingFixture.requests===0&&__consultingFixture.journalCreations===0&&!__consultingFixture.calls.some(x=>x.startsWith('consent:')||x==='foxxi-delivery')")
@@ -251,6 +256,7 @@ async def main():
             print('PASS actual Progress tab shows observed milestones and a working local action card without forms, consent or planner I/O',flush=True)
 
             async def options():
+                await page.locator('#march-progress-optional').evaluate('(e)=>e.open=true')
                 await page.locator('#march-coach-options').evaluate('(e)=>e.open=true')
             async def enable():
                 await options();await page.locator('#march-consulting-connect').click()
@@ -371,7 +377,8 @@ async def main():
             # save queue above still confirmed the exact actual character body.
             await page.add_init_script('localStorage.setItem("hallowmarch.save.v1",'+json.dumps(json.dumps(persisted['character']))+');')
             await page.reload(wait_until='commit');await page.wait_for_function('window.__hm?.ready',timeout=300000,polling=500)
-            await page.locator('#btn-continue').click();await page.wait_for_function('__hm.GAME.started',timeout=30000)
+            assert await page.evaluate('!!__hm.UI.titleSave?.char'), 'Reload must offer the saved fixture character.'
+            await page.locator('#btn-begin').click();await page.wait_for_function('__hm.GAME.started',timeout=30000)
             await page.evaluate('window.__holdFrame=true;Object.assign(__consultingFixture,__coachFixtureRestore);__consultingFixture.bind({restore:true}).then(()=>__consultingFixture.open())')
             await page.wait_for_selector('#march-consulting');assert await page.evaluate('!!__consultingFixture.info().privateIntent&&!__hm.consulting.status.enabled')
             assert await page.evaluate('__consultingFixture.external')==1

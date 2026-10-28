@@ -83,7 +83,8 @@ async def main():
         print('crater', json.dumps(r), flush=True)
         check(r['found'], 'the crater on the mountain slope is back')
         # the character continues and the world runs on
-        await page.evaluate("document.getElementById('btn-continue').click()")
+        assert await page.evaluate('!!__hm.UI.titleSave?.char'), 'Reload must offer the retained character.'
+        await page.locator('#btn-begin').click()
         await page.wait_for_function("window.__hm && (__hm.GAME.started || window.__hmStartup?.stopped || __hm.errors.length)", timeout=300000, polling=100)
         r = await page.evaluate("(() => { if (!__hm.GAME.started) throw new Error('Continue did not start: ' + (__hmStartup?.titleError || __hm.errors.join('; '))); __hm.UI.modal = 'menu'; const s = __hm.simulate(15); let bad = 0; for (const e of __hm.ENT) if (!Number.isFinite(e.x + e.y + e.z)) bad++; return { started: __hm.GAME.started, errors: __hm.errors.slice(0, 3), bad }; })()")
         print('continue', json.dumps(r), flush=True)
