@@ -73,3 +73,15 @@ test('secondary text meets normal-text contrast against the dark menu surface',(
     assert.ok((lum(fg)+.05)/(lum(bg)+.05)>=4.5,'secondary text on '+bg);
   }
 });
+
+test('changing effects suppresses an in-flight point flash immediately while expired lights are still cleaned up',()=>{
+  const b=motion();const vectors=()=>Array.from({length:4},()=>({set(){}}));
+  Object.assign(b.context,{FIRES:[],LANTERNS:[],REALMS:[],WAR:{relics:[]},PROJ:[],ENT:[],INDOOR:{on:false},
+    GAME:{player:null},FLASHES:[{x:0,y:0,z:0,r:40,c:[3,3,3],t0:0,life:1}],renderTime:0.2,
+    _plc:[],quality:{level:'low'},U:{uNight:{value:0},uPLPos:{value:vectors()},uPLCol:{value:vectors()},uPLN:{value:0}}});
+  b.run(extract('src/05d_fire.js','gatherLights'));
+  b.run('gatherLights(0,0,0)');assert.equal(b.context.U.uPLN.value,1);
+  b.run("setMotionMode('reduced');gatherLights(0,0,0)");assert.equal(b.context.U.uPLN.value,0);
+  assert.equal(b.context.FLASHES.length,1);
+  b.context.renderTime=2;b.run('gatherLights(0,0,0)');assert.equal(b.context.FLASHES.length,0);
+});
