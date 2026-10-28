@@ -372,7 +372,12 @@ async def audit(args):
                             seen.add(section)
                     report['checks'].append({'task':label+'-every-chronicle-subsection-reachable','passed':seen==expected,'missing':sorted(expected-seen)})
                 for long_page in ['help','char']:
-                    await page.evaluate('(tab)=>__menuQA.open(tab)',long_page)
+                    # Navigate as a player does. Closing/reopening the same
+                    # scroll node through the synthetic API after native Home
+                    # can retain Chromium's previous keyboard scroll target.
+                    if (await page.evaluate('__menuQA.inspect()'))['modal']!='menu':
+                        await page.keyboard.press('Escape')
+                    await page.locator('#menu-tab-'+long_page).click()
                     await page.keyboard.press('Tab')
                     entered=await page.evaluate('__menuQA.active()')
                     report['checks'].append({'task':label+'-'+long_page+'-tab-enters-reading-panel','passed':entered['id']=='menu-body','focus':entered})
@@ -413,7 +418,7 @@ async def audit(args):
                         await page.wait_for_function("document.getElementById('menu-body').scrollTop>0",timeout=5000,polling=50)
                         touch_state=await page.evaluate('__menuQA.scrollState()')
                         report['checks'].append({'task':label+'-help-touch-scroll','passed':touch_state['top']>0,'scroll':touch_state})
-                    await page.keyboard.press('Escape')
+                    if long_page=='char':await page.keyboard.press('Escape')
                 if touch:
                     await page.evaluate("__menuQA.open('skills')");await capture('skills')
                     detail=page.locator('#mobile-tray-abilities summary').first
