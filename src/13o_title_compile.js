@@ -139,13 +139,13 @@ function titleEntryJobs(inventory, receipt, weatherResources) {
   // The title camera can leave both original crag lists empty, while a realm's
   // first world view populates them. Compile those two owned resources without
   // filling their lists or changing their visibility, camera or shader inputs.
-  if (typeof MTN !== 'undefined' && MTN && typeof cragMatBase !== 'undefined') {
+  if (!INDOOR.on && typeof MTN !== 'undefined' && MTN && typeof cragMatBase !== 'undefined') {
     const cragJobs = [];
     for (const [key, kind, sides, layers, far] of [['meshN', 'near', 12, 7, 0], ['meshF', 'far', 9, 4, 1]]) {
       const object = MTN[key]; if (!object) continue;
       const material = object.material, geometry = object.geometry, index = geometry?.index;
       const lod = material?.uniforms?.uCragLod, distance = material?.uniforms?.uCragFar, eye = MTN.eye;
-      const owned = () => MTN[key] === object && allowed.has(object) && object.userData.mtn === kind && !object.frustumCulled
+      const owned = () => !INDOOR.on && MTN[key] === object && allowed.has(object) && object.userData.mtn === kind && !object.frustumCulled
         && material?.isShaderMaterial && !!material.uniforms && material.vertexShader === cragMatBase.vertexShader && material.fragmentShader === cragMatBase.fragmentShader
         && geometry?.isInstancedBufferGeometry && geometry.index === index && !!index
         && geometry.attributes?.position?.itemSize === 3 && geometry.attributes.iA?.isInstancedBufferAttribute && geometry.attributes.iA.itemSize === 4

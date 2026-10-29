@@ -940,6 +940,13 @@ test('already populated original crags deduplicate with the combined title queue
   assert.equal(receipt.families['entry-crag-near'].prepared,1);assert.equal(receipt.families['entry-crag-far'].prepared,1);f.clean();
 });
 
+test('indoor entry does not admit either outdoor crag resource',async()=>{
+  const f=cragFixture();f.ctx.INDOOR.on=true;
+  const receipt=await f.finish(f.runCrags());assert.equal(receipt.completed,true);
+  assert.equal(receipt.families['entry-crag-near'],undefined);assert.equal(receipt.families['entry-crag-far'],undefined);
+  assert(!f.calls.some(call=>call.object===f.mountain.meshN||call.object===f.mountain.meshF));f.clean();
+});
+
 for(const change of['missing','unowned inventory','foreign shader','render hook','child','bad marker','bad attribute','missing eye','hidden parent'])
 test('unsupported or unavailable crag resources retain normal draw fallback without admission: '+change,async()=>{
   const f=cragFixture(),object=f.mountain.meshF;
@@ -956,7 +963,7 @@ test('unsupported or unavailable crag resources retain normal draw fallback with
   assert.equal(receipt.families['entry-crag-far'],undefined);assert(!f.calls.some(call=>call.object===object));f.clean();
 });
 
-for(const change of['pointer','geometry','index','attribute','material','shader','version','hook','parent','visible','eye','lod','target','camera layers'])
+for(const change of['pointer','geometry','index','attribute','material','shader','version','hook','parent','visible','eye','lod','target','camera layers','indoor'])
 test('original crag input changes stop further admission and drain stale: '+change,async()=>{
   const f=cragFixture({readyDelay:50,compileMs:10}),object=f.mountain.meshN,promise=f.runCrags();await f.flush();
   const submitted=f.compileCalls.length;
@@ -974,6 +981,7 @@ test('original crag input changes stop further admission and drain stale: '+chan
   if(change==='lod')object.material.uniforms.uCragLod.value.x=9;
   if(change==='target')f.eval('sceneRT=new THREE.WebGLRenderTarget();');
   if(change==='camera layers')f.camera.layers.set(3);
+  if(change==='indoor')f.ctx.INDOOR.on=true;
   const receipt=await f.finish(promise);assert.equal(receipt.stale,true);assert.equal(receipt.completed,false);
   assert.equal(f.compileCalls.length,submitted);assert(f.errorChecks.every(value=>value===0));f.clean();
 });
