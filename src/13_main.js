@@ -328,17 +328,15 @@ function renderTitleFrame() {
         const stages = [['post', new Set()], ...families];
         let resized = false;
         rippleAllocate();
-        const entryPreparation = await prepareTitleEntryPrograms(inventory, TITLE_WARM_GENERATION, wxPrepareCloudResources());
+        const entryPreparation = await prepareTitleInitialPrograms(inventory, stages, TITLE_WARM_GENERATION, wxPrepareCloudResources());
         captureTitleResizeRequest();
         if (entryPreparation.stale || TITLE_RESIZE_PENDING) { TITLE_FRAME_DIRTY = true; continue; }
         for (const [id, members] of stages) {
           await waitForTitleVisibility();
           titleAssertActive();
           if (GAME.started) return false;
-          if (id === 'post' || id === 'sky' || id === 'terrain') {
-            const preparation = id === 'terrain'
-              ? await prepareTitlePrograms(inventory, stages, TITLE_WARM_GENERATION)
-              : await prepareTitleDependencies(id, inventory, TITLE_WARM_GENERATION);
+          if (id === 'post' || id === 'sky') {
+            const preparation = await prepareTitleDependencies(id, inventory, TITLE_WARM_GENERATION);
             captureTitleResizeRequest();
             if (preparation.stale || TITLE_RESIZE_PENDING) { TITLE_FRAME_DIRTY = true; resized = true; break; }
           }

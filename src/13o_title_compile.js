@@ -229,6 +229,75 @@ async function prepareTitleDependencies(id, inventory, generation) {
 function prepareTitleEntryPrograms(inventory, generation, weatherResources) {
   return prepareTitleProgramJobs(inventory, [], generation, 'entry', weatherResources);
 }
+function prepareTitleInitialPrograms(inventory, stages, generation, weatherResources) {
+  return prepareTitleProgramJobs(inventory, stages, generation, 'initial', weatherResources);
+}
+
+function titleInitialSnapshot(job) {
+  const { object, material, geometry } = job, ancestry = [];
+  for (let node = object; node; node = node.parent) ancestry.push([node, node.parent, node.visible, node.layers.mask]);
+  job.version ??= material.version;
+  job.vertexShader ??= material.vertexShader; job.fragmentShader ??= material.fragmentShader;
+  job.side ??= material.side; job.transparent ??= material.transparent; job.forceSinglePass ??= material.forceSinglePass;
+  const fields = ['type', 'isShaderMaterial', 'isRawShaderMaterial', 'glslVersion', 'precision', 'vertexShader', 'fragmentShader',
+    'side', 'transparent', 'forceSinglePass', 'vertexColors', 'fog', 'lights', 'clipping', 'flatShading', 'sizeAttenuation',
+    'blending', 'alphaTest', 'alphaHash', 'premultipliedAlpha', 'dithering', 'toneMapped', 'combine', 'normalMapType',
+    'anisotropy', 'clearcoat', 'iridescence', 'sheen', 'transmission', 'depthPacking', 'index0AttributeName'];
+  const inputs = fields.map(key => [key, material[key]]);
+  const textures = ['map', 'matcap', 'envMap', 'aoMap', 'lightMap', 'bumpMap', 'normalMap', 'displacementMap', 'emissiveMap',
+    'metalnessMap', 'roughnessMap', 'anisotropyMap', 'clearcoatMap', 'clearcoatNormalMap', 'clearcoatRoughnessMap',
+    'iridescenceMap', 'iridescenceThicknessMap', 'sheenColorMap', 'sheenRoughnessMap', 'specularMap', 'specularColorMap',
+    'specularIntensityMap', 'transmissionMap', 'thicknessMap', 'gradientMap', 'alphaMap']
+    .map(key => [key, material[key], material[key]?.channel, material[key]?.mapping, material[key]?.image?.height]);
+  const entries = value => value == null ? value : Object.entries(value);
+  const defines = entries(material.defines), extensions = entries(material.extensions);
+  const sameEntries = (value, original) => original == null ? value === original : !!value
+    && Object.keys(value).length === original.length && Object.keys(value).every((key, index) => key === original[index][0] && value[key] === original[index][1]);
+  const objectInputs = ['isInstancedMesh', 'isBatchedMesh', 'isSkinnedMesh', 'isPoints', 'isSprite', 'instanceColor', 'frustumCulled', 'receiveShadow']
+    .map(key => [key, object[key]]);
+  const attributes = Object.entries(geometry.attributes).map(([key, attribute]) => [key, attribute, attribute.itemSize]);
+  const morphs = Object.entries(geometry.morphAttributes).map(([key, values]) => [key, values, values.length]);
+  const morphTargetsRelative = geometry.morphTargetsRelative, cameraLayers = job.camera.layers.mask;
+  const sceneInputs = ['overrideMaterial', 'fog', 'environment'].map(key => [key, job.targetScene[key]]);
+  return () => object.geometry === geometry && object.material === material && material.version === job.version
+    && titleCompileSupported(object, material) && material.visible !== false
+    && inputs.every(([key, value]) => material[key] === value) && sameEntries(material.defines, defines) && sameEntries(material.extensions, extensions)
+    && textures.every(([key, texture, channel, mapping, height]) => material[key] === texture
+      && texture?.channel === channel && texture?.mapping === mapping && texture?.image?.height === height)
+    && objectInputs.every(([key, value]) => object[key] === value) && job.camera.layers.mask === cameraLayers
+    && sceneInputs.every(([key, value]) => job.targetScene[key] === value)
+    && Object.keys(geometry.attributes).length === attributes.length
+    && attributes.every(([key, attribute, size]) => geometry.attributes[key] === attribute && attribute.itemSize === size)
+    && Object.keys(geometry.morphAttributes).length === morphs.length
+    && morphs.every(([key, values, length]) => geometry.morphAttributes[key] === values && values.length === length)
+    && geometry.morphTargetsRelative === morphTargetsRelative
+    && ancestry.every(([node, parent, visible, layers]) => node.parent === parent && node.visible === visible && node.layers.mask === layers);
+}
+
+function titleInitialOrder(jobs, receipt) {
+  const seen = new Map(), ordered = [];
+  for (const job of jobs) {
+    const peers = seen.get(job.object) || [];
+    const duplicate = peers.find(peer => peer.material === job.material && peer.geometry === job.geometry
+      && peer.target === job.target && peer.camera === job.camera && peer.targetScene === job.targetScene
+      && peer.version === job.version && peer.cost === job.cost && !!peer.postDependency === !!job.postDependency
+      && peer.side === job.side && peer.transparent === job.transparent && peer.forceSinglePass === job.forceSinglePass
+      && peer.vertexShader === job.vertexShader && peer.fragmentShader === job.fragmentShader);
+    if (duplicate) {
+      duplicate.entryPreparation ||= job.entryPreparation;
+      receipt.deduplicatedJobs++;
+      if (--receipt.families[job.family].jobs === 0) delete receipt.families[job.family];
+      continue;
+    }
+    peers.push(job); seen.set(job.object, peers);
+    ordered.push({ job, index: ordered.length, chars: (job.material.vertexShader?.length || 0) + (job.material.fragmentShader?.length || 0) });
+  }
+  // Experimental scheduling only: measured native stragglers have large
+  // original shaders. Reorder preparation, never draws or shader/cache inputs.
+  // The renderer remains the authority for actual program-cache identity.
+  ordered.sort((a, b) => b.chars - a.chars || a.index - b.index);
+  return ordered.map(row => row.job);
+}
 
 async function prepareTitleProgramJobs(inventory, stages, generation, dependencyId = null, weatherResources = null) {
   const started = performance.now();
@@ -239,7 +308,7 @@ async function prepareTitleProgramJobs(inventory, stages, generation, dependency
     inventoryMs: 0, inventoryObjects: 0, maxInventoryCheckMs: 0, slowestInventory: null,
     flushMs: 0, maxFlushMs: 0, pollMs: 0, maxPollMs: 0,
     errorCheckMs: 0, maxErrorCheckMs: 0, elapsedMs: 0, visibleMs: 0, hiddenMs: 0, disposed: 0, families: {},
-    waveLatency: [], droppedWaveLatency: 0 };
+    waveLatency: [], droppedWaveLatency: 0, queuePolicy: dependencyId === 'initial' ? 'combined-source-size' : 'staged', deduplicatedJobs: 0 };
   const history = GRAPHICS_STARTUP.titlePreparations ||= [];
   history.push(receipt);
   if (history.length > 8) history.shift();
@@ -249,7 +318,8 @@ async function prepareTitleProgramJobs(inventory, stages, generation, dependency
   const message = document.getElementById?.('loadmsg');
   if (message) message.textContent = 'Preparing the first view';
   const pending = new Map(), entryInitializers = [], initialTarget = sceneRT;
-  let timer = null, wake = null, lost = false, stale = false, avatarJob = null, dependencies = null;
+  let timer = null, wake = null, lost = false, stale = false, avatarJob = null, dependencies = null, mainSnapshots = null;
+  const materialJobs = new Map();
   let clockAt = started, visibleMs = 0, wasHidden = !!document.hidden;
   let waveLatency = null, wavePollAt = null;
   // Driver work may be throttled in a background tab. Spend deadlines only
@@ -304,6 +374,7 @@ async function prepareTitleProgramJobs(inventory, stages, generation, dependency
     if (TITLE_RESIZE_PENDING || resizeTimer || sceneRT !== initialTarget) invalidate('resize');
     if (avatarJob && (SHADOW.rt !== avatarJob.target || INDOOR.on)) invalidate('avatar-shadow');
     if (dependencies && !dependencies.current()) invalidate('dependencies');
+    if (mainSnapshots && !mainSnapshots.every(current => current())) invalidate('main-dependencies');
     if (TITLE_WARM_GENERATION !== generation || GAME.started) invalidate('generation');
   };
   const errors = () => {
@@ -336,10 +407,15 @@ async function prepareTitleProgramJobs(inventory, stages, generation, dependency
     active(); changed(); errors();
     const jobs = [], inventoryStarted = performance.now();
     try {
-      if (dependencyId) {
+      if (dependencyId && dependencyId !== 'initial') {
         dependencies = dependencyId === 'entry' ? titleEntryJobs(inventory, receipt, weatherResources) : titleDependencyJobs(dependencyId, inventory, receipt);
         jobs.push(...dependencies.jobs);
       } else {
+      if (dependencyId === 'initial') {
+        dependencies = titleEntryJobs(inventory, receipt, weatherResources);
+        for (const job of dependencies.jobs) { job.entryPreparation = true; jobs.push(job); }
+      }
+      const mainStart = jobs.length;
       const allowed = new Set(inventory.renderables), seen = new Set();
       const priority = id => id === 'terrain' ? 0 : id === 'structures' ? 1 : id === 'crowds-1' ? 2 : 3;
       const ordered = stages.map(([id, members], index) => ({ id, members, index }))
@@ -371,10 +447,16 @@ async function prepareTitleProgramJobs(inventory, stages, generation, dependency
       avatarJob = titleAvatarShadowJob();
       if (avatarJob) {
         const human = jobs.findIndex(job => job.family === 'crowds-1');
-        jobs.splice(human < 0 ? 0 : human, 0, avatarJob);
+        jobs.splice(human < 0 ? mainStart : human, 0, avatarJob);
         receipt.families['avatar-shadow'] = { jobs: 1, prepared: 0, programs: 0 };
       }
+      if (dependencyId === 'initial') mainSnapshots = jobs.slice(mainStart).map(titleInitialSnapshot);
       }
+      for (const job of jobs) {
+        const peers = materialJobs.get(job.material) || [];
+        peers.push(job); materialJobs.set(job.material, peers);
+      }
+      if (dependencyId === 'initial') jobs.splice(0, jobs.length, ...titleInitialOrder(jobs, receipt));
     } finally {
       receipt.inventoryMs = performance.now() - inventoryStarted;
     }
@@ -418,7 +500,7 @@ async function prepareTitleProgramJobs(inventory, stages, generation, dependency
               waveLatency.completedPrograms++;
               if (job.observation) { job.observation.observedReadyMs = observedAt; job.observation.outcome = 'linked'; }
             }
-            if (dependencyId === 'entry' && !stale) entryInitializers.push({ program, handle: program.program, family: job.family });
+            if (job.entryReflection && !stale) entryInitializers.push({ program, handle: program.program, family: job.family });
             pending.delete(program);
           }
         }
@@ -509,7 +591,9 @@ async function prepareTitleProgramJobs(inventory, stages, generation, dependency
             } finally {
               job.material.side = side;
               if (job.postDependency) job.object.material = originalMaterial;
-              if (compiled && job.dependency) job.version = job.material.version;
+              if (compiled && (job.dependency || dependencyId === 'initial')) {
+                for (const peer of materialJobs.get(job.material)) peer.version = job.material.version;
+              }
               // A failed r160 compile can leave its render-state stack dirty.
               // Restore CPU values only, then fail without retrying that renderer.
               gpuDiagRestoreRenderer(saved, compiled && !lost);
@@ -534,7 +618,8 @@ async function prepareTitleProgramJobs(inventory, stages, generation, dependency
               vertexChars: job.material.vertexShader?.length || 0, fragmentChars: job.material.fragmentShader?.length || 0,
               queuedMs: performance.now() - started - waveLatency.startMs, observedReadyMs: null, outcome: 'pending' };
             waveLatency.programs.push(observation);
-            pending.set(program, { queuedVisibleMs, family: job.family, observation });
+            pending.set(program, { queuedVisibleMs, family: job.family, observation,
+              entryReflection: dependencyId === 'entry' || !!job.entryPreparation });
           }
           wavePrograms += added.length;
           waveLatency.preparedJobs++; waveLatency.newPrograms += added.length;

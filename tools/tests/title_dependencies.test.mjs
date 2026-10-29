@@ -60,7 +60,7 @@ function fixture({ level = 'medium', safe = false, supported = true, readyDelay 
     if (failure === 'compile') throw Error('controlled compile failure');
     const parameters = cache.getParameters(material, lights, [], targetScene, object), key = cache.getProgramCacheKey(parameters);
     if (!known.has(key)) {
-      const program = { id: programs.length, cacheKey: key, parameters, program: {}, readyAt: now + readyDelay,
+      const program = { id: programs.length, cacheKey: key, parameters, program: {}, readyAt: now + (typeof readyDelay === 'function' ? readyDelay(material, object) : readyDelay),
         isReady() { assert(!lost); return now >= this.readyAt; },
         getUniforms() {
           assert(!lost); assert(programs.every(value => !value.program || now >= value.readyAt), 'reflection never synchronizes pending shader work');
@@ -647,4 +647,143 @@ test('the pinned r160 original initializer retains validation and fills both cac
   assert.equal(calls.length, count); assert.equal(ctx.original.getUniforms(), uniforms);
   assert.deepEqual(calls.slice(0, 4), ['program log', 'shader log', 'shader log', 1]);
   assert.equal(calls.filter(value => value === 'delete shader').length, 2); assert(calls.includes(2) && calls.includes(3));
+});
+
+function initialFixture(options={}) {
+  const f=entryFixture(options),stages=[['post',new Set()],['sky',new Set([f.r.skyMesh])],['terrain',new Set(f.sources)]];
+  return Object.assign(f,{stages,runInitial:()=>f.ctx.prepareTitleInitialPrograms(f.inventory,stages,f.ctx.TITLE_WARM_GENERATION,f.resources)});
+}
+
+test('combined initial preparation sorts original jobs in one shared capped queue and preserves exact program identities',async()=>{
+  const f=initialFixture({shadows:11,readyDelay:50}),before=f.state();
+  const counts=f.sources.map(object=>object.geometry.instanceCount),parents=f.sources.map(object=>object.parent);
+  const receipt=await f.finish(f.runInitial());
+  assert.equal(receipt.completed,true);assert.equal(receipt.dependency,'initial');assert.equal(receipt.queuePolicy,'combined-source-size');
+  assert.equal(receipt.eligibleJobs,25);assert.equal(receipt.preparedJobs,25);assert(receipt.maxPending<=4);
+  const sizes=f.calls.map(call=>call.material.vertexShader.length+call.material.fragmentShader.length);
+  assert(sizes.every((size,index)=>index===0||size<=sizes[index-1]),'stable descending original shader size');
+  assert(f.errorChecks.every(value=>value===0));assert.deepEqual(f.state(),before);
+  assert.deepEqual(f.sources.map(object=>object.geometry.instanceCount),counts);assert.deepEqual(f.sources.map(object=>object.parent),parents);
+  const programs=new Map(f.known),count=f.programs.length;
+  const entryAgain=await f.finish(f.runEntry());assert.equal(entryAgain.newPrograms,0);
+  await f.finish(f.ctx.prepareTitlePrograms(f.inventory,f.stages,f.ctx.TITLE_WARM_GENERATION));assert.equal(f.programs.length,count);
+  for(const [key,program]of programs)assert.equal(f.known.get(key),program);
+  assert.equal(f.randomCalls(),0);assert.equal(f.preflightCalls(),0);f.clean();
+});
+
+test('combined exact-tuple dedup removes the repeated avatar shadow without merging different objects or render targets',async()=>{
+  const f=initialFixture({shadows:3,readyDelay:50});
+  f.ctx.crowdHuman.mesh=f.sources[0];f.ctx.DEPTH_FS=f.proxies[0].material.fragmentShader;
+  const receipt=await f.finish(f.runInitial());
+  assert.equal(receipt.deduplicatedJobs,1);assert.equal(receipt.families['avatar-shadow'],undefined);
+  assert.equal(f.calls.filter(call=>call.object===f.proxies[0]).length,1);
+  assert.equal(f.calls.filter(call=>call.object===f.r.fsMesh).length,3,'all three distinct original weather passes remain');
+  for(const resource of f.resources)assert(f.calls.some(call=>call.material===resource.material&&call.target===resource.target));
+  assert.equal(receipt.eligibleJobs,9);f.clean();
+});
+
+for(const difference of ['none','object','material','geometry','target','camera','targetScene','version','cost','postDependency','side','transparent','forceSinglePass','vertexShader','fragmentShader'])
+test('initial scheduling deduplicates only an exact original job tuple: '+difference,()=>{
+  const f=initialFixture({shadows:1}),object=f.sources[0],material=object.material;
+  const first={family:'first',object,material,geometry:object.geometry,target:f.r.sceneRT,camera:f.camera,targetScene:f.scene,
+    version:material.version,cost:1,postDependency:false,side:material.side,transparent:material.transparent,
+    forceSinglePass:material.forceSinglePass,vertexShader:material.vertexShader,fragmentShader:material.fragmentShader};
+  const second={...first,family:'second',entryPreparation:true};
+  if(['object','material','geometry','target','camera','targetScene'].includes(difference))second[difference]={};
+  if(difference==='version'||difference==='cost'||difference==='side')second[difference]++;
+  if(['postDependency','transparent','forceSinglePass'].includes(difference))second[difference]=!second[difference];
+  if(difference==='vertexShader'||difference==='fragmentShader')second[difference]+='\n// distinct snapshot';
+  const receipt={families:{first:{jobs:1},second:{jobs:1}},deduplicatedJobs:0};
+  const jobs=f.ctx.titleInitialOrder([first,second],receipt);
+  assert.equal(jobs.length,difference==='none'?1:2);assert.equal(receipt.deduplicatedJobs,difference==='none'?1:0);
+  if(difference==='none'){assert.equal(jobs[0].entryPreparation,true);assert.equal(receipt.families.second,undefined);}
+  f.clean();
+});
+
+test('combined entry/core shared materials accept only their own compile version updates and retain double-sided variants',async()=>{
+  const f=effectFixture({readyDelay:50}),object=f.owner.mGl,material=object.material;
+  material.forceSinglePass=false;material.side=THREE.DoubleSide;
+  const stages=[['other',new Set([object])]],before=f.state();
+  const receipt=await f.finish(f.ctx.prepareTitleInitialPrograms(f.inventory,stages,f.ctx.TITLE_WARM_GENERATION,f.resources));
+  assert.equal(receipt.completed,true);assert.equal(receipt.deduplicatedJobs,1);assert.equal(receipt.families.other,undefined);
+  assert.deepEqual(f.calls.filter(call=>call.object===object).map(call=>call.side),[THREE.BackSide,THREE.FrontSide]);
+  assert.equal(material.side,THREE.DoubleSide);assert.equal(material.forceSinglePass,false);assert.deepEqual(f.state(),before);f.clean();
+});
+
+for(const change of ['main geometry','main material','main shader','main side','main version','main parent','main instanceColor',
+  'main visible','ancestor visible','main layers','ancestor layers','main frustum','main define value','main define add',
+  'main glslVersion','main toneMapped','main extensions','main attribute','main color size','main texture channel',
+  'main camera layers','main scene fog','main morphs','entry target'])
+test('combined preparation keeps both main and entry snapshots active and drains stale work: '+change,async()=>{
+  const f=initialFixture({shadows:3,readyDelay:50,compileMs:10});
+  const main=new THREE.Mesh(new THREE.BufferGeometry(),new THREE.ShaderMaterial());
+  const parent=new THREE.Group();f.scene.add(parent);parent.add(main);
+  main.material.defines={PROVEN:1};main.material.map=new THREE.Texture();
+  main.material.vertexColors=true;main.geometry.setAttribute('color',new THREE.BufferAttribute(new Float32Array(4),4));
+  f.inventory.renderables.push(main);f.stages.push(['other',new Set([main])]);
+  const promise=f.runInitial();await f.flush();const submitted=f.compileCalls.length;
+  if(change==='main geometry')main.geometry=new THREE.BufferGeometry();
+  if(change==='main material')main.material=new THREE.ShaderMaterial();
+  if(change==='main shader')main.material.vertexShader+='\n// changed';
+  if(change==='main side')main.material.side=THREE.DoubleSide;
+  if(change==='main version')main.material.needsUpdate=true;
+  if(change==='main parent'){const parent=new THREE.Group();f.scene.add(parent);parent.add(main);}
+  if(change==='main instanceColor')main.instanceColor=new THREE.InstancedBufferAttribute(new Float32Array(3),3);
+  if(change==='main visible')main.visible=false;
+  if(change==='ancestor visible')parent.visible=false;
+  if(change==='main layers')main.layers.set(3);
+  if(change==='ancestor layers')parent.layers.set(3);
+  if(change==='main frustum')main.frustumCulled=!main.frustumCulled;
+  if(change==='main define value')main.material.defines.PROVEN=2;
+  if(change==='main define add')main.material.defines.EXTRA=1;
+  if(change==='main glslVersion')main.material.glslVersion=THREE.GLSL3;
+  if(change==='main toneMapped')main.material.toneMapped=!main.material.toneMapped;
+  if(change==='main extensions')main.material.extensions.derivatives=true;
+  if(change==='main attribute')main.geometry.setAttribute('uv1',new THREE.BufferAttribute(new Float32Array(2),2));
+  if(change==='main color size')main.geometry.attributes.color.itemSize=3;
+  if(change==='main texture channel')main.material.map.channel=2;
+  if(change==='main camera layers')f.camera.layers.set(3);
+  if(change==='main scene fog')f.scene.fog=new THREE.Fog(0xffffff,1,100);
+  if(change==='main morphs')main.geometry.morphAttributes.position=[new THREE.BufferAttribute(new Float32Array(3),3)];
+  if(change==='entry target')f.weather.dome=new THREE.WebGLRenderTarget();
+  const receipt=await f.finish(promise);
+  assert.equal(receipt.stale,true);assert.equal(receipt.completed,false);assert.equal(f.compileCalls.length,submitted);
+  assert.equal(f.reflections.length,0);assert(f.errorChecks.every(value=>value===0));f.clean();
+});
+
+test('combined queue keeps renderer cache variants distinct even with identical source/material/geometry inputs',async()=>{
+  const f=initialFixture({shadows:0,readyDelay:50}),material=new THREE.ShaderMaterial(),geometry=new THREE.BufferGeometry();
+  const plain=new THREE.Mesh(geometry,material),instanced=new THREE.InstancedMesh(geometry,material,1);
+  instanced.instanceColor=new THREE.InstancedBufferAttribute(new Float32Array(3),3);
+  f.scene.add(plain,instanced);f.inventory.renderables.push(plain,instanced);f.stages.push(['other',new Set([plain,instanced])]);
+  const receipt=await f.finish(f.runInitial());assert.equal(receipt.deduplicatedJobs,0);
+  const rows=receipt.waveLatency.flatMap(wave=>wave.programs).filter(row=>row.objectId===plain.id||row.objectId===instanced.id);
+  assert.equal(rows.length,2);assert.notEqual(rows[0].programId,rows[1].programId);assert(receipt.maxPending<=4);f.clean();
+});
+
+test('combined queue overlaps known expensive synthetic programs without increasing concurrency or omitting work',async()=>{
+  function costs(){
+    const f=initialFixture({shadows:1,readyDelay:material=>material.vertexShader.length>100000?1000:10});
+    f.proxies[0].material.vertexShader+='\n/*'+'x'.repeat(150000)+'*/';
+    const others=[];
+    for(const size of[200000,180000,160000]){
+      const material=new THREE.ShaderMaterial({vertexShader:'void main(){gl_Position=vec4(position,1.0);}\n/*'+'x'.repeat(size)+'*/'});
+      const object=new THREE.Mesh(new THREE.BufferGeometry(),material);f.scene.add(object);f.inventory.renderables.push(object);others.push(object);
+    }
+    f.stages.push(['other',new Set(others)]);return f;
+  }
+  const serial=costs(),entry=await serial.finish(serial.runEntry());
+  const core=await serial.finish(serial.ctx.prepareTitlePrograms(serial.inventory,serial.stages,serial.ctx.TITLE_WARM_GENERATION));
+  const combined=costs(),receipt=await combined.finish(combined.runInitial());
+  assert(receipt.elapsedMs<(entry.elapsedMs+core.elapsedMs)*.7,'one shared wave overlaps the four expensive fixtures');
+  assert.equal(receipt.newPrograms,entry.newPrograms+core.newPrograms);assert.equal(receipt.preparedJobs,entry.preparedJobs+core.preparedJobs);
+  assert.equal(receipt.maxPending,4);assert(receipt.maxPreparesPerTurn<=4);assert(combined.errorChecks.every(value=>value===0));
+  serial.clean();combined.clean();
+});
+
+test('combined queue failures still reject before another wave and never claim readiness',async()=>{
+  const f=initialFixture({shadows:7,readyDelay:50}),promise=f.runInitial();await f.flush();
+  const submitted=f.compileCalls.length;f.errors.push(['0x0502']);const rejected=assert.rejects(promise,/GL errors/);
+  await f.timer(60);await rejected;assert.equal(f.compileCalls.length,submitted);
+  assert.equal(f.ctx.GRAPHICS_STARTUP.titlePreparations[0].completed,false);assert.equal(f.ctx.GRAPHICS_STARTUP.titleCompleted,undefined);f.clean();
 });

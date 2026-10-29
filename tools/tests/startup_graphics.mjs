@@ -486,10 +486,11 @@ function titleFixture({autoPaint=false}={}) {
 }
 const titleStages=['post','sky','terrain','grass','flowers','trees','water','structures','crowds','other'];
 
-test('entry program completion precedes real title stages and cannot replace their fences',async()=>{
+test('combined initial program completion precedes real title stages and cannot replace their fences',async()=>{
   const f=titleFixture();let finish;
-  f.ctx.prepareTitleEntryPrograms=(inventory,generation,resources)=>{
+  f.ctx.prepareTitleInitialPrograms=(inventory,stages,generation,resources)=>{
     assert.equal(inventory,f.inventory);assert.equal(generation,1);assert.equal(resources.length,0);
+    assert.deepEqual(Array.from(stages,([id])=>id),titleStages);
     return new Promise(resolve=>{finish=resolve;});
   };
   const pending=f.run();await f.flush();
@@ -499,17 +500,17 @@ test('entry program completion precedes real title stages and cannot replace the
   await f.finish(pending);assert.deepEqual(f.fences.map(x=>x.stage),[...titleStages,'combined']);f.restored();
 });
 
-test('stale entry preparation replans before any title draw and does not claim readiness',async()=>{
+test('stale initial preparation replans before any title draw and does not claim readiness',async()=>{
   const f=titleFixture();let calls=0;
-  f.ctx.prepareTitleEntryPrograms=async()=>({stale:++calls===1,completed:calls!==1});
+  f.ctx.prepareTitleInitialPrograms=async()=>({stale:++calls===1,completed:calls!==1});
   await f.finish(f.run());
   assert.equal(calls,2);assert.deepEqual(f.fences.map(x=>x.stage),[...titleStages,'combined']);
   assert.equal(f.ctx.GRAPHICS_STARTUP.titleCompleted,1);f.restored();
 });
 
-test('entry preparation failure stops startup before any title draw',async()=>{
-  const f=titleFixture();f.ctx.prepareTitleEntryPrograms=async()=>{throw Error('controlled entry preparation failure');};
-  await assert.rejects(f.run(),/controlled entry preparation failure/);assert.equal(f.fences.length,0);
+test('initial preparation failure stops startup before any title draw',async()=>{
+  const f=titleFixture();f.ctx.prepareTitleInitialPrograms=async()=>{throw Error('controlled initial preparation failure');};
+  await assert.rejects(f.run(),/controlled initial preparation failure/);assert.equal(f.fences.length,0);
   assert.equal(f.ctx.GRAPHICS_STARTUP.titleCompleted,0);assert(f.events.includes('failure'));f.restored();
 });
 
@@ -720,11 +721,11 @@ test('a stale early dependency replans before drawing and preserves the original
   assert.deepEqual(dependencies,[['post',1],['sky',1],['post',2],['sky',2]]);
   assert.deepEqual(f.fences.map(x=>x.stage),['post',...titleStages,'combined']);f.restored();
 });
-test('a rejected final program-queue GL check stops the actual staged title before terrain or readiness',async()=>{
+test('a rejected final combined program-queue GL check stops the actual staged title before any draw or readiness',async()=>{
   const f=titleFixture();
-  f.ctx.prepareTitlePrograms=async()=>{throw Error('GL errors while preparing title programs: final queue error');};
+  f.ctx.prepareTitleInitialPrograms=async()=>{throw Error('GL errors while preparing title programs: final queue error');};
   await assert.rejects(f.finish(f.run()),/final queue error/);
-  assert.deepEqual(f.fences.map(receipt=>receipt.stage),['post','sky']);
+  assert.deepEqual(f.fences.map(receipt=>receipt.stage),[]);
   assert.equal(f.ctx.GRAPHICS_STARTUP.titleCompleted,0);assert.equal(f.ctx.GRAPHICS_STARTUP.stopped,true);
   assert.equal(f.ctx.GAME.ready,false);assert.equal(f.ctx.GAME.started,false);assert.equal(f.ctx.window.__hm.ready,false);
   const before=[...f.events];assert.equal(await f.run(),false);
