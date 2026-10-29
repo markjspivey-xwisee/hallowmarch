@@ -33,6 +33,106 @@ function declarations(file, names) {
   }).join('\n');
 }
 
+// A CPU-only view/dispatch fixture for the actual prologue renderer and actions.
+// It models only the DOM calls those functions use; it does not start the game.
+function prologueActions({ touch = false, replay = false } = {}) {
+  const nodes = new Map(), keys = [], effects = { saves: 0, notes: [], sounds: [], input: 0 };
+  let c;
+  const make = () => ({ hidden: true, listeners: {}, buttons: [], markup: '',
+    set innerHTML(value) {
+      this.markup = value;
+      this.buttons = [...value.matchAll(/<button\b([^>]*)>([\s\S]*?)<\/button>/g)].map(match => {
+        const action = /data-pro="([^"]+)"/.exec(match[1])?.[1];
+        const button = { dataset: { pro: action }, textContent: match[2].replace(/<[^>]*>/g, ''),
+          primary: /class="[^"]*\bprimary\b/.test(match[1]),
+          focus() { c.document.activeElement = button; },
+          closest(selector) { return selector === 'button[data-pro]' || selector === '#lore-pro button' ? button : null; } };
+        return button;
+      });
+    },
+    get innerHTML() { return this.markup; },
+    addEventListener(type, listener) { this.listeners[type] = listener; },
+    querySelector(selector) {
+      if (selector === '[data-pro="next"]') return this.buttons.find(button => button.dataset.pro === 'next');
+      assert.equal(selector, '.text');
+      return { scrollHeight: 100, scrollTop: 0, clientHeight: 100,
+        classList: { toggle() {} }, addEventListener() {} };
+    } });
+  const progress = { level: 1, xp: 0, rp: 0, lore: { done: [], seen: [], pro: 0 } };
+  c = vm.createContext({ UI: { modal: null }, LORE: { pro: null }, GAME: { player: { faction: 0, cls: 'warrior' }, prog: progress },
+    INPUT: { keys: new Set(), joy: null }, IS_TOUCH: touch,
+    $: id => nodes.get(id), hideJoystick() {}, closeMenu() { c.UI.modal = null; },
+    prologuePages: () => Array.from({ length: 5 }, (_, i) => ({ k: 'Page ' + (i + 1), t: 'Title ' + (i + 1), art: 'road', p: ['Text'] })),
+    loreArt: () => '<svg></svg>', saveSoon: () => { effects.saves++; }, loreNote: id => effects.notes.push(id),
+    sfx: id => effects.sounds.push(id), requestAnimationFrame: fn => { fn(); return 1; },
+    netHumanInput: () => { effects.input++; },
+    document: { activeElement: null, createElement: make, body: { appendChild(node) { nodes.set(node.id, node); } } },
+    window: { addEventListener(type, listener) { assert.equal(type, 'keydown'); keys.push(listener); } } });
+  vm.runInContext(declarations('10c_lore.js', ['openPrologue', 'renderPrologue', 'prologueGo', 'closePrologue']), c);
+  const source = readFileSync(new URL('../../src/10c_lore.js', import.meta.url), 'utf8');
+  const start = source.indexOf("window.addEventListener('keydown'", source.indexOf("// the prologue's keys come first"));
+  const end = source.indexOf('\n}, true);', start) + '\n}, true);'.length;
+  vm.runInContext(source.slice(start, end), c);
+  assert.equal(c.openPrologue(replay), true);
+  const overlay = () => nodes.get('lore-pro');
+  const click = action => {
+    const button = overlay().buttons.find(button => button.dataset.pro === action);
+    assert.ok(button, 'Visible action ' + action);
+    overlay().listeners.click({ target: button });
+  };
+  return { c, effects, progress, overlay, click,
+    key(code) { keys[0]({ code, preventDefault() {}, stopPropagation() {} }); },
+    view(index) { c.LORE.pro.i = index; c.renderPrologue(); return overlay().buttons; } };
+}
+
+for (const replay of [false, true]) for (const touch of [false, true]) {
+  test(`prologue has one final exit while earlier skipping and navigation remain, replay=${replay}, touch=${touch}`, () => {
+    const f = prologueActions({ replay, touch });
+    for (const index of [0, 2, 4]) {
+      const buttons = f.view(index), last = index === 4;
+      const skip = buttons.filter(button => button.dataset.pro === 'skip');
+      assert.equal(skip.length, last ? 0 : 1, 'Final page must omit the redundant header exit from its markup');
+      if (!last) assert.equal(skip[0].textContent, replay ? 'Close' : 'Skip the prologue');
+      assert.equal(buttons.filter(button => button.primary).length, 1);
+      const next = buttons.find(button => button.dataset.pro === 'next');
+      assert.equal(next.textContent, last ? replay ? 'Return to the march' : 'Begin' : 'Next');
+      assert.equal(buttons.filter(button => /^\d$/.test(button.dataset.pro)).length, 5, 'All page destinations remain');
+      assert.equal(buttons.filter(button => button.dataset.pro === 'back').length, index > 0 ? 1 : 0);
+      assert.match(f.overlay().innerHTML, /role="dialog" aria-modal="true" aria-labelledby="lore-pro-t" aria-describedby="lore-pro-x"/);
+      if (!touch) assert.equal(f.c.document.activeElement, next, 'Desktop focus stays on the primary action');
+    }
+    f.click('back');
+    assert.equal(f.c.LORE.pro.i, 3);
+    assert.equal(f.overlay().buttons.find(button => button.dataset.pro === 'skip').textContent, replay ? 'Close' : 'Skip the prologue');
+    f.click('0');
+    assert.equal(f.c.LORE.pro.i, 0);
+    assert.equal(f.effects.saves, 0, 'Reading, dots and Back do not dismiss or save');
+    assert.deepEqual(f.effects.notes, []);
+  });
+}
+
+for (const replay of [false, true]) test(`final primary exit preserves earlier Skip/Close and Escape side effects, replay=${replay}`, () => {
+  const snapshots = [];
+  for (const action of ['earlier-skip', 'final-primary', 'final-escape']) {
+    const f = prologueActions({ replay });
+    if (action !== 'earlier-skip') f.view(4);
+    if (action === 'final-escape') f.key('Escape');
+    else f.click(action === 'earlier-skip' ? 'skip' : 'next');
+    assert.equal(f.c.UI.modal, null);
+    assert.equal(f.c.LORE.pro, null);
+    assert.equal(f.overlay().hidden, true);
+    assert.equal(f.overlay().innerHTML, '');
+    assert.equal(f.effects.saves, 1);
+    assert.deepEqual(f.effects.notes, replay ? [] : ['start']);
+    assert.deepEqual(f.effects.sounds, [], 'Final advance returns through close before page-turn audio');
+    assert.equal(f.effects.input, action === 'final-escape' ? 1 : 0, 'Existing key input forwarding is unchanged');
+    snapshots.push(JSON.parse(JSON.stringify(f.progress)));
+  }
+  assert.deepEqual(snapshots[0], snapshots[1]);
+  assert.deepEqual(snapshots[1], snapshots[2]);
+  assert.deepEqual(snapshots[0], { level: 1, xp: 0, rp: 0, lore: { done: [], seen: [], pro: 1 } }, 'Only the original prologue-seen fact changes');
+});
+
 function guidance() {
   const c = vm.createContext({
     CAMPS: [], REALMS: [{ id: 0 }], MOB_PLURAL: { wolf: 'wolves', bandit: 'outlaws' },

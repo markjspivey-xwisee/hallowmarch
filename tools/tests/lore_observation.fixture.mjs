@@ -7,7 +7,7 @@ const playerSource=read('09_player.js');
 const keydown=parse(playerSource,{ecmaVersion:'latest'}).body.find(n=>n.type==='ExpressionStatement'&&n.expression.callee?.object?.name==='window'&&n.expression.callee?.property?.name==='addEventListener'&&n.expression.arguments[0]?.value==='keydown').expression.arguments[1];
 const code=pick('09_player.js',['currentInteraction','playerInteract','bountyCampInfo','chooseBounty','typing','gameplayKeyIgnored','gameplayControlKey'])+'\n'
  +pick('10e_guide.js',['guideCampResidents'])+'\n'+pick('10_ui.js',['bindHUD','dialogReturnFocus','openHerald','closeDialog'])+'\n'
- +pick('10c_lore.js',['LORE_OBSERVATIONS','loreObservationScope','loreObservationCurrent','loreObservationEvidence','loreObserve','PATH_STEPS','PATH_BY_ID','pathDone','pathPay','pathComplete','loreWatch','loreFinishNote','loreUpdateNote','updateLore'])+'\n'
+ +pick('10c_lore.js',['LORE_OBSERVATIONS','loreObservationScope','loreObservationCurrent','loreObservationEvidence','loreObserve','PATH_STEPS','PATH_BY_ID','pathDone','pathPay','pathComplete','loreLowHpRelevant','loreWatch','loreFinishNote','loreUpdateNote','updateLore'])+'\n'
  +pick('14m_liveplay.js',['NET_HUMAN_PLAY_MS','NET_HUMAN_START_MS','NET_HUMAN_PLAY','netHumanEligible','netHumanLive','netHumanInput','netHumanSync'])
  +'\nglobalThis.keydown='+playerSource.slice(keydown.start,keydown.end)+';';
 // CPU stand-in exercises actual dispatch/lease code; browser trust is verified by
