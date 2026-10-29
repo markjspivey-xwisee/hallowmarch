@@ -16,7 +16,7 @@
     },
     {
       "path": "src/08h_animals.js",
-      "digest": "sha256:fcacc13a2f64cd76ada9ad64c818dc0b03a0c5d9982b352dbd69d5c1742ba78e"
+      "digest": "sha256:7c25b4cad50c5a114b9b84cbef717eca1cc228b64442351b53d113bb29eee24b"
     },
     {
       "path": "src/08k_war3.js",
@@ -284,11 +284,11 @@
       ],
       "source": {
         "path": "src/08h_animals.js",
-        "digest": "sha256:fcacc13a2f64cd76ada9ad64c818dc0b03a0c5d9982b352dbd69d5c1742ba78e",
+        "digest": "sha256:7c25b4cad50c5a114b9b84cbef717eca1cc228b64442351b53d113bb29eee24b",
         "selector": "FIELD_NOTES.breed",
         "lines": {
-          "start": 1567,
-          "end": 1567
+          "start": 1568,
+          "end": 1568
         }
       },
       "requiresContext": false,
@@ -301,7 +301,7 @@
         "note": "breed",
         "availability": "Collected in the game when relevant"
       },
-      "revisionDigest": "sha256:35565acd974a6d96c388b8ecb34f8b3476d12a2ca21963d4328301d8b14bada4"
+      "revisionDigest": "sha256:540f93fc816f22dcc6406c48634c0882ad401ee234734411703aa949344efff4"
     },
     {
       "id": "field-note:burning",
@@ -2136,11 +2136,11 @@
       ],
       "source": {
         "path": "src/08h_animals.js",
-        "digest": "sha256:fcacc13a2f64cd76ada9ad64c818dc0b03a0c5d9982b352dbd69d5c1742ba78e",
+        "digest": "sha256:7c25b4cad50c5a114b9b84cbef717eca1cc228b64442351b53d113bb29eee24b",
         "selector": "FIELD_NOTES.pen",
         "lines": {
-          "start": 1566,
-          "end": 1566
+          "start": 1567,
+          "end": 1567
         }
       },
       "requiresContext": false,
@@ -2153,7 +2153,7 @@
         "note": "pen",
         "availability": "Collected in the game when relevant"
       },
-      "revisionDigest": "sha256:6920a41c770cb880d6fc476b5ceded0f5fd5583d323554b5da2e2bdaa5e0ce26"
+      "revisionDigest": "sha256:34727c4cf7afec3277871cebb4b3f5c99f1a33da89f2e12886745263a70082d9"
     },
     {
       "id": "field-note:pets",
@@ -2166,11 +2166,11 @@
       ],
       "source": {
         "path": "src/08h_animals.js",
-        "digest": "sha256:fcacc13a2f64cd76ada9ad64c818dc0b03a0c5d9982b352dbd69d5c1742ba78e",
+        "digest": "sha256:7c25b4cad50c5a114b9b84cbef717eca1cc228b64442351b53d113bb29eee24b",
         "selector": "FIELD_NOTES.pets",
         "lines": {
-          "start": 1564,
-          "end": 1564
+          "start": 1565,
+          "end": 1565
         }
       },
       "requiresContext": false,
@@ -2183,7 +2183,7 @@
         "note": "pets",
         "availability": "Collected in the game when relevant"
       },
-      "revisionDigest": "sha256:6eef426e94124ba6832c364c9cc45bfc920d7eb58a183531b73b2015a2a4010f"
+      "revisionDigest": "sha256:cd46e1e1aee807e78eb803a129f78b784fcd055beb940f61f64cff81decf2cbe"
     },
     {
       "id": "field-note:presses",
@@ -2580,11 +2580,11 @@
       ],
       "source": {
         "path": "src/08h_animals.js",
-        "digest": "sha256:fcacc13a2f64cd76ada9ad64c818dc0b03a0c5d9982b352dbd69d5c1742ba78e",
+        "digest": "sha256:7c25b4cad50c5a114b9b84cbef717eca1cc228b64442351b53d113bb29eee24b",
         "selector": "FIELD_NOTES.stock",
         "lines": {
-          "start": 1565,
-          "end": 1565
+          "start": 1566,
+          "end": 1566
         }
       },
       "requiresContext": false,
@@ -2597,7 +2597,7 @@
         "note": "stock",
         "availability": "Collected in the game when relevant"
       },
-      "revisionDigest": "sha256:da45aede92ff98d01daa709a419bdec65f3e31666482509bf41b782fa941646a"
+      "revisionDigest": "sha256:48bdf6d039004fd4508c710dc8aad80d775b6ad92ca02430f97d26047b3480b1"
     },
     {
       "id": "field-note:stones",
@@ -2699,11 +2699,11 @@
       ],
       "source": {
         "path": "src/08h_animals.js",
-        "digest": "sha256:fcacc13a2f64cd76ada9ad64c818dc0b03a0c5d9982b352dbd69d5c1742ba78e",
+        "digest": "sha256:7c25b4cad50c5a114b9b84cbef717eca1cc228b64442351b53d113bb29eee24b",
         "selector": "FIELD_NOTES.tame",
         "lines": {
-          "start": 1563,
-          "end": 1563
+          "start": 1564,
+          "end": 1564
         }
       },
       "requiresContext": false,
@@ -2716,7 +2716,7 @@
         "note": "tame",
         "availability": "Collected in the game when relevant"
       },
-      "revisionDigest": "sha256:657269a6156245a19dd0e87cabd3b3f231deaca886e6050934219aa6d39be05a"
+      "revisionDigest": "sha256:f420b36254779cb800f678b5c7b2936f4a9d456ecafd61bf0b37fc33352d9eb6"
     },
     {
       "id": "field-note:tower",
@@ -3093,5 +3093,5 @@
       "assessment": null
     }
   ],
-  "revisionDigest": "sha256:3fc0da523fae91c104c9a084d88f7dd3df3ec31be6aa28cd775b1dec38c2a648"
+  "revisionDigest": "sha256:829961e209d64a77986b0ca157fd6678e39b9c3e9ba9c040375f2ea5e0872012"
 }
