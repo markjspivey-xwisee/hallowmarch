@@ -367,6 +367,8 @@ function titleFixture({autoPaint=false}={}) {
     appendChild(child){nodes[child.id]=child;},
     remove(){delete nodes[this.id];}});
   nodes.title=element('title');nodes.loadmsg=element('loadmsg');
+  nodes['load-detail']=element('load-detail');nodes['load-detail'].hidden=true;
+  nodes['load-hint']=element('load-hint');nodes['load-hint'].hidden=true;
   let ctx;
   const direct=function(cam,scn,geo,material,object){
     events.push('direct:'+ctx.GRAPHICS_STARTUP.titleStage+':'+object.name);
@@ -452,7 +454,7 @@ function titleFixture({autoPaint=false}={}) {
   const resizeStart=main.indexOf('let resizeTimer = 0;'),resizeEnd=main.indexOf('\n\n',resizeStart);
   assert.ok(resizeStart>=0 && resizeEnd>resizeStart,'test installs the actual resize timer declaration and listener');
   vm.createContext(ctx);
-  vm.runInContext(titleCompile+'\n'+main.slice(resizeStart,resizeEnd)+'\n'+declarations+'\n'+['prepareTitleView','graphicsRenderRatio','applyGraphicsSize','resize','captureTitleResizeRequest','titleAssertActive','titleGraphicsBusy','submitTitleStage','renderTitleFrame','waitForTitleVisibility',
+  vm.runInContext(titleCompile+'\n'+main.slice(resizeStart,resizeEnd)+'\n'+declarations+'\n'+['prepareTitleView','graphicsRenderRatio','applyGraphicsSize','resize','captureTitleResizeRequest','titleAssertActive','titleGraphicsBusy','titleLoadingProgress','submitTitleStage','renderTitleFrame','waitForTitleVisibility',
     'renderFirstTitleFrame','tick','frame','startGame'].map(name=>extract(main,name)).join('\n'),ctx);
   const f={ctx,nodes,events,staticCalls,fences,paints,glErrors,sizeCalls,inventory,objects,hidden,postState,originalTrail,originalShaderError,direct,
     grassCenter,grassCamera,flowerCenter,flowerCamera,documentListeners,canvasListeners,windowListeners,resizeTimers,
@@ -485,6 +487,40 @@ function titleFixture({autoPaint=false}={}) {
   return f;
 }
 const titleStages=['post','sky','terrain','grass','flowers','trees','water','structures','crowds','other'];
+
+test('loading detail reports actual inventory steps without repeating the live phase or implying GPU completion',()=>{
+  const f=titleFixture();vm.runInContext('TITLE_WARM_GENERATION=1;titleGraphicsBusy(true);',f.ctx);
+  assert.equal(f.nodes['load-hint'].hidden,false);
+  let writes=0,text=f.nodes.loadmsg.textContent;
+  Object.defineProperty(f.nodes.loadmsg,'textContent',{get:()=>text,set:value=>{text=value;writes++;}});
+  const progress=state=>f.ctx.titleLoadingProgress({generation:1,...state});
+  progress({phase:'preparing',current:1,total:300});
+  assert.equal(f.nodes['load-detail'].textContent,'Preparation step 1 of 300');assert.equal(f.nodes['load-detail'].hidden,false);
+  progress({phase:'preparing',current:1,total:300});progress({phase:'preparing',current:5,total:300});
+  assert.equal(writes,0,'the existing live phase stays unchanged while the non-live detail advances');
+  assert.equal(f.nodes['load-detail'].textContent,'Preparation step 5 of 300');
+  progress({phase:'waiting',current:0,total:300});
+  assert.equal(writes,1);assert.equal(text,'Waiting for the view to finish preparing');
+  assert.equal(f.nodes['load-detail'].hidden,true);assert.equal(f.nodes['load-detail'].textContent,'');
+  assert.equal(f.ctx.GRAPHICS_STARTUP.titleCompleted,0);assert.equal(f.fences.length,0);
+});
+
+test('loading detail ignores stale generations and clears on Ready, play, failure and resize lifecycle cleanup',()=>{
+  const f=titleFixture(),progress=state=>f.ctx.titleLoadingProgress(state);
+  vm.runInContext('TITLE_WARM_GENERATION=1;',f.ctx);progress({generation:1,phase:'preparing',current:3,total:10});
+  vm.runInContext('TITLE_WARM_GENERATION=2;',f.ctx);progress({generation:2,phase:'preparing',current:1,total:12});
+  progress({generation:1,phase:'clear',current:0,total:0});progress({generation:1,phase:'preparing',current:8,total:10});
+  assert.equal(f.nodes['load-detail'].textContent,'Preparation step 1 of 12');
+  for(const field of ['ready','started']){
+    f.ctx.GAME[field]=true;progress({generation:2,phase:'preparing',current:2,total:12});
+    assert.equal(f.nodes['load-detail'].hidden,true);f.ctx.GAME[field]=false;
+    progress({generation:2,phase:'preparing',current:3,total:12});
+  }
+  vm.runInContext('titleGraphicsBusy(false);',f.ctx);
+  assert.equal(f.nodes['load-detail'].hidden,true);assert.equal(f.nodes['load-detail'].textContent,'');assert.equal(f.nodes['load-hint'].hidden,true);
+  f.ctx.GAME.ready=true;vm.runInContext('titleGraphicsBusy(true);',f.ctx);
+  assert.equal(f.nodes['load-hint'].hidden,true);assert.equal(f.nodes['load-detail'].hidden,true);
+});
 
 test('combined initial program completion precedes real title stages and cannot replace their fences',async()=>{
   const f=titleFixture();let finish;

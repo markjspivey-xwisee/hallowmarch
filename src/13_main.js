@@ -5,6 +5,7 @@ quality.auto = !BOOT_SAFE;
 GAME.ready = false;
 let TITLE_FRAME_PROMISE = null, TITLE_FRAME_DIRTY = false, TITLE_FRAME_FAILED = false;
 let TITLE_RESIZE_PENDING = false, TITLE_WARMED = false, TITLE_WARM_GENERATION = 0, TITLE_START_PROMISE = null;
+let TITLE_LOADING_GENERATION = 0;
 renderer.info.autoReset = false;
 const HM_ERRORS = [];
 function reportError(err) {
@@ -207,12 +208,20 @@ function titleAssertActive() {
 }
 function titleGraphicsBusy(active) {
   const loadingBar = document.getElementById('loadbar')?.parentElement;
-  const hint = document.getElementById('loadhint');
+  const hint = document.getElementById('load-hint');
   if (loadingBar && !GAME.ready) {
     loadingBar.setAttribute('aria-busy', String(active));
     if (active) loadingBar.removeAttribute('aria-valuenow');
   }
   if (hint) hint.hidden = !active || GAME.ready;
+  if (!active) {
+    const detail = document.getElementById('load-detail');
+    if (detail) { detail.hidden = true; detail.textContent = ''; }
+    TITLE_LOADING_GENERATION = 0;
+  } else if (!GAME.ready) {
+    const message = document.getElementById('loadmsg');
+    if (message && message.textContent !== 'Preparing graphics for your device') message.textContent = 'Preparing graphics for your device';
+  }
   const title = document.getElementById('title');
   if (!title) return;
   title.setAttribute('aria-busy', String(active));
@@ -224,6 +233,30 @@ function titleGraphicsBusy(active) {
     }
     status.textContent = 'Preparing the resized view. Please wait.';
   } else if (status) status.remove();
+}
+function titleLoadingProgress({ generation, phase, current, total }) {
+  const detail = document.getElementById('load-detail');
+  const clear = () => {
+    if (detail) {
+      if (!detail.hidden) detail.hidden = true;
+      if (detail.textContent) detail.textContent = '';
+    }
+    TITLE_LOADING_GENERATION = 0;
+  };
+  if (phase === 'clear') { if (generation === TITLE_LOADING_GENERATION) clear(); return; }
+  if (generation !== TITLE_WARM_GENERATION) return;
+  if (GAME.ready || GAME.started) { clear(); return; }
+  TITLE_LOADING_GENERATION = generation;
+  const admitting = phase === 'preparing';
+  const message = document.getElementById('loadmsg');
+  const text = admitting ? 'Preparing graphics for your device' : 'Waiting for the view to finish preparing';
+  if (message && message.textContent !== text) message.textContent = text;
+  if (detail) {
+    const count = admitting && Number.isInteger(current) && Number.isInteger(total) && current >= 1 && current <= total;
+    const text = count ? 'Preparation step ' + current + ' of ' + total : '';
+    if (detail.textContent !== text) detail.textContent = text;
+    if (detail.hidden === count) detail.hidden = !count;
+  }
 }
 // Submit only existing production resources. Unlike renderer.compile(), a
 // restricted render does not traverse invisible families and link their shaders.

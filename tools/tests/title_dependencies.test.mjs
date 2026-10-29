@@ -787,3 +787,29 @@ test('combined queue failures still reject before another wave and never claim r
   await f.timer(60);await rejected;assert.equal(f.compileCalls.length,submitted);
   assert.equal(f.ctx.GRAPHICS_STARTUP.titlePreparations[0].completed,false);assert.equal(f.ctx.GRAPHICS_STARTUP.titleCompleted,undefined);f.clean();
 });
+
+test('initial loading feedback advances only at changed bounded-turn boundaries and hides count while programs finish',async()=>{
+  const f=initialFixture({shadows:7,readyDelay:50}),events=[];
+  f.ctx.titleLoadingProgress=state=>events.push({...JSON.parse(JSON.stringify(state)),pending:f.programs.filter(program=>program.readyAt>f.ctx.performance.now()).length});
+  const receipt=await f.finish(f.runInitial());
+  assert.equal(events[0].phase,'preparing');assert.equal(events[0].current,1);assert.equal(events[0].total,receipt.eligibleJobs);
+  const waiting=events.find(event=>event.phase==='waiting');assert(waiting);assert.equal(waiting.current,0);assert(waiting.pending>0);
+  assert.equal(events.at(-1).phase,'clear');assert(events.length<=receipt.preparedJobs+3);
+  assert(events.every((event,index)=>!index||event.phase!==events[index-1].phase||event.current!==events[index-1].current||event.total!==events[index-1].total));
+  assert.equal(receipt.completed,true);f.clean();
+});
+
+test('stale initial feedback clears immediately and cannot republish the obsolete count while draining',async()=>{
+  const f=initialFixture({shadows:7,readyDelay:50,compileMs:10}),events=[];
+  f.ctx.titleLoadingProgress=state=>events.push(JSON.parse(JSON.stringify(state)));
+  const promise=f.runInitial();await f.flush();f.ctx.TITLE_WARM_GENERATION++;
+  const receipt=await f.finish(promise),clear=events.findIndex(event=>event.phase==='clear');
+  assert.equal(receipt.stale,true);assert(clear>=0);assert(events.slice(clear).every(event=>event.phase==='clear'));f.clean();
+});
+
+test('recovery and absent parallel compile never publish an initial inventory counter',async()=>{
+  for(const options of[{safe:true},{supported:false}]){
+    const f=initialFixture(options),events=[];f.ctx.titleLoadingProgress=state=>events.push(state);
+    const receipt=await f.runInitial();assert.equal(receipt.supported,false);assert.equal(events.length,0);f.clean();
+  }
+});

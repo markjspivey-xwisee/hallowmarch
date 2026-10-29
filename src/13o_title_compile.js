@@ -316,12 +316,22 @@ async function prepareTitleProgramJobs(inventory, stages, generation, dependency
   receipt.supported = true;
   GRAPHICS_STARTUP.titlePreparing = true;
   const message = document.getElementById?.('loadmsg');
-  if (message) message.textContent = 'Preparing the first view';
+  if (message && dependencyId !== 'initial' && message.textContent !== 'Preparing the first view') message.textContent = 'Preparing the first view';
   const pending = new Map(), entryInitializers = [], initialTarget = sceneRT;
   let timer = null, wake = null, lost = false, stale = false, avatarJob = null, dependencies = null, mainSnapshots = null;
   const materialJobs = new Map();
   let clockAt = started, visibleMs = 0, wasHidden = !!document.hidden;
   let waveLatency = null, wavePollAt = null;
+  let loadingProgressState = '';
+  const loadingProgress = (index, total, clear = false) => {
+    if (dependencyId !== 'initial' || typeof titleLoadingProgress !== 'function') return;
+    const phase = clear ? 'clear' : index < total ? 'preparing' : 'waiting';
+    const current = phase === 'preparing' ? Math.max(1, index) : 0;
+    const state = phase + ':' + current + ':' + total;
+    if (state === loadingProgressState) return;
+    titleLoadingProgress({ generation, phase, current, total });
+    loadingProgressState = state;
+  };
   // Driver work may be throttled in a background tab. Spend deadlines only
   // while visible; context loss and genuine GL/link failures remain fatal.
   const visibleElapsed = () => {
@@ -355,7 +365,7 @@ async function prepareTitleProgramJobs(inventory, stages, generation, dependency
     waveLatency.outcome = outcome;
     waveLatency = null; wavePollAt = null;
   };
-  const invalidate = reason => { stale = true; receipt.reason ||= reason; resume(); };
+  const invalidate = reason => { stale = true; receipt.reason ||= reason; loadingProgress(0, 0, true); resume(); };
   const resume = () => {
     if (timer !== null) clearTimeout(timer);
     timer = null;
@@ -363,7 +373,7 @@ async function prepareTitleProgramJobs(inventory, stages, generation, dependency
   };
   const hidden = () => { visibleElapsed(); if (document.hidden) invalidate('visibility'); else resume(); };
   const resized = () => invalidate('resize');
-  const contextLost = () => { lost = true; resume(); };
+  const contextLost = () => { lost = true; loadingProgress(0, 0, true); resume(); };
   const active = () => {
     if (lost) throw new Error('Graphics stopped while preparing title programs.');
     titleAssertActive();
@@ -462,6 +472,7 @@ async function prepareTitleProgramJobs(inventory, stages, generation, dependency
     }
     receipt.avatarShadowQueued = !!avatarJob;
     receipt.eligibleJobs = jobs.length;
+    if (!stale) loadingProgress(0, jobs.length);
     let index = 0, wavePrograms = 0, waveStarted = false, waveSealed = false;
     while (index < jobs.length || pending.size || entryInitializers.length || waveStarted) {
       const turnStarted = performance.now();
@@ -652,6 +663,7 @@ async function prepareTitleProgramJobs(inventory, stages, generation, dependency
           if (!pending.size) errors();
         }
         shouldPause = index < jobs.length || pending.size || entryInitializers.length;
+        if (!stale) loadingProgress(index, jobs.length);
       } finally {
         receipt.maxFullTurnMs = Math.max(receipt.maxFullTurnMs, performance.now() - turnStarted);
       }
@@ -669,6 +681,7 @@ async function prepareTitleProgramJobs(inventory, stages, generation, dependency
     };
     throw error;
   } finally {
+    loadingProgress(0, 0, true);
     finishWaveLatency(receipt.outcome === 'failed' ? 'failed' : receipt.stale ? 'stale' : 'drained');
     if (timer !== null) clearTimeout(timer);
     timer = null; wake = null;
