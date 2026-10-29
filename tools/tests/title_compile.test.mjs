@@ -33,7 +33,7 @@ function fixture({ safe = false, supported = true, count = 20, readyDelay = 25, 
   let now = 0, timerId = 0, currentTarget, lost = false, randomCalls = 0;
   const timers = new Map(), document = { hidden: false, ...target() }, window = target(), canvas = target();
   const scene = new THREE.Scene(), sceneRT = {}, originalTarget = currentTarget = {};
-  const calls = [], queries = [], programs = [], known = new Map(), restores = [], glErrors = [], flushes = [];
+  const calls = [], queries = [], programs = [], known = new Map(), restores = [], glErrors = [], flushes = [], errorChecks = [];
   const renderState = { init() {}, pushLight() {}, pushShadow() {}, setupLights() {} };
   const renderer = { info: { programs }, extensions: { has: () => supported }, _useLegacyLights: false,
     setRenderTarget(value) { assert(!lost); currentTarget = value; } };
@@ -51,7 +51,10 @@ function fixture({ safe = false, supported = true, count = 20, readyDelay = 25, 
     titleAssertActive() { if (ctx.GRAPHICS_CONTEXT_LOST || lost || ctx.GRAPHICS_STARTUP.stopped) throw Error('context lost or stopped'); },
     gpuDiagCaptureRenderer: () => ({ target: currentTarget }),
     gpuDiagRestoreRenderer(saved, restoreGl) { restores.push(restoreGl); if (restoreGl && !lost) currentTarget = saved.target; },
-    gpuDiagGlErrors: () => glErrors.shift() || [],
+    gpuDiagGlErrors: () => {
+      errorChecks.push({ calls: calls.length, pending: programs.filter(program => program.program && !ctx.forceComplete && now < program.readyAt).length });
+      return glErrors.shift() || [];
+    },
     gl: { LINK_STATUS: 35714, isContextLost: () => lost, flush() { assert(!lost); flushes.push(now); now += flushMs; if (failure === 'flushGL') glErrors.push(['0x0502']); },
       getProgramParameter(program) { assert(!lost); queries.push(program); return failure !== 'link'; } },
     renderStates: { get: () => renderState }, renderStateStack: [], currentRenderState: null, _this: renderer,
@@ -62,8 +65,7 @@ function fixture({ safe = false, supported = true, count = 20, readyDelay = 25, 
       if (failure === 'throw') throw Error('controlled compile failure');
       const key = material.id + ':' + material.side + ':' + !!object.isInstancedMesh + ':' + !!object.instanceColor;
       if (!known.has(key)) {
-        const readyAt = now + readyDelay;
-        const program = { id: programs.length, program: {}, isReady() { assert(!lost); return ctx.forceComplete || now >= readyAt; } };
+        const program = { id: programs.length, program: {}, readyAt: now + readyDelay, isReady() { assert(!lost); return ctx.forceComplete || now >= program.readyAt; } };
         known.set(key, program); programs.push(program);
       }
       return known.get(key);
@@ -103,7 +105,7 @@ function fixture({ safe = false, supported = true, count = 20, readyDelay = 25, 
   // Decoys make an accidental full material traversal observable. Stock light scanning is left intact.
   const shadowDecoy = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.ShaderMaterial()); SHADOW.scene.add(shadowDecoy);
   const hiddenShadowDecoy = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.ShaderMaterial()); hiddenShadowDecoy.visible=false; SHADOW.scene.add(hiddenShadowDecoy);
-  const f = { SHADOW, INDOOR, crowdHuman, avatarSource, avatarProxy, shadowDecoy, hiddenShadowDecoy, compileCalls, ctx, calls, queries, programs, timers, objects, all, hidden, offscreen, wrongLayer, child, array, hooked, cacheHook, inventory, stages, restores, glErrors, flushes,
+  const f = { SHADOW, INDOOR, crowdHuman, avatarSource, avatarProxy, shadowDecoy, hiddenShadowDecoy, compileCalls, ctx, calls, queries, programs, timers, objects, all, hidden, offscreen, wrongLayer, child, array, hooked, cacheHook, inventory, stages, restores, glErrors, flushes, errorChecks,
     run: () => ctx.prepareTitlePrograms(inventory, stages, ctx.TITLE_WARM_GENERATION),
     async flush() { for (let i = 0; i < 10; i++) await Promise.resolve(); },
     async timer(lateBy = 0) {
@@ -135,6 +137,8 @@ test('bounded preparation uses exact original leaves/flags and restores sides an
   assert.deepEqual(f.all.map(object => object.parent), parents); assert.deepEqual(f.objects.map(object => object.material.side), sides);
   assert.equal(f.currentTarget(), f.originalTarget); assert.equal(f.randomCalls(), 0);
   assert.equal(f.ctx.GRAPHICS_STARTUP.titlePreparations[0], receipt); assert.equal(f.ctx.GRAPHICS_STARTUP.titlePreparing, false); f.clean();
+  assert.equal(receipt.errorPolicy, 'queue-boundaries'); assert.equal(f.errorChecks.length, 2);
+  assert.deepEqual(f.errorChecks, [{ calls: 0, pending: 0 }, { calls: f.calls.length, pending: 0 }]);
 });
 test('recovery and absent parallel extension retain serial rendering without timers or preparation', async () => {
   for (const options of [{ safe: true }, { supported: false }]) {
@@ -273,17 +277,55 @@ test('completed failed links and GL errors fail closed without a completion rece
   const link = fixture({ failure: 'link' }), pending = link.run(); await assert.rejects(link.finish(pending), /failed to link/); link.clean();
   const gl = fixture(); gl.glErrors.push(['0x0502']); await assert.rejects(gl.run(), /GL errors/); assert.equal(gl.calls.length, 0); gl.clean();
 });
-test('a GL error while programs remain pending prevents another compile or flush', async () => {
+test('an unobserved GL error is recognized after the finite queue drains and cannot become a completed receipt', async () => {
   const f = fixture({ readyDelay: 100 }), promise = f.run(); await f.flush();
-  const submitted = f.calls.length, flushed = f.flushes.length;
+  const submitted = f.compileCalls.length;
   assert(submitted > 0 && f.timers.size === 1);
-  f.glErrors.push(['0x0502']); const rejected = assert.rejects(promise, /GL errors/);
-  await f.timer(); await rejected;
-  assert.equal(f.calls.length, submitted); assert.equal(f.flushes.length, flushed); f.clean();
+  f.glErrors.push(['0x0502']); await assert.rejects(f.finish(promise), /GL errors/);
+  const receipt = f.ctx.GRAPHICS_STARTUP.titlePreparations[0];
+  assert(f.compileCalls.length > submitted, 'sliding admission continues before the deferred error becomes known');
+  assert.equal(receipt.preparedJobs, receipt.eligibleJobs); assert.equal(receipt.completed, false); assert.equal(receipt.outcome, 'failed');
+  assert.equal(f.errorChecks.length, 2); assert(f.errorChecks.every(check => check.pending === 0));
+  const failedCalls = f.compileCalls.length; await f.flush(); assert.equal(f.compileCalls.length, failedCalls); f.clean();
 });
-test('a flush GL error stops before another turn or completion receipt', async () => {
-  const f = fixture({ failure: 'flushGL' }); await assert.rejects(f.run(), /GL errors/);
-  assert.equal(f.flushes.length, 1); assert.equal(f.ctx.GRAPHICS_STARTUP.titlePreparations[0].outcome, 'failed'); f.clean();
+test('a final GL error from a flush rejects after the last pending handle without a successful completion', async () => {
+  const f = fixture({ failure: 'flushGL' }); await assert.rejects(f.finish(f.run()), /GL errors/);
+  const receipt = f.ctx.GRAPHICS_STARTUP.titlePreparations[0];
+  assert(f.flushes.length > 1); assert.equal(receipt.preparedJobs, receipt.eligibleJobs); assert.equal(receipt.outcome, 'failed');
+  assert.equal(receipt.completed, false); assert.equal(f.ctx.GRAPHICS_STARTUP.titleCompleted, undefined);
+  assert.equal(f.errorChecks.length, 2); assert.equal(f.errorChecks.at(-1).pending, 0); f.clean();
+});
+
+test('sliding admission fills slots after partial completion without an in-flight GL error query', async () => {
+  const f = fixture({ readyDelay: 1000 }), promise = f.run(); await f.flush(); await f.timer();
+  assert.equal(f.programs.length, 8); const submitted = f.compileCalls.length;
+  f.programs[0].readyAt = 0; f.programs[1].readyAt = 0; await f.timer();
+  assert(f.compileCalls.length > submitted); assert.equal(f.errorChecks.length, 1);
+  const receipt = await f.finish(promise); assert.equal(receipt.completed, true); assert(receipt.maxPending <= 8);
+  assert(receipt.maxPreparesPerTurn <= 4); assert.equal(f.errorChecks.length, 2); f.clean();
+});
+test('a stale drained view still checks queued GL errors before allowing a replan', async () => {
+  const f = fixture({ readyDelay: 100 }), promise = f.run(); await f.flush(); const submitted = f.compileCalls.length;
+  f.glErrors.push(['0x0502']); f.ctx.TITLE_RESIZE_PENDING = true; f.ctx.window.emit('resize');
+  await assert.rejects(f.finish(promise), /GL errors/); const receipt = f.ctx.GRAPHICS_STARTUP.titlePreparations[0];
+  assert.equal(f.compileCalls.length, submitted); assert.equal(receipt.outcome, 'failed'); assert.equal(receipt.stale, false); f.clean();
+});
+test('cached-only finite jobs retain a final GL error check before completion', async () => {
+  const f = fixture({ count: 1 }); await f.finish(f.run()); const compile = f.ctx.renderer.compile, before = f.errorChecks.length;
+  f.ctx.renderer.compile = function(...args) { const result = compile.apply(this, args); f.glErrors.push(['0x0502']); return result; };
+  await assert.rejects(f.run(), /GL errors/); const receipt = f.ctx.GRAPHICS_STARTUP.titlePreparations.at(-1);
+  assert.equal(receipt.newPrograms, 0); assert.equal(receipt.completed, false); assert.equal(f.errorChecks.length, before + 2); f.clean();
+});
+test('completed failed links are still rejected before other pending programs or deferred GL checks', async () => {
+  const f = fixture({ readyDelay: 1000, failure: 'link' }), promise = f.run(); await f.flush();
+  const submitted = f.compileCalls.length; f.programs[0].readyAt = 0;
+  const rejected = assert.rejects(promise, /failed to link/); await f.timer(); await rejected;
+  assert.equal(f.compileCalls.length, submitted); assert.equal(f.queries.length, 1); assert.equal(f.errorChecks.length, 1); f.clean();
+});
+test('context loss during a flush is fatal before another admission, completion query or timer', async () => {
+  const f = fixture(); f.ctx.gl.flush = () => f.lose();
+  await assert.rejects(f.run(), /Graphics stopped/);
+  assert.equal(f.queries.length, 0); assert.equal(f.errorChecks.length, 1); assert(f.compileCalls.length <= 4); f.clean();
 });
 test('compile exceptions restore material side and perform no further GL restoration or retry', async () => {
   const f = fixture({ failure: 'throw' }); await assert.rejects(f.run(), /controlled compile failure/);

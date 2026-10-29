@@ -658,6 +658,17 @@ test('pre-draw and post-fence GL errors never become successful warmup or combin
     assert.equal(f.ctx.GRAPHICS_STARTUP.stopped,true);assert.equal(f.ctx.GRAPHICS_STARTUP.titleFailure.stage,'post');f.restored();
   }
 });
+test('a rejected final program-queue GL check stops the actual staged title before terrain or readiness',async()=>{
+  const f=titleFixture();
+  f.ctx.prepareTitlePrograms=async()=>{throw Error('GL errors while preparing title programs: final queue error');};
+  await assert.rejects(f.finish(f.run()),/final queue error/);
+  assert.deepEqual(f.fences.map(receipt=>receipt.stage),['post','sky']);
+  assert.equal(f.ctx.GRAPHICS_STARTUP.titleCompleted,0);assert.equal(f.ctx.GRAPHICS_STARTUP.stopped,true);
+  assert.equal(f.ctx.GAME.ready,false);assert.equal(f.ctx.GAME.started,false);assert.equal(f.ctx.window.__hm.ready,false);
+  const before=[...f.events];assert.equal(await f.run(),false);
+  vm.runInContext('startGame({});tick(0.1);frame(1000);resize();',f.ctx);
+  assert.deepEqual(f.events,before);f.restored();
+});
 function allowPlayerCreation(f) {
   const created=[];f.ctx.GAME.prog={level:1,rp:0};f.ctx.INPUT={keys:new Set()};
   f.ctx.$=id=>f.nodes[id];f.ctx.CLASSES={warrior:{name:'Warrior'}};

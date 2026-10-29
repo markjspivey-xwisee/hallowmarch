@@ -1,5 +1,7 @@
 /* Prepare only this title's required shader programs. Actual draws and GPU
    fences remain the readiness gate; compilation completion is not a frame. */
+// Experiment: observe GL errors at the finite queue's initial/final boundaries.
+// Context loss and completed failed links still stop admission immediately.
 const TITLE_COMPILE_LIMITS = Object.freeze({ pending: 8, perTurn: 4, turnMs: 8, pollMs: 10, programMs: 90000, totalMs: 180000 });
 
 function titleCompileEligible(object) {
@@ -34,7 +36,7 @@ function titleAvatarShadowJob() {
 
 async function prepareTitlePrograms(inventory, stages, generation) {
   const started = performance.now();
-  const receipt = { generation, supported: false, outcome: 'serial', completed: false, stale: false,
+  const receipt = { generation, errorPolicy: 'queue-boundaries', supported: false, outcome: 'serial', completed: false, stale: false,
     eligibleJobs: 0, preparedJobs: 0, skipped: 0, newPrograms: 0, maxPending: 0, maxPreparesPerTurn: 0,
     prepareMs: 0, maxSinglePrepareMs: 0, slowestPrepare: null, maxFullTurnMs: 0, budgetYields: 0,
     inventoryMs: 0, inventoryObjects: 0, maxInventoryCheckMs: 0, slowestInventory: null,
@@ -171,15 +173,13 @@ async function prepareTitlePrograms(inventory, stages, generation) {
         active(); changed();
         const visibleNow = visibleElapsed();
         for (const job of pending.values()) if (visibleNow - job.queuedVisibleMs >= TITLE_COMPILE_LIMITS.programMs) throw new Error('Title program preparation timed out.');
-        if (!pending.size) {
-          errors();
-          if (stale) { receipt.outcome = 'stale'; receipt.stale = true; return receipt; }
-          if (index === jobs.length) break;
-        }
+        if (!pending.size && (stale || index === jobs.length)) break;
         if (visibleNow >= TITLE_COMPILE_LIMITS.totalMs) throw new Error('Title program preparation exceeded its time budget.');
         let prepared = 0;
-        // Keep real GL error checks, including while an earlier program is pending.
-        if (!stale && index < jobs.length && pending.size + jobs[index].cost <= TITLE_COMPILE_LIMITS.pending) errors();
+        // Keep the sliding window full without a synchronous error query while
+        // compiling. An unobserved GL error may therefore be recognized only
+        // after this finite queue drains; the final check must precede success
+        // or stale replanning, and every real draw/fence keeps its own checks.
         while (!stale && index < jobs.length && prepared < TITLE_COMPILE_LIMITS.perTurn) {
           const job = jobs[index];
           if (pending.size + job.cost > TITLE_COMPILE_LIMITS.pending) break;
@@ -228,7 +228,7 @@ async function prepareTitlePrograms(inventory, stages, generation) {
           active(); const flushStarted = performance.now(); gl.flush();
           const flushed = performance.now() - flushStarted;
           receipt.flushMs += flushed; receipt.maxFlushMs = Math.max(receipt.maxFlushMs, flushed);
-          errors();
+          active();
         }
         shouldPause = index < jobs.length || pending.size;
       } finally {
