@@ -178,22 +178,23 @@ async function nativePanelKey(page,key,condition,moves=true){
 
 // Deterministic CPU proof of the actual observer using the captured CI facts.
 // These stub records test event ordering, not browser isTrusted provenance.
-function verifyNativeKeyFactOrdering(){
-  const fixture=()=>{
+function nativeKeyFactFixture(downPatch={},focused=true,expected='PageDown',downStamp=105869.1000000001){
     const surface=()=>{const handlers=new Map();return {handlers,
       addEventListener(type,fn){if(!handlers.has(type))handlers.set(type,new Set());handlers.get(type).add(fn);},
       removeEventListener(type,fn){handlers.get(type)?.delete(fn);}};};
     const node=Object.assign(surface(),{scrollTop:0,clientHeight:500,scrollHeight:3000,isConnected:true});
     const document=Object.assign(surface(),{activeElement:node,getElementById:()=>node,querySelector:()=>null});
+    if(!focused)document.activeElement={};
     const window={},microtasks=[];let clock=0;
     new Function('window','document','performance','queueMicrotask',panelScroll)(window,document,{now:()=>clock},fn=>microtasks.push(fn));
-    const emit=(target,type,stamp)=>{clock+=1;for(const fn of target.handlers.get(type)||[])fn({type,timeStamp:stamp,
-      isTrusted:true,key:'PageDown',target:node,defaultPrevented:false});while(microtasks.length)microtasks.shift()();};
-    const api=window.__menuPanelScrollQA;api.startKey('PageDown');emit(document,'keydown',105869.1000000001);
-    return {node,api,emit:(type,stamp)=>emit(node,type,stamp)};
-  };
+    const emit=(target,type,stamp,patch={})=>{clock+=1;for(const fn of target.handlers.get(type)||[])fn({type,timeStamp:stamp,
+      isTrusted:true,key:expected,target:node,defaultPrevented:false,...patch});while(microtasks.length)microtasks.shift()();};
+    const api=window.__menuPanelScrollQA;api.startKey(expected);emit(document,'keydown',downStamp,downPatch);
+    return {node,document,api,emit:(type,stamp,patch)=>emit(node,type,stamp,patch)};
+}
+function verifyNativeKeyFactOrdering(){
   for(const order of [['scrollend','scroll'],['scroll','scrollend']]){
-    const h=fixture();h.node.scrollTop=534;
+    const h=nativeKeyFactFixture();h.node.scrollTop=534;
     h.emit(order[0],106103.30000000005);assert.equal(h.api.keyComplete(true),false,'both actual movement and end facts are required');
     h.emit(order[1],106103.30000000005);assert.equal(h.api.keyComplete(true),true,'equal native timestamps are independent of delivery order');
     assert.equal(h.api.keyReceipt().lastMovementStamp,106103.30000000005);
@@ -206,6 +207,57 @@ function verifyNativeKeyFactOrdering(){
   }
 }
 test('native keyboard scroll facts accept equal timestamps independently of delivery order',verifyNativeKeyFactOrdering);
+
+function verifyNativeKeyFinalPosition(){
+  // Replay the exact CI87 End receipt, including the browser's0.1ms creation
+  // skew. These CPU events prove observer logic, never browser trust itself.
+  const end=nativeKeyFactFixture({},true,'End',103264.29999999993);
+  for(const [top,stamp]of [[1860,103335.99999999988],[2632,103353.20000000007]]){
+    end.node.scrollTop=top;end.emit('scroll',stamp);
+  }
+  end.node.scrollTop=4086;end.emit('scrollend',103520.90000000002);
+  assert.equal(end.api.keyComplete(true),false,'the trailing actual movement receipt remains required');
+  end.emit('scroll',103520.99999999988);
+  assert.equal(end.api.keyComplete(true),true,'native end binds the same final position despite creation-time skew');
+  assert.equal(end.api.keyReceipt().endTop,4086);
+  end.node.scrollTop=4000;end.emit('scroll',103522);
+  assert.equal(end.api.keyComplete(true),false,'a different actual position permanently invalidates that end');
+  assert.equal(end.api.keyReceipt().endStamp,null);
+  end.node.scrollTop=4086;end.emit('scroll',103523);
+  end.emit('scrollend',103520.90000000002);
+  assert.equal(end.api.keyComplete(true),false,'returning to the old position cannot revive an older end');
+  end.emit('scrollend',103524);assert.equal(end.api.keyComplete(true),true,'a fresh valid native end can complete the new movement');
+  end.node.scrollTop=4000;
+  assert.equal(end.api.keyComplete(true),false,'a polled position change also invalidates completion before notification');
+  end.node.scrollTop=4086;
+  assert.equal(end.api.keyComplete(true),false,'a polled different position cannot later revive the old receipt');
+  end.emit('scrollend',103524);
+  assert.equal(end.api.keyComplete(true),false,'the cleared end watermark rejects replay after a polled move and return');
+  end.emit('scrollend',103525);assert.equal(end.api.keyComplete(true),true,'a strictly newer genuine end is required after invalidation');
+}
+test('native keyboard end binds the final position and rejects later different movement',verifyNativeKeyFinalPosition);
+
+function verifyNativeKeyReceiptBoundaries(){
+  for(const [patch,focused]of [[{isTrusted:false},true],[{target:{}},true],[{defaultPrevented:true},true],[{},false]]){
+    const h=nativeKeyFactFixture(patch,focused);h.node.scrollTop=534;
+    h.emit('scroll',106103);h.emit('scrollend',106104);
+    assert.equal(h.api.keyComplete(true),false,'synthetic, foreign, prevented or unfocused down cannot own scrolling');
+  }
+  const still=nativeKeyFactFixture();still.emit('scroll',106103);still.emit('scrollend',106104);
+  assert.equal(still.api.keyComplete(true),false,'a native end without movement is insufficient');
+  still.node.scrollTop=534;still.emit('scroll',106105);
+  assert.equal(still.api.keyComplete(true),false,'an old no-movement end cannot complete later motion');
+  for(const type of ['scroll','scrollend']){
+    const h=nativeKeyFactFixture();h.node.scrollTop=534;
+    h.emit('scroll',106103,{isTrusted:type!=='scroll'});
+    h.emit('scrollend',106104,{isTrusted:type!=='scrollend'});
+    assert.equal(h.api.keyComplete(true),false,'both real native movement and end facts are required');
+  }
+  const detached=nativeKeyFactFixture();detached.node.scrollTop=534;
+  detached.emit('scroll',106103);detached.emit('scrollend',106104);detached.node.isConnected=false;
+  assert.equal(detached.api.keyComplete(true),false,'a detached reading panel cannot complete');
+}
+test('native keyboard final-position facts retain ownership and genuine movement boundaries',verifyNativeKeyReceiptBoundaries);
 
 test('fixture reset accepts a true no-op without inventing a scrollend',async t=>{
   const page=await scrollFixture(t),receipt=await resetPanel(page);

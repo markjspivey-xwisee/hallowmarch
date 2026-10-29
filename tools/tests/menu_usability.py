@@ -161,7 +161,7 @@ window.__menuPanelScrollQA=(()=>{
   const clean=record=>{if(record)for(const [node,type,fn]of record.listeners)node.removeEventListener(type,fn);};
   const listen=(record,node,type,fn,options)=>{node.addEventListener(type,fn,options);record.listeners.push([node,type,fn]);};
   const receipt=record=>record?{kind:record.kind,initial:record.initial,written:record.written,lastTop:record.lastTop,
-    stableAt:record.stableAt,scrolls:record.scrolls,ends:record.ends,down:record.down,released:record.released,invalid:record.invalid,moved:record.moved,ended:record.ended,endStamp:record.endStamp,lastMovementStamp:record.lastMovementStamp,
+    stableAt:record.stableAt,scrolls:record.scrolls,ends:record.ends,down:record.down,released:record.released,invalid:record.invalid,moved:record.moved,ended:record.ended,endStamp:record.endStamp,endTop:record.endTop,invalidEndStamp:record.invalidEndStamp,lastMovementStamp:record.lastMovementStamp,
     events:record.events,connected:record.node.isConnected,samePanel:record.node===panel(),top:record.node.scrollTop,
     height:record.node.clientHeight,total:record.node.scrollHeight,focus:document.activeElement?.id,
     tab:document.querySelector('#menu-tabs [aria-selected="true"]')?.dataset.tab}:null;
@@ -186,9 +186,9 @@ window.__menuPanelScrollQA=(()=>{
   function startKey(expected){
     clean(fixture);clean(key);clean(touch);touch=null;
     const node=panel();
-    key={kind:'key',node,listeners:[],initial:node.scrollTop,lastTop:node.scrollTop,scrolls:0,ends:0,events:[],down:null,moved:false,ended:false,endStamp:null,lastMovementStamp:null};
+    key={kind:'key',node,listeners:[],initial:node.scrollTop,lastTop:node.scrollTop,scrolls:0,ends:0,events:[],down:null,moved:false,ended:false,endStamp:null,endTop:null,invalidEndStamp:null,lastMovementStamp:null};
     const record=key;
-    const reconcile=()=>{record.ended=record.moved&&record.endStamp!==null&&record.endStamp>=record.lastMovementStamp;};
+    const reconcile=()=>{record.ended=record.moved&&record.endStamp!==null&&record.endTop===record.lastTop;};
     listen(record,document,'keydown',e=>{
       if(e.key!==expected)return;
       event(record,'keydown',e);
@@ -199,15 +199,24 @@ window.__menuPanelScrollQA=(()=>{
     });
     listen(record,node,'scroll',e=>{
       record.scrolls++;event(record,'scroll',e);
-      if(record.down&&e.isTrusted&&e.timeStamp>=record.down.stamp&&node.scrollTop!==record.lastTop){
-        record.moved=true;record.lastTop=node.scrollTop;
-        record.lastMovementStamp=Math.max(record.lastMovementStamp??-Infinity,e.timeStamp);reconcile();
+      if(record.down&&e.isTrusted&&e.timeStamp>=record.down.stamp){
+        // A trailing native scroll notification can be created just after its
+        // end at the same final position. Bind completion to that observed
+        // position; any different position invalidates the prior end forever.
+        if(record.endStamp!==null&&node.scrollTop!==record.endTop)clearKeyEnd(record);
+        if(node.scrollTop!==record.lastTop){
+          record.moved=true;record.lastTop=node.scrollTop;
+          record.lastMovementStamp=Math.max(record.lastMovementStamp??-Infinity,e.timeStamp);
+        }
+        reconcile();
       }
     });
     listen(record,node,'scrollend',e=>{
       record.ends++;event(record,'scrollend',e);
-      if(record.down&&e.isTrusted&&e.timeStamp>=record.down.stamp){
-        record.endStamp=Math.max(record.endStamp??-Infinity,e.timeStamp);reconcile();
+      if(record.down&&e.isTrusted&&e.timeStamp>=record.down.stamp
+        &&(record.lastMovementStamp===null||e.timeStamp>=record.lastMovementStamp)
+        &&(record.invalidEndStamp===null||e.timeStamp>record.invalidEndStamp)){
+        record.endStamp=e.timeStamp;record.endTop=node.scrollTop;reconcile();
       }
     });
     return receipt(record);
@@ -252,8 +261,15 @@ window.__menuPanelScrollQA=(()=>{
     if(record.lastTop!==top){record.lastTop=top;record.stableAt=now;return false;}
     return !!(record.down&&record.released!==null&&!record.invalid&&record.moved&&now-record.stableAt>=200);
   }
-  const keyComplete=moves=>!!(key?.node===panel()&&key.node.isConnected&&key.down&&key.down.prevented===false
-    &&(!moves||(key.moved&&key.ended)));
+  const clearKeyEnd=record=>{
+    record.invalidEndStamp=Math.max(record.invalidEndStamp??-Infinity,record.endStamp);
+    record.endStamp=record.endTop=null;record.ended=false;
+  };
+  const keyComplete=moves=>{
+    if(key&&key.endStamp!==null&&key.node.scrollTop!==key.endTop)clearKeyEnd(key);
+    return !!(key?.node===panel()&&key.node.isConnected&&key.down&&key.down.prevented===false
+      &&(!moves||(key.moved&&key.ended)));
+  };
   const finish=kind=>{const record=kind==='fixture'?fixture:kind==='touch'?touch:key;const value=receipt(record);clean(record);return value;};
   return{reset,settled,startKey,keyComplete,startTouch,touchSettled,finish,fixtureReceipt:()=>receipt(fixture),keyReceipt:()=>receipt(key),touchReceipt:()=>receipt(touch)};
 })();
