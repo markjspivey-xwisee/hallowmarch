@@ -1155,8 +1155,12 @@ function buildHeroTree() {
 /* Assemble all structures                                             */
 /* ------------------------------------------------------------------ */
 const SITE_MESHES = [];
-function buildStructures() {
+// Synchronous tools retain the same API; boot yields only between complete sites.
+// eslint-disable-next-line no-unused-vars -- Retain the synchronous construction API.
+function buildStructures() { return worldBuildDrain(buildStructuresChunks()); }
+function* buildStructuresChunks() {
   scene.add(bannerMesh);
+  yield 'buildStructures';
   for (const R of REALMS) {
     const st = STYLE[R.style];
     for (const S of R.keepSites) {
@@ -1165,28 +1169,34 @@ function buildStructures() {
       if (S.houses) { buildHouses(S, st, R); keepHallPoles(b, S, st, R, banners); } // [building] the great hall and its banner poles (04k_hall.js)
       const m = new THREE.Mesh(b.build(), buildingMat); m.renderOrder = 1; scene.add(m); SITE_MESHES.push(m); CASTLE_KEEP_MESH.set(S, m); // castles: breaches cut this mesh (04g_castles.js)
       for (const sp of banners) addBanner(S, sp, R.id);
+      yield 'buildStructures';
     }
     {
       const S = R.templeSite, b = new Batch();
       const banners = templeModel(b, S, st, R);
       const m = new THREE.Mesh(b.build(), buildingMat); m.renderOrder = 1; scene.add(m); SITE_MESHES.push(m); TEMPLE_MESH.set(S, m); // [siege3] a timber hallow's ring burns (04g_blaze.js)
       for (const sp of banners) addBanner(S, sp, R.id);
+      yield 'buildStructures';
     }
     {
       const S = R.musterSite, b = new Batch();
       const banners = musterModel(b, S, st, R);
       const m = new THREE.Mesh(b.build(), buildingMat); m.renderOrder = 1; scene.add(m); SITE_MESHES.push(m);
       for (const sp of banners) addBanner(S, sp, R.id);
+      yield 'buildStructures';
     }
     {
       const S = R.town, b = new Batch();
       const banners = townModel(b, S, st, R);
       const m = new THREE.Mesh(b.build(), buildingMat); m.renderOrder = 1; scene.add(m); SITE_MESHES.push(m);
       for (const sp of banners) addBanner(S, sp, R.id);
+      yield 'buildStructures';
     }
   }
   BUILDING_DEPTH = BUILDING_DEPTH || depthFrom(buildingMat);
   for (const m of SITE_MESHES) shadowCaster(m, BUILDING_DEPTH);
-  buildCastles(); // castles: hinged gates, stairs, wall walks, parapets, breaches (04g_castles.js)
+  yield 'buildStructures';
+  yield* buildCastlesChunks(); // castles: hinged gates, stairs, wall walks, parapets, breaches (04g_castles.js)
+  yield 'buildStructures';
   buildFireProps();
 }

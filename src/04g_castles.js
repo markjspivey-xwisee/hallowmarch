@@ -557,7 +557,10 @@ function updateGate(G0, dt) {
 /* ------------------------------------------------------------------ */
 /* assembly                                                            */
 /* ------------------------------------------------------------------ */
-function buildCastles() {
+// Each castle is complete before yielding: shared batch scratch state never spans work turns.
+// eslint-disable-next-line no-unused-vars -- Retain the synchronous construction API.
+function buildCastles() { return worldBuildDrain(buildCastlesChunks()); }
+function* buildCastlesChunks() {
   BUILDING_DEPTH = BUILDING_DEPTH || depthFrom(buildingMat);
   for (const R of REALMS) {
     for (const S of [...R.keepSites, R.templeSite]) {
@@ -593,18 +596,23 @@ function buildCastles() {
       setGatePose(C.gate);
       CASTLE_OF.set(S, C);
       CASTLES.push(C);
+      yield 'buildCastles';
     }
   }
   // the rune circles of the towns and musters are a hand of stone above the ground: people stand on them
   for (const R of REALMS) for (const S of [R.town, R.musterSite]) addFloorDisc(S.x, S.z, 2.6, S.y + 0.25, S.y - 1.2, 'dais');
   // stair treads and the temple dais come down to the ground: no blades grow up through them
-  for (const C of CASTLES) for (const f of C.floors) {
-    if (Math.min(f.ya, f.yb) - heightAt(f.x, f.z) > 1.2) continue; // walks, landings, tower tops and decks stand clear
-    if (f.type === 'disc') clearCoverDisc(f.x, f.z, f.r);
-    else clearCoverBox(f.x, f.z, f.hx, f.hz, Math.atan2(f.sin, f.cos));
+  for (const C of CASTLES) {
+    for (const f of C.floors) {
+      if (Math.min(f.ya, f.yb) - heightAt(f.x, f.z) > 1.2) continue; // walks, landings, tower tops and decks stand clear
+      if (f.type === 'disc') clearCoverDisc(f.x, f.z, f.r);
+      else clearCoverBox(f.x, f.z, f.hx, f.hz, Math.atan2(f.sin, f.cos));
+    }
+    yield 'buildCastles';
   }
   refreshGroundCover();
   buildTowers(); // [land] the towers' doors and hatch lids, one moving mesh a keep (04l_towers.js)
+  yield 'buildCastles';
   if (window.__hm) Object.assign(window.__hm.fn, { castleOf, floorAt, floorSolidAt, castleRoute, castleWaypoint, elevatedEnt, setGatePose, fillGarrison, siteWorld, siteToWorld, stepTo, castleSiegeHit, castleBreach, castleRepairDone, updateBreaches, CASTLE_PATCHED });
   // behind a function, so a test that hands __hm back to Playwright does not try to serialise every castle
   if (window.__hm) window.__hm.fn.castles = () => CASTLES;
