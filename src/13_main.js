@@ -341,6 +341,69 @@ document.addEventListener('visibilitychange', () => {
   if (!document.hidden && GAME.ready && !GAME.started) void renderTitleFrame().catch(reportError);
 });
 const BOOT_STEPS = []; // [perf2] every step's time, the first too (13x_perf2.js)
+const BOOT_WORK_BUDGET_MS = 8;
+function* bootSequence(tasks) {
+  for (const task of tasks) {
+    const work = task();
+    if (work && typeof work.next === 'function') { yield* work; yield; }
+    else yield work;
+  }
+}
+async function runBootWork(fn, receipt) {
+  if (!fn) { receipt.completed = true; return; }
+  let sliceAt = performance.now();
+  const firstAt = sliceAt;
+  let work;
+  try { work = fn(); }
+  finally {
+    receipt.workMs += performance.now() - sliceAt;
+    receipt.maxChunkMs = receipt.maxSliceMs = receipt.workMs;
+    receipt.chunks++;
+  }
+  if (!work || typeof work.next !== 'function') {
+    // An asynchronous step's wait is not synchronous main-thread work.
+    await work;
+    receipt.completed = true;
+    return;
+  }
+  receipt.chunked = true;
+  if (performance.now() - sliceAt >= BOOT_WORK_BUDGET_MS) {
+    receipt.yields++;
+    await nextPaint();
+    graphicsAssertActive();
+    sliceAt = performance.now();
+  }
+  for (;;) {
+    graphicsAssertActive();
+    const at = performance.now();
+    let step;
+    try { step = work.next(); }
+    finally {
+      const ms = performance.now() - at;
+      receipt.workMs += ms; receipt.maxChunkMs = Math.max(receipt.maxChunkMs, ms); receipt.chunks++;
+      receipt.maxSliceMs = Math.max(receipt.maxSliceMs, performance.now() - sliceAt);
+    }
+    let sliceMs = performance.now() - sliceAt;
+    receipt.maxSliceMs = Math.max(receipt.maxSliceMs, sliceMs);
+    if (step.done) { receipt.completed = true; break; }
+    if (step.value && typeof step.value.then === 'function') {
+      const waitAt = performance.now();
+      await step.value;
+      // Preserve the accumulated synchronous slice across an async subtask,
+      // while excluding time during which this task did not occupy the thread.
+      sliceAt += performance.now() - waitAt;
+      graphicsAssertActive();
+      sliceMs = performance.now() - sliceAt;
+    }
+    if (sliceMs >= BOOT_WORK_BUDGET_MS) {
+      receipt.yields++;
+      await nextPaint();
+      graphicsAssertActive();
+      sliceAt = performance.now();
+    }
+  }
+  receipt.elapsedMs = performance.now() - firstAt;
+}
 async function loadStep(frac, msg, fn) {
   graphicsAssertActive();
   if (msg) graphicsCheckpoint(msg);
@@ -349,20 +412,25 @@ async function loadStep(frac, msg, fn) {
   await nextPaint();
   graphicsAssertActive();
   const t = performance.now(); // [perf2]
-  if (fn) await fn();
+  const receipt = { stage: msg || '', chunked: false, completed: false, chunks: 0, yields: 0,
+    workMs: 0, maxChunkMs: 0, maxSliceMs: 0, elapsedMs: 0 };
+  const history = GRAPHICS_STARTUP.bootWork ||= [];
+  history.push(receipt); if (history.length > 16) history.shift();
+  try { await runBootWork(fn, receipt); }
+  finally { receipt.elapsedMs = performance.now() - t; }
   graphicsAssertActive();
   BOOT_STEPS.push([msg || '', +(performance.now() - t).toFixed(1), +t.toFixed(0), performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) : null]); // [perf2] (the JS heap as the step ends: its garbage still in it)
 }
 async function boot() {
   const savePromise = loadSave().catch(() => null);
-  await loadStep(0.03, 'Raising the hills', () => buildWorld(7));
-  await loadStep(0.2, 'Shaping the land', () => { uploadWorldTextures(); buildTerrain(); buildWater(); });
-  await loadStep(0.34, 'Planting the forests', () => { buildTrees(); buildNearTrees(); buildRocks(); buildHeroTree(); buildCrags(); }); // [land] buildCrags (03c_land.js)
-  await loadStep(0.48, 'Raising the keeps', () => { buildStructures(); buildBarrowSurface(); buildSurvival(); buildBoats(); }); // [survival] plants, workstations (before the grass reads the cover map); [water2] jetties and boats (07e_boats.js)
+  await loadStep(0.03, 'Raising the hills', () => buildWorldChunks(7));
+  await loadStep(0.2, 'Shaping the land', () => bootSequence([uploadWorldTextures, buildTerrain, buildWater]));
+  await loadStep(0.34, 'Planting the forests', () => bootSequence([buildTrees, buildNearTrees, buildRocks, buildHeroTree, buildCrags])); // [land] buildCrags (03c_land.js)
+  await loadStep(0.48, 'Raising the keeps', () => bootSequence([buildStructures, buildBarrowSurface, buildSurvival, buildBoats])); // [survival] plants, workstations (before the grass reads the cover map); [water2] jetties and boats (07e_boats.js)
   await loadStep(0.54, 'Digging the barrow', () => buildDungeon());
-  await loadStep(0.58, 'Sowing the meadows', () => { buildGrass(); buildFlowers(); buildNature(); buildFarming(); }); // [farming] beds, town strips, wild herbs (08h_farming.js)
-  await loadStep(0.63, 'Raising the mountains', () => mtnHeights()); // [heights] the whole mountain shaped once everything is placed, hardy trees, the crags (03d_heights.js)
-  await loadStep(0.68, 'Mustering the realms', () => { buildCrowds(); buildParticles(); buildSpellFX(); buildFireflies(); buildWeather(); buildAmbientLife(); buildDragon(); buildLootMeshes(); initCamps(); initTowns(); initMerchants(); initWar(); initWildlife(); initAnimals(); spawnDragon(); initBarrow(); });
+  await loadStep(0.58, 'Sowing the meadows', () => bootSequence([buildGrass, buildFlowers, buildNature, buildFarming])); // [farming] beds, town strips, wild herbs (08h_farming.js)
+  await loadStep(0.63, 'Raising the mountains', () => mtnHeightsChunks()); // [heights] the whole mountain shaped once everything is placed, hardy trees, the crags (03d_heights.js)
+  await loadStep(0.68, 'Mustering the realms', () => bootSequence([buildCrowds, buildParticles, buildSpellFX, buildFireflies, buildWeather, buildAmbientLife, buildDragon, buildLootMeshes, initCamps, initTowns, initMerchants, initWar, initWildlife, initAnimals, spawnDragon, initBarrow]));
   GAME.built = true;
   groupOutdoors();
   // Read saved preferences before sizing. Shader work belongs to the separately
@@ -378,7 +446,7 @@ async function boot() {
   camera.updateMatrixWorld();
   // Isolation owns every draw and never enters ordinary compilation or the game loop.
   if (await graphicsRunDiagnostic()) return;
-  await loadStep(0.84, 'Drawing the map', () => { buildMapImage(); buildDungeonMap(); });
+  await loadStep(0.84, 'Drawing the map', () => bootSequence([buildMapImage, buildDungeonMap]));
   await loadStep(0.9, 'Preparing the first view', () => {
     updateCamera(0.016);
     camera.updateMatrixWorld();
@@ -900,11 +968,34 @@ window.__hm = {
 
 window.__hm.water = WATER_DEBUG; // [water] test hooks (07b_swim.js)
 
-boot().catch((err) => {
+function bootStartFailure(err) {
   if (GRAPHICS_CONTEXT_LOST) return;
   reportError(err);
-  $('loadmsg').textContent = 'Something went wrong while building the world. Reloading may help.';
-});
+  // Title rendering already owns its detailed, stopped recovery panel.
+  if (GRAPHICS_STARTUP.titleError) return;
+  GRAPHICS_STARTUP.stopped = true;
+  GAME.ready = false;
+  if (window.__hm) window.__hm.ready = false;
+  const notice = document.getElementById('nogl'), loading = document.getElementById('loading');
+  if (loading) { loading.hidden = true; loading.style.display = 'none'; }
+  if (!notice) return;
+  graphicsFailureTakeover(notice);
+  notice.setAttribute('role', 'alert');
+  const heading = document.createElement('strong'); heading.id = 'boot-failure-title';
+  heading.textContent = 'The game could not finish loading';
+  notice.setAttribute('aria-labelledby', heading.id);
+  const detail = document.createElement('span');
+  detail.textContent = 'An unexpected problem interrupted loading. Try again. Your saved progress has not been reset.';
+  const retry = document.createElement('button'); retry.type = 'button'; retry.className = 'btn primary';
+  retry.textContent = 'Retry loading'; retry.onclick = () => location.reload();
+  const technical = document.createElement('details'); technical.className = 'graphics-technical';
+  const summary = document.createElement('summary'); summary.textContent = 'Technical details';
+  const log = document.createElement('pre'); log.textContent = String(err && err.message || err).slice(0,1500);
+  technical.appendChild(summary); technical.appendChild(log);
+  notice.replaceChildren(heading, detail, retry, technical);
+  retry.focus({ preventScroll: true });
+}
+boot().catch(bootStartFailure);
 
 
 

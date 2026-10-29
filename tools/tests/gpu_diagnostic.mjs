@@ -352,7 +352,8 @@ function bootHarness({ diagnostic = true, safe = true } = {}) {
     DUN: { root: {} }, INDOOR: { on: false }, scene: {}, lastNow: 0,
     $: id => nodes[id],
     loadSave: async () => null,
-    loadStep: async (frac,msg,fn) => { if(fn) await fn(); },
+    loadStep: async (frac,msg,fn) => ctx.runBootWork(fn,{workMs:0,maxChunkMs:0,maxSliceMs:0,chunks:0,yields:0}),
+    nextPaint: async () => {},
     graphicsAssertActive() {}, graphicsCheckpoint() {},
     graphicsRunDiagnostic: async () => { calls.push('diagnostic'); return diagnostic; },
     perf2Compile: () => calls.push('compile'),
@@ -376,11 +377,14 @@ function bootHarness({ diagnostic = true, safe = true } = {}) {
     'initAnimals','spawnDragon','initBarrow','groupOutdoors','resize','applyTimeOfDay','updateCamera',
     'spellCompileVisible',
   ]) ctx[name] = () => {};
+  ctx.buildWorldChunks=ctx.mtnHeightsChunks=function*(){yield;};
   const start = mainSource.indexOf('async function boot() {');
   const end = mainSource.indexOf('\n}',start);
   assert.ok(start>=0 && end>start);
   vm.createContext(ctx);
-  vm.runInContext(mainSource.slice(start,end+2),ctx);
+  const workStart=mainSource.indexOf('const BOOT_WORK_BUDGET_MS'),workEnd=mainSource.indexOf('async function loadStep(');
+  assert.ok(workStart>=0&&workEnd>workStart);
+  vm.runInContext(mainSource.slice(workStart,workEnd)+'\n'+mainSource.slice(start,end+2),ctx);
   return {ctx,calls};
 }
 

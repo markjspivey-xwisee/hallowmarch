@@ -729,7 +729,9 @@ function wrappedTitleStepFixture() {
   const f=titleFixture({autoPaint:true}),main=read('13_main.js'),perf=read('13p_perf.js');
   const start=perf.indexOf('{\n  const ls0 = loadStep;'),end=perf.indexOf('\n}',start);
   assert.ok(start>=0 && end>start);f.ctx.BOOT_STEPS=[];f.ctx.PERFX={boot:[]};f.ctx.$=()=>({style:{}});
-  vm.runInContext(extract(main,'loadStep')+'\n'+perf.slice(start,end+2),f.ctx);
+  const workStart=main.indexOf('const BOOT_WORK_BUDGET_MS'),workEnd=main.indexOf('async function loadStep(');
+  assert.ok(workStart>=0&&workEnd>workStart);
+  vm.runInContext(main.slice(workStart,workEnd)+'\n'+extract(main,'loadStep')+'\n'+perf.slice(start,end+2),f.ctx);
   f.step=()=>vm.runInContext("loadStep(0.97,'Drawing the first view',renderFirstTitleFrame)",f.ctx);
   return f;
 }
