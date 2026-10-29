@@ -43,6 +43,18 @@ function gameplayControlKey(e) {
   const active = document.activeElement;
   return !!(active && active.closest && active.closest('button, a[href], summary, [role="button"], [role="tab"], [role="radio"]'));
 }
+// A busy renderer can delay release handling after the physical tap ended.
+// Native event timestamps share performance.now's millisecond time origin.
+// Ambiguous clocks keep the previous handling-time behavior.
+function pointerEventTimestamp(event, now) {
+  return event.isTrusted === true && Number.isFinite(event.timeStamp)
+    && event.timeStamp > 0 && event.timeStamp <= now + 1 ? event.timeStamp : null;
+}
+function pointerGestureDuration(event, startedEventAt, startedAt) {
+  const now = performance.now(), endedEventAt = pointerEventTimestamp(event, now);
+  return Number.isFinite(startedEventAt) && startedEventAt > 0 && endedEventAt !== null && endedEventAt >= startedEventAt
+    ? endedEventAt - startedEventAt : now - startedAt;
+}
 function cancelPlayerInput() {
   const ids = new Set(INPUT.pointers.keys());
   if (INPUT.joy) ids.add(INPUT.joy.id);
@@ -99,7 +111,8 @@ canvas.addEventListener('pointerdown', (e) => {
       return;
     }
   }
-  INPUT.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, button: e.button, moved: 0, t: performance.now(), type: e.pointerType });
+  const now = performance.now();
+  INPUT.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, button: e.button, moved: 0, t: now, eventAt: pointerEventTimestamp(e, now), type: e.pointerType });
 });
 canvas.addEventListener('pointermove', (e) => {
   if (UI.modal) return;
@@ -128,7 +141,7 @@ function endPointer(e) {
   const p = INPUT.pointers.get(e.pointerId);
   INPUT.pointers.delete(e.pointerId);
   if (!p) return;
-  if (p.moved < 8 && performance.now() - p.t < 450 && GAME.started && !UI.modal && e.type === 'pointerup' && !buildTap(e.clientX, e.clientY, p.type)) pickAt(e.clientX, e.clientY); // [building] a tap places the piece while building (06k_build.js)
+  if (p.moved < 8 && pointerGestureDuration(e, p.eventAt, p.t) < 450 && GAME.started && !UI.modal && e.type === 'pointerup' && !buildTap(e.clientX, e.clientY, p.type)) pickAt(e.clientX, e.clientY); // [building] a tap places the piece while building (06k_build.js)
 }
 canvas.addEventListener('pointerup', endPointer);
 canvas.addEventListener('pointercancel', endPointer);

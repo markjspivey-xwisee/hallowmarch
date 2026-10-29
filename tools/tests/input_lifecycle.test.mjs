@@ -130,6 +130,69 @@ function joystickHarness(hand = 'right') {
     modal(value) { h.scope.UI.modal = value; h.scope.mobileModalChanged(value); } };
 }
 
+function worldTapHarness() {
+  const h=joystickHarness();let clock=1000;
+  Object.assign(h.scope,{performance:{now:()=>clock},camera:{position:{x:0,z:-10}},
+    ENT:[{id:99,alive:true,role:'mob',kind:'beast',x:0,y:0,z:0}],dist:(x,z,x2,z2)=>Math.hypot(x-x2,z-z2),
+    screenOf:()=>({x:200,y:250,z:0}),towerSightBlocked:()=>false,npSeen:()=>true,sfx:()=>h.actions.push('target-sound')});
+  vm.runInContext(['playerTargetVisible','pickAt','setPlayerTarget'].map(name=>extract(read('09_player.js'),name)).join('\n'),h.scope);
+  h.player.target=77;
+  return {...h,advance:ms=>{clock+=ms;}};
+}
+
+for(const point of [{name:'target selection',x:200,y:250,expected:99},{name:'blank clear',x:350,y:400,expected:null}])
+test('world '+point.name+' uses the actual short gesture when release handling is queued',()=>{
+  const h=worldTapHarness(),event={pointerId:1,pointerType:'touch',isTrusted:true,clientX:point.x,clientY:point.y};
+  h.canvas.dispatch('pointerdown',{...event,timeStamp:900});h.advance(2655.2);
+  h.canvas.dispatch('pointerup',{...event,timeStamp:902.4});
+  assert.equal(h.player.target,point.expected);assert.equal(h.INPUT.pointers.size,0);
+  assert.equal(h.actions.filter(x=>x==='target-sound').length,point.expected===99?1:0);
+});
+
+for(const duration of [450,600])test('world true native hold remains rejected with queued close handlers: '+duration,()=>{
+  const h=worldTapHarness();h.advance(1000);
+  h.canvas.dispatch('pointerdown',{pointerId:1,pointerType:'touch',isTrusted:true,clientX:200,clientY:250,timeStamp:1000});h.advance(1);
+  h.canvas.dispatch('pointerup',{pointerId:1,pointerType:'touch',isTrusted:true,clientX:350,clientY:400,timeStamp:1000+duration});
+  assert.equal(h.player.target,77);assert.equal(h.INPUT.pointers.size,0);
+});
+
+for(const timing of [['missing',undefined,undefined],['zero',0,0],['negative',-1,-.5],['NaN',NaN,NaN],['infinite',Infinity,Infinity],
+  ['huge',1e15,1e15+2],['future',10000,10002],['backwards',900,899],['missing up',900,undefined],['missing down',undefined,950],['string','900','902']])
+test('world invalid timestamps retain handling-clock rejection: '+timing[0],()=>{
+  const h=worldTapHarness(),point={pointerId:1,pointerType:'touch',isTrusted:true,clientX:200,clientY:250};
+  h.canvas.dispatch('pointerdown',{...point,timeStamp:timing[1]});h.advance(600);h.canvas.dispatch('pointerup',{...point,timeStamp:timing[2]});
+  assert.equal(h.player.target,77);assert.equal(h.INPUT.pointers.size,0);
+});
+
+for(const change of ['move','cancel','lost capture','modal','not started','building'])test('world gesture timing preserves existing cancellation and action boundaries: '+change,()=>{
+  const h=worldTapHarness(),point={pointerId:1,pointerType:'touch',isTrusted:true,clientX:200,clientY:250};
+  h.canvas.dispatch('pointerdown',{...point,timeStamp:900});
+  if(change==='move')h.canvas.dispatch('pointermove',{...point,clientX:220});
+  if(change==='cancel')h.canvas.dispatch('pointercancel',point);
+  if(change==='lost capture')h.canvas.dispatch('lostpointercapture',point);
+  if(change==='modal')h.scope.UI.modal='menu';
+  if(change==='not started')h.scope.GAME.started=false;
+  if(change==='building')h.scope.buildTap=()=>true;
+  h.advance(600);h.canvas.dispatch('pointerup',{...point,timeStamp:902});
+  assert.equal(h.player.target,77);assert.equal(h.INPUT.pointers.size,0);
+});
+
+test('world timing preserves joystick movement plus independent second-finger selection',()=>{
+  const h=worldTapHarness();
+  h.canvas.dispatch('pointerdown',{pointerId:1,pointerType:'touch',isTrusted:true,clientX:60,clientY:600,timeStamp:900});
+  h.canvas.dispatch('pointerdown',{pointerId:2,pointerType:'touch',isTrusted:true,clientX:200,clientY:250,timeStamp:901});h.advance(600);
+  h.canvas.dispatch('pointerup',{pointerId:2,pointerType:'touch',isTrusted:true,clientX:200,clientY:250,timeStamp:903});
+  assert.equal(h.player.target,99);assert.equal(h.INPUT.joy.id,1);assert.equal(h.INPUT.pointers.size,0);
+  h.canvas.dispatch('pointerup',{pointerId:1,pointerType:'touch',isTrusted:true,clientX:60,clientY:600,timeStamp:1600});
+  assert.equal(h.INPUT.joy,null);assert.equal(h.actions.filter(x=>x==='target-sound').length,1);
+});
+
+test('world synthetic timing cannot turn a handling-clock hold into a tap',()=>{
+  const h=worldTapHarness(),point={pointerId:1,pointerType:'touch',isTrusted:false,clientX:200,clientY:250};
+  h.canvas.dispatch('pointerdown',{...point,timeStamp:900});h.advance(600);h.canvas.dispatch('pointerup',{...point,timeStamp:902});
+  assert.equal(h.player.target,77);
+});
+
 for (const hand of ['right', 'left']) {
   test(`${hand}-handed controls keep a faint idle guide across repeated release, cancellation and lost capture`, () => {
     const h = joystickHarness(hand), x = hand === 'right' ? 60 : 330;
