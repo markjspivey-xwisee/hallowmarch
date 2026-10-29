@@ -5,7 +5,7 @@ from PIL import Image, ImageStat
 from urllib.parse import parse_qsl, urlencode, urlsplit
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 import hm
-from hmlib import wait_title_settled
+from hmlib import wait_title_settled, SOFTWARE_BOOT_TIMEOUT_MS
 from playwright.async_api import async_playwright, expect
 ORIGIN = 'http://hm.test'
 REASON = 'Web page caused context loss and was blocked'
@@ -392,7 +392,7 @@ async def safe_boot(browser):
     ctx,page,errors,console_errors,navigations = await direct_page(browser,3840,2160,init=init)
     try:
         await page.goto(ORIGIN + '/?safe=1&server=', wait_until='commit', timeout=120000)
-        await wait_title_settled(page)
+        await wait_title_settled(page, timeout=SOFTWARE_BOOT_TIMEOUT_MS)
         ready_receipt = await page.evaluate('({...window.__hmStartup, hidden:document.hidden, errors:[...__hm.errors]})')
         (hm.OUT / 'startup-safe-first-ready.json').write_text(json.dumps(ready_receipt, indent=2), encoding='utf-8')
         print('first Ready title receipt', json.dumps(ready_receipt), flush=True)
