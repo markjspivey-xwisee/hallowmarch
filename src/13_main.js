@@ -38,15 +38,33 @@ function extensionOnlyStack(stack) {
   }
   return frames > 0;
 }
+function extensionOnlyCauseChain(reason) {
+  try {
+    const seen = new Set();
+    let node = reason, stackUnits = 0;
+    for (let count = 0; count < 8; count++) {
+      if (!node || typeof node !== 'object' || seen.has(node) || node.errors !== undefined) return false;
+      seen.add(node);
+      const stack = node.stack;
+      if (!extensionOnlyStack(stack)) return false;
+      stackUnits += stack.length;
+      if (stackUnits > 32768) return false;
+      const cause = node.cause;
+      if (cause === undefined) return true;
+      node = cause;
+    }
+  } catch { /* unreadable provenance remains an ordinary game error */ }
+  return false;
+}
 function extensionAmbientWindowError(event, type) {
   try {
     if (event.isTrusted !== true || event.target !== window || event.currentTarget !== window) return false;
     const filename = event.filename;
     if (filename !== undefined && filename !== null && filename !== '' && !extensionScriptURL(filename)) return false;
     const reason = type === 'error' ? event.error : event.reason;
-    // A nested cause/aggregate is not covered by the one observed stack.
-    if (reason && (reason.cause !== undefined || reason.errors !== undefined)) return false;
-    return !!reason && extensionOnlyStack(reason.stack);
+    // Every causal node must independently prove the same external origin.
+    // Aggregates and unknown/mixed/oversized/cyclic chains remain game errors.
+    return extensionOnlyCauseChain(reason);
   } catch { return false; } // unreadable/ambiguous provenance remains a game error
 }
 function reportAmbientWindowError(event, type) {

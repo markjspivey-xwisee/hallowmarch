@@ -15,7 +15,7 @@ function fixture() {
   const ctx = { window, URL, console: { error: error => logged.push(error) }, GRAPHICS_STARTUP: {}, GRAPHICS_CONTEXT_LOST: false,
     GAME: { ready: true }, document: { getElementById: () => null } };
   vm.createContext(ctx); vm.runInContext(ambient, ctx);
-  const api = vm.runInContext('({HM_ERRORS,HM_AMBIENT_ERRORS,extensionScriptURL,extensionOnlyStack,extensionAmbientWindowError,reportError})', ctx);
+  const api = vm.runInContext('({HM_ERRORS,HM_AMBIENT_ERRORS,extensionScriptURL,extensionOnlyStack,extensionOnlyCauseChain,extensionAmbientWindowError,reportError})', ctx);
   return { ctx, api, logged, emit(type, values = {}) {
     let prevented = false;
     const event = { isTrusted: true, target: window, currentTarget: window,
@@ -29,6 +29,59 @@ test('the actual MetaMask extension-only ambient rejection stays out of game err
   assert.equal(f.api.HM_ERRORS.length, 0); assert.equal(f.logged.length, 0);
   assert.equal(f.ctx.GRAPHICS_STARTUP.ambientErrors.extensionRejection, 1);
   assert.equal(f.ctx.GAME.ready, true); assert.equal(f.ctx.GRAPHICS_STARTUP.stopped, undefined);
+});
+
+test('the native reload rejection proves its outer and cause stacks independently without changing either', () => {
+  const f = fixture(), reason = Object.freeze({ name: 'i', message: 'Failed to connect to MetaMask', stack: observed,
+    cause: Object.freeze({ name: 'Error', message: 'MetaMask extension not found',
+      stack: 'Error: MetaMask extension not found\n    at ' + extension + ':4:42708' }) });
+  const before = JSON.stringify(reason);
+  f.emit('unhandledrejection', { reason }); f.emit('unhandledrejection', { reason });
+  assert.equal(f.api.HM_ERRORS.length, 0); assert.equal(f.logged.length, 0);
+  assert.equal(f.api.HM_AMBIENT_ERRORS.extensionRejection, 2); assert.equal(JSON.stringify(reason), before);
+  assert.equal(f.ctx.GAME.ready, true); assert.equal(f.ctx.GRAPHICS_STARTUP.stopped, undefined);
+});
+
+function chain(length, stack = observed) {
+  const head = { stack }; let tail = head;
+  for (let i = 1; i < length; i++) tail = tail.cause = { stack };
+  return head;
+}
+
+test('cause proof permits at most eight independently verified nodes', () => {
+  const f = fixture(); assert.equal(f.api.extensionOnlyCauseChain(chain(8)), true);
+  assert.equal(f.api.extensionOnlyCauseChain(chain(9)), false);
+});
+
+test('cause proof enforces the total stack budget as well as the existing per-stack bound', () => {
+  const f = fixture(), ending = '\n    at ' + extension + ':1:2';
+  const full = 'Error: ' + 'x'.repeat(8192 - 7 - ending.length) + ending;
+  assert.equal(full.length, 8192); assert.equal(f.api.extensionOnlyCauseChain(chain(4, full)), true);
+  assert.equal(f.api.extensionOnlyCauseChain(chain(5, full)), false);
+  assert.equal(f.api.extensionOnlyCauseChain({ stack: full + 'x' }), false);
+});
+
+for (const [name, cause] of Object.entries({
+  null: null, primitive: 'unknown', number: 1, boolean: true, callable: () => {},
+  absentStack: {}, emptyStack: { stack: '' }, nonStringStack: { stack: 3 },
+  owned: { stack: 'Error: owned\n    at start (https://game.test/game.js:1:2)' },
+  mixed: { stack: observed + '\n    at start (https://game.test/game.js:1:2)' },
+  unknown: { stack: observed + '\n    unknown stack frame' }, aggregate: { stack: observed, errors: [] },
+})) test('nested cause remains a game error: ' + name, () => {
+  const f = fixture(); f.emit('unhandledrejection', { reason: { stack: observed, cause } });
+  assert.equal(f.api.HM_ERRORS.length, 1); assert.equal(f.api.HM_AMBIENT_ERRORS.extensionRejection, 0);
+});
+
+test('cycles, unreadable causal properties and aggregate trees fail closed', () => {
+  const f = fixture(), self = { stack: observed }; self.cause = self;
+  const first = { stack: observed }, second = { stack: observed, cause: first }; first.cause = second;
+  assert.equal(f.api.extensionOnlyCauseChain(self), false); assert.equal(f.api.extensionOnlyCauseChain(first), false);
+  for (const property of ['cause', 'stack', 'errors']) {
+    const cause = { stack: observed }; Object.defineProperty(cause, property, { get() { throw Error('unreadable'); } });
+    f.emit('unhandledrejection', { reason: { stack: observed, cause } });
+  }
+  assert.equal(f.api.HM_ERRORS.length, 1, 'ordinary error reporting still deduplicates the same outer stack');
+  assert.equal(f.api.HM_AMBIENT_ERRORS.extensionRejection, 0);
 });
 
 test('native extension filename corroborates a verified stack and unrelated messages do not determine origin', () => {
