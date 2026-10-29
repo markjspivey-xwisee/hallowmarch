@@ -8,7 +8,7 @@ const diagnosticSource = readFileSync(new URL('src/13y_gpu_diagnostic.js', root)
 const mainSource = readFileSync(new URL('src/13_main.js', root), 'utf8');
 
 function harness({ requested = true, safe = true, statuses = [], defaultStatus = 2 } = {}) {
-  let now = 0, lost = false, id = 0;
+  let now = 0, lost = false, id = 0, timerId = 0;
   const timers = [], nodes = {}, calls = [], restores = [];
   class Element {
     constructor(tag) { this.tagName = tag; this.style = {}; this.children = []; this.listeners = {}; this.hidden = false; this.disabled = false; }
@@ -18,11 +18,15 @@ function harness({ requested = true, safe = true, statuses = [], defaultStatus =
     append(...children) { this.children.push(...children); }
     appendChild(child) { this.children.push(child); return child; }
     addEventListener(name, fn) { (this.listeners[name] ||= []).push(fn); }
+    removeEventListener(name, fn) { this.listeners[name] = (this.listeners[name] || []).filter(listener => listener !== fn); }
+    emit(name) { for (const fn of [...(this.listeners[name] || [])]) fn({}); }
+    listenerCount() { return Object.values(this.listeners).reduce((n, listeners) => n + listeners.length, 0); }
   }
   const body = new Element('body'), canvas = new Element('canvas');
   canvas.id = 'scene';
   for (const name of ['loading', 'title', 'hud', 'menu']) { const node = new Element('div'); node.id = name; }
   const gl = {
+    canvas,
     SYNC_GPU_COMMANDS_COMPLETE: 1, ALREADY_SIGNALED: 2, CONDITION_SATISFIED: 3,
     TIMEOUT_EXPIRED: 4, WAIT_FAILED: 5, NO_ERROR: 0,
     isContextLost: () => lost,
@@ -53,10 +57,11 @@ function harness({ requested = true, safe = true, statuses = [], defaultStatus =
     BOOT_SAFE: safe, GRAPHICS_CONTEXT_LOST: false,
     GRAPHICS_STARTUP: { events: [], phase: 'initial', stopped: false },
     window: { __hm: { ready: false } }, GAME: { ready: false, started: false, t: 0, player: null },
-    document: { createElement: tag => new Element(tag), getElementById: name => nodes[name], body },
+    document: Object.assign(new Element('document'), { createElement: tag => new Element(tag), getElementById: name => nodes[name], body }),
     canvas, gl, renderer, scene, sceneRT: {}, camera: {}, view: { w: 800, h: 450 },
     performance: { now: () => now },
-    setTimeout(fn, delay = 0) { timers.push({ fn, due: now + delay }); return timers.length; },
+    setTimeout(fn, delay = 0) { const timer = { id: ++timerId, fn, due: now + delay }; timers.push(timer); return timer.id; },
+    clearTimeout(id) { const index = timers.findIndex(timer => timer.id === id); if (index >= 0) timers.splice(index, 1); },
     requestAnimationFrame() { throw new Error('diagnostic must not schedule the normal animation loop'); },
     tick() { throw new Error('diagnostic must not tick the game'); },
     perfLabel: object => object.uuid,
@@ -94,6 +99,8 @@ function harness({ requested = true, safe = true, statuses = [], defaultStatus =
     get state() { return ctx.window.__hmGpuDiagnostic; },
     lose() { lost = true; ctx.GRAPHICS_CONTEXT_LOST = true; },
     notifyLoss() { for (const fn of canvas.listeners.webglcontextlost || []) fn({ preventDefault() {} }); },
+    visibility(hidden, emit = true) { ctx.document.hidden = hidden; if (emit) ctx.document.emit('visibilitychange'); },
+    fenceClean() { assert.equal(timers.length, 0); assert.equal(ctx.document.listenerCount() + canvas.listenerCount(), 0); },
     async timer({lateBy=0}={}) {
       assert.ok(timers.length, 'an explicit fence poll was scheduled');
       timers.sort((a,b) => a.due-b.due);
@@ -151,6 +158,86 @@ test('loss while waiting stops further GL polling or cleanup commands', async ()
   await h.drain();
   await rejected;
   assert.deepEqual(h.calls, ['fence','flush']);
+});
+
+// Visibility is a CPU fixture input here; no browser flags or real page state are spoofed.
+for (const eventDelivered of [true, false]) test('hidden time beyond the fence deadline does not spend visible time, event=' + eventDelivered, async () => {
+  const h = harness({ defaultStatus: 4 });
+  const pending = vm.runInContext('gpuDiagWaitForFence(gl,50)', h.ctx); let failed = false;
+  pending.catch(() => { failed = true; });
+  await h.timer(); h.visibility(true, eventDelivered);
+  await h.timer({ lateBy: 1000 });
+  assert.equal(failed, false); assert.equal(h.timers.length, 1);
+  h.visibility(false); await h.timer(); assert.equal(failed, false);
+  const rejected = assert.rejects(pending, /timed out after 50 ms of visible waiting/);
+  await h.timer({ lateBy: 100 }); await rejected; h.fenceClean();
+});
+
+test('a pending fence after background idle still needs actual completion after returning', async () => {
+  const h = harness({ statuses: [4,4,3] });
+  const pending = vm.runInContext('gpuDiagWaitForFence(gl,50)', h.ctx); let completed = false;
+  pending.then(() => { completed = true; });
+  await h.timer(); h.visibility(true); await h.timer({ lateBy: 1000 });
+  assert.equal(completed, false, 'visibility never substitutes for a signaled GPU fence');
+  h.visibility(false); await h.timer();
+  const receipt = await pending;
+  assert(receipt.waitMs >= 1000); assert.equal(receipt.visibleWaitMs, 0); assert(receipt.hiddenWaitMs >= 1000);
+  assert.equal(h.calls.filter(x => x === 'wait').length, 3); h.fenceClean();
+});
+
+test('actual GPU completion while hidden wins before any elapsed deadline', async () => {
+  const h = harness({ statuses: [3] }), pending = vm.runInContext('gpuDiagWaitForFence(gl,50)', h.ctx);
+  h.visibility(true); await h.timer({ lateBy: 1000 });
+  const receipt = await pending; assert.equal(receipt.visibleWaitMs, 0);
+  assert(receipt.waitMs >= 1000); h.fenceClean();
+});
+
+test('WAIT_FAILED stays fatal while hidden and leaves no timer or listeners', async () => {
+  const h = harness({ defaultStatus: 5 });
+  const rejected = assert.rejects(vm.runInContext('gpuDiagWaitForFence(gl,50)', h.ctx), /rejected the GPU completion wait/);
+  h.visibility(true); await h.timer({ lateBy: 1000 }); await rejected;
+  assert.deepEqual(h.calls, ['fence','flush','wait','delete']); h.fenceClean();
+});
+
+for (const latch of [false, true]) test('a hidden context-loss event rejects immediately without later GL work, global latch=' + latch, async () => {
+  const h = harness({ defaultStatus: 4 });
+  const rejected = assert.rejects(vm.runInContext('gpuDiagWaitForFence(gl,50)', h.ctx), /context was lost/);
+  h.visibility(true); if (latch) h.lose(); h.notifyLoss(); await rejected;
+  assert.deepEqual(h.calls, ['fence','flush']); h.fenceClean();
+});
+
+test('context loss reported by the completion query cannot become a successful fence', async () => {
+  const h = harness(); h.gl.clientWaitSync = () => { h.calls.push('wait'); h.lose(); return 3; };
+  const rejected = assert.rejects(vm.runInContext('gpuDiagWaitForFence(gl,50)', h.ctx), /context was lost/);
+  await h.timer(); await rejected;
+  assert.deepEqual(h.calls, ['fence','flush','wait']); h.fenceClean();
+});
+
+test('a thrown completion query rejects and cleans the healthy sync without retry', async () => {
+  const h = harness(); h.gl.clientWaitSync = () => { h.calls.push('wait'); throw Error('controlled wait failure'); };
+  const rejected = assert.rejects(vm.runInContext('gpuDiagWaitForFence(gl,50)', h.ctx), /controlled wait failure/);
+  await h.timer(); await rejected;
+  assert.deepEqual(h.calls, ['fence','flush','wait','delete']); h.fenceClean();
+});
+
+test('cleanup exceptions reject the fence instead of leaving an unresolved promise', async () => {
+  const h = harness(); h.gl.deleteSync = () => { h.calls.push('delete'); throw Error('controlled cleanup failure'); };
+  const rejected = assert.rejects(vm.runInContext('gpuDiagWaitForFence(gl,50)', h.ctx), /controlled cleanup failure/);
+  await h.timer(); await rejected; h.fenceClean();
+});
+
+for (const loseDuringFlush of [false, true]) test('a failed flush rejects without scheduling a poll, context loss=' + loseDuringFlush, async () => {
+  const h = harness();
+  h.gl.flush = () => { h.calls.push('flush'); if (loseDuringFlush) h.lose(); throw Error('controlled flush failure'); };
+  await assert.rejects(vm.runInContext('gpuDiagWaitForFence(gl,50)', h.ctx), /controlled flush failure/);
+  assert.deepEqual(h.calls, loseDuringFlush ? ['fence','flush'] : ['fence','flush','delete']); h.fenceClean();
+});
+
+test('completion removes its callbacks and ignores a previously captured visibility callback', async () => {
+  const h = harness(), pending = vm.runInContext('gpuDiagWaitForFence(gl,50)', h.ctx);
+  const oldVisibility = h.ctx.document.listeners.visibilitychange[0];
+  await h.timer(); await pending; oldVisibility(); h.fenceClean();
+  assert.equal(h.calls.filter(x => x === 'delete').length, 1);
 });
 
 test('normal launch does not construct diagnostic UI or submit work', async () => {

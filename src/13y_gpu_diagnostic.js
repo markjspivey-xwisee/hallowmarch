@@ -21,27 +21,69 @@ function gpuDiagWaitForFence(context, timeout = GPU_DIAG_TIMEOUT_MS) {
   if (GRAPHICS_CONTEXT_LOST || context.isContextLost()) return Promise.reject(new Error('Graphics context was lost.'));
   const sync = context.fenceSync(context.SYNC_GPU_COMMANDS_COMPLETE, 0);
   if (!sync) return Promise.reject(new Error('The browser could not create a GPU completion fence.'));
-  context.flush();
+  try { context.flush(); }
+  catch (error) {
+    if (!GRAPHICS_CONTEXT_LOST && !context.isContextLost()) {
+      try { context.deleteSync(sync); } catch { /* preserve the original submission failure */ }
+    }
+    return Promise.reject(error);
+  }
   const start = performance.now();
   return new Promise((resolve, reject) => {
+    let timer = null, settled = false, lost = false;
+    let clockAt = start, visibleMs = 0, wasHidden = !!document.hidden;
+    const visibleElapsed = () => {
+      const now = performance.now(), hiddenNow = !!document.hidden;
+      // A delayed visibility event must not turn background throttling into a
+      // graphics failure. Conservatively exclude intervals touching hidden state.
+      if (!wasHidden && !hiddenNow) visibleMs += Math.max(0, now - clockAt);
+      clockAt = now; wasHidden = hiddenNow;
+      return visibleMs;
+    };
     const finish = (error) => {
+      if (settled) return;
+      settled = true;
+      if (timer !== null) clearTimeout(timer);
+      timer = null;
+      document.removeEventListener('visibilitychange', visibility);
+      context.canvas?.removeEventListener('webglcontextlost', contextLost);
       // Do not issue more GL calls once the context has been lost.
-      if (!GRAPHICS_CONTEXT_LOST && !context.isContextLost()) context.deleteSync(sync);
+      try {
+        if (!lost && !GRAPHICS_CONTEXT_LOST && !context.isContextLost()) context.deleteSync(sync);
+      } catch (cleanupError) { error ||= cleanupError; }
       if (error) reject(error);
-      else resolve({ waitMs: Math.round(performance.now() - start) });
+      else {
+        const visibleWaitMs = Math.round(visibleElapsed()), waitMs = Math.round(performance.now() - start);
+        resolve({ waitMs, visibleWaitMs, hiddenWaitMs: Math.max(0, waitMs - visibleWaitMs) });
+      }
     };
     const poll = () => {
-      if (GRAPHICS_CONTEXT_LOST || context.isContextLost()) { finish(new Error('Graphics context was lost while waiting for the batch.')); return; }
-      const status = context.clientWaitSync(sync, 0, 0);
-      if (status === context.ALREADY_SIGNALED || status === context.CONDITION_SATISFIED) { finish(); return; }
-      if (status === context.WAIT_FAILED) { finish(new Error('The browser rejected the GPU completion wait.')); return; }
-      // A background tab may resume after its deadline with an already-signaled
-      // fence. Observe completion first; only still-pending work times out.
-      if (performance.now() - start >= timeout) { finish(new Error('GPU completion timed out after ' + timeout + ' ms. No further stage will run.')); return; }
-      setTimeout(poll, GPU_DIAG_POLL_MS);
+      if (settled) return;
+      timer = null;
+      try {
+        visibleElapsed();
+        if (lost || GRAPHICS_CONTEXT_LOST || context.isContextLost()) { finish(new Error('Graphics context was lost while waiting for the batch.')); return; }
+        const status = context.clientWaitSync(sync, 0, 0);
+        if (lost || GRAPHICS_CONTEXT_LOST || context.isContextLost()) { finish(new Error('Graphics context was lost while waiting for the batch.')); return; }
+        if (status === context.ALREADY_SIGNALED || status === context.CONDITION_SATISFIED) { finish(); return; }
+        if (status === context.WAIT_FAILED) { finish(new Error('The browser rejected the GPU completion wait.')); return; }
+        // Actual completion always wins over an elapsed deadline. Only a
+        // still-pending fence spends its bounded foreground waiting budget.
+        if (visibleElapsed() >= timeout) { finish(new Error('GPU completion timed out after ' + timeout + ' ms of visible waiting. No further stage will run.')); return; }
+        timer = setTimeout(poll, GPU_DIAG_POLL_MS);
+      } catch (error) { finish(error); }
     };
+    const visibility = () => {
+      if (settled) return;
+      visibleElapsed();
+      if (timer !== null) clearTimeout(timer);
+      if (!settled) timer = setTimeout(poll, 0);
+    };
+    const contextLost = () => { lost = true; finish(new Error('Graphics context was lost while waiting for the batch.')); };
+    document.addEventListener('visibilitychange', visibility);
+    context.canvas?.addEventListener('webglcontextlost', contextLost);
     // Yield first: context-loss notifications must be able to reach the latch.
-    setTimeout(poll, 0);
+    timer = setTimeout(poll, 0);
   });
 }
 
