@@ -76,7 +76,7 @@
     },
     {
       "path": "src/12c_weather2.js",
-      "digest": "sha256:6172dc54fb5110f20f68cd1d5112150cf55f6294f7265141c037bc709ccefefa"
+      "digest": "sha256:45ddcea10531368e756ac72a2b6c4943bf5ea8705928f478b7be09002a6974dd"
     },
     {
       "path": "src/13z_look5.js",
@@ -2789,11 +2789,11 @@
       ],
       "source": {
         "path": "src/12c_weather2.js",
-        "digest": "sha256:6172dc54fb5110f20f68cd1d5112150cf55f6294f7265141c037bc709ccefefa",
+        "digest": "sha256:45ddcea10531368e756ac72a2b6c4943bf5ea8705928f478b7be09002a6974dd",
         "selector": "FIELD_NOTES.w2coming",
         "lines": {
-          "start": 851,
-          "end": 851
+          "start": 852,
+          "end": 852
         }
       },
       "requiresContext": false,
@@ -2806,7 +2806,7 @@
         "note": "w2coming",
         "availability": "Collected in the game when relevant"
       },
-      "revisionDigest": "sha256:a6a91d4d23bad38f3d974932cc94cbfe80593b4cab65a1edc1c9252fd8cc8ea0"
+      "revisionDigest": "sha256:1ff9d38caf91996c90fdcb41cba3ca3d41254efe2c975998473ba6135a766dd8"
     },
     {
       "id": "field-note:walls",
@@ -3093,5 +3093,5 @@
       "assessment": null
     }
   ],
-  "revisionDigest": "sha256:42afabffd347960f45990ae1d74918f9873bb6fca6823669c6e46d1835c29a8b"
+  "revisionDigest": "sha256:fdeabed95c149ad98f5326ee9ccc2b9e89d1771d8c75a1659f89e11d8a59c3f8"
 }
