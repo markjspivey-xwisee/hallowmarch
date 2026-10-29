@@ -721,6 +721,11 @@ for (const keyPresent of [true, false]) test('recovered native binding after tra
     acct: { id: 'retained-native-account', nativeBound: true, guest: false }, world: { k: [] } });
   assert.ok(await recovered); old.message({ t: 'welcome', peer: 'late-old-peer', token: 'stale-proof', acct: { id: 'old-owner' } });
   const loaded = await h.H.loadSave(); h.H.nativePlayerRender();
+  assert.equal(h.H.GAME.ready, false);
+  assert.equal(h.buttons.get('btn-begin').disabled, true, 'private hydration alone cannot release the graphics gate');
+  assert.equal(h.buttons.get('btn-continue').disabled, true);
+  assert.equal(h.buttons.get('btn-begin').getAttribute('aria-busy'), 'true');
+  h.H.GAME.ready = true; h.H.nativePlayerRender(); // This case now reaches its graphics-ready title phase.
   assert.equal(h.H.SAVE.backend, 'pod'); assert.equal(h.H.SAVE.native, true); assert.equal(reads, 1); assert.equal(writes, 0);
   assert.equal(h.H.NETWS.acct.id, 'retained-native-account'); assert.equal(h.H.NETWS.token, 'restored-native-app-proof');
   assert.equal(h.H.NATIVE_PLAYER.profile, profile); assert.equal(h.storage.get('native-key-fixture'), 'retained-key-material');
@@ -776,6 +781,7 @@ test('confirmed legacy policy preserves offline browser play without late promot
   const save = await h.H.loadSave();
   assert.equal(save.char.name, previousLocal.char.name); assert.equal(h.H.SAVE.native, false);
   assert.equal(h.H.SAVE.backend, 'local'); assert.equal(h.H.SAVE.ref, null); assert.equal(h.H.SAVE.server, false);
+  h.H.GAME.ready = true; // Legacy policy confirmation does not itself finish graphics preparation.
   h.H.nativePlayerRender(); assert.equal(h.buttons.get('btn-begin').disabled, false);
   assert.equal(h.requests[0].init.credentials, 'omit'); assert.equal(h.requests[0].init.headers?.Authorization, undefined);
 });
@@ -840,7 +846,9 @@ test('a confirmed absent native character offers Play while deferring recovery s
   const h = harness({ nativePolicy: true, nativeProfile: { connect: async () => {}, get: async () => ({ exists: false }),
     status: () => ({ keyPresent, hasRecord: false }), createKey() { keyCreations++; keyPresent = true; }, close() {} } });
   const loading = h.H.loadSave(); await nativeWelcome(h); assert.equal(await loading, null);
-  assert.equal(h.H.SAVE.readConfirmed, true); h.H.nativePlayerRender(); assert.equal(h.buttons.get('btn-begin').disabled, false);
+  assert.equal(h.H.SAVE.readConfirmed, true); h.H.nativePlayerRender();
+  assert.equal(h.buttons.get('btn-begin').disabled, true, 'confirmed absence cannot release the graphics gate');
+  h.H.GAME.ready = true; h.H.nativePlayerRender(); assert.equal(h.buttons.get('btn-begin').disabled, false);
   assert.equal(keyCreations, 0, 'title discovery must not create a replacement encryption key');
   keyPresent = true; h.H.nativePlayerRender(); assert.equal(h.buttons.get('btn-begin').disabled, false);
 });
@@ -951,6 +959,10 @@ const titleActions = h => h.titleBody.querySelectorAll('button');
 test('a first-time anonymous welcome and advertised status offer Play now without provisioning on discovery', async () => {
   const h = harness(progressiveOptions({ storage: {} })), loading = h.H.loadSave();
   await nativeWelcome(h); await loading; h.H.nativePlayerRender();
+  assert.equal(h.buttons.get('btn-begin').disabled, true, 'anonymous discovery cannot release the graphics gate');
+  assert.equal(h.buttons.get('btn-begin').getAttribute('aria-busy'), 'true');
+  assert(titleActions(h).every(button => button.disabled), 'account actions also wait for graphics readiness');
+  h.H.GAME.ready = true; h.H.nativePlayerRender();
   assert.equal(h.sockets[0].sent[0].token, undefined);
   assert.equal(h.H.NETWS.state, 'on'); assert.equal(h.H.NETWS.sessionRefusal, null);
   assert.equal(h.H.nativePlayerCanPlayNow(), true); assert.equal(h.H.nativePlayerNewAdventureAllowed(), false);
