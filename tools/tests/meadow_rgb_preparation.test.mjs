@@ -35,7 +35,7 @@ function fixture({ prior = false, res = 32, seed = 7 } = {}) {
   math.random = () => { effects.random++; throw Error('Meadow preparation cannot consume randomness'); };
   class Texture extends THREE.DataTexture { constructor(...args) { super(...args); effects.textures++; } }
   const context = vm.createContext({ THREE: { ...THREE, DataTexture: Texture }, Math: math,
-    WSIZE: 1024, HALF: 512, renderTime: 73, GAME: { t: 19, player: { xp: 123 } },
+    WSIZE: 1024, HALF: 512, renderTime: 73, GAME: { t: 19, player: { xp: 123 } }, GRAPHICS_STARTUP: {},
     W: { seed, trees: [{ x: -10, z: 5, kind: 'oak', s: 2, leaf: .6, grow: .8, char: .3 },
       { x: 17, z: -4, kind: 'pine', s: 1.8, felled: true }, { x: 4, z: 15, kind: 'birch', s: 1.2, grow: .4 }] },
     COLL: { boxes: [{ x: -7, z: 8, hx: 3, hz: 2, h: 4, tag: 'house', cos: 1, sin: 0 }], circles: [] },
@@ -47,7 +47,9 @@ function fixture({ prior = false, res = 32, seed = 7 } = {}) {
     simStep: () => { effects.simulation++; throw Error('No simulation'); },
   });
   const names = ['CANOPY', 'meadowRGB', 'bakeMeadowChunks', 'prepareMeadowRGBChunks', 'bakeMeadow',
-    'canopyOf', 'stampCanopy', 'buildGroundAO', 'updateCanopy'];
+    'canopyOf', 'stampCanopy', 'groundAOPrepared', 'groundAOPreparation', 'groundAONote', 'buildGroundAO', 'updateCanopy'];
+  // The canopy uses the actual AO fallback with its real null private cache and
+  // startup diagnostics. It does not prepare AO or substitute a product stub.
   let source = declarations(terrain, names);
   if (prior) source = source.replace(declarations(terrain, ['bakeMeadow']), PRIOR_BAKE);
   // The built game shares lexical helpers in one module. Keep those same
@@ -138,6 +140,10 @@ test('preparation does not replace existing textures or disturb live canopy stat
     Object.assign(v.context.W.trees[1], { x: 24, z: 8 });
   }
   f.api.updateCanopy(); prior.api.updateCanopy();
+  assert.equal(f.context.GRAPHICS_STARTUP.groundAO.outcome, 'fallback');
+  assert.equal(f.context.GRAPHICS_STARTUP.groundAO.reason, 'not-prepared');
+  assert.equal(f.context.GRAPHICS_STARTUP.groundAO.fallbacks, 1);
+  assert.equal(f.context.GRAPHICS_STARTUP.groundAO.consumed, false);
   const texture = f.api.CANOPY.tex, ground = f.context.U.uGroundAO.value;
   for (const field of ['bytes', 'acc', 'cache', 'rad', 'ao']) assert.deepEqual(rawBytes(f.api.CANOPY[field]), rawBytes(prior.api.CANOPY[field]), field);
   assert(f.api.CANOPY.bytes.some((value, q) => q % 4 === 3 && value > 0), 'live trees really stamp nonzero alpha');
