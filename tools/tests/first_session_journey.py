@@ -93,11 +93,74 @@ class Journey:
         self.report = {'kind': 'local-agent-first-session', 'headless': True, 'foregroundControls': False,
                        'hostedIdentityOrWorld': False, 'automaticRetries': 0, 'browserClosed': False,
                        'html': str(args.html.resolve()), 'htmlSha256': hashlib.sha256(args.html.read_bytes()).hexdigest(),
-                       'touch': args.touch, 'edgeNative': args.edge_native, 'steps': [], 'requestsBlocked': [], 'pageErrors': [], 'fixtures': []}
+                       'touch': args.touch, 'edgeNative': args.edge_native, 'steps': [], 'phases': [], 'requestsBlocked': [], 'pageErrors': [], 'fixtures': [],
+                       'tracePolicy': {'coldStartup': False, 'reloadWarmup': False, 'uiOnly': True,
+                                       'timingLimit': 'UI screenshot tracing is an active screencast; this journey does not attribute startup timing to tracing.'}}
         self.mob_fixture = None
+        self.trace_state = 'off'
+        self.trace_label = None
 
     def save(self):
         (self.out / 'journey.json').write_text(json.dumps(self.report, indent=2), encoding='utf-8')
+
+    def phase(self, name, **detail):
+        value = {'name': name, 'elapsed': round(time.monotonic() - self.started, 3), **detail}
+        self.report['phase'] = value
+        self.report['phases'].append(value)
+        self.save()
+        print(json.dumps({'phase': value}), flush=True)
+
+    def fail(self, error):
+        self.report['outcome'] = 'FAIL'
+        if 'failure' not in self.report:
+            self.report.update(failure=str(error) or repr(error), failureType=type(error).__name__,
+                               failurePhase=self.report.get('phase'))
+        self.save()
+
+    async def start_ui_trace(self, label):
+        require(self.trace_state == 'off', 'A prior UI trace has not stopped')
+        self.trace_label = label
+        self.trace_state = 'starting'
+        self.phase('ui-trace-start', segment=label)
+        try:
+            await asyncio.wait_for(self.context.tracing.start(screenshots=True, snapshots=True, sources=True), timeout=20)
+        except Exception as error:
+            self.fail(error)
+            raise
+        self.trace_state = 'recording'
+        self.phase('ui-trace-recording', segment=label)
+
+    async def stop_ui_trace(self):
+        if self.trace_state not in ['starting', 'recording']:
+            return
+        self.trace_state = 'stopping'
+        name = 'trace-' + self.trace_label + '.zip'
+        self.phase('ui-trace-stop', segment=self.trace_label, artifact=name)
+        try:
+            await asyncio.wait_for(self.context.tracing.stop(path=str(self.out / name)), timeout=20)
+        except Exception as error:
+            self.trace_state = 'uncertain'
+            self.report.setdefault('cleanupErrors', []).append({'operation': 'trace.stop', 'segment': self.trace_label,
+                'type': type(error).__name__, 'error': str(error) or repr(error)})
+            self.fail(error)
+            raise
+        self.trace_state = 'off'
+        self.report.setdefault('traceArtifacts', []).append(name)
+        self.phase('ui-trace-stopped', segment=self.trace_label, artifact=name)
+
+    async def settle_title(self, entry):
+        self.phase('title-wait', entry=entry, timeoutSeconds=240)
+        try:
+            await asyncio.wait_for(wait_title_settled(self.page, timeout=240000), timeout=245)
+        except Exception as error:
+            self.fail(error)
+            try:
+                self.report.setdefault('titleReceipts', {})[entry] = await asyncio.wait_for(self.page.evaluate(SNAPSHOT), timeout=2)
+            except Exception as receipt_error:
+                self.report['titleReceiptError'] = {'type': type(receipt_error).__name__, 'error': str(receipt_error) or repr(receipt_error)}
+            self.save()
+            raise
+        self.phase('title-settled', entry=entry)
 
     async def record(self, label, shot=False):
         state = await self.page.evaluate(SNAPSHOT)
@@ -112,10 +175,12 @@ class Journey:
         print(json.dumps({'step': label, 'elapsed': state['elapsed'], 'modal': state['modal']}), flush=True)
         return state
 
-    async def wait(self, expression, timeout=20000, arg=None):
+    async def wait(self, expression, timeout=20000, arg=None, label=None):
+        self.phase('wait', condition=label or expression[:200], timeoutMs=timeout)
         await self.page.wait_for_function(expression, arg=arg, timeout=timeout, polling=100)
 
     async def action(self, selector, after=None):
+        self.phase('action', selector=selector)
         control = self.page.locator(selector).first
         await control.wait_for(state='visible')
         await control.scroll_into_view_if_needed()
@@ -190,8 +255,10 @@ class Journey:
         await self.action('#mobile-character' if self.args.touch else '#btn-menu', "()=>__hm.UI.modal==='menu'")
 
     async def play(self):
+        self.phase('navigation-start', entry='fresh')
         await self.page.goto('http://journey.test/', wait_until='commit')
-        await wait_title_settled(self.page, timeout=240000)
+        self.phase('navigation-committed', entry='fresh')
+        await self.settle_title('fresh')
         if self.args.edge_native:
             renderer = await self.page.evaluate("""()=>{const gl=__hm.dbg.renderer.getContext(),ext=gl.getExtension('WEBGL_debug_renderer_info');return ext?gl.getParameter(ext.UNMASKED_RENDERER_WEBGL):gl.getParameter(gl.RENDERER);}""")
             self.report['rendererIdentity'] = renderer
@@ -199,6 +266,7 @@ class Journey:
                     and re.search(r'NVIDIA|AMD|Radeon|Intel|Apple|Adreno|Mali', renderer, re.I), 'Native Edge did not provide verifiable hardware graphics: ' + renderer)
             self.report['nativeHardwareVerified'] = True
         await self.record('01-title', shot=True)
+        await self.start_ui_trace('entry')
         require(await self.page.locator('#btn-begin').is_enabled(), 'Fresh entry is disabled')
         require(await self.page.locator('#btn-continue').is_hidden(), 'Competing entry actions on the fresh title')
         await self.page.locator('#name-input').fill('Reviewer fixture')
@@ -223,7 +291,11 @@ class Journey:
         await self.wait("()=>__hm.UI.modal==='dialog'&&document.getElementById('dlg-title').textContent.includes('Herald')")
         await self.panel('#dialog')
         await self.record('04-herald', shot=True)
-        await self.wait("()=>__hm.GAME.prog.lore.done.includes('herald')")
+        await self.wait("()=>__hm.LORE.state.ev.herald===true", label='normal lore watcher observed the open Herald dialog')
+        before_accept = await self.page.evaluate(EARNED)
+        require('herald' not in before_accept['done'], 'The Herald deed must wait until its dialog closes')
+        self.report['heraldBoundary'] = {'dialogObserved': True, 'beforeAccept': before_accept}
+        self.save()
         accept = self.page.locator('#dlg-actions').get_by_role('button', name='Accept bounty', exact=True)
         require(await accept.count() == 1, 'The default fresh world has no suitable first bounty; inspect herald/objective evidence')
         if self.args.touch:
@@ -231,6 +303,9 @@ class Journey:
         else:
             await accept.click()
         await self.wait("()=>__hm.UI.modal===null&&!!__hm.GAME.prog.bounty")
+        await self.wait("()=>__hm.GAME.prog.lore.done.includes('herald')", label='Herald deed completed after accepting and closing the dialog')
+        self.report['heraldBoundary']['afterClose'] = await self.page.evaluate(EARNED)
+        await self.record('04b-herald-complete')
         mark = await self.page.evaluate("""()=>{const H=__hm,b=H.GAME.prog.bounty,c=H.CAMPS[b.camp],m=H.guide.mark();
           return {m,c:{x:Math.round(c.x),z:Math.round(c.z)},have:b.have};}""")
         require(mark['m'] and mark['m']['x'] == mark['c']['x'] and mark['m']['z'] == mark['c']['z'], 'Accepted bounty has the wrong navigation marker')
@@ -290,8 +365,12 @@ class Journey:
         saved = await self.page.evaluate("JSON.parse(localStorage.getItem('hallowmarch.save.v1'))")
         self.report['savedCheckpoint'] = {'name': saved['char']['name'], 'level': saved['char']['level'], 'xp': saved['char']['xp'], 'track': saved['char']['lore']['track'], 'music': saved['settings']['music']}
         self.save()
+        await self.stop_ui_trace()
+        self.phase('navigation-start', entry='reload')
         await self.page.reload(wait_until='commit')
-        await wait_title_settled(self.page, timeout=240000)
+        self.phase('navigation-committed', entry='reload')
+        await self.settle_title('reload')
+        await self.start_ui_trace('return')
         await self.record('08-returning-title', shot=True)
         require(await self.page.locator('#btn-begin').inner_text() == 'Continue as Reviewer fixture', 'Returning character does not have one clear Continue action')
         require(await self.page.locator('#character-create-fields').is_hidden() and await self.page.locator('#btn-continue').is_hidden(), 'The returning title exposes competing character entry actions')
@@ -306,6 +385,7 @@ class Journey:
         require(await self.page.locator('#set-m [data-v="off"]').get_attribute('aria-checked') == 'true', 'The persisted music preference did not apply after Continue')
 
     async def run(self):
+        self.phase('preflight')
         html = self.args.html.read_text(encoding='utf-8').replace(THREE_URL, '/qa/three.mjs')
         html = re.sub(r'<link[^>]+href="https://fonts\.[^>]+>', '', html)
         if self.args.expect_sha256:
@@ -314,17 +394,25 @@ class Journey:
         owned = NativeJourneyBrowser(self.out, self.args.timeout + 120, edge=self.args.edge_native, executable=self.args.executable)
         self.report['outcome'] = 'FAIL'
         try:
+            self.phase('playwright-driver-start')
             async with async_playwright() as p:
+                self.phase('browser-launch')
                 endpoint = await owned.start()
                 self.report['ownedBrowser'] = owned.receipt
+                self.phase('browser-owned', browserPid=owned.receipt.get('ownedBrowserPid'))
+                self.phase('browser-connect')
                 browser = await p.chromium.connect(endpoint, timeout=45000)
                 self.report['browserVersion'] = browser.version
+                self.phase('browser-connected', version=browser.version)
+                self.phase('context-create')
                 context = await browser.new_context(viewport={'width': self.args.width, 'height': self.args.height}, has_touch=self.args.touch,
                                                     is_mobile=self.args.touch, service_workers='block')
+                self.context = context
+                self.phase('page-create')
                 self.page = await context.new_page()
                 self.page.set_default_timeout(20000)
                 self.page.on('pageerror', lambda error: self.report['pageErrors'].append(str(error)))
-                await context.tracing.start(screenshots=True, snapshots=True, sources=True)
+                self.phase('context-created')
 
                 async def route(request):
                     url = urlparse(request.request.url)
@@ -349,38 +437,39 @@ class Journey:
 
                 await context.route('**/*', route)
                 await context.route_web_socket('**/*', block_socket)
+                self.phase('local-routes-ready')
                 try:
                     await asyncio.wait_for(self.play(), timeout=self.args.timeout)
                     self.report['outcome'] = 'PASS'
                 except Exception as error:
-                    self.report['outcome'] = 'FAIL'
-                    self.report['failure'] = str(error)
+                    self.fail(error)
                     try: await self.page.screenshot(path=str(self.out / 'failure.png'), timeout=5000)
                     except Exception: pass
                 finally:
                     try:
-                        await asyncio.wait_for(context.tracing.stop(path=str(self.out / 'trace.zip')), timeout=20)
-                    except Exception as error:
-                        self.report['traceCleanupError'] = str(error)
+                        await self.stop_ui_trace()
+                    except Exception:
+                        pass  # The explicit trace error is retained; browser ownership cleanup still runs.
+                    self.phase('browser-close')
                     try:
                         await asyncio.wait_for(browser.close(), timeout=15)
                     except Exception as error:
-                        self.report['browserCloseFailure'] = str(error)
+                        self.report['browserCloseFailure'] = {'type': type(error).__name__, 'error': str(error) or repr(error)}
+                    self.phase('owned-browser-cleanup')
                     self.report['browserClosed'] = await owned.stop()
         except Exception as error:
-            self.report['outcome'] = 'FAIL'
-            self.report['failure'] = str(error)
+            self.fail(error)
         finally:
             if owned.process and not self.report['browserClosed']:
                 try:
                     self.report['browserClosed'] = await owned.stop()
                 except Exception as error:
-                    self.report['cleanupError'] = str(error)
+                    self.report['cleanupError'] = {'type': type(error).__name__, 'error': str(error) or repr(error)}
             self.report['ownedBrowser'] = owned.receipt
             if not self.report['browserClosed']:
                 self.report['outcome'] = 'FAIL'
             self.report['elapsedSeconds'] = round(time.monotonic() - self.started, 3)
-            self.save()
+            self.phase('complete', outcome=self.report['outcome'], browserClosed=self.report['browserClosed'])
         print(json.dumps({'outcome': self.report.get('outcome', 'FAIL'), 'evidence': str(self.out), 'browserClosed': self.report['browserClosed']}), flush=True)
         return self.report.get('outcome') == 'PASS'
 
