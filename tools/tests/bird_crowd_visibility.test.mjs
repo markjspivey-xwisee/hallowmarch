@@ -45,6 +45,17 @@ function shadowSubmissionFixture(source) {
   };
 }
 
+test('an intentional empty LOD shadow stand-in stays empty while the source keeps populated geometry', () => {
+  const sourceGeometry = new THREE.InstancedBufferGeometry(); sourceGeometry.instanceCount = 17;
+  const source = new THREE.Mesh(sourceGeometry, new THREE.MeshBasicMaterial()), f = shadowSubmissionFixture(source);
+  const empty = new THREE.InstancedBufferGeometry(); empty.instanceCount = 0;
+  f.proxy.geometry = empty;
+  assert.deepEqual(f.pass(), []); assert.equal(f.proxy.geometry, empty);
+  assert.equal(source.geometry, sourceGeometry); assert.equal(sourceGeometry.instanceCount, 17); assert(source.visible);
+  f.proxy.geometry = sourceGeometry; assert.deepEqual(f.pass(), [f.proxy]);
+  f.proxy.geometry = empty; assert.deepEqual(f.pass(), []);
+});
+
 test('zero-count InstancedMesh shadow sources skip submission and resume after population', () => {
   const source = new THREE.InstancedMesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial(), 3);
   source.position.set(3, 4, 5); source.count = 0;
