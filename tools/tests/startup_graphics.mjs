@@ -419,6 +419,7 @@ function titleFixture({autoPaint=false}={}) {
       },
     },
     gpuDiagFamilies(){events.push('inventory');return inventory;},
+    wxPrepareCloudResources(){events.push('entry-resources');return [];},
     gpuDiagCaptureRenderer(){return {...postState};},
     gpuDiagRestoreRenderer(saved,restoreGl){assert.equal(restoreGl,false);Object.assign(postState,saved);events.push('restore:'+ctx.GRAPHICS_STARTUP.titleStage);},
     gpuDiagGlErrors(){return glErrors.shift() || [];},
@@ -483,6 +484,33 @@ function titleFixture({autoPaint=false}={}) {
   return f;
 }
 const titleStages=['post','sky','terrain','grass','flowers','trees','water','structures','crowds','other'];
+
+test('entry program completion precedes real title stages and cannot replace their fences',async()=>{
+  const f=titleFixture();let finish;
+  f.ctx.prepareTitleEntryPrograms=(inventory,generation,resources)=>{
+    assert.equal(inventory,f.inventory);assert.equal(generation,1);assert.equal(resources.length,0);
+    return new Promise(resolve=>{finish=resolve;});
+  };
+  const pending=f.run();await f.flush();
+  assert.equal(f.fences.length,0);assert.equal(f.ctx.GRAPHICS_STARTUP.titleCompleted,0);
+  finish({completed:true,stale:false});await f.flush();
+  assert.deepEqual(f.fences.map(x=>x.stage),['post']);
+  await f.finish(pending);assert.deepEqual(f.fences.map(x=>x.stage),[...titleStages,'combined']);f.restored();
+});
+
+test('stale entry preparation replans before any title draw and does not claim readiness',async()=>{
+  const f=titleFixture();let calls=0;
+  f.ctx.prepareTitleEntryPrograms=async()=>({stale:++calls===1,completed:calls!==1});
+  await f.finish(f.run());
+  assert.equal(calls,2);assert.deepEqual(f.fences.map(x=>x.stage),[...titleStages,'combined']);
+  assert.equal(f.ctx.GRAPHICS_STARTUP.titleCompleted,1);f.restored();
+});
+
+test('entry preparation failure stops startup before any title draw',async()=>{
+  const f=titleFixture();f.ctx.prepareTitleEntryPrograms=async()=>{throw Error('controlled entry preparation failure');};
+  await assert.rejects(f.run(),/controlled entry preparation failure/);assert.equal(f.fences.length,0);
+  assert.equal(f.ctx.GRAPHICS_STARTUP.titleCompleted,0);assert(f.events.includes('failure'));f.restored();
+});
 
 test('actual static title preparation changes only existing view uniforms without randomness or simulation',()=>{
   const f=titleFixture();vm.runInContext('prepareTitleView()',f.ctx);
