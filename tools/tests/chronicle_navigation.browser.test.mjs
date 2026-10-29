@@ -26,7 +26,18 @@ const style=[...shell.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/g)].map(m=>m[1
 const markup=shell.slice(shell.indexOf('<div class="overlay" id="menu"'),shell.indexOf('<div class="overlay" id="kit"'));
 let server,browser;
 const bounded=(promise,ms)=>{let timer;return Promise.race([promise,new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('DOM browser close timed out')),ms);})]).finally(()=>clearTimeout(timer));};
-test.before(async()=>{server=await chromium.launchServer({headless:true,chromiumSandbox:true,args:['--disable-gpu']});browser=await chromium.connect(server.wsEndpoint());});
+// Ubuntu's AppArmor profile covers vendor Chrome at /opt/google/chrome/chrome,
+// not the downloaded headless_shell. Keep the sandbox enabled and fail if absent.
+// https://chromium.googlesource.com/chromium/src/+/main/docs/security/apparmor-userns-restrictions.md
+const browserChannel=process.platform==='linux'?'chrome':undefined;
+test.before(async()=>{
+  server=await chromium.launchServer({headless:true,chromiumSandbox:true,args:['--disable-gpu'],...(browserChannel?{channel:browserChannel}:{})});
+  const launched=server.process();
+  assert(!launched.spawnargs.some(arg=>/^--(?:no-sandbox|disable-setuid-sandbox|disable-seccomp-filter-sandbox|disable-namespace-sandbox|disable-web-security)(?:=|$)/.test(arg)),'DOM test must retain the browser security boundaries');
+  if(process.platform==='linux')assert.equal(launched.spawnfile,'/opt/google/chrome/chrome','Use the vendor path covered by the Ubuntu policy');
+  console.log(JSON.stringify({kind:'chronicle-dom-browser',channel:browserChannel||'bundled-chromium',executable:launched.spawnfile,sandbox:true}));
+  browser=await chromium.connect(server.wsEndpoint());
+});
 test.after(async()=>{try{await bounded(browser?.close(),10000);}finally{try{await bounded(server?.close(),10000);}catch{await server?.kill();}}});
 
 async function fixture(t,width,largeText){
