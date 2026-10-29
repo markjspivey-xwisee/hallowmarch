@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import * as THREE from 'three';
 import { WebGLPrograms } from '../node_modules/three/src/renderers/webgl/WebGLPrograms.js';
+import { WebGLUniforms } from '../node_modules/three/src/renderers/webgl/WebGLUniforms.js';
 
 const root = new URL('../../', import.meta.url);
 const read = path => readFileSync(new URL(path, root), 'utf8');
@@ -30,9 +31,9 @@ function events() {
     count: () => [...listeners.values()].reduce((count, set) => count + set.size, 0) };
 }
 
-function fixture({ level = 'medium', safe = false, supported = true, readyDelay = 25, compileMs = 0, failure = '', pendingLimit = productPending } = {}) {
+function fixture({ level = 'medium', safe = false, supported = true, readyDelay = 25, compileMs = 0, reflectionMs = 0, failure = '', pendingLimit = productPending } = {}) {
   let now = 0, timerId = 0, lost = false, cache, randomCalls = 0, preflightCalls = 0;
-  const timers = new Map(), programs = [], known = new Map(), compileCalls = [], calls = [], errors = [], errorChecks = [];
+  const timers = new Map(), programs = [], known = new Map(), compileCalls = [], calls = [], errors = [], errorChecks = [], reflections = [];
   const document = { hidden: false, ...events() }, window = events(), canvas = events();
   const originalTarget = {}, scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera(55, 1.6, 0.1, 900);
   camera.position.set(0, 5, 0); camera.lookAt(0, 5, -1); camera.updateMatrixWorld();
@@ -40,6 +41,7 @@ function fixture({ level = 'medium', safe = false, supported = true, readyDelay 
   const clearColor = new THREE.Color(0x234567), viewport = new THREE.Vector4(1, 2, 300, 200), scissor = new THREE.Vector4(3, 4, 150, 100);
   let clearAlpha = 0.7, scissorTest = true;
   const renderer = { info: { programs }, extensions: { has: () => supported }, _useLegacyLights: false,
+    debug: { checkShaderErrors: true },
     toneMapping: THREE.NoToneMapping, outputColorSpace: THREE.LinearSRGBColorSpace,
     shadowMap: { enabled: false, type: THREE.PCFShadowMap }, autoClear: false,
     getRenderTarget: () => currentTarget,
@@ -59,7 +61,18 @@ function fixture({ level = 'medium', safe = false, supported = true, readyDelay 
     const parameters = cache.getParameters(material, lights, [], targetScene, object), key = cache.getProgramCacheKey(parameters);
     if (!known.has(key)) {
       const program = { id: programs.length, cacheKey: key, parameters, program: {}, readyAt: now + readyDelay,
-        isReady() { assert(!lost); return now >= this.readyAt; } };
+        isReady() { assert(!lost); return now >= this.readyAt; },
+        getUniforms() {
+          assert(!lost); assert(programs.every(value => !value.program || now >= value.readyAt), 'reflection never synchronizes pending shader work');
+          reflections.push({ program: this, at: now, compiled: compileCalls.length, checked: renderer.debug.checkShaderErrors }); now += reflectionMs;
+          if (failure === 'reflection') throw Error('controlled reflection failure');
+          if (failure === 'reflectionGL') errors.push(['0x0502']);
+          if (failure === 'reflectionDiagnostics') this.diagnostics = { runnable: false };
+          if (failure === 'reflectionDispose') this.program = null;
+          if (failure === 'reflectionContext') { lost = true; ctx.GRAPHICS_CONTEXT_LOST = true; canvas.emit('webglcontextlost'); }
+          if (failure === 'reflectionStale') { ctx.TITLE_WARM_GENERATION++; }
+          return { seq: [], map: {} };
+        }, getAttributes() { return {}; } };
       known.set(key, program); programs.push(program);
     }
     if (failure === 'context') { lost = true; ctx.GRAPHICS_CONTEXT_LOST = true; canvas.emit('webglcontextlost'); }
@@ -108,7 +121,7 @@ function fixture({ level = 'medium', safe = false, supported = true, readyDelay 
     color: r.raysMat.uniforms.uCol.value.toArray(), colorObject: r.raysMat.uniforms.uCol.value,
     aspect: r.raysMat.uniforms.uAspect.value, ndc: r._sunNdc.toArray(), direction: r._camDir.toArray(),
     autoClear: renderer.autoClear, clearColor: clearColor.getHex(), clearAlpha, viewport: viewport.toArray(), scissor: scissor.toArray(), scissorTest });
-  return { ctx, r, scene, camera, inventory, programs, known, compileCalls, calls, timers, errors, errorChecks, originalTarget,
+  return { ctx, r, scene, camera, inventory, programs, known, compileCalls, calls, timers, errors, errorChecks, reflections, originalTarget,
     currentTarget: () => currentTarget, randomCalls: () => randomCalls, preflightCalls: () => preflightCalls, state,
     run: id => ctx.prepareTitleDependencies(id, inventory, ctx.TITLE_WARM_GENERATION),
     eval: text => vm.runInContext(text, ctx),
@@ -518,4 +531,120 @@ test('shader similarity alone cannot admit foreign glass, and unavailable ripple
   const receipt = await f.finish(f.runEntry()); assert.equal(receipt.families['entry-ripple-clear'], undefined);
   assert.equal(receipt.families['entry-ripple-sim'], undefined); assert.equal(receipt.families['entry-house-glass'].jobs, 1);
   assert(!f.calls.some(call => call.object === foreign)); f.clean();
+});
+
+test('entry reflection uses original linked programs only at drained boundaries and leaves post/sky serial initializers alone', async () => {
+  const f = entryFixture({ shadows: 11, readyDelay: 50 });
+  f.ctx.renderer.debug.checkShaderErrors=false;
+  const receipt = await f.finish(f.runEntry());
+  assert.equal(receipt.reflectedPrograms, receipt.newPrograms); assert.equal(f.reflections.length, receipt.newPrograms);
+  assert.equal(new Set(f.reflections.map(row => row.program)).size, receipt.newPrograms);
+  assert(f.reflections.every(row=>row.checked===true));assert.equal(f.ctx.renderer.debug.checkShaderErrors,false);
+  assert(receipt.maxReflectionsPerTurn <= 4); assert(receipt.waveLatency.every(wave => wave.reflectedPrograms === wave.newPrograms));
+  assert(f.errorChecks.every(count => count === 0));
+  const before = f.reflections.length; await f.finish(f.run('post')); await f.finish(f.run('sky'));
+  assert.equal(f.reflections.length, before); f.clean();
+});
+
+test('an early completed handle does not prevent the entry wave from filling across bounded turns', async () => {
+  const f = entryFixture({ shadows: 7, compileMs: 10, readyDelay: 5 });
+  const receipt = await f.finish(f.runEntry());
+  assert.equal(receipt.completed, true); assert.equal(receipt.maxWavePrograms, 4);
+  assert.equal(receipt.reflectedPrograms, receipt.newPrograms); assert(receipt.maxPreparesPerTurn <= 1); f.clean();
+});
+
+test('one slow original entry initializer yields before another initializer or wave submission', async () => {
+  const f = entryFixture({ shadows: 7, readyDelay: 25, reflectionMs: 5000 }), promise = f.runEntry(); await f.flush();
+  const submitted = f.compileCalls.length;
+  await f.timer(30);
+  assert.equal(f.reflections.length, 1); assert.equal(f.compileCalls.length, submitted);
+  const receipt = await f.finish(promise);
+  assert.equal(receipt.maxSingleReflectionMs, 5000); assert.equal(receipt.maxReflectionsPerTurn, 1);
+  assert.equal(receipt.reflectionMs, receipt.reflectedPrograms * 5000); assert.equal(receipt.maxFullTurnMs, 5000);
+  assert(receipt.reflectionBudgetYields > 0); f.clean();
+});
+
+test('queued GL errors reject before entry reflection or any next wave', async () => {
+  const f = entryFixture({ shadows: 7, readyDelay: 50 }), promise = f.runEntry(); await f.flush();
+  const submitted = f.compileCalls.length; f.errors.push(['0x0502']);
+  const rejected = assert.rejects(promise, /GL errors/); await f.timer(60); await rejected;
+  assert.equal(f.reflections.length, 0); assert.equal(f.compileCalls.length, submitted); f.clean();
+});
+
+for (const [failure, message] of [['reflection', /reflection failure/], ['reflectionGL', /GL errors/],
+  ['reflectionDiagnostics', /original diagnostics/], ['reflectionDispose', /disposed during reflection/], ['reflectionContext', /Graphics stopped/]])
+test('entry initializer fails closed without retry or another wave: ' + failure, async () => {
+  const f = entryFixture({ shadows: 7, readyDelay: 50, failure }), promise = f.runEntry(); await f.flush();
+  f.ctx.renderer.debug.checkShaderErrors=false;
+  const submitted = f.compileCalls.length, rejected = assert.rejects(promise, message); await f.timer(60); await rejected;
+  assert.equal(f.reflections.length, 1); assert.equal(f.compileCalls.length, submitted);
+  assert.equal(f.reflections[0].checked,true);assert.equal(f.ctx.renderer.debug.checkShaderErrors,false);
+  const receipt = f.ctx.GRAPHICS_STARTUP.titlePreparations[0]; assert.equal(receipt.completed, false); assert.equal(receipt.outcome, 'failed'); f.clean();
+});
+
+test('stale entry work drains without reflection and cached programs keep the original first-draw fallback', async () => {
+  const f = entryFixture({ shadows: 7, readyDelay: 50 }), promise = f.runEntry(); await f.flush();
+  const abandoned = [...f.programs]; f.ctx.TITLE_WARM_GENERATION++;
+  const stale = await f.finish(promise); assert.equal(stale.stale, true); assert.equal(f.reflections.length, 0);
+  const receipt = await f.finish(f.runEntry());
+  assert.equal(receipt.reflectedPrograms, receipt.newPrograms); assert(f.reflections.every(row => !abandoned.includes(row.program)));
+  const before = f.reflections.length; abandoned[0].getUniforms(); assert.equal(f.reflections.length, before + 1); f.clean();
+});
+
+test('a generation change during initialization stops after that call without another initializer or wave', async () => {
+  const f = entryFixture({ shadows: 7, readyDelay: 50, failure: 'reflectionStale' });
+  const receipt = await f.finish(f.runEntry());
+  assert.equal(receipt.stale, true); assert.equal(receipt.completed, false); assert.equal(f.reflections.length, 1);
+  assert.equal(receipt.reflectedPrograms, 1); assert.equal(f.compileCalls.length, 4); f.clean();
+});
+
+for(const change of ['missing API','unowned wrapper'])test('entry reflection rejects unavailable original program ownership: '+change,async()=>{
+  const f=entryFixture({shadows:7,readyDelay:50}),promise=f.runEntry();await f.flush();
+  if(change==='missing API')f.programs[0].getUniforms=null;else f.programs.shift();
+  const rejected=assert.rejects(promise,change==='missing API'?/reflection is unavailable/:/disposed before reflection/);
+  await f.timer(60);await rejected;assert.equal(f.reflections.length,0);f.clean();
+});
+
+test('a late completed final entry wave retains original completion ordering without starting reflection after its visible budget',async()=>{
+  const f=entryFixture({shadows:0,readyDelay:50}),promise=f.runEntry();await f.flush();
+  await f.timer(200000);const receipt=await promise;
+  assert.equal(receipt.completed,true);assert.equal(receipt.reflectedPrograms,0);assert.equal(receipt.deferredReflections,3);
+  assert.equal(f.reflections.length,0);assert(receipt.visibleMs>=180000);f.clean();
+});
+
+test('a completed slow initializer cannot start more optional reflection after the total visible budget',async()=>{
+  const f=entryFixture({shadows:0,readyDelay:25,reflectionMs:200000});
+  const receipt=await f.finish(f.runEntry());
+  assert.equal(receipt.completed,true);assert.equal(receipt.reflectedPrograms,1);assert.equal(receipt.deferredReflections,2);
+  assert.equal(receipt.maxFullTurnMs,200000);assert.equal(f.reflections.length,1);f.clean();
+});
+
+test('a short reflection crossing the total budget cannot admit another wave in the same turn',async()=>{
+  const f=entryFixture({shadows:7,readyDelay:25,reflectionMs:3}),promise=f.runEntry();await f.flush();
+  const submitted=f.compileCalls.length,rejected=assert.rejects(promise,/exceeded its time budget/);
+  await f.timer(179985);await rejected;
+  const receipt=f.ctx.GRAPHICS_STARTUP.titlePreparations[0];
+  assert.equal(f.reflections.length,2);assert.equal(receipt.deferredReflections,2);
+  assert.equal(f.compileCalls.length,submitted);assert.equal(receipt.completed,false);f.clean();
+});
+
+test('the pinned r160 original initializer retains validation and fills both caches once', () => {
+  const programSource = read('tools/node_modules/three/src/renderers/webgl/WebGLProgram.js');
+  const attributes = section(programSource, 'function fetchAttributeLocations(', 'function filterEmptyLine(');
+  const initializer = section(programSource, '\tfunction onFirstUse( self )', '\t// indicate when the program is ready');
+  const calls = [], program = {}, glVertexShader = {}, glFragmentShader = {};
+  const gl = { LINK_STATUS: 1, ACTIVE_UNIFORMS: 2, ACTIVE_ATTRIBUTES: 3, FLOAT: 5126, FLOAT_VEC3: 35665,
+    getProgramInfoLog(handle) { assert.equal(handle, program); calls.push('program log'); return ''; },
+    getShaderInfoLog(handle) { assert([glVertexShader, glFragmentShader].includes(handle)); calls.push('shader log'); return ''; },
+    getProgramParameter(handle, flag) { assert.equal(handle, program); calls.push(flag); return flag === 1 ? true : 1; },
+    deleteShader(handle) { assert([glVertexShader, glFragmentShader].includes(handle)); calls.push('delete shader'); },
+    getActiveUniform() { return { name: 'uTime', size: 1, type: 5126 }; }, getUniformLocation() { return 'original uniform location'; },
+    getActiveAttrib() { return { name: 'position', type: 35665 }; }, getAttribLocation() { return 0; } };
+  const ctx = { gl, program, glVertexShader, glFragmentShader, WebGLUniforms, renderer: { debug: { checkShaderErrors: true } } };
+  vm.createContext(ctx); vm.runInContext(attributes + '\nfunction Program(){' + initializer + '} this.original=new Program();', ctx);
+  const uniforms = ctx.original.getUniforms(), count = calls.length, attrs = ctx.original.getAttributes();
+  assert.equal(uniforms.seq[0].id, 'uTime'); assert.equal(attrs.position.location, 0);
+  assert.equal(calls.length, count); assert.equal(ctx.original.getUniforms(), uniforms);
+  assert.deepEqual(calls.slice(0, 4), ['program log', 'shader log', 'shader log', 1]);
+  assert.equal(calls.filter(value => value === 'delete shader').length, 2); assert(calls.includes(2) && calls.includes(3));
 });

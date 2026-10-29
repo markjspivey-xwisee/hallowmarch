@@ -235,6 +235,7 @@ async function prepareTitleProgramJobs(inventory, stages, generation, dependency
   const receipt = { generation, dependency: dependencyId, errorPolicy: 'drained-waves', supported: false, outcome: 'serial', completed: false, stale: false,
     eligibleJobs: 0, preparedJobs: 0, skipped: 0, newPrograms: 0, maxPending: 0, maxPreparesPerTurn: 0,
     prepareMs: 0, maxSinglePrepareMs: 0, slowestPrepare: null, maxFullTurnMs: 0, budgetYields: 0, waves: 0, maxWavePrograms: 0,
+    reflectedPrograms: 0, deferredReflections: 0, reflectionMs: 0, maxSingleReflectionMs: 0, maxReflectionsPerTurn: 0, reflectionBudgetYields: 0, slowestReflection: null,
     inventoryMs: 0, inventoryObjects: 0, maxInventoryCheckMs: 0, slowestInventory: null,
     flushMs: 0, maxFlushMs: 0, pollMs: 0, maxPollMs: 0,
     errorCheckMs: 0, maxErrorCheckMs: 0, elapsedMs: 0, visibleMs: 0, hiddenMs: 0, disposed: 0, families: {},
@@ -247,7 +248,7 @@ async function prepareTitleProgramJobs(inventory, stages, generation, dependency
   GRAPHICS_STARTUP.titlePreparing = true;
   const message = document.getElementById?.('loadmsg');
   if (message) message.textContent = 'Preparing the first view';
-  const pending = new Map(), initialTarget = sceneRT;
+  const pending = new Map(), entryInitializers = [], initialTarget = sceneRT;
   let timer = null, wake = null, lost = false, stale = false, avatarJob = null, dependencies = null;
   let clockAt = started, visibleMs = 0, wasHidden = !!document.hidden;
   let waveLatency = null, wavePollAt = null;
@@ -271,7 +272,8 @@ async function prepareTitleProgramJobs(inventory, stages, generation, dependency
       elapsedMs: 0, visibleMs: 0, preparedJobs: 0, newPrograms: 0, completedPrograms: 0, disposedPrograms: 0,
       firstProgramQueuedMs: null, lastProgramQueuedMs: null, lastPreparedMs: null, sealedMs: null,
       firstObservedReadyMs: null, lastObservedReadyMs: null, polls: 0, maxObservedPollGapMs: 0,
-      timerSchedules: 0, timerCallbacks: 0, timerLateMs: 0, maxTimerLateMs: 0, validationMs: 0, outcome: 'preparing', families: {}, programs: [] };
+      timerSchedules: 0, timerCallbacks: 0, timerLateMs: 0, maxTimerLateMs: 0, validationMs: 0,
+      reflectedPrograms: 0, reflectionMs: 0, outcome: 'preparing', families: {}, programs: [] };
     wavePollAt = null;
     if (receipt.waveLatency.length < 128) receipt.waveLatency.push(waveLatency);
     else receipt.droppedWaveLatency++;
@@ -379,9 +381,9 @@ async function prepareTitleProgramJobs(inventory, stages, generation, dependency
     receipt.avatarShadowQueued = !!avatarJob;
     receipt.eligibleJobs = jobs.length;
     let index = 0, wavePrograms = 0, waveStarted = false, waveSealed = false;
-    while (index < jobs.length || pending.size || waveStarted) {
+    while (index < jobs.length || pending.size || entryInitializers.length || waveStarted) {
       const turnStarted = performance.now();
-      let shouldPause = false;
+      let shouldPause = false, deferAdmission = false, reflected = 0;
       try {
         active(); changed();
         const pollStarted = performance.now();
@@ -416,6 +418,7 @@ async function prepareTitleProgramJobs(inventory, stages, generation, dependency
               waveLatency.completedPrograms++;
               if (job.observation) { job.observation.observedReadyMs = observedAt; job.observation.outcome = 'linked'; }
             }
+            if (dependencyId === 'entry' && !stale) entryInitializers.push({ program, handle: program.program, family: job.family });
             pending.delete(program);
           }
         }
@@ -428,17 +431,61 @@ async function prepareTitleProgramJobs(inventory, stages, generation, dependency
         if (!pending.size && (!waveStarted || waveSealed)) {
           // Observe queued GL errors before another wave adds driver work.
           errors();
-          finishWaveLatency(stale ? 'stale' : 'drained');
-          if (stale) { receipt.outcome = 'stale'; receipt.stale = true; return receipt; }
-          if (index === jobs.length) break;
-          wavePrograms = 0; waveStarted = false; waveSealed = false;
+          if (stale) { entryInitializers.length = 0; finishWaveLatency('stale'); receipt.outcome = 'stale'; receipt.stale = true; return receipt; }
+          // r160 defers its original diagnostics and uniform/attribute lookup
+          // until getUniforms(). Run that same initializer only for newly
+          // acquired entry programs after the entire wave has linked. Never
+          // query reflection while sibling compiler work is pending. A stale
+          // generation retains the normal first-draw initializer fallback.
+          while (entryInitializers.length && reflected < TITLE_COMPILE_LIMITS.perTurn) {
+            active(); changed(); if (stale) break;
+            // Reflection is an optional first-use optimization. Do not start
+            // another initializer after the visible preparation budget; keep
+            // the original completion-before-deadline / first-draw fallback.
+            if (visibleElapsed() >= TITLE_COMPILE_LIMITS.totalMs) {
+              receipt.deferredReflections += entryInitializers.length; entryInitializers.length = 0; break;
+            }
+            const { program, handle, family } = entryInitializers[0];
+            if (!handle || program.program !== handle || !renderer.info.programs.includes(program)) throw new Error('A required entry program was disposed before reflection.');
+            if (typeof program.getUniforms !== 'function' || typeof program.getAttributes !== 'function') throw new Error('Required entry program reflection is unavailable.');
+            const debug = renderer.debug;
+            if (!debug) throw new Error('Required entry program diagnostics are unavailable.');
+            const originalShaderCheck = debug.checkShaderErrors;
+            const reflectionStarted = performance.now();
+            try { debug.checkShaderErrors = true; program.getUniforms(); }
+            finally {
+              debug.checkShaderErrors = originalShaderCheck;
+              const ms = performance.now() - reflectionStarted;
+              receipt.reflectionMs += ms; if (waveLatency) waveLatency.reflectionMs += ms;
+              if (ms > receipt.maxSingleReflectionMs) {
+                receipt.maxSingleReflectionMs = ms; receipt.slowestReflection = { programId: program.id, family, ms };
+              }
+            }
+            active(); changed();
+            if (program.program !== handle || !renderer.info.programs.includes(program)) throw new Error('A required entry program was disposed during reflection.');
+            if (program.diagnostics?.runnable === false) throw new Error('A required entry program failed its original diagnostics.');
+            errors();
+            entryInitializers.shift(); reflected++; receipt.reflectedPrograms++;
+            if (waveLatency) waveLatency.reflectedPrograms++;
+            if (performance.now() - turnStarted >= TITLE_COMPILE_LIMITS.turnMs) { receipt.reflectionBudgetYields++; deferAdmission = true; break; }
+          }
+          if (entryInitializers.length && visibleElapsed() >= TITLE_COMPILE_LIMITS.totalMs) {
+            receipt.deferredReflections += entryInitializers.length; entryInitializers.length = 0;
+          }
+          receipt.maxReflectionsPerTurn = Math.max(receipt.maxReflectionsPerTurn, reflected);
+          if (stale) { entryInitializers.length = 0; finishWaveLatency('stale'); receipt.outcome = 'stale'; receipt.stale = true; return receipt; }
+          if (!entryInitializers.length) {
+            finishWaveLatency('drained');
+            if (index === jobs.length) break;
+            wavePrograms = 0; waveStarted = false; waveSealed = false;
+          }
         }
-        if (visibleNow >= TITLE_COMPILE_LIMITS.totalMs) throw new Error('Title program preparation exceeded its time budget.');
+        if (visibleElapsed() >= TITLE_COMPILE_LIMITS.totalMs) throw new Error('Title program preparation exceeded its time budget.');
         let prepared = 0;
         // Cache hits do not consume a wave's program capacity. Fill across
         // bounded turns, counting even completed handles in this wave; partial
         // completion cannot free slots or permit a new wave before draining.
-        while (!waveSealed && !stale && index < jobs.length && prepared < TITLE_COMPILE_LIMITS.perTurn) {
+        while (!deferAdmission && !waveSealed && !stale && index < jobs.length && prepared + reflected < TITLE_COMPILE_LIMITS.perTurn) {
           const job = jobs[index];
           if (wavePrograms + job.cost > TITLE_COMPILE_LIMITS.pending) { waveSealed = true; break; }
           active(); changed();
@@ -519,7 +566,7 @@ async function prepareTitleProgramJobs(inventory, stages, generation, dependency
           active();
           if (!pending.size) errors();
         }
-        shouldPause = index < jobs.length || pending.size;
+        shouldPause = index < jobs.length || pending.size || entryInitializers.length;
       } finally {
         receipt.maxFullTurnMs = Math.max(receipt.maxFullTurnMs, performance.now() - turnStarted);
       }
