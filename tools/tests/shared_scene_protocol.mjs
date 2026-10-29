@@ -17,7 +17,7 @@ function harness() {
     serverClose(code,reason){this.readyState=3;this.onclose?.({code,reason})}
   }
   const context=vm.createContext({console,URL,URLSearchParams,Map,Set,Object,Array,JSON,Math,Date,AbortSignal,
-    performance:{now:()=>clock},GAME:{ready:false,started:false,player:null,prog:null},
+    performance:{now:()=>clock},GAME:{built:true,ready:false,started:false,player:null,prog:null},
     NET_HUMAN_PLAY:{activity:1},netHumanLive:()=>true,netHumanSync(){},netHumanSuspend(){suspended++},
     netWxTake(){},netWxResume(){},netWorldCapture(){},dist2:(x,z,px,pz)=>(x-px)**2+(z-pz)**2,reportError(e){throw e},
     uiLog:(...args)=>notices.push(args),uiToast:(...args)=>notices.push(args),
@@ -32,7 +32,7 @@ function harness() {
   vm.runInContext(source,context);
   vm.runInContext('globalThis.api={NET,NETWS,netSlowObj,netSlowRead,netHostElect,netGhosts,netSharedSceneMessage,netSharedSceneReset,netSceneReloadRequired,netWsOpen,netWsReconnect,netWsRetryLater,netWsSend,netSendFast,netActivityPosition};',context);
   const api=context.api;
-  Object.assign(api.NETWS,{url:'wss://game.test/ws',host:'game.test',token:'same-issued-session',acct:{id:'same-account'},state:'off'});
+  Object.assign(api.NETWS,{url:'wss://game.test/ws',host:'game.test',token:'same-issued-session',acct:{id:'same-account'},state:'off',sceneBootReady:true});
   return {api,context,timers,sockets,notices,suspended:()=>suspended};
 }
 

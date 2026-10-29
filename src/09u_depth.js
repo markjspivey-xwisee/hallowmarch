@@ -1230,8 +1230,8 @@ function dpBuildNestFX() {
   const m = mat({ vertexShader: VS, fragmentShader: DP_EGG_FS });
   const egg = new THREE.SphereGeometry(1, 10, 7); egg.scale(0.022, 0.03, 0.022);
   const ring = new THREE.TorusGeometry(0.16, 0.055, 5, 12); ring.rotateX(Math.PI / 2);
-  const mk = (g, n) => { const M = new THREE.InstancedMesh(g, m, n); M.instanceMatrix.setUsage(THREE.DynamicDrawUsage); M.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(n * 3), 3); M.frustumCulled = false; M.count = 0; scene.add(M); return M; };
-  DEPTH.fx = { eggs: mk(egg, 60), rings: mk(ring, 12), m4: new THREE.Matrix4(), q: new THREE.Quaternion(), v: new THREE.Vector3(), s: new THREE.Vector3() };
+  const mk = (g, n) => { const M = new THREE.InstancedMesh(g, m, n); M.instanceMatrix.setUsage(THREE.DynamicDrawUsage); M.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(n * 3), 3); M.frustumCulled = false; M.count = 0; M.visible = false; scene.add(M); return M; };
+  DEPTH.fx = { eggs: mk(egg, 60), rings: mk(ring, 12), m4: new THREE.Matrix4(), q: new THREE.Quaternion(), v: new THREE.Vector3(), axis: new THREE.Vector3(), s: new THREE.Vector3() };
 }
 function drawDepth(dt) {
   if (!DEPTH.ready) return;
@@ -1244,11 +1244,12 @@ function drawDepth(dt) {
     F.rings.setMatrixAt(nr, F.m4); F.rings.instanceColor.setXYZ(nr, 0.62, 0.52, 0.3); nr++;
     for (let k = 0; k < N.eggs && ne < 60; k++) {
       const a = k * 2.3 + N.seed * 6, r = k ? 0.05 + 0.02 * (k % 2) : 0;
-      F.m4.compose(F.v.set(N.x + Math.sin(a) * r, N.y + 0.06, N.z + Math.cos(a) * r), F.q.setFromAxisAngle(F.v.set(Math.cos(a), 0, -Math.sin(a)).normalize(), 1.2), F.s.set(1, 1, 1));
+      F.m4.compose(F.v.set(N.x + Math.sin(a) * r, N.y + 0.06, N.z + Math.cos(a) * r), F.q.setFromAxisAngle(F.axis.set(Math.cos(a), 0, -Math.sin(a)).normalize(), 1.2), F.s.set(1, 1, 1));
       F.eggs.setMatrixAt(ne, F.m4); F.eggs.instanceColor.setXYZ(ne, 0.86 + 0.06 * fhash(k + N.seed * 10), 0.76, 0.6); ne++;
     }
   }
   F.eggs.count = ne; F.rings.count = nr;
+  F.eggs.visible = ne > 0; F.rings.visible = nr > 0;
   F.eggs.instanceMatrix.needsUpdate = true; F.rings.instanceMatrix.needsUpdate = true;
   F.eggs.instanceColor.needsUpdate = true; F.rings.instanceColor.needsUpdate = true;
 }

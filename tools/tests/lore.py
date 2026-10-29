@@ -90,7 +90,8 @@ async def desktop(p):
     await shot(page, 'lore_path_desktop')
     await ev(page, world(False))
     # 1. speak with the herald: walk up and press E, then say farewell
-    await ev(page, "(() => { const P = __hm.GAME.player, H = __hm.REALMS[P.faction].herald; __hm.teleport(H.x + 1.6, H.z + 0.4); __hm.simulate(0.2); __hm.fn.playerInteract(); })()")
+    await ev(page, "(() => { const P = __hm.GAME.player, H = __hm.REALMS[P.faction].herald; __hm.teleport(H.x + 1.6, H.z + 0.4); __hm.simulate(0.2); })()")
+    await page.keyboard.press('KeyE')
     check(await ev(page, "__hm.UI.modal") == 'dialog', 'pressing E by the herald opens his dialog')
     await ev(page, "__hm.LORE.check()")
     check(await ev(page, "__hm.LORE.progress().done.includes('herald')") is False, 'no step completes over an open window')

@@ -29,7 +29,14 @@ function perfCaller() {
 // the boot's steps: how long each took (loadStep is wrapped after the first one has started)
 {
   const ls0 = loadStep;
-  loadStep = async (frac, msg, fn) => ls0(frac, msg, fn && (async () => { const t = performance.now(); await fn(); PERFX.boot.push([msg || '', +(performance.now() - t).toFixed(1)]); }));
+  loadStep = async (frac, msg, fn) => {
+    const index = BOOT_STEPS.length;
+    const result = await ls0(frac, msg, fn);
+    // The actual step consumes resumable work. Wrapping fn in an async function
+    // would await the iterator object itself and silently skip its contents.
+    if (fn && BOOT_STEPS[index]) PERFX.boot.push(BOOT_STEPS[index].slice(0, 2));
+    return result;
+  };
 }
 // a readable name for a drawn object
 function perfLabel(o) {

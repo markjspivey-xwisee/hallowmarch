@@ -151,8 +151,9 @@ function throneRtsBindStage(element) {
     pointerdown(e) {
       if (!throneRtsRequireGrant()) return;
       consume(e);
+      const now = performance.now();
       THRONE_RTS.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY,
-        moved: 0, button: e.button, type: e.pointerType, at: performance.now() });
+        moved: 0, button: e.button, type: e.pointerType, at: now, eventAt: pointerEventTimestamp(e, now) });
       if (THRONE_RTS.pointers.size > 1) THRONE_RTS.multi = true;
       try { element.setPointerCapture(e.pointerId); } catch (err) { /* synthetic or already released */ }
     },
@@ -173,8 +174,9 @@ function throneRtsBindStage(element) {
       const p = THRONE_RTS.pointers.get(e.pointerId);
       if (!p) return;
       consume(e);
+      const elapsed = pointerGestureDuration(e, p.eventAt, p.at);
       const tap = !THRONE_RTS.multi && THRONE_RTS.pointers.size === 1 && p.moved < 8
-        && Math.hypot(e.clientX - p.sx, e.clientY - p.sy) < 8 && performance.now() - p.at < 450
+        && Math.hypot(e.clientX - p.sx, e.clientY - p.sy) < 8 && elapsed < 450
         && (p.type === 'touch' || p.button === 0);
       THRONE_RTS.pointers.delete(e.pointerId);
       if (!THRONE_RTS.pointers.size) THRONE_RTS.multi = false;

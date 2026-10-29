@@ -11,8 +11,72 @@ function reportError(err) {
   const msg = String(err && (err.stack || err.message) || err);
   if (HM_ERRORS.length < 20 && !HM_ERRORS.includes(msg)) { HM_ERRORS.push(msg); console.error(err); }
 }
-window.addEventListener('error', (e) => reportError(e.error || e.message));
-window.addEventListener('unhandledrejection', (e) => reportError(e.reason));
+// Browser extensions can inject their own scripts into this window. Keep their
+// proven ambient failures out of game diagnostics without hiding browser errors.
+// Directly caught game/boot/render failures always use reportError unchanged.
+const HM_AMBIENT_ERRORS = GRAPHICS_STARTUP.ambientErrors = { extensionError: 0, extensionRejection: 0 };
+function extensionScriptURL(value) {
+  if (typeof value !== 'string' || value.length > 4096 || !/^chrome-extension:\/\/[a-p]{32}\/[^\\\u0000-\u0020\u007f]+$/.test(value)) return false;
+  try {
+    const url = new URL(value);
+    return url.href === value && url.protocol === 'chrome-extension:' && /^[a-p]{32}$/.test(url.hostname)
+      && !url.username && !url.password && !url.port && url.pathname.length > 1;
+  } catch { return false; }
+}
+function extensionOnlyStack(stack) {
+  if (typeof stack !== 'string' || !stack || stack.length > 8192) return false;
+  const lines = stack.split(/\r?\n/);
+  if (lines.length < 2 || lines.length > 33 || !lines[0].trim() || /^\s*at\s/.test(lines[0])) return false;
+  let frames = 0;
+  for (const line of lines.slice(1)) {
+    if (!line.trim()) continue;
+    const frame = /^at (?:async )?(?:([^():/\\]+) \(([^()\s]+)\)|([^()\s]+))$/.exec(line.trim());
+    if (!frame || /\beval\b/.test(frame[1] || '')) return false;
+    const location = /^(.+):([1-9]\d*):([1-9]\d*)$/.exec(frame[2] || frame[3]);
+    if (!location || !extensionScriptURL(location[1])) return false;
+    frames++;
+  }
+  return frames > 0;
+}
+function extensionOnlyCauseChain(reason) {
+  try {
+    const seen = new Set();
+    let node = reason, stackUnits = 0;
+    for (let count = 0; count < 8; count++) {
+      if (!node || typeof node !== 'object' || seen.has(node) || node.errors !== undefined) return false;
+      seen.add(node);
+      const stack = node.stack;
+      if (!extensionOnlyStack(stack)) return false;
+      stackUnits += stack.length;
+      if (stackUnits > 32768) return false;
+      const cause = node.cause;
+      if (cause === undefined) return true;
+      node = cause;
+    }
+  } catch { /* unreadable provenance remains an ordinary game error */ }
+  return false;
+}
+function extensionAmbientWindowError(event, type) {
+  try {
+    if (event.isTrusted !== true || event.target !== window || event.currentTarget !== window) return false;
+    const filename = event.filename;
+    if (filename !== undefined && filename !== null && filename !== '' && !extensionScriptURL(filename)) return false;
+    const reason = type === 'error' ? event.error : event.reason;
+    // Every causal node must independently prove the same external origin.
+    // Aggregates and unknown/mixed/oversized/cyclic chains remain game errors.
+    return extensionOnlyCauseChain(reason);
+  } catch { return false; } // unreadable/ambiguous provenance remains a game error
+}
+function reportAmbientWindowError(event, type) {
+  if (extensionAmbientWindowError(event, type)) {
+    const key = type === 'error' ? 'extensionError' : 'extensionRejection';
+    HM_AMBIENT_ERRORS[key] = Math.min(255, HM_AMBIENT_ERRORS[key] + 1);
+    return;
+  }
+  reportError(type === 'error' ? event.error || event.message : event.reason);
+}
+window.addEventListener('error', (event) => reportAmbientWindowError(event, 'error'));
+window.addEventListener('unhandledrejection', (event) => reportAmbientWindowError(event, 'unhandledrejection'));
 
 /* ------------------------------------------------------------------ */
 /* sizing and quality                                                  */
@@ -142,6 +206,13 @@ function titleAssertActive() {
   if (GRAPHICS_STARTUP.stopped || gl.isContextLost()) throw new Error('Title graphics context is unavailable.');
 }
 function titleGraphicsBusy(active) {
+  const loadingBar = document.getElementById('loadbar')?.parentElement;
+  const hint = document.getElementById('loadhint');
+  if (loadingBar && !GAME.ready) {
+    loadingBar.setAttribute('aria-busy', String(active));
+    if (active) loadingBar.removeAttribute('aria-valuenow');
+  }
+  if (hint) hint.hidden = !active || GAME.ready;
   const title = document.getElementById('title');
   if (!title) return;
   title.setAttribute('aria-busy', String(active));
@@ -166,12 +237,13 @@ async function submitTitleStage(id, members, inventory, combined = false) {
   let current = null, workCalls = 0, workTriangles = 0;
   GRAPHICS_STARTUP.titleStage = id;
   const message = document.getElementById('loadmsg');
-  if (message && !GAME.ready) message.textContent = ({
+  const stageMessage = ({
     post: 'Preparing the view', sky: 'Preparing the sky', terrain: 'Preparing the landscape',
     grass: 'Preparing the meadows', flowers: 'Preparing the meadows', trees: 'Preparing the forests',
     water: 'Preparing the water', structures: 'Preparing the towns and keeps',
     crowds: 'Preparing the people and creatures', other: 'Finishing the world', combined: 'Checking the first view',
   })[id.split('-')[0]] || 'Finishing the view';
+  if (message && !GAME.ready && message.textContent !== stageMessage) message.textContent = stageMessage;
   try {
     const priorErrors = gpuDiagGlErrors(gl);
     if (priorErrors.length) throw new Error('GL errors before title ' + id + ': ' + priorErrors.join(', '));
@@ -255,12 +327,18 @@ function renderTitleFrame() {
             : [[id, members]]);
         const stages = [['post', new Set()], ...families];
         let resized = false;
+        rippleAllocate();
+        const entryPreparation = await prepareTitleEntryPrograms(inventory, TITLE_WARM_GENERATION, wxPrepareCloudResources());
+        captureTitleResizeRequest();
+        if (entryPreparation.stale || TITLE_RESIZE_PENDING) { TITLE_FRAME_DIRTY = true; continue; }
         for (const [id, members] of stages) {
           await waitForTitleVisibility();
           titleAssertActive();
           if (GAME.started) return false;
-          if (id === 'terrain') {
-            const preparation = await prepareTitlePrograms(inventory, stages, TITLE_WARM_GENERATION);
+          if (id === 'post' || id === 'sky' || id === 'terrain') {
+            const preparation = id === 'terrain'
+              ? await prepareTitlePrograms(inventory, stages, TITLE_WARM_GENERATION)
+              : await prepareTitleDependencies(id, inventory, TITLE_WARM_GENERATION);
             captureTitleResizeRequest();
             if (preparation.stale || TITLE_RESIZE_PENDING) { TITLE_FRAME_DIRTY = true; resized = true; break; }
           }
@@ -341,28 +419,104 @@ document.addEventListener('visibilitychange', () => {
   if (!document.hidden && GAME.ready && !GAME.started) void renderTitleFrame().catch(reportError);
 });
 const BOOT_STEPS = []; // [perf2] every step's time, the first too (13x_perf2.js)
+const BOOT_WORK_BUDGET_MS = 8;
+function yieldBootWork() {
+  // Let input/rendering run without waiting for a fresh display frame after
+  // every CPU slice. Older browsers retain the existing paint/timer fallback.
+  if (window.scheduler && typeof window.scheduler.yield === 'function') return window.scheduler.yield();
+  return nextPaint();
+}
+function* bootSequence(tasks) {
+  for (const task of tasks) {
+    const work = task();
+    if (work && typeof work.next === 'function') { yield* work; yield; }
+    else yield work;
+  }
+}
+async function runBootWork(fn, receipt) {
+  if (!fn) { receipt.completed = true; return; }
+  let sliceAt = performance.now();
+  const firstAt = sliceAt;
+  let work;
+  try { work = fn(); }
+  finally {
+    receipt.workMs += performance.now() - sliceAt;
+    receipt.maxChunkMs = receipt.maxSliceMs = receipt.workMs;
+    receipt.chunks++;
+  }
+  if (!work || typeof work.next !== 'function') {
+    // An asynchronous step's wait is not synchronous main-thread work.
+    await work;
+    receipt.completed = true;
+    return;
+  }
+  receipt.chunked = true;
+  if (performance.now() - sliceAt >= BOOT_WORK_BUDGET_MS) {
+    receipt.yields++;
+    await yieldBootWork();
+    graphicsAssertActive();
+    sliceAt = performance.now();
+  }
+  for (;;) {
+    graphicsAssertActive();
+    const at = performance.now();
+    let step;
+    try { step = work.next(); }
+    finally {
+      const ms = performance.now() - at;
+      receipt.workMs += ms; receipt.maxChunkMs = Math.max(receipt.maxChunkMs, ms); receipt.chunks++;
+      receipt.maxSliceMs = Math.max(receipt.maxSliceMs, performance.now() - sliceAt);
+    }
+    let sliceMs = performance.now() - sliceAt;
+    receipt.maxSliceMs = Math.max(receipt.maxSliceMs, sliceMs);
+    if (step.done) { receipt.completed = true; break; }
+    if (step.value && typeof step.value.then === 'function') {
+      const waitAt = performance.now();
+      await step.value;
+      // Preserve the accumulated synchronous slice across an async subtask,
+      // while excluding time during which this task did not occupy the thread.
+      sliceAt += performance.now() - waitAt;
+      graphicsAssertActive();
+      sliceMs = performance.now() - sliceAt;
+    }
+    if (sliceMs >= BOOT_WORK_BUDGET_MS) {
+      receipt.yields++;
+      await yieldBootWork();
+      graphicsAssertActive();
+      sliceAt = performance.now();
+    }
+  }
+  receipt.elapsedMs = performance.now() - firstAt;
+}
 async function loadStep(frac, msg, fn) {
   graphicsAssertActive();
   if (msg) graphicsCheckpoint(msg);
   $('loadbar').style.width = Math.round(frac * 100) + '%';
+  $('loadbar').parentElement?.setAttribute('aria-valuenow', String(Math.round(frac * 100)));
   if (msg) $('loadmsg').textContent = msg;
   await nextPaint();
   graphicsAssertActive();
   const t = performance.now(); // [perf2]
-  if (fn) await fn();
+  const receipt = { stage: msg || '', chunked: false, completed: false, chunks: 0, yields: 0,
+    workMs: 0, maxChunkMs: 0, maxSliceMs: 0, elapsedMs: 0 };
+  const history = GRAPHICS_STARTUP.bootWork ||= [];
+  history.push(receipt); if (history.length > 16) history.shift();
+  try { await runBootWork(fn, receipt); }
+  finally { receipt.elapsedMs = performance.now() - t; }
   graphicsAssertActive();
   BOOT_STEPS.push([msg || '', +(performance.now() - t).toFixed(1), +t.toFixed(0), performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) : null]); // [perf2] (the JS heap as the step ends: its garbage still in it)
 }
 async function boot() {
+  GAME.built = false;
   const savePromise = loadSave().catch(() => null);
-  await loadStep(0.03, 'Raising the hills', () => buildWorld(7));
-  await loadStep(0.2, 'Shaping the land', () => { uploadWorldTextures(); buildTerrain(); buildWater(); });
-  await loadStep(0.34, 'Planting the forests', () => { buildTrees(); buildNearTrees(); buildRocks(); buildHeroTree(); buildCrags(); }); // [land] buildCrags (03c_land.js)
-  await loadStep(0.48, 'Raising the keeps', () => { buildStructures(); buildBarrowSurface(); buildSurvival(); buildBoats(); }); // [survival] plants, workstations (before the grass reads the cover map); [water2] jetties and boats (07e_boats.js)
+  await loadStep(0.03, 'Raising the hills', () => buildWorldChunks(7));
+  await loadStep(0.2, 'Shaping the land', () => bootSequence([uploadWorldTextures, buildTerrain, buildWater]));
+  await loadStep(0.34, 'Planting the forests', () => bootSequence([buildTrees, buildNearTrees, buildRocks, buildHeroTree, buildCrags])); // [land] buildCrags (03c_land.js)
+  await loadStep(0.48, 'Raising the keeps', () => bootSequence([buildStructuresChunks, buildBarrowSurface, buildSurvival, buildBoats])); // [survival] plants, workstations (before the grass reads the cover map); [water2] jetties and boats (07e_boats.js)
   await loadStep(0.54, 'Digging the barrow', () => buildDungeon());
-  await loadStep(0.58, 'Sowing the meadows', () => { buildGrass(); buildFlowers(); buildNature(); buildFarming(); }); // [farming] beds, town strips, wild herbs (08h_farming.js)
-  await loadStep(0.63, 'Raising the mountains', () => mtnHeights()); // [heights] the whole mountain shaped once everything is placed, hardy trees, the crags (03d_heights.js)
-  await loadStep(0.68, 'Mustering the realms', () => { buildCrowds(); buildParticles(); buildSpellFX(); buildFireflies(); buildWeather(); buildAmbientLife(); buildDragon(); buildLootMeshes(); initCamps(); initTowns(); initMerchants(); initWar(); initWildlife(); initAnimals(); spawnDragon(); initBarrow(); });
+  await loadStep(0.58, 'Sowing the meadows', () => bootSequence([buildGrass, buildFlowers, buildNature, buildFarming])); // [farming] beds, town strips, wild herbs (08h_farming.js)
+  await loadStep(0.63, 'Raising the mountains', () => mtnHeightsChunks()); // [heights] the whole mountain shaped once everything is placed, hardy trees, the crags (03d_heights.js)
+  await loadStep(0.68, 'Mustering the realms', () => bootSequence([buildCrowds, buildParticles, buildSpellFX, buildFireflies, buildWeather, buildAmbientLife, buildDragon, buildLootMeshes, initCamps, initTowns, initMerchants, initWar, initWildlife, initAnimals, spawnDragon, initBarrow]));
   GAME.built = true;
   groupOutdoors();
   // Read saved preferences before sizing. Shader work belongs to the separately
@@ -371,6 +525,7 @@ async function boot() {
   const save = await savePromise;
   graphicsAssertActive();
   if (save) { applySettings(save.settings); applyWorldSave(save.world); }
+  netSharedSceneFlushBuilt();
   graphicsCheckpoint('Sizing graphics targets');
   resize();
   applyTimeOfDay(tod.p);
@@ -378,7 +533,7 @@ async function boot() {
   camera.updateMatrixWorld();
   // Isolation owns every draw and never enters ordinary compilation or the game loop.
   if (await graphicsRunDiagnostic()) return;
-  await loadStep(0.84, 'Drawing the map', () => { buildMapImage(); buildDungeonMap(); });
+  await loadStep(0.84, 'Drawing the map', () => bootSequence([buildMapImage, buildDungeonMap]));
   await loadStep(0.9, 'Preparing the first view', () => {
     updateCamera(0.016);
     camera.updateMatrixWorld();
@@ -387,6 +542,8 @@ async function boot() {
   graphicsAssertActive();
   GAME.ready = true;
   window.__hm.ready = true;
+  $('loadbar').style.width = '100%';
+  $('loadbar').parentElement?.setAttribute('aria-valuenow', '100');
   setupTitle(save);
   graphicsRecoveryNotice();
   graphicsCheckpoint('Ready');
@@ -900,11 +1057,34 @@ window.__hm = {
 
 window.__hm.water = WATER_DEBUG; // [water] test hooks (07b_swim.js)
 
-boot().catch((err) => {
+function bootStartFailure(err) {
   if (GRAPHICS_CONTEXT_LOST) return;
   reportError(err);
-  $('loadmsg').textContent = 'Something went wrong while building the world. Reloading may help.';
-});
+  // Title rendering already owns its detailed, stopped recovery panel.
+  if (GRAPHICS_STARTUP.titleError) return;
+  GRAPHICS_STARTUP.stopped = true;
+  GAME.ready = false;
+  if (window.__hm) window.__hm.ready = false;
+  const notice = document.getElementById('nogl'), loading = document.getElementById('loading');
+  if (loading) { loading.hidden = true; loading.style.display = 'none'; }
+  if (!notice) return;
+  graphicsFailureTakeover(notice);
+  notice.setAttribute('role', 'alert');
+  const heading = document.createElement('strong'); heading.id = 'boot-failure-title';
+  heading.textContent = 'The game could not finish loading';
+  notice.setAttribute('aria-labelledby', heading.id);
+  const detail = document.createElement('span');
+  detail.textContent = 'An unexpected problem interrupted loading. Try again. Your saved progress has not been reset.';
+  const retry = document.createElement('button'); retry.type = 'button'; retry.className = 'btn primary';
+  retry.textContent = 'Retry loading'; retry.onclick = () => location.reload();
+  const technical = document.createElement('details'); technical.className = 'graphics-technical';
+  const summary = document.createElement('summary'); summary.textContent = 'Technical details';
+  const log = document.createElement('pre'); log.textContent = String(err && err.message || err).slice(0,1500);
+  technical.appendChild(summary); technical.appendChild(log);
+  notice.replaceChildren(heading, detail, retry, technical);
+  retry.focus({ preventScroll: true });
+}
+boot().catch(bootStartFailure);
 
 
 

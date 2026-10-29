@@ -8,7 +8,7 @@ const read = name => readFile(new URL('../../' + name, import.meta.url), 'utf8')
 const [consulting, dashboard, learning, renderer] = await Promise.all([
   read('src/14x_consulting.js'), read('src/14y_activitydashboard.js'), read('src/14z_learningdelivery.js'), read('client/native-pod/activity-dashboard.mjs')]);
 let browser;
-test.before(async () => { browser = await chromium.launch({ headless: true }); });
+test.before(async () => { browser = await chromium.launch({ headless: true, args: ['--disable-gpu'] }); });
 test.after(async () => { await browser?.close(); });
 async function fixture(t, width) {
   const page = await browser.newPage({ viewport: { width, height: 850 } }); t.after(() => page.close());
@@ -52,10 +52,10 @@ async function fixture(t, width) {
 for (const width of [320, 390, 1280]) test(`Progress has one main action and read-only history navigation at ${width}px`, async t => {
   const { page, requests, errors } = await fixture(t, width);
   assert.equal(await page.locator('.btn.primary:visible').count(), 1);
-  assert.equal(await page.locator('.btn.primary:visible').innerText(), 'Continue your path');
-  assert.equal(await page.getByRole('button', { name: 'Continue your path', exact: true }).count(), 1);
+  assert.equal(await page.locator('.btn.primary:visible').innerText(), 'View objectives');
+  assert.equal(await page.getByRole('button', { name: 'View objectives', exact: true }).count(), 1);
   assert.equal(await page.getByRole('heading', { name: 'Next practice milestone', exact: true }).count(), 1);
-  assert.match(await page.locator('#march-coach-milestones').innerText(), /Continue your path opens your next guided objective/);
+  assert.match(await page.locator('#march-coach-milestones').innerText(), /View objectives opens your guided objective list in the Chronicle/);
   assert.equal(await page.locator('#march-progress-optional').evaluate(node => node.open), false);
   if (process.env.HM_PROGRESS_QA_OUT) { await mkdir(process.env.HM_PROGRESS_QA_OUT, { recursive: true }); await page.screenshot({ path: resolve(process.env.HM_PROGRESS_QA_OUT, 'progress-default-' + width + '.png'), fullPage: true }); }
   await page.getByRole('button', { name: 'View activity history', exact: true }).click();
@@ -73,7 +73,7 @@ for (const width of [320, 390, 1280]) test(`Progress has one main action and rea
   await page.locator('#march-progress-optional > summary').click();
   assert.equal(await page.getByRole('button', { name: 'Open identity settings', exact: true }).isVisible(), true);
   assert.equal(await page.locator('#march-progress-options').isVisible(), false);
-  await page.getByRole('button', { name: 'Continue your path', exact: true }).click();
+  await page.getByRole('button', { name: 'View objectives', exact: true }).click();
   assert.deepEqual(await page.evaluate(() => __calls), { path: ['path'], identity: 0, network: 0, saves: 0 });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
   const smallTargets = await page.locator('button:visible, summary:visible').evaluateAll(nodes => nodes.filter(node => node.getBoundingClientRect().height < 44).map(node => node.textContent));
@@ -114,7 +114,7 @@ test('no-data Progress gives a usable next step instead of permanent opening lan
   const { page, errors } = await fixture(t, 390);
   await page.evaluate(() => { __snapshot={available:false,revision:2,current:null,milestones:[],history:{},summary:{}};marchConsultingRender(); });
   assert.match(await page.locator('#march-coach-milestones').innerText(), /Your path is ready/);
-  assert.equal(await page.getByRole('button', { name: 'Continue your path', exact: true }).isEnabled(), true);
+  assert.equal(await page.getByRole('button', { name: 'View objectives', exact: true }).isEnabled(), true);
   assert.equal(await page.locator('#march-consulting-connect').isEnabled(), false);
   assert.match(await page.locator('#march-consulting-note').textContent(), /Play a little/);
   assert.deepEqual(errors, []);

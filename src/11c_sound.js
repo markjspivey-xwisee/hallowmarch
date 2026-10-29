@@ -111,8 +111,8 @@ function soundSettingsWire() {
       const L = SOUND_LEVELS.find((x) => x[0] === b.dataset.v);
       if (!L) return;
       setSoundLevel(kind, L[2]);
+      void saveMenuEdit(e);
       renderMenu('settings');
-      saveSoon();
       if (kind !== 'master' || L[2] > 0) sfx('click');
     };
   }

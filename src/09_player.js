@@ -43,6 +43,18 @@ function gameplayControlKey(e) {
   const active = document.activeElement;
   return !!(active && active.closest && active.closest('button, a[href], summary, [role="button"], [role="tab"], [role="radio"]'));
 }
+// A busy renderer can delay release handling after the physical tap ended.
+// Native event timestamps share performance.now's millisecond time origin.
+// Ambiguous clocks keep the previous handling-time behavior.
+function pointerEventTimestamp(event, now) {
+  return event.isTrusted === true && Number.isFinite(event.timeStamp)
+    && event.timeStamp > 0 && event.timeStamp <= now + 1 ? event.timeStamp : null;
+}
+function pointerGestureDuration(event, startedEventAt, startedAt) {
+  const now = performance.now(), endedEventAt = pointerEventTimestamp(event, now);
+  return Number.isFinite(startedEventAt) && startedEventAt > 0 && endedEventAt !== null && endedEventAt >= startedEventAt
+    ? endedEventAt - startedEventAt : now - startedAt;
+}
 function cancelPlayerInput() {
   const ids = new Set(INPUT.pointers.keys());
   if (INPUT.joy) ids.add(INPUT.joy.id);
@@ -74,7 +86,7 @@ window.addEventListener('keydown', (e) => {
   if (k.startsWith('Digit')) { const n = parseInt(k.slice(5), 10); if (n >= 1 && n <= 8) playerUseSlot(n - 1); }
   if (k === 'Tab') cycleTarget(e.shiftKey);
   if (k === 'KeyF') { setPlayerTarget(GAME.player); }
-  if (k === 'KeyE') playerInteract();
+  if (k === 'KeyE') playerInteract(e);
   if (k === 'KeyR') toggleMount();
   if (k === 'KeyQ') usePotion();
   if (k === 'KeyL') toggleLog();
@@ -99,7 +111,8 @@ canvas.addEventListener('pointerdown', (e) => {
       return;
     }
   }
-  INPUT.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, button: e.button, moved: 0, t: performance.now(), type: e.pointerType });
+  const now = performance.now();
+  INPUT.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, button: e.button, moved: 0, t: now, eventAt: pointerEventTimestamp(e, now), type: e.pointerType });
 });
 canvas.addEventListener('pointermove', (e) => {
   if (UI.modal) return;
@@ -128,7 +141,7 @@ function endPointer(e) {
   const p = INPUT.pointers.get(e.pointerId);
   INPUT.pointers.delete(e.pointerId);
   if (!p) return;
-  if (p.moved < 8 && performance.now() - p.t < 450 && GAME.started && !UI.modal && e.type === 'pointerup' && !buildTap(e.clientX, e.clientY, p.type)) pickAt(e.clientX, e.clientY); // [building] a tap places the piece while building (06k_build.js)
+  if (p.moved < 8 && pointerGestureDuration(e, p.eventAt, p.t) < 450 && GAME.started && !UI.modal && e.type === 'pointerup' && !buildTap(e.clientX, e.clientY, p.type)) pickAt(e.clientX, e.clientY); // [building] a tap places the piece while building (06k_build.js)
 }
 canvas.addEventListener('pointerup', endPointer);
 canvas.addEventListener('pointercancel', endPointer);
@@ -220,7 +233,7 @@ function playerUseSlot(i) {
 /* ------------------------------------------------------------------ */
 /* interactions                                                        */
 /* ------------------------------------------------------------------ */
-function currentInteraction() {
+function currentInteraction(event) {
   const P = GAME.player;
   if (!P || !P.alive) return null;
   const R = REALMS[P.faction];
@@ -236,7 +249,13 @@ function currentInteraction() {
     offer(dist(P.x, P.z, R.town.x, R.town.z), 4.8, `Step through the stones to ${R.name} Muster`, () => teleportPlayer(R.musterSite, 'frontier'));
     offer(dist(P.x, P.z, R.musterSite.x, R.musterSite.z), 4.8, `Step through the stones to ${R.townName}`, () => teleportPlayer(R.town, 'home'));
   }
-  if (R.herald) offer(dist(P.x, P.z, R.herald.x, R.herald.z), 4.5, `Speak with the ${R.name} Herald`, () => openHerald());
+  if (R.herald) {
+    const observed = typeof loreObservationScope === 'function' ? loreObservationScope(event, 'herald', R.herald) : null;
+    offer(dist(P.x, P.z, R.herald.x, R.herald.z), 4.5, `Speak with the ${R.name} Herald`, () => {
+      openHerald();
+      if (observed) loreObserve(observed);
+    });
+  }
   if (R.merchant) offer(dist(P.x, P.z, R.merchant.x, R.merchant.z), 4.6, `Trade with ${R.merchant.name}`, () => openKit('shop'));
   // the barrow: in through the door, out by the stair, and whatever the dead left behind
   if (inDungeon(P)) {
@@ -262,8 +281,8 @@ function currentInteraction() {
   loopsOffers(P, offer); // [loops] the quartermaster: the realm's stores (08m_loops.js)
   return best;
 }
-function playerInteract() {
-  const it = currentInteraction();
+function playerInteract(event) {
+  const it = currentInteraction(event);
   if (it) { it.act(); sfx('click'); }
 }
 function teleportPlayer(S, kind) {
@@ -283,11 +302,23 @@ function teleportPlayer(S, kind) {
 }
 
 /* bounties from the herald */
+function bountyCampInfo(c, P = GAME.player, prog = GAME.prog) {
+  if (!P || !prog || c.realm !== P.faction || c.elite || !MOBS[c.type]) return null;
+  const residents = guideCampResidents(c);
+  if (!residents.length) return null;
+  const levels = residents.map((e) => e.level), high = Math.max(...levels);
+  if (!(high <= prog.level + 1)) return null;
+  return { c, residents, low: Math.min(...levels), high };
+}
+function bountyAvailable(P = GAME.player, prog = GAME.prog) {
+  if (!P || !prog || prog.bounty) return false;
+  // The veteran offer precedes ordinary quarry in the herald's real dialog.
+  if (prog.level >= LATE2_RISE_AT && CAMPS.some((c) => c.realm === P.faction && late2Risen(c))) return true;
+  return prog.level < LEVEL_CAP && CAMPS.some((c) => bountyCampInfo(c, P, prog));
+}
 function chooseBounty() {
   const P = GAME.player, prog = GAME.prog;
-  const camps = CAMPS.filter((c) => c.realm === P.faction && !c.elite && MOBS[c.type])
-    .map((c) => { const residents = guideCampResidents(c), levels = residents.map((e) => e.level); return { c, residents, low: Math.min(...levels), high: Math.max(...levels) }; })
-    .filter((q) => q.residents.length && q.high <= prog.level + 1);
+  const camps = CAMPS.map((c) => bountyCampInfo(c, P, prog)).filter(Boolean);
   camps.sort((a, b) => Math.abs(a.high - prog.level - 0.5) - Math.abs(b.high - prog.level - 0.5)
     || dist2(P.x, P.z, a.c.x, a.c.z) - dist2(P.x, P.z, b.c.x, b.c.z));
   if (!camps.length) return null;

@@ -208,9 +208,11 @@ function updateWeather(dt) {
     rainMesh.material.uniforms.uAmount.value = rainB;
     rainMesh.material.uniforms.uLive.value = live ? 1 : 0;
     rainMesh.geometry.instanceCount = rainB > 0.01 ? Math.round(RAIN_MAX * (quality.level === 'high' ? 1 : quality.level === 'medium' ? 0.6 : 0.32) * clamp(rainB * 1.2, 0, 1)) : 0;
+    rainMesh.visible = rainMesh.geometry.instanceCount > 0;
     snowMesh.material.uniforms.uAmount.value = snowB;
     snowMesh.material.uniforms.uLive.value = live ? 1 : 0;
     snowMesh.geometry.instanceCount = snowB > 0.01 ? Math.round(SNOW_MAX * (quality.level === 'high' ? 1 : quality.level === 'medium' ? 0.6 : 0.35) * clamp(snowB * 1.2, 0, 1)) : 0;
+    snowMesh.visible = snowMesh.geometry.instanceCount > 0;
   }
   // splashes around the player
   if (rain > 0.25 && GAME.player && !INDOOR.on && !inDungeon(GAME.player)) {

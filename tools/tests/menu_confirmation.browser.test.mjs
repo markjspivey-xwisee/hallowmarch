@@ -46,7 +46,7 @@ async function fixture(t) {
     window.late2CharStats=()=>'';window.gsCharHTML=()=>'';window.gsCharWire=()=>{};
     window.guideHelpHTML=()=>'<p>How to play</p>';
     window.renderChronicle=body=>{body.innerHTML='<h3>Your path</h3><p>Your next step.</p>';};
-    window.marchConsultingRender=()=>{ $('march-coach-mount').innerHTML='<button id="path-fixture">Continue your path</button>'; };
+    window.marchConsultingRender=()=>{ $('march-coach-mount').innerHTML='<button id="path-fixture">View objectives</button>'; };
     window.newCharacter=()=>{__calls.replacement++;};
     window.cancelPlayerInput=()=>{__calls.inputCancelled++;};
   ` });

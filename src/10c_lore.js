@@ -133,6 +133,8 @@ const LORE_CSS = `
 .chron-grps, .chron-secs { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
 .chron-grps { gap: 2px 14px; border-bottom: 1px solid var(--line); }
 .chron-nav button { flex: none; border: 1px solid var(--line); background: rgba(255, 255, 255, 0.03); color: var(--ink-dim); border-radius: 999px; padding: 5px 11px; font: 500 13.5px var(--ui); cursor: pointer; white-space: nowrap; }
+body.touch .chron-nav button { min-height: var(--mobile-target, 44px); }
+body.touch .chron-grps { column-gap: 10px; }
 .chron-nav button:hover { color: var(--ink); border-color: var(--line-strong); }
 .chron-nav button[aria-current="true"] { background: var(--bronze-hi); border-color: var(--bronze-hi); color: #1b140b; }
 .chron-nav button[hidden] { display: none; }
@@ -284,7 +286,9 @@ const PATH_STEPS = [
     hint: (R) => `The ${R.name} Herald stands in the square of ${R.townName}, by the portal stones. Walk up to him and ${LK().use}.`,
     reward: { potions: 2 } },
   { id: 'bounty', lv: 1, old: 8, title: 'Finish a bounty', short: 'A bounty',
-    hint: (R, prog) => prog.bounty ? (prog.bounty.done ? `Done. Go back to the ${R.name} Herald for your pay.` : `Slay ${prog.bounty.need} ${pluralName(prog.bounty.name)} at the place circled on your map (${LK().map}), then go back to the herald.`) : `Take a bounty from the ${R.name} Herald in ${R.townName}, slay the creatures he names, then return to him.`,
+    hint: (R, prog) => prog.bounty ? (prog.bounty.done ? `Done. Go back to the ${R.name} Herald for your pay.` : `Slay ${prog.bounty.need} ${pluralName(prog.bounty.name)} at the place circled on your map (${LK().map}), then go back to the herald.`)
+      : bountyAvailable(GAME.player, prog) ? `Take a bounty from the ${R.name} Herald in ${R.townName}, slay the creatures he names, then return to him.`
+        : 'No suitable bounty is available right now. Gather or explore, or open Your path to track another objective. Check the herald again later.',
     meter: (prog) => (prog.bounty && !prog.bounty.done ? [prog.bounty.have / prog.bounty.need, `${prog.bounty.have} / ${prog.bounty.need} slain`] : null),
     reward: { item: { slot: 'weapon', q: 2 } } },
   { id: 'lv5', lv: 5, level: 5, title: 'Reach level 5', short: 'Level 5',
@@ -424,12 +428,12 @@ function pathComplete(S, silent = false) {
   const host = $('banners');
   const d = document.createElement('div');
   d.className = 'banner panel lore-step';
-  d.innerHTML = `<small>Your path · ${L.done.length} of ${PATH_STEPS.length}</small><b>${S.title}</b><span${got.col ? ` style="color:${got.col}"` : ''}>${iconSvg(got.ic, 16)}${got.t}</span>`;
+  d.innerHTML = `<small>Completed · ${L.done.length} of ${PATH_STEPS.length}</small><b>${S.title}</b><span${got.col ? ` style="color:${got.col}"` : ''}>${iconSvg(got.ic, 16)}${got.t}</span>`;
   host.appendChild(d);
   setTimeout(() => d.remove(), 6200);
   while (host.childNodes.length > 3) host.removeChild(host.firstChild);
   HUDL.k = 0; // [guide]
-  uiLog(`Your path: ${S.title}. Reward: ${got.t.replace(/<[^>]*>/g, '')}.`, 'rp');
+  uiLog(`Completed path step: ${S.title}. Reward: ${got.t.replace(/<[^>]*>/g, '')}.`, 'rp');
   sfx('fanfare');
   const el = $('lore-path');
   if (el) { el.classList.remove('ring'); void el.offsetWidth; el.classList.add('ring'); }
@@ -1092,17 +1096,60 @@ function openChronicle(sec) {
 /* ------------------------------------------------------------------ */
 /* watching the world for steps taken and things seen                  */
 /* ------------------------------------------------------------------ */
+const LORE_OBSERVATIONS = new WeakSet();
+function loreObservationScope(event, kind, target = null) {
+  if (typeof Event === 'undefined' || !(event instanceof Event) || event.isTrusted !== true || !event.eventPhase
+    || !GAME.ready || !GAME.started || !GAME.player?.alive || !GAME.prog?.lore || pathDone(kind)) return null;
+  const P = GAME.player, R = REALMS[P.faction];
+  if (kind === 'herald') {
+    const input = event.type === 'keydown' ? event.code === 'KeyE' && !event.repeat
+      : event.type === 'click' && event.target?.closest?.('#prompt, #t-use');
+    if (!input || UI.modal || !target || target !== R.herald || dist2(P.x, P.z, target.x, target.z) >= 4.5 ** 2) return null;
+  } else if (kind === 'draught') {
+    const control = event.type === 'click' && event.target?.closest?.('[data-buyp]');
+    if (!control || control.disabled || !control.getClientRects().length || !$('kit')?.contains(control)
+      || UI.modal !== 'kit' || UI.kitMode !== 'shop') return null;
+  } else return null;
+  const transport = typeof NETWS === 'undefined' ? null : NETWS, owner = typeof NATIVE_PLAYER === 'undefined' ? null : NATIVE_PLAYER;
+  const scope = { event, kind, target, player: P, prog: GAME.prog, realm: P.faction,
+    ref: SAVE.ref, key: SAVE.lsKey, native: SAVE.native, host: transport?.host, account: transport?.acct?.id,
+    profile: owner?.profile, potions: INV.potions, gold: INV.gold };
+  LORE_OBSERVATIONS.add(scope);
+  return scope;
+}
+function loreObservationCurrent(scope) {
+  const transport = typeof NETWS === 'undefined' ? null : NETWS, owner = typeof NATIVE_PLAYER === 'undefined' ? null : NATIVE_PLAYER;
+  return GAME.ready && GAME.started && GAME.player === scope.player && GAME.player?.alive && GAME.prog === scope.prog
+    && GAME.player.faction === scope.realm && SAVE.ref === scope.ref && SAVE.lsKey === scope.key && SAVE.native === scope.native && !SAVE.wiping
+    && transport?.host === scope.host && transport?.acct?.id === scope.account && !transport?.reload && owner?.profile === scope.profile;
+}
+function loreObservationEvidence(scope) {
+  if (scope.kind === 'herald') return UI.modal === 'dialog' && !$('dialog')?.hidden
+    && REALMS[scope.realm].herald === scope.target && $('dlg-title')?.textContent === scope.target.name
+    && dist2(scope.player.x, scope.player.z, scope.target.x, scope.target.z) < 49;
+  return UI.modal === 'kit' && UI.kitMode === 'shop' && Number.isFinite(INV.potions) && Number.isFinite(INV.gold)
+    && INV.potions > scope.potions && INV.gold < scope.gold;
+}
+function loreObserve(scope) {
+  if (!scope || !LORE_OBSERVATIONS.has(scope) || !scope.event.eventPhase || !loreObservationCurrent(scope) || !loreObservationEvidence(scope)) return false;
+  LORE_OBSERVATIONS.delete(scope);
+  // Ordinary trusted-input synchronization runs first. This records a deed,
+  // without renewing play, simulating time or paying while its window is open.
+  queueMicrotask(() => {
+    if (loreObservationCurrent(scope) && typeof netHumanLive === 'function' && netHumanLive()
+      && loreObservationEvidence(scope) && !pathDone(scope.kind)) LORE.ev[scope.kind] = true;
+  });
+  return true;
+}
 function loreWatch() {
   const P = GAME.player, prog = GAME.prog, R = REALMS[P.faction], ev = LORE.ev;
   // a bounty paid out by the herald
   const b = prog.bounty;
   if (LORE.bounty && LORE.bounty.done && b !== LORE.bounty) ev.bounty = true;
   LORE.bounty = b;
-  // a draught bought at a stall
-  if (INV.potions > LORE.potions && UI.modal === 'kit' && UI.kitMode === 'shop') ev.draught = true;
+  // Conversation/purchase evidence is latched by its actual interaction,
+  // rather than inferred from a window that a quick player may already close.
   LORE.potions = INV.potions;
-  // the herald's dialog open beside him
-  if (UI.modal === 'dialog' && R.herald && dist2(P.x, P.z, R.herald.x, R.herald.z) < 49 && $('dlg-title').textContent === R.herald.name) ev.herald = true;
   // a hallow carried all the way home
   if (P.carrying != null) LORE.carried = WAR.relics[P.carrying] || null;
   else if (LORE.carried) { const rel = LORE.carried; LORE.carried = null; if (rel.state === 'temple' && rel.at === P.faction) ev.hallow = true; }
@@ -1250,7 +1297,7 @@ function renderChronicle(body, fromNav = false) {
   // Progress has its own persistent menu tab. Keep old coach links routable,
   // without repeating the same destination in the Chronicle's page controls.
   const secs = CHRON_GROUPS.flatMap(([gk, , ks]) => ks.filter((k) => label[k] && k !== 'coach').map((k) => `<button type="button" data-sec="${k}" aria-current="${k === sec}"${gk === G[0] ? '' : ' hidden'}>${label[k]}</button>`)).join('');
-  body.innerHTML = `<div class="chron"><nav class="chron-nav" aria-label="Chronicle"><div class="chron-grps">${grps}</div><div class="chron-secs">${secs}</div></nav><div class="chron-body">${fn()}</div></div>`;
+  body.innerHTML = `<div class="chron"><nav class="chron-nav" aria-label="Chronicle"><div class="chron-grps" role="group" aria-label="Guide sections">${grps}</div><div class="chron-secs" role="group" aria-label="Pages in this section">${secs}</div></nav><div class="chron-body">${fn()}</div></div>`;
   chronFold(sec); // [guide2] a long page folds into its summaries on a phone (10f_guide2.js)
   const nav = body.querySelector('.chron-nav'), row = nav.querySelector('.chron-secs'), cur = row.querySelector('[aria-current="true"]');
   if (!fromNav) body.scrollTop = 0;
@@ -1270,10 +1317,10 @@ function renderChronicle(body, fromNav = false) {
 }
 // the Chronicle's four parts; a page no part names falls under the first
 const CHRON_GROUPS = [
-  ['land', 'The March', ['march', 'realms', 'water', 'wilds', 'dragon', 'barrow']],
-  ['you', 'Your path', ['path', 'callings']],
-  ['war', 'The war', ['war', 'orders', 'halls', 'gifts']],
-  ['life', 'Living', ['living', 'fields', 'herbal', 'animals', 'building']],
+  ['land', 'World', ['march', 'realms', 'water', 'wilds', 'dragon', 'barrow']],
+  ['you', 'Your guide', ['path', 'callings']],
+  ['war', 'Warfare', ['war', 'orders', 'halls', 'gifts']],
+  ['life', 'Life skills', ['living', 'fields', 'herbal', 'animals', 'building']],
 ];
 for (const [k] of CHRON_SECTIONS) if (!CHRON_GROUPS.some((g) => g[2].includes(k))) CHRON_GROUPS[0][2].push(k);
 // [guide] a page from any module: its key, its label, the part it belongs to ('land', 'you', 'war', 'life'), the function
@@ -1302,6 +1349,7 @@ $('menu-body').addEventListener('click', (e) => {
   if (a && a.dataset.lore === 'prologue') openPrologue(true);
   else if (a && a.dataset.lore.startsWith('sec:')) { openChronicle(a.dataset.lore.slice(4)); sfx('click'); } // [guide] a page's link to another (chronLink)
   else if (a && a.dataset.lore.startsWith('track:') && pathTrack(a.dataset.lore.slice(6))) {
+    void saveMenuEdit(e);
     LORE.chronSec = 'path'; renderChronicle($('menu-body'));
     $('menu-body').querySelector('.steps li.cur')?.focus({ preventScroll: true });
     sfx('click');

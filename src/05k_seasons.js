@@ -299,7 +299,7 @@ function buildSeasonFx() {
         gl_FragColor = vec4(safeColor(applyFog(c * (uAmbient * 0.75 + uLightColor * (0.35 + 0.45 * ndl)), vW)), 1.0);
       }`,
   }));
-  SEAS.leaves.frustumCulled = false; SEAS.leaves.renderOrder = 5;
+  SEAS.leaves.frustumCulled = false; SEAS.leaves.renderOrder = 5; SEAS.leaves.visible = false;
   scene.add(SEAS.leaves);
   // a hole cut in the ice to fish through: dark water in a ring of broken ice
   const hg = new THREE.RingGeometry(0.02, 0.55, 20, 2);
@@ -399,6 +399,7 @@ function seasonsFrame(dt) {
   if (SEAS.leaves) {
     SEAS.leaves.material.uniforms.uAmount.value = drift;
     SEAS.leaves.geometry.instanceCount = drift > 0.02 ? Math.round(SEASON_LEAVES_MAX * q) : 0;
+    SEAS.leaves.visible = SEAS.leaves.geometry.instanceCount > 0;
   }
   // fishing through the ice: a hole where the float lies
   const F = typeof SURV !== 'undefined' ? SURV.fish : null;

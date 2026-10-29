@@ -57,14 +57,15 @@ function graphicsRecoveryURL(reduced) {
 function graphicsRecoveryNotice() {
   if (!BOOT_SAFE) return;
   const title = document.getElementById('title');
-  if (!title || document.getElementById('graphics-recovery')) return;
+  const host = title && title.querySelector('.card-foot');
+  if (!host || document.getElementById('graphics-recovery')) return;
   const notice = document.createElement('p'); notice.id = 'graphics-recovery'; notice.className = 'fineprint';
   notice.setAttribute('role', 'status');
   const text = document.createElement('span');
-  text.textContent = 'Reduced graphics are active. Your saved graphics preferences are unchanged. ';
+  text.textContent = 'Reduced graphics are active for this browser. Your saved graphics preferences are unchanged.';
   const retry = document.createElement('a'); retry.href = graphicsRecoveryURL(false);
   retry.textContent = 'Try standard graphics';
-  notice.appendChild(text); notice.appendChild(retry); title.appendChild(notice);
+  notice.appendChild(text); notice.appendChild(retry); host.appendChild(notice);
 }
 const GRAPHICS_STARTUP = window.__hmStartup = { recovery: BOOT_SAFE, recoverySource: GRAPHICS_RECOVERY_SOURCE, titleSubmitted: 0, titleCompleted: 0, phase: 'Creating graphics context', events: [], lost: 0, restored: 0, stopped: false, previous: graphicsPrevious };
 function graphicsCheckpoint(phase, message = '') {
@@ -83,22 +84,73 @@ canvas.addEventListener('webglcontextcreationerror', (event) => {
   GRAPHICS_START_MESSAGE = String(event.statusMessage || '').slice(0, 500);
   graphicsCheckpoint('Graphics context creation failed', GRAPHICS_START_MESSAGE);
 });
+// Register before gameplay capture handlers; takeover activates this delegate.
+window.addEventListener('keydown', (event) => {
+  const notice = document.getElementById('nogl');
+  if (!notice || notice.hidden || !notice._graphicsFailureKeys) return;
+  notice._graphicsFailureKeys(event);
+}, true);
+function graphicsFailureTakeover(notice) {
+  // A failed game cannot retain a sheet's focus trap or accept world shortcuts.
+  // Use exported state only: renderer creation can fail before UI is initialized.
+  for (const panel of document.querySelectorAll('#title, #hud, .overlay, #lore-pro, #netchat')) {
+    panel.hidden = true; panel.inert = true;
+  }
+  for (const surface of document.body.children) if (surface !== notice) surface.inert = true;
+  const state = window.__hm;
+  if (state && state.UI) state.UI.modal = null;
+  notice.inert = false;
+  notice.hidden = false;
+  if (notice._graphicsFailureKeys) return;
+  notice._graphicsFailureKeys = (event) => {
+    if (notice.hidden) return;
+    // Leave native link/disclosure activation intact while blocking game handlers.
+    event.stopImmediatePropagation();
+    if (event.key !== 'Tab') return;
+    const controls = [...notice.querySelectorAll('button, input, select, textarea, summary, a[href], [tabindex]')]
+      .filter(node => !node.disabled && node.tabIndex >= 0 && !node.closest('[hidden], [inert]') && node.getClientRects().length);
+    const first = controls[0], last = controls[controls.length - 1];
+    if (!first) { event.preventDefault(); return; }
+    if (!controls.includes(document.activeElement)) { event.preventDefault(); (event.shiftKey ? last : first).focus(); }
+    else if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+  };
+}
 function graphicsStartFailure(error, title = 'Graphics could not start') {
   const loading = document.getElementById('loading'), notice = document.getElementById('nogl');
   if (loading) { loading.hidden = true; loading.style.display = 'none'; }
   if (!notice) return;
-  notice.hidden = false;
+  graphicsFailureTakeover(notice);
   notice.setAttribute('role', 'alert');
+  const diagnostic = GRAPHICS_START_MESSAGE || String(error && error.message || error);
+  const unavailable = /(?:GL_VENDOR|GL_RENDERER|VENDOR|RENDERER)\s*[:=]\s*["']?Disabled\b|BindToCurrentSequence/i.test(diagnostic);
+  const unsupported = !unavailable && String(error && error.message || error) === 'WebGL 2 is not available in this browser.';
   const heading = document.createElement('strong');
-  heading.textContent = title;
+  heading.id = 'graphics-failure-title';
+  heading.textContent = unavailable ? 'Browser graphics are unavailable' : unsupported ? 'Graphics are not supported' : title;
+  notice.setAttribute('aria-labelledby', heading.id);
   const detail = document.createElement('span');
-  detail.textContent = GRAPHICS_START_MESSAGE || String(error && error.message || error);
+  detail.textContent = unavailable ? 'This browser could not provide a working graphics connection.'
+    : unsupported ? 'This browser does not provide the graphics features Hallowmarch needs.'
+      : GRAPHICS_CONTEXT_LOST ? 'The browser stopped the game\'s graphics.'
+        : title === 'Graphics stopped' ? 'The game could not finish preparing graphics.' : 'The game could not start graphics in this browser.';
   const help = document.createElement('span');
-  help.textContent = GRAPHICS_CONTEXT_LOST ? 'The browser stopped graphics. Close this game tab and restart the browser before trying the reduced graphics launch. Your saved character is kept.' : 'Hallowmarch needs WebGL 2. Try reduced graphics. If the browser still blocks graphics, close and reopen it before trying again.';
+  help.textContent = unavailable ? 'Reduced graphics cannot restore a disabled browser graphics connection. Close this game tab and restart the browser, then retry. Your saved character is kept.'
+    : unsupported ? 'Use a browser with WebGL 2 support, or restart this browser before retrying. Your saved character is kept.'
+      : BOOT_SAFE ? 'Reduced graphics were already active. Close this game tab and restart the browser before trying again. Your saved character is kept.'
+        : GRAPHICS_CONTEXT_LOST ? 'Close this game tab and restart the browser before trying reduced graphics. Your saved character is kept.'
+          : 'Try reduced graphics. If the problem continues, close this game tab and restart the browser before trying again. Your saved character is kept.';
   const retry = document.createElement('a');
-  retry.href = graphicsRecoveryURL(true);
-  retry.textContent = 'Reload with low graphics';
-  notice.replaceChildren(heading, detail, help, retry);
+  retry.href = graphicsRecoveryURL(unavailable || unsupported ? BOOT_SAFE : true);
+  retry.className = 'btn primary graphics-retry';
+  retry.textContent = unavailable || unsupported ? 'Retry loading' : BOOT_SAFE ? 'Retry reduced graphics' : 'Try reduced graphics';
+  const technical = document.createElement('details');
+  technical.className = 'graphics-technical';
+  const summary = document.createElement('summary'); summary.textContent = 'Technical details';
+  const log = document.createElement('pre'); log.textContent = diagnostic;
+  technical.appendChild(summary); technical.appendChild(log);
+  notice.replaceChildren(heading, detail, help, retry, technical);
+  retry.focus?.({ preventScroll: true });
 }
 
 canvas.addEventListener('webglcontextlost', (event) => {
@@ -498,7 +550,11 @@ function renderShadowPass(cx, cy, cz) {
   updateShadowCamera(cx, cy, cz);
   for (const m of SHADOW.proxies) {
     const s = m.userData.src;
-    m.visible = liveIn(s);
+    // Empty instance sources have no shadow to draw. Recheck each pass so a
+    // populated pool resumes without changing source or ancestor visibility.
+    m.visible = liveIn(s) && !(s.isInstancedMesh && s.count === 0)
+      && !(s.geometry?.isInstancedBufferGeometry && s.geometry.instanceCount === 0)
+      && !(m.geometry?.isInstancedBufferGeometry && m.geometry.instanceCount === 0);
     if (m.visible) m.matrixWorld.copy(s.matrixWorld);
   }
   renderer.setRenderTarget(SHADOW.rt);

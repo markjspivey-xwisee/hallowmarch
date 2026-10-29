@@ -554,10 +554,13 @@ vec4 wxMarch(vec3 ro, vec3 rd, float jit){
           return vec4(safeColor(C), clamp(T, 0.0, 1.0));
 }
 `;
-function wxBuildClouds() {
+// Own the real resources without binding them to the view or advancing weather.
+// Title preparation can compile these exact materials before the first live tick.
+function wxAllocateClouds() {
   // Recovery keeps the CPU weather and shelter simulation, without volumetric GPU passes.
   if (BOOT_SAFE) return;
   const q = WX_Q[quality.level] || WX_Q.medium;
+  if (WXR.field && WXR.dome && WXR.q === q) return;
   WXR.q = q;
   const mk = (n, type) => { const rt = new THREE.WebGLRenderTarget(n, n, { depthBuffer: false, stencilBuffer: false, type, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, generateMipmaps: false }); rt.texture.wrapS = rt.texture.wrapT = THREE.ClampToEdgeWrapping; return rt; };
   if (WXR.field) WXR.field.dispose();
@@ -643,10 +646,35 @@ function wxBuildClouds() {
         }`,
     });
   }
+}
+function wxBuildClouds() {
+  if (BOOT_SAFE) return;
+  wxAllocateClouds();
+  const q = WXR.q;
   WXR.domeMat.uniforms.uDomeP.value.set(q.steps, 9000, q.veil, 0.012);
   U.uCloudMap.value = WXR.field.texture;
   U.uCloudDome.value = WXR.dome.texture;
   U.uCloudDomeOn.value.x = 1;
+}
+function wxAllocateCloudScreen() {
+  if (BOOT_SAFE || !WXR.field || !WXR.scrMat || !sceneRT) return;
+  const sc = WXR.q.scr || 3, w = Math.max(1, Math.ceil(sceneRT.width / sc)), h = Math.max(1, Math.ceil(sceneRT.height / sc));
+  if (!WXR.scr || WXR.scr.width !== w || WXR.scr.height !== h) {
+    if (WXR.scr) WXR.scr.dispose();
+    WXR.scr = new THREE.WebGLRenderTarget(w, h, { depthBuffer: false, stencilBuffer: false, type: RT_TYPE, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, generateMipmaps: false });
+    WXR.scr.texture.wrapS = WXR.scr.texture.wrapT = THREE.ClampToEdgeWrapping;
+  }
+}
+function wxPrepareCloudResources() {
+  if (BOOT_SAFE || !WXR.on || !sceneRT) return [];
+  wxAllocateClouds();
+  wxAllocateCloudScreen();
+  if (!WXR.shafts) wxBuildShafts();
+  return [
+    { id: 'weather-field', material: WXR.fieldMat, target: WXR.field },
+    { id: 'weather-dome', material: WXR.domeMat, target: WXR.dome },
+    { id: 'weather-screen', material: WXR.scrMat, target: WXR.scr },
+  ];
 }
 // rain hanging under its cloud, seen from afar: a veil of falling streaks through each raining cell, turned to the
 // camera, as wide as the rain the cloud field holds along it (the drops round the camera take over within 150 m)
@@ -686,7 +714,7 @@ function wxBuildShafts() {
         gl_FragColor = vec4(safeColor(applyFog(col, vW)), a);
       }`,
   }));
-  m.frustumCulled = false; m.renderOrder = 6;
+  m.frustumCulled = false; m.renderOrder = 6; m.visible = false;
   scene.add(m);
   WXR.shafts = m;
 }
@@ -719,7 +747,8 @@ function wxCloudsFrame(dt) {
     U.uCloudScrP.value.z = 0; WXR.scrOn = false;
     return;
   }
-  if (!WXR.field || WXR.q !== (WX_Q[quality.level] || WX_Q.medium)) wxBuildClouds();
+  if (!WXR.field || WXR.q !== (WX_Q[quality.level] || WX_Q.medium)
+    || U.uCloudMap.value !== WXR.field.texture || U.uCloudDome.value !== WXR.dome.texture) wxBuildClouds();
   const cu = WXR.cu, cam = camera.position, held = wxHeld();
   // the nearest cells
   _wxCellList.length = 0;
@@ -774,13 +803,9 @@ function wxCloudsFrame(dt) {
 function wxCloudsScreen() {
   const S = U.uCloudScrP.value;
   if (BOOT_SAFE || !WXR.on || !WXR.field || !WXR.scrMat || INDOOR.on || !sceneRT || WXR.scrOff) { S.z = 0; WXR.scrOn = false; return; }
-  const sc = WXR.q.scr || 3, w = Math.max(1, Math.ceil(sceneRT.width / sc)), h = Math.max(1, Math.ceil(sceneRT.height / sc));
-  if (!WXR.scr || WXR.scr.width !== w || WXR.scr.height !== h) {
-    if (WXR.scr) WXR.scr.dispose();
-    WXR.scr = new THREE.WebGLRenderTarget(w, h, { depthBuffer: false, stencilBuffer: false, type: RT_TYPE, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, generateMipmaps: false });
-    WXR.scr.texture.wrapS = WXR.scr.texture.wrapT = THREE.ClampToEdgeWrapping;
-    U.uCloudScr.value = WXR.scr.texture;
-  }
+  const sc = WXR.q.scr || 3;
+  wxAllocateCloudScreen();
+  U.uCloudScr.value = WXR.scr.texture;
   const M = WXR.scrMat.uniforms;
   M.uEye.value.copy(camera.position);
   M.uInvVPw.value.copy(skyU.uInvVP.value);

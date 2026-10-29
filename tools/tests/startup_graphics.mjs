@@ -44,7 +44,7 @@ function boot({url='https://march.example/?tag=a&tag=b', touch=false, failure=''
     setTimeout:()=>0,clearTimeout:()=>{},
     requestAnimationFrame:()=>0,cancelAnimationFrame:()=>{},
     location:{href:url,search:new URL(url).search,reload(){state.reloads++;}},
-    document:{getElementById:k=>elements[k],createElement:element},
+    document:{getElementById:k=>elements[k],createElement:element,querySelectorAll:()=>[],body:{children:[]}},
     matchMedia:q=>({matches:q==='(pointer: coarse)'&&touch}),
     window:{addEventListener(k,f){callbacks['window:'+k]=f;}},navigator:{maxTouchPoints:touch?5:0,deviceMemory:8,hardwareConcurrency:8},
     screen:{width:1024,height:768},
@@ -168,7 +168,10 @@ test('blocked creation reports browser reason and preserves retry URL without re
   assert.equal(b.elements.nogl.attributes.role,'alert');
   const children=b.elements.nogl.children;
   assert.equal(children[0].textContent,'Graphics could not start');
-  assert.equal(children[1].textContent,reason);
+  assert.equal(children[1].textContent,'The game could not start graphics in this browser.');
+  const technical=children.find(x=>x.tag==='details');
+  assert.equal(technical.children.find(x=>x.tag==='pre').textContent,reason);
+  assert.equal(technical.attributes.open,undefined,'diagnostics stay optional by default');
   const expected=new URL(original);expected.searchParams.set('safe','1');
   assert.equal(children.find(x=>x.tag==='a').href,expected.href);
   assert.equal(b.state.reloads,0);
@@ -177,7 +180,8 @@ test('blocked creation reports browser reason and preserves retry URL without re
 test('unsupported WebGL 2 is distinguished and the failed renderer is disposed',()=>{
   const b=boot({webgl2:false});
   assert.match(b.error.message,/WebGL 2 is not available/);
-  assert.match(b.elements.nogl.children[1].textContent,/WebGL 2 is not available/);
+  assert.match(b.elements.nogl.children[1].textContent,/does not provide the graphics features/);
+  assert.match(b.elements.nogl.children.find(x=>x.tag==='details').children.find(x=>x.tag==='pre').textContent,/WebGL 2 is not available/);
   assert.equal(b.state.disposed,true);
 });
 function settings(b) {
@@ -324,12 +328,13 @@ test('actual context loss persists recovery before a later bare launch',()=>{
 });
 test('standard recovery link drops diagnostic mode and preserves URL and native preference',()=>{
   const url='https://march.example/?server=wss%3A%2F%2Frelay.example%2Fws&tag=a&tag=b&safe=1&gpuDiag=1#return';
-  const b=boot({url}); b.elements.title={children:[],appendChild(child){this.children.push(child);if(child.id)b.elements[child.id]=child;}};
+  const b=boot({url}),footer={children:[],appendChild(child){this.children.push(child);if(child.id)b.elements[child.id]=child;}};
+  b.elements.title={querySelector:selector=>selector==='.card-foot'?footer:null};
   const expected=new URL(url); expected.searchParams.set('safe','0'); expected.searchParams.delete('gpuDiag');
   assert.equal(vm.runInContext('graphicsRecoveryURL(false)',b.ctx),expected.href);
   vm.runInContext('graphicsRecoveryNotice(); graphicsRecoveryNotice();',b.ctx);
-  assert.equal(b.elements.title.children.length,1);
-  const notice=b.elements.title.children[0];
+  assert.equal(footer.children.length,1);
+  const notice=footer.children[0];
   assert.equal(notice.attributes.role,'status');
   assert.equal(notice.children.find(child=>child.tag==='a').href,expected.href);
   assert.match(notice.children[0].textContent,/saved graphics preferences are unchanged/);
@@ -414,6 +419,8 @@ function titleFixture({autoPaint=false}={}) {
       },
     },
     gpuDiagFamilies(){events.push('inventory');return inventory;},
+    wxPrepareCloudResources(){events.push('entry-resources');return [];},
+    rippleAllocate(){events.push('ripple-resources');},
     gpuDiagCaptureRenderer(){return {...postState};},
     gpuDiagRestoreRenderer(saved,restoreGl){assert.equal(restoreGl,false);Object.assign(postState,saved);events.push('restore:'+ctx.GRAPHICS_STARTUP.titleStage);},
     gpuDiagGlErrors(){return glErrors.shift() || [];},
@@ -478,6 +485,33 @@ function titleFixture({autoPaint=false}={}) {
   return f;
 }
 const titleStages=['post','sky','terrain','grass','flowers','trees','water','structures','crowds','other'];
+
+test('entry program completion precedes real title stages and cannot replace their fences',async()=>{
+  const f=titleFixture();let finish;
+  f.ctx.prepareTitleEntryPrograms=(inventory,generation,resources)=>{
+    assert.equal(inventory,f.inventory);assert.equal(generation,1);assert.equal(resources.length,0);
+    return new Promise(resolve=>{finish=resolve;});
+  };
+  const pending=f.run();await f.flush();
+  assert.equal(f.fences.length,0);assert.equal(f.ctx.GRAPHICS_STARTUP.titleCompleted,0);
+  finish({completed:true,stale:false});await f.flush();
+  assert.deepEqual(f.fences.map(x=>x.stage),['post']);
+  await f.finish(pending);assert.deepEqual(f.fences.map(x=>x.stage),[...titleStages,'combined']);f.restored();
+});
+
+test('stale entry preparation replans before any title draw and does not claim readiness',async()=>{
+  const f=titleFixture();let calls=0;
+  f.ctx.prepareTitleEntryPrograms=async()=>({stale:++calls===1,completed:calls!==1});
+  await f.finish(f.run());
+  assert.equal(calls,2);assert.deepEqual(f.fences.map(x=>x.stage),[...titleStages,'combined']);
+  assert.equal(f.ctx.GRAPHICS_STARTUP.titleCompleted,1);f.restored();
+});
+
+test('entry preparation failure stops startup before any title draw',async()=>{
+  const f=titleFixture();f.ctx.prepareTitleEntryPrograms=async()=>{throw Error('controlled entry preparation failure');};
+  await assert.rejects(f.run(),/controlled entry preparation failure/);assert.equal(f.fences.length,0);
+  assert.equal(f.ctx.GRAPHICS_STARTUP.titleCompleted,0);assert(f.events.includes('failure'));f.restored();
+});
 
 test('actual static title preparation changes only existing view uniforms without randomness or simulation',()=>{
   const f=titleFixture();vm.runInContext('prepareTitleView()',f.ctx);
@@ -653,6 +687,50 @@ test('pre-draw and post-fence GL errors never become successful warmup or combin
     assert.equal(f.ctx.GRAPHICS_STARTUP.stopped,true);assert.equal(f.ctx.GRAPHICS_STARTUP.titleFailure.stage,'post');f.restored();
   }
 });
+test('early dependencies precede their real draws while all original stage fences remain',async()=>{
+  const f=titleFixture(), original=f.ctx.prepareTitleDependencies, dependencies=[];
+  f.ctx.prepareTitleDependencies=async(id,inventory,generation)=>{
+    dependencies.push([id,generation]);f.events.push('dependency:'+id);
+    return original(id,inventory,generation);
+  };
+  await f.finish(f.run());
+  assert.deepEqual(dependencies,[['post',1],['sky',1]]);
+  for(const id of ['post','sky'])assert(f.events.indexOf('dependency:'+id)<f.events.indexOf('target:'+id));
+  assert.deepEqual(f.fences.map(x=>x.stage),[...titleStages,'combined']);f.restored();
+});
+for(const id of ['post','sky'])test(`a failed ${id} dependency cannot submit that draw or release readiness`,async()=>{
+  const f=titleFixture(),original=f.ctx.prepareTitleDependencies;
+  f.ctx.prepareTitleDependencies=async(stage,inventory,generation)=>{
+    if(stage===id)throw Error('controlled dependency rejection');
+    return original(stage,inventory,generation);
+  };
+  await assert.rejects(f.finish(f.run()),/controlled dependency rejection/);
+  assert.deepEqual(f.fences.map(x=>x.stage),id==='post'?[]:['post']);
+  assert.equal(f.ctx.GRAPHICS_STARTUP.titleCompleted,0);assert.equal(f.ctx.GRAPHICS_STARTUP.stopped,true);
+  assert.equal(f.ctx.GAME.ready,false);assert.equal(f.ctx.GAME.started,false);f.restored();
+});
+test('a stale early dependency replans before drawing and preserves the original real stages',async()=>{
+  const f=titleFixture(),original=f.ctx.prepareTitleDependencies,dependencies=[];let stale=true;
+  f.ctx.prepareTitleDependencies=async(id,inventory,generation)=>{
+    dependencies.push([id,generation]);
+    if(id==='sky'&&stale){stale=false;return {stale:true};}
+    return original(id,inventory,generation);
+  };
+  await f.finish(f.run());
+  assert.deepEqual(dependencies,[['post',1],['sky',1],['post',2],['sky',2]]);
+  assert.deepEqual(f.fences.map(x=>x.stage),['post',...titleStages,'combined']);f.restored();
+});
+test('a rejected final program-queue GL check stops the actual staged title before terrain or readiness',async()=>{
+  const f=titleFixture();
+  f.ctx.prepareTitlePrograms=async()=>{throw Error('GL errors while preparing title programs: final queue error');};
+  await assert.rejects(f.finish(f.run()),/final queue error/);
+  assert.deepEqual(f.fences.map(receipt=>receipt.stage),['post','sky']);
+  assert.equal(f.ctx.GRAPHICS_STARTUP.titleCompleted,0);assert.equal(f.ctx.GRAPHICS_STARTUP.stopped,true);
+  assert.equal(f.ctx.GAME.ready,false);assert.equal(f.ctx.GAME.started,false);assert.equal(f.ctx.window.__hm.ready,false);
+  const before=[...f.events];assert.equal(await f.run(),false);
+  vm.runInContext('startGame({});tick(0.1);frame(1000);resize();',f.ctx);
+  assert.deepEqual(f.events,before);f.restored();
+});
 function allowPlayerCreation(f) {
   const created=[];f.ctx.GAME.prog={level:1,rp:0};f.ctx.INPUT={keys:new Set()};
   f.ctx.$=id=>f.nodes[id];f.ctx.CLASSES={warrior:{name:'Warrior'}};
@@ -724,7 +802,9 @@ function wrappedTitleStepFixture() {
   const f=titleFixture({autoPaint:true}),main=read('13_main.js'),perf=read('13p_perf.js');
   const start=perf.indexOf('{\n  const ls0 = loadStep;'),end=perf.indexOf('\n}',start);
   assert.ok(start>=0 && end>start);f.ctx.BOOT_STEPS=[];f.ctx.PERFX={boot:[]};f.ctx.$=()=>({style:{}});
-  vm.runInContext(extract(main,'loadStep')+'\n'+perf.slice(start,end+2),f.ctx);
+  const workStart=main.indexOf('const BOOT_WORK_BUDGET_MS'),workEnd=main.indexOf('async function loadStep(');
+  assert.ok(workStart>=0&&workEnd>workStart);
+  vm.runInContext(main.slice(workStart,workEnd)+'\n'+extract(main,'loadStep')+'\n'+perf.slice(start,end+2),f.ctx);
   f.step=()=>vm.runInContext("loadStep(0.97,'Drawing the first view',renderFirstTitleFrame)",f.ctx);
   return f;
 }

@@ -79,7 +79,7 @@ function fixture() {
     throneRtsPick: (x, y) => picks.push([x, y]),
     closeThroneRTS(release = true) { closed.push(release); scope.throneRtsStopCamera(); if (UI.modal === 'rts') UI.modal = null; },
   });
-  vm.runInContext(extract(read('src/09_player.js'), 'gameplayKeyIgnored') + '\n'
+  vm.runInContext(['gameplayKeyIgnored','pointerEventTimestamp','pointerGestureDuration'].map(name=>extract(read('src/09_player.js'),name)).join('\n') + '\n'
     + extract(read('src/14m_liveplay.js'), 'netHumanInput') + '\n' + core + '\nthis.state = THRONE_RTS;', scope);
   const actualHumanInput = scope.netHumanInput;
   scope.netHumanInput = event => { forwarded.push(event); actualHumanInput(event); };
@@ -166,6 +166,54 @@ test('a tap selects once while drags, cancellation, long presses and two-finger 
   f.stage.fire('pointerup', { pointerId: 3, pointerType: 'touch', clientX: 100 });
   assert.equal(f.picks.length, 1); assert.equal(f.scope.state.pointers.size, 0); assert.equal(f.stage.captures.size, 0);
   tap(5, { pointerType: 'touch' }); assert.equal(f.picks.length, 2, 'the next independent tap still works');
+});
+
+test('the actual CI short touch selects once when pointerup handling is delayed by rendering', () => {
+  const f=fixture();f.start();f.scope.throneRtsBindStage(f.stage);f.advance(56204);
+  const point={pointerId:2,pointerType:'touch',clientX:195,clientY:292.35626220703125,isTrusted:true};
+  // Preserved CI witness: event duration2.4ms, handler interval2655.2ms.
+  f.stage.fire('pointerdown',{...point,timeStamp:57202.6});f.advance(2655.2);
+  f.stage.fire('pointerup',{...point,timeStamp:57205});
+  assert.deepEqual(f.picks,[[point.clientX,point.clientY]]);assert.equal(f.scope.state.pointers.size,0);
+  assert.equal(f.stage.captures.size,0);assert.equal(f.human.activity,0,'timing classification does not fabricate human activity');
+});
+
+for(const duration of [450,600])test('a true native hold is rejected even when queued handlers execute close together: '+duration,()=>{
+  const f=fixture();f.start();f.scope.throneRtsBindStage(f.stage);f.advance(1000);
+  f.stage.fire('pointerdown',{pointerType:'touch',timeStamp:1000});f.advance(1);
+  f.stage.fire('pointerup',{pointerType:'touch',timeStamp:1000+duration});
+  assert.equal(f.picks.length,0);assert.equal(f.scope.state.pointers.size,0);assert.equal(f.stage.captures.size,0);
+});
+
+for(const timing of [
+  ['missing',undefined,undefined],['zero',0,0],['negative',-1,-.5],['NaN',NaN,NaN],['infinite',Infinity,Infinity],
+  ['huge',1e15,1e15+2],['future',10000,10002],['backwards',900,899],['missing up',900,undefined],['missing down',undefined,950],['string','900','902'],
+])test('invalid native timing retains the conservative handling-clock hold cutoff: '+timing[0],()=>{
+  const f=fixture();f.start();f.scope.throneRtsBindStage(f.stage);
+  f.stage.fire('pointerdown',{pointerType:'touch',timeStamp:timing[1]});f.advance(600);
+  f.stage.fire('pointerup',{pointerType:'touch',timeStamp:timing[2]});
+  assert.equal(f.picks.length,0);assert.equal(f.scope.state.pointers.size,0);assert.equal(f.stage.captures.size,0);
+});
+
+test('synthetic timestamps do not replace handling time, and ordinary timestamp-free taps still work',()=>{
+  const f=fixture();f.start();f.scope.throneRtsBindStage(f.stage);
+  f.stage.fire('pointerdown',{isTrusted:false,timeStamp:900});f.advance(600);f.stage.fire('pointerup',{isTrusted:false,timeStamp:902});
+  assert.equal(f.picks.length,0);
+  f.stage.fire('pointerdown',{pointerType:'touch'});f.advance(20);f.stage.fire('pointerup',{pointerType:'touch'});
+  assert.equal(f.picks.length,1);
+});
+
+for(const change of ['move','cancel','multitouch','grant','live','owner'])test('native event timing cannot bypass existing gesture or live owner guards: '+change,()=>{
+  const f=fixture();f.start();f.scope.throneRtsBindStage(f.stage);
+  f.stage.fire('pointerdown',{pointerType:'touch',timeStamp:900});
+  if(change==='move')f.stage.fire('pointermove',{pointerType:'touch',clientX:120});
+  if(change==='cancel')f.stage.fire('pointercancel');
+  if(change==='multitouch')f.stage.fire('pointerdown',{pointerId:2,pointerType:'touch',timeStamp:901});
+  if(change==='grant')f.grant(false);
+  if(change==='live')f.live(false);
+  if(change==='owner')f.UI.modal='map';
+  f.advance(600);f.stage.fire('pointerup',{pointerType:'touch',timeStamp:902});
+  assert.equal(f.picks.length,0);
 });
 
 test('wheel zoom preserves browser modifier gestures and inactive input', () => {

@@ -38,7 +38,11 @@
   #loading h1 { margin: 0; font: 400 clamp(38px, 8vw, 72px)/1 var(--display); letter-spacing: 0.04em; color: var(--bronze-hi); }
   #loading .bar { width: min(320px, 70vw); height: 3px; background: rgba(255, 255, 255, 0.08); border-radius: 2px; overflow: hidden; }
   #loading .bar i { display: block; height: 100%; width: 0; background: var(--bronze-hi); transition: width 0.25s ease; }
+  #loading .bar[aria-busy="true"] i { width: 35% !important; transition: none; animation: loading-sweep 1.6s ease-in-out infinite alternate; }
+  @keyframes loading-sweep { from { transform: translateX(0); } to { transform: translateX(200%); } }
+  @media (prefers-reduced-motion: reduce) { #loading .bar[aria-busy="true"] i { animation: none; transform: none; } }
   #loading p { margin: 0; color: var(--ink-dim); font-family: var(--caps); letter-spacing: 0.08em; font-size: 13px; }
+  #loading #loadhint { max-width: min(28rem, 84vw); text-align: center; font-family: var(--ui); letter-spacing: normal; }
 
   /* title & character creation */
   #title { position: fixed; inset: 0; z-index: 20; display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 470px); align-items: stretch; pointer-events: none; }
@@ -80,6 +84,9 @@
   .continue { display: grid; gap: 6px; padding: 12px; border-radius: 6px; border: 1px solid var(--line-strong); background: rgba(223, 193, 136, 0.07); }
   .continue p { margin: 0; color: var(--ink-dim); font-size: 14px; }
   .fineprint { margin: 0; color: var(--ink-faint); font-size: 12px; }
+  #graphics-recovery { display: grid; gap: 4px; padding-top: 8px; border-top: 1px solid var(--line); }
+  #graphics-recovery a { display: inline-flex; align-items: center; justify-self: start; min-height: 44px; color: var(--bronze-hi); font-weight: 600; pointer-events: auto; }
+  #graphics-recovery a:focus-visible, #nogl a:focus-visible { outline: 2px solid var(--bronze-hi); outline-offset: 3px; }
 
   /* HUD */
   #hud { position: fixed; inset: 0; pointer-events: none; z-index: 5; }
@@ -124,7 +131,7 @@
   #war .me { font-weight: 700; }
   #war .tod { display: flex; justify-content: space-between; color: var(--ink-dim); font-size: 12px; border-top: 1px solid var(--line); padding-top: 5px; margin-top: 1px; }
 
-  #log { position: absolute; left: var(--pad); bottom: calc(var(--pad) + var(--safe-b)); width: min(380px, 34vw); height: 168px; padding: 8px 10px; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end; gap: 1px; font-size: 13px; line-height: 1.3; -webkit-mask-image: linear-gradient(transparent, #000 22%); mask-image: linear-gradient(transparent, #000 22%); background: radial-gradient(ellipse 85% 100% at 0% 100%, rgba(10, 11, 14, 0.5), rgba(10, 11, 14, 0.22) 55%, transparent 80%); border: 0; box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; pointer-events: none; }
+  #log { position: absolute; left: var(--pad); bottom: calc(var(--pad) + var(--safe-b)); width: min(380px, 34vw); height: 168px; padding: 8px 10px; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end; gap: 1px; font-size: 13px; line-height: 1.3; -webkit-mask-image: linear-gradient(transparent, #000 22%); mask-image: linear-gradient(transparent, #000 22%); background: rgba(10, 11, 14, 0.72); border: 0; box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; pointer-events: none; }
   #log div { text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9); }
   #log .xp { color: #c8b6f0; } #log .rp { color: #f0d488; } #log .warn { color: var(--warn); } #log .level { color: #ffe08a; font-weight: 700; }
   #log .dmg { color: #e8e0d0; } #log .hurt { color: #ff9a8a; } #log .heal { color: #9be29a; } #log .sys { color: var(--ink-dim); }
@@ -373,6 +380,10 @@
   #fade.on { opacity: 1; pointer-events: auto; }
   #nogl span, #nogl a { display: block; margin-top: 12px; }
   #nogl a { color: var(--bronze-hi); font-weight: 600; }
+  #nogl .graphics-retry { display: flex; min-height: 48px; color: #1b120a; }
+  #nogl .graphics-technical { margin-top: 16px; border-top: 1px solid var(--line); text-align: left; }
+  #nogl summary { display: list-item; min-height: 44px; padding: 12px 0 8px; cursor: pointer; color: var(--bronze-hi); }
+  #nogl pre { max-height: 180px; margin: 4px 0 0; padding: 10px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; background: var(--void); color: var(--ink-dim); font: 12px/1.5 monospace; user-select: text; -webkit-user-select: text; }
   #nogl { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(520px, calc(100% - 32px)); max-height: calc(100% - 48px); overflow: auto; padding: 24px; border: 1px solid rgba(196, 160, 104, 0.35); border-radius: 12px; background: rgba(30, 24, 20, 0.96); color: var(--ink); text-align: center; z-index: 60; box-sizing: border-box; font-size: 16px; line-height: 1.5; }
   #nogl strong { font-size: 24px; color: var(--bronze-hi); }
   #nogl span { overflow-wrap: anywhere; }
@@ -1344,7 +1355,7 @@
 
 <canvas id="scene" aria-label="Hallowmarch, a 3D world of three realms at war" role="img"></canvas>
 
-<div id="loading"><div class="inner"><h1>Hallowmarch</h1><div class="bar"><i id="loadbar"></i></div><p id="loadmsg">Raising the hills</p></div></div>
+<div id="loading"><div class="inner"><h1>Hallowmarch</h1><div class="bar" role="progressbar" aria-label="Loading Hallowmarch" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i id="loadbar"></i></div><p id="loadmsg" role="status" aria-live="polite" aria-atomic="true">Raising the hills</p><p id="loadhint" hidden>The first visit may take longer.</p></div></div>
 
 <div id="title" hidden>
   <div class="brand">
@@ -1513,29 +1524,34 @@
   </div>
 </div>
 <div id="fade"></div>
-<p id="nogl" hidden>Hallowmarch needs WebGL 2, which this browser or device has turned off.</p>
+<section id="nogl" hidden>Hallowmarch needs WebGL 2, which this browser or device has turned off.</section>
 <script>
 /* startup-file-guard: runs even when the module's graphics dependency cannot load. */
 (() => {
-  let pending = true, shown = false;
+  let pending = true, shown = '', heading, detail;
   const loading = document.getElementById('loading'), notice = document.getElementById('nogl');
-  function failed() {
-    if (!pending || shown || !notice) return;
-    shown = true;
+  function show(failed) {
+    if (!pending || !notice || shown === 'failed' || shown === (failed ? 'failed' : 'slow')) return;
+    if (!shown) {
+      heading = document.createElement('strong');
+      detail = document.createElement('span');
+      const retry = document.createElement('button'); retry.type = 'button'; retry.className = 'btn primary'; retry.textContent = 'Retry loading';
+      retry.onclick = () => location.reload();
+      notice.replaceChildren(heading, detail, retry);
+    }
+    shown = failed ? 'failed' : 'slow';
     loading.hidden = true;
     notice.hidden = false;
-    notice.setAttribute('role', 'alert');
-    const heading = document.createElement('strong'); heading.textContent = 'The game could not finish loading';
-    const detail = document.createElement('span'); detail.textContent = 'A required game file could not load. Check your connection, then try again. Your saved character is kept.';
-    const retry = document.createElement('button'); retry.type = 'button'; retry.className = 'btn primary'; retry.textContent = 'Retry loading';
-    retry.onclick = () => location.reload();
-    notice.replaceChildren(heading, detail, retry);
+    notice.setAttribute('role', failed ? 'alert' : 'status');
+    heading.textContent = failed ? 'The game could not finish loading' : 'Game files are taking longer than expected';
+    detail.textContent = failed ? 'A required game file could not load. Check your connection, then try again. Your saved character is kept.'
+      : 'You can keep waiting, or check your connection and try again. Your saved character is kept.';
   }
   function onError(event) {
-    if (event.target?.tagName === 'SCRIPT' && event.target.type === 'module') failed();
+    if (event.target?.tagName === 'SCRIPT' && event.target.type === 'module') show(true);
   }
   addEventListener('error', onError, true);
-  const timer = setTimeout(failed, 20000);
+  const timer = setTimeout(() => show(false), 20000);
   window.__hmFileBoot = { ready() {
     if (!pending) return;
     pending = false; clearTimeout(timer); removeEventListener('error', onError, true);

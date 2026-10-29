@@ -156,7 +156,10 @@ async def failed_creation(browser, name, w, h, touch=False):
             check(layout['width']==w and w-40 <= layout['panel'] <= w, name + ' uses device-width layout with readable recovery panel')
         await expect(panel).to_have_attribute('role', 'alert')
         await expect(panel).to_contain_text('Graphics could not start')
-        await expect(panel.locator('span').filter(has_text=REASON)).to_have_text(REASON)
+        await expect(panel.locator('details pre')).not_to_be_visible()
+        await panel.locator('summary').click()
+        await expect(panel.locator('details pre')).to_have_text(REASON)
+        await panel.locator('summary').click()
         check(await page.locator('#loading').evaluate("el => getComputedStyle(el).display === 'none'"),
               name + ' hides loading after graphics failure')
         check(not await page.evaluate('Boolean(window.__hm && window.__hm.ready)'),

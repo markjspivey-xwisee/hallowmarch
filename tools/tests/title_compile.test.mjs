@@ -7,6 +7,7 @@ import { WebGLPrograms } from '../node_modules/three/src/renderers/webgl/WebGLPr
 
 const root = new URL('../../', import.meta.url);
 const source = readFileSync(new URL('src/13o_title_compile.js', root), 'utf8');
+const productPending = Number(source.match(/pending:\s*(\d+)/)[1]);
 const originalRender = readFileSync(new URL('src/02_render.js', root), 'utf8');
 // Small shader/attribute fixture exercises real r160 cache parameters without
 // compiling GLSL or retaining the large native capture in CI. Native evidence
@@ -29,11 +30,11 @@ function target() {
     emit(name) { for (const fn of [...(listeners.get(name) || [])]) fn({}); },
     listenerCount: () => [...listeners.values()].reduce((n, set) => n + set.size, 0) };
 }
-function fixture({ safe = false, supported = true, count = 20, readyDelay = 25, failure = '', avatar = false } = {}) {
+function fixture({ safe = false, supported = true, count = 20, readyDelay = 25, failure = '', avatar = false, compileMs = 0, flushMs = 0, inventoryCheckMs = 0, pendingLimit = productPending } = {}) {
   let now = 0, timerId = 0, currentTarget, lost = false, randomCalls = 0;
   const timers = new Map(), document = { hidden: false, ...target() }, window = target(), canvas = target();
   const scene = new THREE.Scene(), sceneRT = {}, originalTarget = currentTarget = {};
-  const calls = [], queries = [], programs = [], known = new Map(), restores = [], glErrors = [], flushes = [];
+  const calls = [], queries = [], programs = [], known = new Map(), restores = [], glErrors = [], flushes = [], errorChecks = [];
   const renderState = { init() {}, pushLight() {}, pushShadow() {}, setupLights() {} };
   const renderer = { info: { programs }, extensions: { has: () => supported }, _useLegacyLights: false,
     setRenderTarget(value) { assert(!lost); currentTarget = value; } };
@@ -43,7 +44,7 @@ function fixture({ safe = false, supported = true, count = 20, readyDelay = 25, 
     GRAPHICS_STARTUP: { stopped: false }, GRAPHICS_CONTEXT_LOST: false, GAME: { started: false },
     TITLE_RESIZE_PENDING: false, resizeTimer: 0, TITLE_WARM_GENERATION: 1,
     performance: { now: () => now }, camera: new THREE.PerspectiveCamera(),
-    frustum: { intersectsObject: object => !object.userData.offscreen, intersectsSprite: object => !object.userData.offscreen },
+    frustum: { intersectsObject: object => { now += inventoryCheckMs; return !object.userData.offscreen; }, intersectsSprite: object => { now += inventoryCheckMs; return !object.userData.offscreen; } },
     Math: Object.assign(Object.create(Math), { random() { randomCalls++; return 0.5; } }),
     setTimeout(fn, delay) { const id = ++timerId; timers.set(id, { fn, due: now + delay }); return id; },
     clearTimeout(id) { timers.delete(id); },
@@ -51,8 +52,11 @@ function fixture({ safe = false, supported = true, count = 20, readyDelay = 25, 
     titleAssertActive() { if (ctx.GRAPHICS_CONTEXT_LOST || lost || ctx.GRAPHICS_STARTUP.stopped) throw Error('context lost or stopped'); },
     gpuDiagCaptureRenderer: () => ({ target: currentTarget }),
     gpuDiagRestoreRenderer(saved, restoreGl) { restores.push(restoreGl); if (restoreGl && !lost) currentTarget = saved.target; },
-    gpuDiagGlErrors: () => glErrors.shift() || [],
-    gl: { LINK_STATUS: 35714, isContextLost: () => lost, flush() { assert(!lost); flushes.push(now); if (failure === 'flushGL') glErrors.push(['0x0502']); },
+    gpuDiagGlErrors: () => {
+      errorChecks.push({ at: now, pendingPrograms: programs.filter(program => program.program && !ctx.forceComplete && now < program.readyAt).map(program => program.id) });
+      return glErrors.shift() || [];
+    },
+    gl: { LINK_STATUS: 35714, isContextLost: () => lost, flush() { assert(!lost); flushes.push(now); now += flushMs; if (failure === 'flushGL') glErrors.push(['0x0502']); },
       getProgramParameter(program) { assert(!lost); queries.push(program); return failure !== 'link'; } },
     renderStates: { get: () => renderState }, renderStateStack: [], currentRenderState: null, _this: renderer,
     BackSide: THREE.BackSide, FrontSide: THREE.FrontSide, DoubleSide: THREE.DoubleSide,
@@ -62,16 +66,17 @@ function fixture({ safe = false, supported = true, count = 20, readyDelay = 25, 
       if (failure === 'throw') throw Error('controlled compile failure');
       const key = material.id + ':' + material.side + ':' + !!object.isInstancedMesh + ':' + !!object.instanceColor;
       if (!known.has(key)) {
-        const readyAt = now + readyDelay;
-        const program = { id: programs.length, program: {}, isReady() { assert(!lost); return ctx.forceComplete || now >= readyAt; } };
+        const program = { id: programs.length, program: {}, readyAt: now + readyDelay, isReady() { assert(!lost); return ctx.forceComplete || now >= program.readyAt; } };
         known.set(key, program); programs.push(program);
       }
       return known.get(key);
     },
   };
   vm.createContext(ctx);
-  vm.runInContext('function install(){' + compile + '}\ninstall.call(renderer);\n' + actualConstructors + '\n' + source, ctx);
-  const compileCalls = [], actualCompile = renderer.compile; renderer.compile = function(collection, camera, targetScene) { compileCalls.push({ collection, camera, targetScene, target: currentTarget }); return actualCompile.call(this, collection, camera, targetScene); };
+  // CPU-only configuration coverage; the product has no runtime cap override.
+  const configured = source.replace(/pending:\s*\d+/, 'pending: ' + pendingLimit);
+  vm.runInContext('function install(){' + compile + '}\ninstall.call(renderer);\n' + actualConstructors + '\n' + configured, ctx);
+  const compileCalls = [], actualCompile = renderer.compile; renderer.compile = function(collection, camera, targetScene) { compileCalls.push({ collection, camera, targetScene, target: currentTarget, at: now }); now += compileMs; return actualCompile.call(this, collection, camera, targetScene); };
   const objects = [];
   for (let i = 0; i < count; i++) {
     const geometry = new THREE.BufferGeometry(), material = new THREE.ShaderMaterial({ transparent: i % 4 === 0,
@@ -103,7 +108,7 @@ function fixture({ safe = false, supported = true, count = 20, readyDelay = 25, 
   // Decoys make an accidental full material traversal observable. Stock light scanning is left intact.
   const shadowDecoy = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.ShaderMaterial()); SHADOW.scene.add(shadowDecoy);
   const hiddenShadowDecoy = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.ShaderMaterial()); hiddenShadowDecoy.visible=false; SHADOW.scene.add(hiddenShadowDecoy);
-  const f = { SHADOW, INDOOR, crowdHuman, avatarSource, avatarProxy, shadowDecoy, hiddenShadowDecoy, compileCalls, ctx, calls, queries, programs, timers, objects, all, hidden, offscreen, wrongLayer, child, array, hooked, cacheHook, inventory, stages, restores, glErrors, flushes,
+  const f = { SHADOW, INDOOR, crowdHuman, avatarSource, avatarProxy, shadowDecoy, hiddenShadowDecoy, compileCalls, ctx, calls, queries, programs, timers, objects, all, hidden, offscreen, wrongLayer, child, array, hooked, cacheHook, inventory, stages, restores, glErrors, flushes, errorChecks,
     run: () => ctx.prepareTitlePrograms(inventory, stages, ctx.TITLE_WARM_GENERATION),
     async flush() { for (let i = 0; i < 10; i++) await Promise.resolve(); },
     async timer(lateBy = 0) {
@@ -126,7 +131,10 @@ test('bounded preparation uses exact original leaves/flags and restores sides an
   const f = fixture(), parents = f.all.map(object => object.parent), sides = f.objects.map(object => object.material.side);
   const receipt = await f.finish(f.run());
   assert.equal(receipt.completed, true); assert.equal(receipt.outcome, 'completed');
-  assert(receipt.maxPending <= 8 && receipt.maxPending > 1); assert(receipt.maxPreparesPerTurn <= 4);
+  assert.equal(receipt.errorPolicy, 'drained-waves');
+  assert(receipt.maxPending <= productPending && receipt.maxPending > 1); assert(receipt.maxPreparesPerTurn <= 4);
+  assert(receipt.maxWavePrograms <= productPending);
+  assert(f.errorChecks.every(check => check.pendingPrograms.length === 0));
   assert(f.calls.every(call => f.all.includes(call.object) && call.geometry === call.object.geometry));
   for (const object of [f.hidden, f.offscreen, f.wrongLayer, f.array, f.hooked, f.cacheHook]) assert(!f.calls.some(call => call.object === object));
   assert(f.calls.some(call => call.object === f.child), 'parent layer mismatch does not hide child');
@@ -135,6 +143,11 @@ test('bounded preparation uses exact original leaves/flags and restores sides an
   assert.deepEqual(f.all.map(object => object.parent), parents); assert.deepEqual(f.objects.map(object => object.material.side), sides);
   assert.equal(f.currentTarget(), f.originalTarget); assert.equal(f.randomCalls(), 0);
   assert.equal(f.ctx.GRAPHICS_STARTUP.titlePreparations[0], receipt); assert.equal(f.ctx.GRAPHICS_STARTUP.titlePreparing, false); f.clean();
+});
+test('product concurrency is four without changing turn, poll or visible deadline bounds', () => {
+  const f = fixture(), limits = vm.runInContext('TITLE_COMPILE_LIMITS', f.ctx);
+  assert.equal(productPending, 4); assert.equal(limits.pending, 4); assert.equal(limits.perTurn, 4); assert.equal(limits.turnMs, 8);
+  assert.equal(limits.pollMs, 10); assert.equal(limits.programMs, 90000); assert.equal(limits.totalMs, 180000); assert(Object.isFrozen(limits)); f.clean();
 });
 test('recovery and absent parallel extension retain serial rendering without timers or preparation', async () => {
   for (const options of [{ safe: true }, { supported: false }]) {
@@ -169,6 +182,93 @@ test('late pending poll times out without queueing another object', async () => 
   const f = fixture({ readyDelay: 1000000 }), promise = f.run(), rejected = assert.rejects(promise, /timed out/);
   await f.flush(); const submitted = f.calls.length; await f.timer(90000); await rejected; assert.equal(f.calls.length, submitted); f.clean();
 });
+test('a five-second synchronous prepare yields before another job and reports the unpreemptible call', async () => {
+  const f = fixture({ count: 3, compileMs: 5000 }), promise = f.run(); await f.flush();
+  assert.equal(f.compileCalls.length, 1, 'one slow call returns before the first poll/paint opportunity');
+  const first = f.ctx.GRAPHICS_STARTUP.titlePreparations[0];
+  assert.equal(first.maxSinglePrepareMs, 5000); assert.equal(first.maxFullTurnMs, 5000);
+  assert.equal(first.maxPreparesPerTurn, 1); assert.equal(first.budgetYields, 1);
+  assert.equal(first.slowestPrepare.objectId, f.objects[0].id);
+  const receipt = await f.finish(promise);
+  assert.equal(receipt.completed, true); assert.equal(receipt.preparedJobs, receipt.eligibleJobs);
+  assert(receipt.maxPending <= productPending); assert.equal(receipt.maxPreparesPerTurn, 1); f.clean();
+});
+test('fast prepares retain four calls per turn and the configured program cap while elapsed time can yield sooner', async () => {
+  const fast = fixture({ compileMs: 1 }); fast.objects[0].material.transparent = false;
+  const fp = fast.run(); await fast.flush();
+  assert.equal(fast.compileCalls.length, 4);
+  const fr = await fast.finish(fp); assert(fr.maxPending <= productPending); assert.equal(fr.maxPreparesPerTurn, 4); fast.clean();
+  const slow = fixture({ count: 3, compileMs: 5 }), sp = slow.run(); await slow.flush();
+  assert.equal(slow.compileCalls.length, 2);
+  const sr = await slow.finish(sp); assert.equal(sr.maxFullTurnMs, 10); assert.equal(sr.maxSinglePrepareMs, 5); slow.clean();
+});
+test('full-turn telemetry includes a slow flush and excludes asynchronous poll waits', async () => {
+  const flush = fixture({ count: 1, flushMs: 3000 }), fp = flush.run();
+  const fr = await flush.finish(fp); assert.equal(fr.maxSinglePrepareMs, 0); assert.equal(fr.maxFlushMs, 3000);
+  assert.equal(fr.maxFullTurnMs, 3000); flush.clean();
+  const waiting = fixture({ count: 1, readyDelay: 50000 }), wp = waiting.run(); await waiting.flush();
+  await waiting.timer(60000); const wr = await wp;
+  assert(wr.elapsedMs >= 60000); assert.equal(wr.maxFullTurnMs, 0); waiting.clean();
+});
+test('inventory telemetry is bounded and separates expensive eligibility checks from preparation', async () => {
+  const f = fixture({ count: 1, inventoryCheckMs: 13 }), receipt = await f.finish(f.run());
+  assert.equal(receipt.inventoryObjects, 1); assert.equal(receipt.inventoryMs, 13);
+  assert.equal(receipt.maxInventoryCheckMs, 13); assert.equal(receipt.slowestInventory.objectId, f.objects[0].id);
+  assert.equal(receipt.maxSinglePrepareMs, 0); assert(receipt.maxFullTurnMs >= 13);
+  assert.deepEqual(Object.keys(receipt.slowestInventory).sort(), ['family','materialId','ms','objectId']); f.clean();
+});
+test('an inventory failure retains its timing and clears preparation listeners without compiling', async () => {
+  const f = fixture({ count: 1, inventoryCheckMs: 13 });
+  Object.defineProperty(f.objects[0].userData, 'offscreen', { get() { throw Error('controlled inventory failure'); } });
+  await assert.rejects(f.run(), /controlled inventory failure/);
+  const receipt = f.ctx.GRAPHICS_STARTUP.titlePreparations[0];
+  assert.equal(receipt.inventoryMs, 13); assert.equal(receipt.maxInventoryCheckMs, 13);
+  assert.equal(receipt.outcome, 'failed'); assert.equal(f.compileCalls.length, 0); f.clean();
+});
+for (const eventDelivered of [true, false]) test('background time beyond the program deadline is excluded, visibility event=' + eventDelivered, async () => {
+  const f = fixture({ readyDelay: 1000000 }), promise = f.run(); let failed = false;
+  promise.catch(() => { failed = true; }); await f.flush();
+  const submitted = f.calls.length; f.ctx.document.hidden = true;
+  if (eventDelivered) f.ctx.document.emit('visibilitychange');
+  await f.flush(); await f.timer(120000);
+  assert.equal(failed, false); assert.equal(f.calls.length, submitted);
+  f.ctx.document.hidden = false; f.ctx.document.emit('visibilitychange'); await f.flush();
+  await f.timer(); assert.equal(failed, false, 'returning to the foreground does not spend the hidden interval');
+  const rejected = assert.rejects(promise, /timed out/);
+  await f.timer(90000); await rejected;
+  const receipt = f.ctx.GRAPHICS_STARTUP.titlePreparations[0];
+  assert(receipt.visibleMs >= 90000); assert(receipt.hiddenMs >= 120000); assert.equal(receipt.reason, 'visibility'); f.clean();
+});
+test('a completed background window drains as stale without claiming a frame or spending hidden time', async () => {
+  const f = fixture({ readyDelay: 100000 }), promise = f.run(); await f.flush();
+  f.ctx.document.hidden = true; f.ctx.document.emit('visibilitychange'); await f.flush();
+  await f.timer(200000); const receipt = await promise;
+  assert.equal(receipt.stale, true); assert.equal(receipt.completed, false);
+  assert.equal(receipt.visibleMs, 0); assert(receipt.hiddenMs >= 200000);
+  assert.equal(f.ctx.GRAPHICS_STARTUP.titleCompleted, undefined); f.clean();
+});
+for (const failure of ['link', 'GL', 'context']) test('hidden-time suspension still fails closed on ' + failure, async () => {
+  const f = fixture({ readyDelay: 100000, failure: failure === 'link' ? 'link' : '' }), promise = f.run();
+  const rejected = assert.rejects(promise, failure === 'link' ? /failed to link/ : failure === 'GL' ? /GL errors/ : /Graphics stopped/);
+  await f.flush(); const submitted = f.calls.length;
+  f.ctx.document.hidden = true; f.ctx.document.emit('visibilitychange'); await f.flush();
+  if (failure === 'context') f.lose();
+  else { if (failure === 'GL') f.glErrors.push(['0x0502']); await f.timer(200000); }
+  await rejected; assert.equal(f.calls.length, submitted); assert.equal(f.ctx.GRAPHICS_STARTUP.titlePreparations[0].outcome, 'failed'); f.clean();
+});
+test('failed slow preparation still records its blocking time without retry or GL restoration', async () => {
+  const f = fixture({ failure: 'throw', compileMs: 5000 }); await assert.rejects(f.run(), /controlled compile/);
+  const receipt = f.ctx.GRAPHICS_STARTUP.titlePreparations[0];
+  assert.equal(receipt.maxSinglePrepareMs, 5000); assert.equal(receipt.maxFullTurnMs, 5000);
+  assert.equal(f.compileCalls.length, 1); assert.deepEqual(f.restores, [false]); f.clean();
+});
+test('the total visible-time deadline still bounds a stream of individually completed programs', async () => {
+  const f = fixture({ count: 50, readyDelay: 0, compileMs: 8000 });
+  await assert.rejects(f.finish(f.run()), /exceeded its time budget/);
+  const receipt = f.ctx.GRAPHICS_STARTUP.titlePreparations[0];
+  assert(receipt.visibleMs >= 180000); assert.equal(receipt.hiddenMs, 0);
+  assert(receipt.preparedJobs < receipt.eligibleJobs); f.clean();
+});
 test('context loss rejects before completion=true can be accepted and removes listeners immediately', async () => {
   const f = fixture(), promise = f.run(), rejected = assert.rejects(promise, /Graphics stopped/); await f.flush();
   const submitted = f.calls.length; f.ctx.forceComplete = true; f.lose(); await rejected;
@@ -187,17 +287,90 @@ test('completed failed links and GL errors fail closed without a completion rece
   const link = fixture({ failure: 'link' }), pending = link.run(); await assert.rejects(link.finish(pending), /failed to link/); link.clean();
   const gl = fixture(); gl.glErrors.push(['0x0502']); await assert.rejects(gl.run(), /GL errors/); assert.equal(gl.calls.length, 0); gl.clean();
 });
-test('a GL error while programs remain pending prevents another compile or flush', async () => {
+test('a queued GL error rejects at the drained boundary before another wave or flush', async () => {
   const f = fixture({ readyDelay: 100 }), promise = f.run(); await f.flush();
-  const submitted = f.calls.length, flushed = f.flushes.length;
+  await f.timer(); assert.equal(f.programs.length, productPending, 'the first wave fills within its bounded turns');
+  const submitted = f.calls.length, flushed = f.flushes.length, checks = f.errorChecks.length;
   assert(submitted > 0 && f.timers.size === 1);
-  f.glErrors.push(['0x0502']); const rejected = assert.rejects(promise, /GL errors/);
-  await f.timer(); await rejected;
+  f.glErrors.push(['0x0502']);
+  await f.timer(); assert.equal(f.errorChecks.length, checks, 'do not synchronize on errors while the wave is pending');
+  assert.equal(f.calls.length, submitted); assert.equal(f.flushes.length, flushed);
+  await assert.rejects(f.finish(promise), /GL errors/);
   assert.equal(f.calls.length, submitted); assert.equal(f.flushes.length, flushed); f.clean();
+  assert(f.errorChecks.every(check => check.pendingPrograms.length === 0));
 });
-test('a flush GL error stops before another turn or completion receipt', async () => {
-  const f = fixture({ failure: 'flushGL' }); await assert.rejects(f.run(), /GL errors/);
-  assert.equal(f.flushes.length, 1); assert.equal(f.ctx.GRAPHICS_STARTUP.titlePreparations[0].outcome, 'failed'); f.clean();
+test('a flush GL error is rejected when its wave drains and never starts another wave', async () => {
+  const f = fixture({ failure: 'flushGL' }); await assert.rejects(f.finish(f.run()), /GL errors/);
+  assert.equal(f.programs.length, productPending); assert(f.flushes.length >= 1);
+  assert.equal(f.ctx.GRAPHICS_STARTUP.titlePreparations[0].waves, 1);
+  assert.equal(f.ctx.GRAPHICS_STARTUP.titlePreparations[0].outcome, 'failed'); f.clean();
+  assert(f.errorChecks.every(check => check.pendingPrograms.length === 0));
+});
+for (const pendingLimit of [4, 8]) test('a partially completed wave never refills its newly available slots, cap=' + pendingLimit, async () => {
+  const f = fixture({ readyDelay: 100, pendingLimit }), promise = f.run(); await f.flush();
+  await f.timer(); assert.equal(f.programs.length, pendingLimit);
+  const submitted = f.compileCalls.length, checks = f.errorChecks.length;
+  f.programs[0].readyAt = 0; f.programs[1].readyAt = 0;
+  await f.timer();
+  assert.equal(f.compileCalls.length, submitted, 'two available slots do not authorize another wave');
+  assert.equal(f.errorChecks.length, checks);
+  const receipt = await f.finish(promise);
+  assert(receipt.waves > 1); assert(receipt.maxPending <= pendingLimit); assert.equal(receipt.maxWavePrograms, pendingLimit);
+  assert(f.errorChecks.every(check => check.pendingPrograms.length === 0)); f.clean();
+});
+for (const pendingLimit of [4, 8]) test('23 terrain cache-hit jobs allow distinct programs to fill the first wave, cap=' + pendingLimit, async () => {
+  const f = fixture({ count: 36, readyDelay: 1000, pendingLimit }), shared = f.objects[0].material;
+  shared.transparent = false; shared.forceSinglePass = true;
+  for (const object of f.objects.slice(0, 23)) { object.material = shared; object.isInstancedMesh = false; object.instanceColor = null; }
+  for (const object of f.objects.slice(23)) { object.material.transparent = false; object.material.forceSinglePass = true; }
+  const promise = f.run(); await f.flush();
+  assert.equal(f.programs.length, 1); assert.equal(f.compileCalls.length, 4);
+  while (f.programs.length < pendingLimit) await f.timer();
+  assert.equal(f.programs.length, pendingLimit); assert.equal(f.queries.length, 0, 'fill distinct programs before the first handle drains');
+  assert(f.compileCalls.length > 23); assert.equal(f.ctx.GRAPHICS_STARTUP.titlePreparations[0].waves, 1);
+  const submitted = f.compileCalls.length; f.programs[0].readyAt = 0; await f.timer();
+  assert.equal(f.compileCalls.length, submitted, 'partial completion cannot create another wave');
+  const receipt = await f.finish(promise);
+  assert.equal(receipt.completed, true); assert.equal(receipt.maxWavePrograms, pendingLimit); assert(receipt.maxPending <= pendingLimit);
+  assert(receipt.maxPreparesPerTurn <= 4); assert(f.errorChecks.every(check => check.pendingPrograms.length === 0)); f.clean();
+});
+for (const pendingLimit of [4, 8]) test('completion while filling never frees already consumed capacity, cap=' + pendingLimit, async () => {
+  const f = fixture({ readyDelay: 1000, compileMs: 5, pendingLimit }), promise = f.run(); await f.flush();
+  assert.equal(f.programs.length, 3); f.programs[0].readyAt = 0;
+  while (f.programs.length < pendingLimit) await f.timer(); assert.equal(f.programs.length, pendingLimit);
+  const submitted = f.compileCalls.length; await f.timer(); assert.equal(f.compileCalls.length, submitted);
+  const receipt = await f.finish(promise); assert.equal(receipt.maxWavePrograms, pendingLimit); assert(receipt.maxPending <= pendingLimit); f.clean();
+});
+test('cached-only jobs still check their GL errors before completing or adding another wave', async () => {
+  const f = fixture({ count: 1, readyDelay: 0 }); await f.finish(f.run());
+  const before = f.compileCalls.length, prepare = f.ctx.renderer.compile;
+  f.ctx.renderer.compile = function(...args) { const result = prepare.apply(this, args); f.glErrors.push(['0x0502']); return result; };
+  await assert.rejects(f.run(), /GL errors/);
+  const receipt = f.ctx.GRAPHICS_STARTUP.titlePreparations.at(-1);
+  assert.equal(receipt.newPrograms, 0); assert.equal(f.compileCalls.length, before + 1);
+  assert.equal(receipt.completed, false); assert(f.errorChecks.every(check => check.pendingPrograms.length === 0)); f.clean();
+});
+test('a known error at an otherwise stale drained boundary cannot become a successful replan', async () => {
+  const f = fixture({ readyDelay: 100 }), promise = f.run(); await f.flush();
+  const submitted = f.compileCalls.length; f.glErrors.push(['0x0502']);
+  f.ctx.TITLE_RESIZE_PENDING = true; f.ctx.window.emit('resize'); await f.flush();
+  await assert.rejects(f.finish(promise), /GL errors/);
+  const receipt = f.ctx.GRAPHICS_STARTUP.titlePreparations[0];
+  assert.equal(receipt.outcome, 'failed'); assert.equal(receipt.stale, false);
+  assert.equal(f.compileCalls.length, submitted); f.clean();
+});
+test('a completed failed link stops immediately even while other wave programs remain pending', async () => {
+  const f = fixture({ readyDelay: 100, failure: 'link' }), promise = f.run(); await f.flush();
+  const submitted = f.compileCalls.length, checks = f.errorChecks.length;
+  f.programs[0].readyAt = 0;
+  const rejected = assert.rejects(promise, /failed to link/); await f.timer(); await rejected;
+  assert.equal(f.compileCalls.length, submitted); assert.equal(f.errorChecks.length, checks);
+  assert.equal(f.queries.length, 1); f.clean();
+});
+test('context loss during a flush is fatal before another admission, completion query or timer', async () => {
+  const f = fixture(); f.ctx.gl.flush = () => f.lose();
+  await assert.rejects(f.run(), /Graphics stopped/);
+  assert.equal(f.queries.length, 0); assert(f.compileCalls.length <= 4); f.clean();
 });
 test('compile exceptions restore material side and perform no further GL restoration or retry', async () => {
   const f = fixture({ failure: 'throw' }); await assert.rejects(f.run(), /controlled compile failure/);
@@ -223,7 +396,7 @@ test('one exact existing avatar proxy is compiled once in its real shadow scene/
   for (const decoy of [f.shadowDecoy, f.hiddenShadowDecoy]) assert(!f.calls.some(call => call.object === decoy));
   assert.equal(receipt.families['avatar-shadow'].jobs, 1); assert.equal(receipt.families['avatar-shadow'].prepared, 1);
   assert.equal(receipt.families['avatar-shadow'].programs, 1); assert.equal(receipt.avatarShadowQueued, true);
-  assert(receipt.maxPending <= 8 && receipt.maxPreparesPerTurn <= 4);
+  assert(receipt.maxPending <= productPending && receipt.maxPreparesPerTurn <= 4);
   assert.equal(f.avatarProxy.parent, f.SHADOW.scene); assert.equal(f.avatarSource.parent, sourceParent);
   assert.equal(f.avatarProxy.material.side, side); assert.equal(f.currentTarget(), f.originalTarget); f.clean();
 });

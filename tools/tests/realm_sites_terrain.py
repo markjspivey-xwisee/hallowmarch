@@ -8,6 +8,7 @@ v2 catalog, both historical/current foundations, actual shaders and touch UI.
 Outputs are isolated with HM_REALM_SITE_OUT; --screenshots saves reviewed views.
 """
 import argparse, asyncio, hashlib, json, os, pathlib, sys
+from contextlib import asynccontextmanager
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 OUT = pathlib.Path(os.environ.get('HM_REALM_SITE_OUT', str(ROOT.parent / 'realm-site-qa')))
@@ -17,6 +18,28 @@ sys.path.insert(0, str(ROOT / 'tools'))
 import hm
 from hmlib import wait_title_settled, human_play
 from playwright.async_api import async_playwright
+
+
+@asynccontextmanager
+async def audit_browser(playwright, args):
+    if not args.native_edge:
+        browser=await playwright.chromium.launch(args=['--use-angle=swiftshader','--enable-unsafe-swiftshader','--ignore-gpu-blocklist'])
+        try: yield browser
+        finally: await browser.close()
+        return
+    from native_journey_browser import NativeJourneyBrowser
+    owner=NativeJourneyBrowser(OUT, lifetime=900)
+    browser=None
+    try:
+        endpoint=await owner.start()
+        browser=await playwright.chromium.connect(endpoint)
+        yield browser
+    finally:
+        try:
+            if browser: await asyncio.wait_for(browser.close(),timeout=20)
+        finally:
+            await owner.stop()
+            (OUT/'native-browser-receipt.json').write_text(json.dumps(owner.receipt,indent=2),encoding='utf-8')
 
 HOOK = r"""
 window.__realmSiteQA = (() => {
@@ -329,6 +352,21 @@ window.__realmSiteQA = (() => {
     const plot=NETS.s.management.plots.find(p=>!p.buildingId&&p.id!==THRONE_RTS_UI.selectedPlot&&realmRtsSiteStatus(p).eligible);
     if(!plot)throw Error('No second clear plot');throneRtsFocus(plot.x,plot.z);throneRtsUpdateCamera(0);throneRtsDrawMarkers();return plot.id;
   }
+  function armPhoneTap(x,y,target){
+    const events=[],picks=[],original=throneRtsPick;
+    const label=e=>({tag:e?.tagName||'',id:e?.id||'',marker:e?.dataset?.id||''});
+    const point={x,y,target,hits:document.elementsFromPoint(x,y).slice(0,6).map(label),
+      markers:THRONE_RTS_UI.markers.filter(m=>m.screen).map(m=>({kind:m.kind,id:m.id,screen:{...m.screen},distance:Math.hypot(m.screen.x-x,m.screen.y-y)})).sort((a,b)=>a.distance-b.distance).slice(0,5)};
+    const observe=e=>{if(events.length<24)events.push({type:e.type,trusted:e.isTrusted,at:performance.now(),stamp:e.timeStamp,x:e.clientX,y:e.clientY,id:e.pointerId,target:label(e.target),pointers:THRONE_RTS.pointers.size});};
+    const types=['pointerdown','pointerup','pointercancel','lostpointercapture'];
+    for(const type of types)window.addEventListener(type,observe,true);
+    throneRtsPick=function(px,py){const before=THRONE_RTS_UI.selectedPlot;try{return original.apply(this,arguments);}finally{picks.push({x:px,y:py,before,after:THRONE_RTS_UI.selectedPlot});}};
+    fixture.tap={point,events,picks,restore(){for(const type of types)window.removeEventListener(type,observe,true);throneRtsPick=original;}};
+    return point;
+  }
+  function phoneTapReceipt(){const tap=fixture.tap;return {point:tap.point,events:tap.events,picks:tap.picks,state:phoneState(),
+    focused:document.hasFocus(),hidden:document.hidden,live:netHumanLive(),grant:!!hallThroneGrant(),now:performance.now()};}
+  function stopPhoneTap(){const receipt=phoneTapReceipt();fixture.tap.restore();return receipt;}
   function walking(){
     closeThroneRTS(true);UI.modal=null;CAM.mode='fixed';realmRtsModelsFrame(.1);
     const b=NETS.s.management.publicBuildings.find(b=>b.owner===GAME.player.faction&&!b.adopted),ground=realmRtsSiteGround(b);
@@ -360,7 +398,7 @@ window.__realmSiteQA = (() => {
       return {beforeLOD,afterLOD:LOD.built,minY,maxY,surface,ok:minY<=surface.min+.005&&maxY>=surface.max+.005};
     }finally{realmRtsModelsClear();GAME.started=started;NETS.s=prior;}
   }
-  return {author,validate,foundations,legacyRows,normalize,renderedHeight,exactSurface,installFixture,selectRealm,draw,phoneState,focusOtherPlot,walking,
+  return {author,validate,foundations,legacyRows,normalize,renderedHeight,exactSurface,installFixture,selectRealm,draw,phoneState,focusOtherPlot,armPhoneTap,phoneTapReceipt,stopPhoneTap,walking,
     prepareTerrain,coldTransition,catalog:()=>typeof RM_PLOT_LAYOUT_V2==='undefined'?{}:RM_PLOT_LAYOUT_V2};
 })();
 """
@@ -400,9 +438,19 @@ async def render_suite(page, args):
     assert marker, f'Focused plot marker {target} is not visible'
     # Markers deliberately pass pointer events to the 3D stage. A real touch at
     # the marker's screen centre exercises the stage's nearest-marker picker.
-    await page.touchscreen.tap(marker['x']+marker['width']/2,marker['y']+marker['height']/2)
+    tap_x=marker['x']+marker['width']/2;tap_y=marker['y']+marker['height']/2
+    await page.evaluate('([x,y,target])=>__realmSiteQA.armPhoneTap(x,y,target)',[tap_x,tap_y,target])
+    try:
+        await page.touchscreen.tap(tap_x,tap_y)
+        # The protocol command's acknowledgement alone is not an application
+        # receipt. Observe this one real gesture; never retry or inject events.
+        await page.wait_for_function("__realmSiteQA.phoneTapReceipt().events.some(e=>e.type==='pointerup'||e.type==='pointercancel')",timeout=3000)
+        await page.wait_for_function("target=>{const s=__realmSiteQA.phoneState();return s.selected===target&&s.selector===target}",arg=target,timeout=3000)
+    finally:
+        tap_receipt=await page.evaluate('__realmSiteQA.stopPhoneTap()')
+        (OUT/'phone-selection-receipt.json').write_text(json.dumps(tap_receipt,indent=2),encoding='utf-8')
     before=await page.evaluate('__realmSiteQA.phoneState()')
-    assert before['selected']==target and before['selector']==target, before
+    assert before['selected']==target and before['selector']==target, {'target':target,'marker':marker,'before':before,'receipt':tap_receipt}
     assert before['active'] and before['mode']=='rts' and before['stage']['w']>100 and before['stage']['h']>80, before
     stage=before['stage'];x=stage['x']+stage['w']*.5;y=stage['y']+stage['h']*.72
     cdp=await page.context.new_cdp_session(page)
@@ -434,8 +482,7 @@ async def run(args):
     cut = source.rfind('</script>')
     if cut < 0: raise RuntimeError('Built page has no script boundary')
     source = source[:cut] + '\n' + HOOK + '\n' + source[cut:]
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(args=['--use-angle=swiftshader','--enable-unsafe-swiftshader','--ignore-gpu-blocklist'])
+    async with async_playwright() as p, audit_browser(p,args) as browser:
         ctx = await browser.new_context(viewport={'width':1000,'height':650},has_touch=True)
         page = await ctx.new_page()
         errors=[]
@@ -502,4 +549,5 @@ if __name__=='__main__':
     parser.add_argument('--town-radius',type=int,default=100)
     parser.add_argument('--screenshots',action='store_true')
     parser.add_argument('--geometry-only',action='store_true',help='Skip shader, Construction UI and touch checks')
+    parser.add_argument('--native-edge',action='store_true',help='Use one owned headless Edge with default GPU/security protections for a serialized local audit')
     asyncio.run(run(parser.parse_args()))
