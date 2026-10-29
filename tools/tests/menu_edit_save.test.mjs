@@ -23,7 +23,7 @@ function fixture({native=false,queued=false,fail=false}={}) {
   const button={disabled:false,hidden:false,inert:false,visible:true,inside:true,
     closest(selector){return selector.startsWith('button')?this:this.hidden||this.inert?this:null;},getClientRects(){return this.visible?[1]:[];}};
   const doc={hidden:false,focused:true,hasFocus(){return this.focused;},getElementById:()=>({contains:node=>node.inside})};
-  const ref={set:async(value,options)=>{calls.push({value:structuredClone(value),options});if(holdWrite)await new Promise(resolve=>{releaseWrite=resolve;});if(fail)throw {code:'unavailable'};}};
+  const ref={set:async(value,options)=>{calls.push({value:structuredClone(value),options});if(holdWrite)await new Promise(resolve=>{releaseWrite=resolve;});if(fail)throw {code:typeof fail==='string'?fail:'unavailable'};}};
   const SAVE={...base(),native,readConfirmed:native,ref:native?ref:null,chain:queued?new Promise(resolve=>{release=resolve;}):Promise.resolve()};
   const NATIVE_PLAYER={profile:native?{}:null,status:{verified:native},state:'ready'};
   const c=vm.createContext({SAVE,NATIVE_PLAYER,GAME:{started:true,ready:true,player:{}},UI:{modal:'menu'},CAPTURE:{on:false},
@@ -69,10 +69,11 @@ test('only genuine trusted edit events on enabled visible menu controls receive 
 });
 
 test('queued menu snapshots cannot follow player, reference, identity, pause, or expiry changes',async()=>{
-  for(const native of [false,true])for(const condition of ['player','ref','key','host','account','profile','switching','paused','expired','wiping','reload']) {
-    const f=fixture({native,queued:true});const pending=f.edit();
+  for(const native of [false,true])for(const condition of ['player','ref','null-ref','key','host','account','profile','switching','paused','expired','wiping','reload']) {
+    const f=fixture({native,queued:true});if(condition==='null-ref')f.SAVE.ref=f.ref;const pending=f.edit();
     if(condition==='player')f.c.GAME.player={};
     if(condition==='ref')f.SAVE.ref={set:async()=>assert.fail('Wrong reference')};
+    if(condition==='null-ref')f.SAVE.ref=null;
     if(condition==='key')f.SAVE.lsKey='another-character';
     if(condition==='host')f.c.NETWS.host='other';
     if(condition==='account')f.c.NETWS.acct.id='other';
@@ -176,4 +177,28 @@ test('legacy refusal uses the owned browser checkpoint, and actual reload checks
   vm.runInContext(declarations(['withTimeout','initSaveBackend','readLocal','validSave','saveLoadOwned','saveLoadTitle','loadSave'])+'\nglobalThis.reloadSave=loadSave;',f.c);
   const loaded=await f.c.reloadSave();
   assert.equal(remoteLookups,0);assert.equal(loaded.char.lore.track,'cook');assert.equal(loaded.settings.quality,'low');assert.equal(f.c.SAVE.backend,'local');
+});
+
+for(const code of ['revoked','not_granted','invalid_argument','capability_disabled'])test(`owned legacy ${code} fallback preserves already-queued edits without granting native fallback`,async()=>{
+  const f=fixture({fail:code,queued:true});f.SAVE.ref=f.ref;
+  const first=f.edit();f.c.buildSave=()=>({...freshSave(),settings:{quality:'high'}});const last=f.edit();
+  f.release();await first;await last;
+  assert.equal(f.calls.length,1);assert.equal(f.SAVE.ref,null);assert.equal(f.SAVE.backend,'local');
+  assert.equal(JSON.parse(f.local.get(f.SAVE.lsKey)).settings.quality,'high');
+  assert.equal(JSON.parse(f.SAVE.lastBody).settings.quality,'high');
+  const n=fixture({native:true,fail:code});await n.edit();
+  assert.equal(n.local.size,0);assert.equal(n.SAVE.pending.char.lore.track,'cook');assert.equal(n.SAVE.menuFallback??null,null);
+});
+
+test('a previous legacy fallback receipt cannot authorize a later arbitrary removal or changed owner',async()=>{
+  for(const change of ['ref','owner','expired']) {
+    const f=fixture({fail:'revoked'});f.SAVE.ref=f.ref;await f.edit();
+    assert.equal(f.local.size,1);f.local.clear();f.SAVE.ref=f.ref;
+    let release;f.SAVE.chain=new Promise(resolve=>{release=resolve;});
+    f.c.buildSave=()=>({...freshSave(),settings:{quality:'high'}});const next=f.edit();
+    if(change==='ref')f.SAVE.ref=null;
+    if(change==='owner')f.c.NETWS.acct.id='different-owner';
+    if(change==='expired')f.advance(10001);
+    release();await next;assert.equal(f.local.size,0,change);assert.equal(f.calls.length,1,change);
+  }
 });

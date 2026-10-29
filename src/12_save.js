@@ -1,7 +1,7 @@
 /* ================================================================== */
 /* saves: a private per-player document, or this browser as fallback   */
 /* ================================================================== */
-const SAVE = { ref: null, backend: 'local', lsKey: 'hallowmarch.save.v1', timer: 0, chain: Promise.resolve(), lastBody: '', lastCore: '', loaded: null, wiping: false, native: false, pending: null, readConfirmed: false, nativeFlight: null, nativePaused: false, nativeFinal: null, loading: null, guestWriteAt: 0, guestTimer: 0 };
+const SAVE = { ref: null, backend: 'local', lsKey: 'hallowmarch.save.v1', timer: 0, chain: Promise.resolve(), lastBody: '', lastCore: '', loaded: null, wiping: false, native: false, pending: null, readConfirmed: false, nativeFlight: null, nativePaused: false, nativeFinal: null, loading: null, guestWriteAt: 0, guestTimer: 0, menuFallback: null };
 const SAVE_MENU_REQUESTS = new WeakSet();
 
 const withTimeout = (p, ms) => Promise.race([p, new Promise((res) => setTimeout(() => res(null), ms))]);
@@ -185,7 +185,16 @@ function saveMenuEditOwned(request, allowExpired = false) {
   // Expiry fences submission; an already-sent write can confirm its same owner later.
   if (!request || !SAVE_MENU_REQUESTS.has(request) || (!allowExpired && performance.now() >= request.until)
     || SAVE.wiping || SAVE.nativePaused || !GAME.ready || !GAME.started || !GAME.player || GAME.player !== request.player
-    || SAVE.ref !== request.ref || SAVE.lsKey !== request.lsKey || SAVE.native !== request.native) return false;
+    || SAVE.lsKey !== request.lsKey || SAVE.native !== request.native) return false;
+  const fallback = SAVE.menuFallback;
+  // Only a terminal failure of this same owned legacy reference can hand an
+  // already-authorized queued edit to the browser checkpoint. Old receipts
+  // cannot bless a later arbitrary reference removal.
+  const movedLocal = !request.native && SAVE.ref === null && fallback && fallback !== request.fallback
+    && SAVE_MENU_REQUESTS.has(fallback) && fallback.ref === request.ref && fallback.player === request.player
+    && fallback.lsKey === request.lsKey && fallback.profile === request.profile
+    && fallback.host === request.host && fallback.account === request.account && !fallback.native;
+  if (SAVE.ref !== request.ref && !movedLocal) return false;
   const transport = typeof NETWS === 'undefined' ? null : NETWS;
   const owner = typeof NATIVE_PLAYER === 'undefined' ? null : NATIVE_PLAYER;
   if (transport?.reload || transport?.host !== request.host || transport?.acct?.id !== request.account
@@ -203,7 +212,7 @@ function saveMenuEdit(event) {
   const transport = typeof NETWS === 'undefined' ? null : NETWS;
   const owner = typeof NATIVE_PLAYER === 'undefined' ? null : NATIVE_PLAYER;
   const request = { player: GAME.player, ref: SAVE.ref, lsKey: SAVE.lsKey, native: SAVE.native,
-    host: transport?.host, account: transport?.acct?.id, profile: owner?.profile, until: performance.now() + 10000 };
+    host: transport?.host, account: transport?.acct?.id, profile: owner?.profile, fallback: SAVE.menuFallback, until: performance.now() + 10000 };
   SAVE_MENU_REQUESTS.add(request);
   if (!saveMenuEditOwned(request)) return Promise.resolve();
   return saveNow({ final: true, menuEdit: request });
@@ -305,7 +314,12 @@ function saveNow() {
           NATIVE_PLAYER.state = e.code || 'uncertain'; nativePlayerRender();
           return;
         }
-        if (e && (e.code === 'revoked' || e.code === 'not_granted' || e.code === 'invalid_argument' || e.code === 'capability_disabled')) { SAVE.ref = null; SAVE.backend = 'local'; }
+        if (e && (e.code === 'revoked' || e.code === 'not_granted' || e.code === 'invalid_argument' || e.code === 'capability_disabled')) {
+          const receipt = menuEdit ? { ...menuEdit, fallback: null } : null;
+          if (receipt) SAVE_MENU_REQUESTS.add(receipt);
+          SAVE.menuFallback = receipt;
+          SAVE.ref = null; SAVE.backend = 'local';
+        }
         else if (!final && (typeof netHumanLive !== 'function' || netHumanLive())) { await new Promise((r) => setTimeout(r, 600 + Math.random() * 600)); if (typeof netHumanLive !== 'function' || netHumanLive()) try { await SAVE.ref.set(s); return; } catch (e2) { /* fall through */ } }
       }
     }

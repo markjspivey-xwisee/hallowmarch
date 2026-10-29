@@ -25,6 +25,7 @@ test.before(async()=>{browser=await chromium.launch({headless:true,args:['--disa
 test.after(async()=>{await browser?.close();});
 
 async function fixture(t,mode) {
+  const legacy=mode.startsWith('legacy'),refusal=mode.slice('legacy-'.length)||'unavailable';
   const page=await browser.newPage({viewport:{width:390,height:780}});page.setDefaultTimeout(5000);t.after(()=>page.close());
   const errors=[],requests=[];let remote=null,writes=0;
   page.on('pageerror',error=>errors.push(error.message));
@@ -34,7 +35,7 @@ async function fixture(t,mode) {
     const $=id=>window.document.getElementById(id), IS_TOUCH=false, CAPTURE={on:false};
     const UI={modal:'menu',menuTab:'settings'}, NETWS={host:'fixture',acct:{id:'same-owner'},reload:false};
     const NATIVE_PLAYER={profile:${mode==='native'?'{}':'null'},status:{verified:${mode==='native'}},state:'ready'};
-    SAVE.native=${mode==='native'};SAVE.readConfirmed=SAVE.native;SAVE.server=${mode==='legacy'};
+    SAVE.native=${mode==='native'};SAVE.readConfirmed=SAVE.native;SAVE.server=${legacy};
     const initial=${JSON.stringify(remote)};
     const restored=SAVE.native?initial:readLocal();
     const GAME={ready:true,started:true,player:{name:'Menu fixture',cls:'warrior',faction:0},prog:{level:1,xp:7,rp:0,lore:{done:[],...(restored?.char?.lore||{})}}};
@@ -48,7 +49,7 @@ async function fixture(t,mode) {
     function nativePlayerRender(){} function nativePlayerError(code){return Object.assign(Error(code),{code});}
     function coreKey(value){return JSON.stringify(value);}
     function buildSave(){return {v:1,char:{v:1,name:GAME.player.name,realm:0,cls:'warrior',level:1,xp:GAME.prog.xp,rp:0,lore:structuredClone(GAME.prog.lore)},settings:{quality:quality.level,effects:AUDIO.lvl.sfx}};}
-    SAVE.ref=${mode==='local'?'null':mode==='legacy'?"{set:async()=>{throw {code:'unavailable'};}}":"{set:async body=>{const r=await fetch('/checkpoint',{method:'POST',body:JSON.stringify(body)});if(!r.ok)throw {code:'unavailable'};}}"};
+    SAVE.ref=${mode==='local'?'null':legacy?"{set:async()=>{throw {code:"+JSON.stringify(refusal)+"};}}":"{set:async body=>{const r=await fetch('/checkpoint',{method:'POST',body:JSON.stringify(body)});if(!r.ok)throw {code:'unavailable'};}}"};
     const setQuality=value=>{quality.level=value;},setTimeMode=value=>{tod.mode=value;},setWeatherMode=value=>{WEATHER.mode=value;},setMusicVolume=()=>{};
     const musicLevelKey=()=> 'high',captureSettingsHTML=()=>'',captureSettingsWire=()=>{};
     const soundLevelKey=value=>SOUND_LEVELS.find(row=>row[2]===value)?.[0]||'high',soundVolumeKey=()=> 'high';
@@ -74,7 +75,7 @@ async function fixture(t,mode) {
   return {page,errors,requests,remote:()=>remote,writes:()=>writes};
 }
 
-for(const mode of ['local','legacy','native'])test(`trusted objective and settings edits survive direct open-menu reload with ${mode} storage`,async t=>{
+for(const mode of ['local','legacy','native','legacy-revoked','legacy-not_granted','legacy-invalid_argument','legacy-capability_disabled'])test(`trusted objective and settings edits survive direct open-menu reload with ${mode} storage`,async t=>{
   const f=await fixture(t,mode),{page}=f;
   const before=await page.evaluate(()=>({xp:menuFixture.snapshot().char.xp,done:menuFixture.snapshot().char.lore.done}));
   await page.locator('#set-q [data-v="high"]').click();
@@ -96,4 +97,15 @@ for(const mode of ['local','legacy','native'])test(`trusted objective and settin
   assert.equal(loaded.settings.quality,'high');assert.equal(loaded.settings.effects,.5);assert.equal(loaded.char.lore.track,'cook');
   assert.equal(await page.locator('#set-q [data-v="high"]').getAttribute('aria-checked'),'true');
   assert.deepEqual(f.errors,[]);assert.deepEqual(f.requests,[]);
+});
+
+for(const code of ['revoked','not_granted','invalid_argument','capability_disabled'])test(`the first trusted legacy ${code} edit survives immediate reload without another edit to rescue it`,async t=>{
+  const {page,errors,requests}=await fixture(t,'legacy-'+code);
+  await page.locator('#set-q [data-v="high"]').click();
+  await page.evaluate(()=>SAVE.chain.then(()=>0));
+  assert.equal(await page.evaluate(()=>menuFixture.state().modal),'menu');
+  await page.reload({waitUntil:'domcontentloaded'});
+  assert.equal(await page.locator('#set-q [data-v="high"]').getAttribute('aria-checked'),'true');
+  assert.equal(await page.evaluate(()=>menuFixture.saved().settings.quality),'high');
+  assert.deepEqual(errors,[]);assert.deepEqual(requests,[]);
 });
