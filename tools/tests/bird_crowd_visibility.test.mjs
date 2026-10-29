@@ -62,6 +62,26 @@ test('nest readiness and original twelve-ring/sixty-egg limits remain intact', (
   assert.deepEqual(f.visible(), [c.DEPTH.fx.eggs, c.DEPTH.fx.rings]);
 });
 
+test('egg matrices stay inside their own nests while their tilt uses a separate axis scratch vector', () => {
+  const f = nestFixture(), c = f.context;
+  c.DEPTH.nests = [{ x: 10, y: 2, z: 20, eggs: 3, seed: .3 }, { x: -8, y: 3, z: 14, eggs: 2, seed: .8 }];
+  c.dpBuildNestFX();
+  vm.runInContext('Math.random=()=>{throw Error("Drawing nests must not consume randomness");};', c);
+  c.drawDepth(0);
+  const F = c.DEPTH.fx;
+  assert.notEqual(F.axis, F.v); assert.notEqual(F.axis, F.s);
+  assert.equal(F.eggs.count, 5); assert.equal(F.rings.count, 2);
+  const actual = new THREE.Matrix4(); let index = 0;
+  for (const nest of c.DEPTH.nests) for (let k = 0; k < nest.eggs; k++) {
+    const angle = k * 2.3 + nest.seed * 6, radius = k ? .05 + .02 * (k % 2) : 0;
+    const position = new THREE.Vector3(nest.x + Math.sin(angle) * radius, nest.y + .06, nest.z + Math.cos(angle) * radius);
+    const axis = new THREE.Vector3(Math.cos(angle), 0, -Math.sin(angle)).normalize();
+    const expected = new THREE.Matrix4().compose(position, new THREE.Quaternion().setFromAxisAngle(axis, 1.2), new THREE.Vector3(1, 1, 1));
+    F.eggs.getMatrixAt(index++, actual);
+    assert.deepEqual(actual.elements, Array.from(new Float32Array(expected.elements)), 'The complete instance transform has its original tilt and nest-relative position.');
+  }
+});
+
 function precipitationFixture(level) {
   const scene = new THREE.Scene(), context = vm.createContext({ THREE, scene, quality: { level },
     camera: { position: new THREE.Vector3() }, INDOOR: { on: false }, GAME: { player: null }, WX: { coldK: 0 },
