@@ -84,11 +84,43 @@ canvas.addEventListener('webglcontextcreationerror', (event) => {
   GRAPHICS_START_MESSAGE = String(event.statusMessage || '').slice(0, 500);
   graphicsCheckpoint('Graphics context creation failed', GRAPHICS_START_MESSAGE);
 });
+// Register before gameplay capture handlers; takeover activates this delegate.
+window.addEventListener('keydown', (event) => {
+  const notice = document.getElementById('nogl');
+  if (!notice || notice.hidden || !notice._graphicsFailureKeys) return;
+  notice._graphicsFailureKeys(event);
+}, true);
+function graphicsFailureTakeover(notice) {
+  // A failed game cannot retain a sheet's focus trap or accept world shortcuts.
+  // Use exported state only: renderer creation can fail before UI is initialized.
+  for (const panel of document.querySelectorAll('#title, #hud, .overlay, #lore-pro, #netchat')) {
+    panel.hidden = true; panel.inert = true;
+  }
+  for (const surface of document.body.children) if (surface !== notice) surface.inert = true;
+  const state = window.__hm;
+  if (state && state.UI) state.UI.modal = null;
+  notice.inert = false;
+  notice.hidden = false;
+  if (notice._graphicsFailureKeys) return;
+  notice._graphicsFailureKeys = (event) => {
+    if (notice.hidden) return;
+    // Leave native link/disclosure activation intact while blocking game handlers.
+    event.stopImmediatePropagation();
+    if (event.key !== 'Tab') return;
+    const controls = [...notice.querySelectorAll('button, input, select, textarea, summary, a[href], [tabindex]')]
+      .filter(node => !node.disabled && node.tabIndex >= 0 && !node.closest('[hidden], [inert]') && node.getClientRects().length);
+    const first = controls[0], last = controls[controls.length - 1];
+    if (!first) { event.preventDefault(); return; }
+    if (!controls.includes(document.activeElement)) { event.preventDefault(); (event.shiftKey ? last : first).focus(); }
+    else if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+  };
+}
 function graphicsStartFailure(error, title = 'Graphics could not start') {
   const loading = document.getElementById('loading'), notice = document.getElementById('nogl');
   if (loading) { loading.hidden = true; loading.style.display = 'none'; }
   if (!notice) return;
-  notice.hidden = false;
+  graphicsFailureTakeover(notice);
   notice.setAttribute('role', 'alert');
   const diagnostic = GRAPHICS_START_MESSAGE || String(error && error.message || error);
   const unavailable = /(?:GL_VENDOR|GL_RENDERER|VENDOR|RENDERER)\s*[:=]\s*["']?Disabled\b|BindToCurrentSequence/i.test(diagnostic);

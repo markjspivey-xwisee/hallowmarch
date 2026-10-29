@@ -9,9 +9,26 @@ const shell = await readFile(new URL('../../src/page.html', import.meta.url), 'u
 const render = await readFile(new URL('../../src/02_render.js', import.meta.url), 'utf8');
 const style = [...shell.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/g)].map(match => match[1]).join('\n');
 const title = shell.slice(shell.indexOf('<div id="title" hidden>'), shell.indexOf('<div id="hud" hidden>'));
+const overlays = shell.slice(shell.indexOf('<div class="overlay" id="mobile-tray"'), shell.indexOf('<section id="nogl"'));
 const failure = shell.match(/<(p|section) id="nogl"[^>]*>[\s\S]*?<\/\1>/)[0];
 const extract = name => { const at = render.indexOf('function ' + name + '('); assert(at >= 0); return render.slice(at, render.indexOf('\n}', at) + 2); };
-const functions = ['graphicsRecoveryURL', 'graphicsRecoveryNotice', 'graphicsStartFailure'].map(extract).join('\n');
+const functions = ['graphicsRecoveryURL', 'graphicsRecoveryNotice', 'graphicsFailureTakeover', 'graphicsStartFailure']
+  .filter(name => render.includes('function '+name+'(')).map(extract).join('\n');
+const mobile = await readFile(new URL('../../src/10q_mobile.js', import.meta.url), 'utf8');
+const lore = await readFile(new URL('../../src/10c_lore.js', import.meta.url), 'utf8');
+const ui = await readFile(new URL('../../src/10_ui.js', import.meta.url), 'utf8');
+const player = await readFile(new URL('../../src/09_player.js', import.meta.url), 'utf8');
+const gaming = await readFile(new URL('../../src/14u_gaming.js', import.meta.url), 'utf8');
+const block = (source, start, end, offset = 0) => { const at=source.indexOf(start,offset); assert(at>=0); const to=source.indexOf(end,at); assert(to>at); return source.slice(at,to+end.length); };
+const modalKeys = block(mobile, "document.addEventListener('keydown'", '\n  });', mobile.indexOf('// These are modal game screens'));
+const prologueKeys = block(lore, "window.addEventListener('keydown'", '\n}, true);', lore.indexOf("// the prologue's keys come first"));
+const menuKeys = block(ui, "$('menu').addEventListener('keydown'", '\n});');
+const contextLost = block(render, "canvas.addEventListener('webglcontextlost'", '\n});');
+const playerKeys = block(player, "window.addEventListener('keydown'", '\n});');
+const playerControlKeys = player.slice(player.indexOf('const typing ='), player.indexOf('function cancelPlayerInput('));
+const failureKeyDelegate = render.includes("window.addEventListener('keydown', (event)")
+  ? block(render, "window.addEventListener('keydown', (event)", '\n}, true);') : '';
+const gamingKeys = block(gaming, "addEventListener('keydown', event => {", '\n  }, true);');
 const playwrightPath = process.env.HM_PLAYWRIGHT_MODULE || fileURLToPath(new URL('../node_modules/playwright/index.mjs', import.meta.url));
 const { chromium } = await import(pathToFileURL(playwrightPath));
 const screenshotDirectory = process.env.HM_GRAPHICS_UI_OUT;
@@ -21,20 +38,58 @@ let browser;
 test.before(async () => { browser = await chromium.launch({ headless: true, args: ['--disable-gpu'], executablePath: process.env.HM_CHROMIUM_EXECUTABLE || undefined }); });
 test.after(async () => { await browser?.close(); });
 
-async function fixture(t, width, height, touch = false) {
+async function fixture(t, width, height, touch = false, earlyFailure = false) {
   const page = await browser.newPage({ viewport: { width, height }, hasTouch: touch, isMobile: touch });
   page.setDefaultTimeout(5000);
   t.after(() => page.close());
   const visits = [], errors = [];
   const html = `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-    <style>${style}</style><div id="loading"></div>${title}${failure}
+    <style>${style}</style><div id="loading"></div><canvas id="scene"></canvas>${title}<div id="hud" hidden><button>World action</button></div>${overlays}
+    <div id="lore-pro" hidden><button>Next page</button></div><div class="overlay" id="netsheet" hidden><button>Players</button></div>
+    <div class="overlay" id="gaming-sheet" hidden><button>Expedition action</button></div>
+    <div id="netchat" hidden><input aria-label="Chat"></div>${failure}
     <script>let BOOT_SAFE=false,GRAPHICS_CONTEXT_LOST=false,GRAPHICS_START_MESSAGE='';
       ${functions}
+      ${failureKeyDelegate}
+      ${earlyFailure ? "graphicsStartFailure(new Error('Early context creation failed'));" : ''}
+      const UI={modal:null}, LORE={pro:{}}, GAME={ready:true,started:true};
+      const canvas=document.getElementById('scene'), $=id=>document.getElementById(id), effects=[];
+      const GRAPHICS_STARTUP={phase:'Ready',lost:0,stopped:false};
+      function graphicsRememberRecovery(){effects.push('remember');}
+      function graphicsCheckpoint(){effects.push('checkpoint');}
+      function netHumanInput(){} function prologueGo(){effects.push('prologue advanced');}
+      function closePrologue(){effects.push('prologue closed');}
+      const INPUT={keys:new Set()};
+      function onEscape(){effects.push('game Escape');}
+      function toggleMap(){effects.push('game Map');} function toggleKit(){effects.push('game Kit');}
+      function playerUseSlot(){effects.push('game ability');}
+      const GAMING={open:false,status:'joined'}, overlay=$('gaming-sheet');
+      const addEventListener=window.addEventListener.bind(window);
+      function gamingToggle(){effects.push('gaming closed');} function gamingRun(fn){fn();}
+      function gamingMove(){effects.push('gaming move');} function gamingAttack(){effects.push('gaming attack');}
+      ${playerControlKeys}
+      ${playerKeys}
+      ${prologueKeys}
+      ${modalKeys}
+      ${menuKeys}
+      ${gamingKeys}
+      ${contextLost}
       window.recoveryUI={notice(){BOOT_SAFE=true;document.getElementById('loading').hidden=true;document.getElementById('title').hidden=false;graphicsRecoveryNotice();},
         fail({safe=false,lost=false,message='',browserMessage='',heading='Graphics stopped'}){
           BOOT_SAFE=safe;GRAPHICS_CONTEXT_LOST=lost;GRAPHICS_START_MESSAGE=browserMessage;
           graphicsStartFailure(new Error(message),heading);
-        }};
+        },
+        openModal(modal){
+          UI.modal=modal;
+          const id=modal==='map'?'mapov':modal==='prologue'?'lore-pro':modal==='net'?'netsheet':modal==='gaming'?'gaming-sheet':modal;
+          GAMING.open=modal==='gaming';
+          document.getElementById(id).hidden=false;
+          document.getElementById('hud').hidden=false;
+          window.__hm={UI,GAME,ready:true,fn:{saveNow(){effects.push('save:'+GAME.ready+':'+window.__hm.ready);}}};
+        },
+        lose(){canvas.dispatchEvent(new Event('webglcontextlost',{cancelable:true}));},
+        state(){return {effects:effects.slice(),modal:UI.modal,ready:GAME.ready,stateReady:window.__hm?.ready};}
+      };
     </script>`;
   page.on('pageerror', error => errors.push(error.message));
   await page.route('**/*', route => { visits.push(route.request().url()); return route.fulfill({ contentType: 'text/html', body: html }); });
@@ -124,4 +179,44 @@ for (const state of states) test(state.name+' gives a readable narrow-screen rec
   await Promise.all([page.waitForURL(expected.href), retry.press('Enter')]);
   assert.equal(page.url(),expected.href);assert.equal(visits.length,2,'keyboard retry performs one explicit navigation');
   assert.equal(await page.evaluate(() => localStorage.getItem('hallowmarch.save.v1')), 'character-sentinel');
+});
+
+for (const modal of ['kit', 'map', 'dialog', 'death', 'net', 'menu', 'prologue', 'gaming']) {
+  test(`graphics failure takes keyboard ownership from the actual ${modal} handlers`, async t => {
+    const { page, visits, errors } = await fixture(t, 390, 780);
+    await page.evaluate(modal => { recoveryUI.openModal(modal); recoveryUI.lose(); }, modal);
+    const state = await page.evaluate(() => recoveryUI.state());
+    assert.equal(state.modal, null, 'The obsolete game modal must release keyboard ownership.');
+    assert.equal(state.ready, false); assert.equal(state.stateReady, false);
+    assert.deepEqual(state.effects.slice(0,3), ['remember','checkpoint','save:true:true'], 'Capture the save before clearing readiness.');
+    assert.deepEqual(await page.locator('#title, #hud, .overlay, #lore-pro, #netchat').evaluateAll(nodes => nodes.filter(node => !node.hidden || !node.inert).map(node => node.id)), []);
+    assert.deepEqual(await page.locator('body > :not(#nogl)').evaluateAll(nodes => nodes.filter(node => !node.inert).map(node => node.id || node.tagName)), []);
+    const retry = page.locator('#nogl a'), summary = page.locator('#nogl summary');
+    await assert.doesNotReject(() => retry.waitFor({state:'visible'}));
+    assert.equal(await retry.evaluate(node => node===document.activeElement), true);
+    await page.keyboard.press('Tab'); assert.equal(await summary.evaluate(node => node===document.activeElement), true);
+    await page.keyboard.press('Tab'); assert.equal(await retry.evaluate(node => node===document.activeElement), true);
+    await page.keyboard.press('Shift+Tab'); assert.equal(await summary.evaluate(node => node===document.activeElement), true);
+    await page.keyboard.press('Enter'); assert.equal(await page.locator('#nogl details').getAttribute('open'), '');
+    for (const key of ['Escape','i','m','1','w','ArrowUp']) await page.keyboard.press(key);
+    assert.deepEqual((await page.evaluate(() => recoveryUI.state())).effects, state.effects, 'Recovery must not invoke gameplay shortcuts or prologue actions.');
+    await page.keyboard.press('Tab'); assert.equal(await retry.evaluate(node => node===document.activeElement), true);
+    const href = await retry.getAttribute('href');
+    await Promise.all([page.waitForURL(href), page.keyboard.press('Enter')]);
+    assert.equal(page.url(), href); assert.equal(visits.length, 2);
+    assert.equal(await page.evaluate(() => localStorage.getItem('hallowmarch.save.v1')), 'character-sentinel');
+    assert.deepEqual(errors, []);
+  });
+}
+
+test('early renderer failure takes over before UI initialization without touching a temporal dead zone', async t => {
+  const { page, errors } = await fixture(t, 320, 560, false, true);
+  assert.equal(await page.locator('#nogl').isVisible(), true);
+  assert.equal(await page.evaluate(() => typeof window.__hm), 'undefined');
+  assert.equal(await page.locator('#nogl a').evaluate(node => node===document.activeElement), true);
+  await page.keyboard.press('Shift+Tab');
+  assert.equal(await page.locator('#nogl summary').evaluate(node => node===document.activeElement), true);
+  await page.keyboard.press('Tab');
+  assert.equal(await page.locator('#nogl a').evaluate(node => node===document.activeElement), true);
+  assert.deepEqual(errors, []);
 });

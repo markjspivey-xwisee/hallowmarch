@@ -44,7 +44,7 @@ function boot({url='https://march.example/?tag=a&tag=b', touch=false, failure=''
     setTimeout:()=>0,clearTimeout:()=>{},
     requestAnimationFrame:()=>0,cancelAnimationFrame:()=>{},
     location:{href:url,search:new URL(url).search,reload(){state.reloads++;}},
-    document:{getElementById:k=>elements[k],createElement:element},
+    document:{getElementById:k=>elements[k],createElement:element,querySelectorAll:()=>[],body:{children:[]}},
     matchMedia:q=>({matches:q==='(pointer: coarse)'&&touch}),
     window:{addEventListener(k,f){callbacks['window:'+k]=f;}},navigator:{maxTouchPoints:touch?5:0,deviceMemory:8,hardwareConcurrency:8},
     screen:{width:1024,height:768},
