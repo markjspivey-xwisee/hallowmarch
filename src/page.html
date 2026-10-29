@@ -44,6 +44,13 @@
   #loading p { margin: 0; max-width: min(28rem, 84vw); text-align: center; overflow-wrap: anywhere; color: var(--ink-dim); font-family: var(--caps); letter-spacing: 0.08em; font-size: 13px; }
   #loading #load-detail, #loading #load-hint { font-family: var(--ui); letter-spacing: normal; line-height: 1.45; }
   #loading #load-detail { font-variant-numeric: tabular-nums; }
+  /* The early form is a draft over an opaque background, never an unfinished 3D view. */
+  body.title-preparing #title { background: var(--void); }
+  body.title-preparing #loading { position: static; inset: auto; z-index: auto; background: none; transition: none; }
+  body.title-preparing #loading .inner { width: 100%; gap: 6px; }
+  body.title-preparing #loading h1, body.title-preparing #loading .lore-ltip { display: none; }
+  body.title-preparing #loading p { max-width: 100%; font-size: 12px; }
+  body.title-preparing #loading .bar { width: min(320px, 100%); }
 
   /* title & character creation */
   #title { position: fixed; inset: 0; z-index: 20; display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 470px); align-items: stretch; pointer-events: none; }

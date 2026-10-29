@@ -224,7 +224,7 @@ function titleGraphicsBusy(active) {
   }
   const title = document.getElementById('title');
   if (!title) return;
-  title.setAttribute('aria-busy', String(active));
+  title.setAttribute('aria-busy', String(active && !(typeof titleDraftActive === 'function' && titleDraftActive())));
   let status = document.getElementById('title-graphics-status');
   if (active && GAME.ready) {
     if (!status) {
@@ -398,6 +398,7 @@ function renderTitleFrame() {
     }
     return true;
   })().catch(error => {
+    if (typeof titleDraftCancel === 'function') titleDraftCancel();
     TITLE_FRAME_DIRTY = false; TITLE_FRAME_FAILED = true;
     GRAPHICS_STARTUP.stopped = true; GRAPHICS_STARTUP.titleError = String(error.message || error); GAME.ready = false;
     if (!GRAPHICS_STARTUP.titleFailure) GRAPHICS_STARTUP.titleFailure = {
@@ -564,6 +565,7 @@ async function boot() {
   camera.updateMatrixWorld();
   // Isolation owns every draw and never enters ordinary compilation or the game loop.
   if (await graphicsRunDiagnostic()) return;
+  if (typeof prepareTitleDraft === 'function') prepareTitleDraft(save);
   await loadStep(0.84, 'Drawing the map', () => bootSequence([buildMapImage, buildDungeonMap]));
   await loadStep(0.9, 'Preparing the first view', () => {
     updateCamera(0.016);
@@ -575,13 +577,17 @@ async function boot() {
   window.__hm.ready = true;
   $('loadbar').style.width = '100%';
   $('loadbar').parentElement?.setAttribute('aria-valuenow', '100');
-  setupTitle(save);
+  const drafted = typeof finishTitleDraft === 'function' && finishTitleDraft();
+  if (!drafted) setupTitle(save);
   graphicsRecoveryNotice();
   graphicsCheckpoint('Ready');
   const L = $('loading');
-  L.style.opacity = 0;
-  L.style.pointerEvents = 'none'; // [v9] a fading veil takes no taps
-  setTimeout(() => { L.hidden = true; }, 850);
+  if (drafted) L.hidden = true; // Reveal only the now-checked world behind the existing form.
+  else {
+    L.style.opacity = 0;
+    L.style.pointerEvents = 'none'; // [v9] a fading veil takes no taps
+    setTimeout(() => { L.hidden = true; }, 850);
+  }
   lastNow = performance.now();
   requestAnimationFrame(frame);
 }
@@ -1089,6 +1095,7 @@ window.__hm = {
 window.__hm.water = WATER_DEBUG; // [water] test hooks (07b_swim.js)
 
 function bootStartFailure(err) {
+  if (typeof titleDraftCancel === 'function') titleDraftCancel();
   if (GRAPHICS_CONTEXT_LOST) return;
   reportError(err);
   // Title rendering already owns its detailed, stopped recovery panel.

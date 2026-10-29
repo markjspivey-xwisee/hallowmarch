@@ -3,6 +3,7 @@
 /* ================================================================== */
 const $ = (id) => document.getElementById(id);
 const UI = { modal: null, realm: 0, cls: 'warrior', frame: 0, npPool: [], flPool: [], floaters: [], mapImg: null, logOpen: true, errorT: 0 };
+let TITLE_DRAFT = null; // Private owner/session bindings never belong to the public UI/debug state.
 const REALM_BLURB = [
   'Stone keeps and slate roofs on rolling downs and wheat fields. Its knights guard the Grail.',
   'Green glens, standing stones and ringforts of mossy stone. Its people keep Lia Fáil, the stone that names kings.',
@@ -12,6 +13,101 @@ const REALM_BLURB = [
 /* ------------------------------------------------------------------ */
 /* title screen                                                        */
 /* ------------------------------------------------------------------ */
+function titleEntryBlocked() {
+  return !GAME.ready || (typeof GRAPHICS_CONTEXT_LOST !== 'undefined' && GRAPHICS_CONTEXT_LOST)
+    || (typeof GRAPHICS_STARTUP !== 'undefined' && GRAPHICS_STARTUP.stopped);
+}
+function titleDraftScope() {
+  return { ref: SAVE.ref, key: SAVE.lsKey, native: SAVE.native, save: SAVE.loaded, char: SAVE.loaded?.char,
+    host: NETWS.host, account: NETWS.acct?.id, profile: NATIVE_PLAYER.profile,
+    did: NATIVE_PLAYER.status?.binding?.subjectDid, pod: NATIVE_PLAYER.status?.binding?.podUrl, preview: NATIVE_PLAYER.draftPreview };
+}
+function titleDraftPreviewCurrent() {
+  const p = NATIVE_PLAYER.draftPreview;
+  const current = !!(p && p.initialization === SAVE.loading && p.initialization.settled && !p.initialization.timedOut
+    && p.session === NATIVE_PLAYER.provisional && p.context === NATIVE_PLAYER.provisionalContext
+    && p.host === NETWS.host && p.account === NETWS.acct?.id && p.status === NATIVE_PLAYER.status
+    && !NETWS.reload && !SAVE.loaded && !SAVE.readConfirmed && !NATIVE_PLAYER.profile
+    && !NATIVE_PLAYER.claimConfirmationPending && !NATIVE_PLAYER.openExistingPending && !NATIVE_PLAYER.claimPendingResume
+    && !p.status.bound && p.status.provisional !== true && nativePlayerCanPlayNow());
+  if (p && !current) NATIVE_PLAYER.draftPreview = null;
+  return current;
+}
+function titleDraftEligible(save) {
+  if (GAME.started || save !== SAVE.loaded || !SAVE.loading?.settled || !saveLoadOwned(SAVE.loading)) return false;
+  // An unbound preview is not a private-absence or admission receipt.
+  if (SAVE.native && titleDraftPreviewCurrent()) return true;
+  if (SAVE.native && (!SAVE.readConfirmed || !NATIVE_PLAYER.status?.verified || NATIVE_PLAYER.switching
+    || NATIVE_PLAYER.claimConfirmationPending || NATIVE_PLAYER.openExistingPending || nativePlayerGuestExpired() || NATIVE_PLAYER.expiredAdventure)) return false;
+  const profile = NATIVE_PLAYER.profile?.status();
+  return !SAVE.native || nativePlayerCanPlayNow() || !!(profile && (!profile.hasRecord || profile.keyPresent && save?.char));
+}
+function titleDraftCurrent(draft) {
+  if (!draft || !titleDraftEligible(draft.scope.save)) return false;
+  const scope = titleDraftScope();
+  return Object.keys(scope).every(key => scope[key] === draft.scope[key]);
+}
+function titleDraftRestore(draft) {
+  if (draft.next?.parentNode === draft.parent) draft.parent.insertBefore(draft.loading, draft.next);
+  else draft.parent.appendChild(draft.loading);
+  document.body.classList.remove('title-preparing');
+}
+function titleDraftCancel() {
+  const draft = TITLE_DRAFT;
+  if (!draft) return;
+  TITLE_DRAFT = null;
+  titleDraftRestore(draft);
+  UI.realm = draft.realm; UI.cls = draft.cls;
+  UI.titleSave = null; UI.nameTouched = false;
+  $('name-input').value = '';
+  $('character-create-fields').hidden = true;
+  $('continue').hidden = true;
+  $('title').hidden = true;
+}
+function titleDraftSync() {
+  if (TITLE_DRAFT && (!titleDraftCurrent(TITLE_DRAFT)
+    || (typeof GRAPHICS_CONTEXT_LOST !== 'undefined' && GRAPHICS_CONTEXT_LOST)
+    || (typeof GRAPHICS_STARTUP !== 'undefined' && GRAPHICS_STARTUP.stopped))) titleDraftCancel();
+}
+function titleDraftActive() { return !!TITLE_DRAFT; }
+function titleDraftEditable() {
+  titleDraftSync();
+  return !titleEntryBlocked() || !!(TITLE_DRAFT && titleDraftCurrent(TITLE_DRAFT) && !UI.titleSave?.char);
+}
+function prepareTitleDraft(save) {
+  if (GAME.ready || TITLE_DRAFT || !titleDraftEligible(save)) return false;
+  if (typeof loreCancelBegin === 'function') loreCancelBegin();
+  if (!UI.titleBound) bindTitle();
+  const loading = $('loading'), parent = loading.parentNode;
+  TITLE_DRAFT = { scope: titleDraftScope(), loading, parent, next: loading.nextSibling, realm: UI.realm, cls: UI.cls };
+  UI.titleSave = save?.char ? save : null; UI.nameTouched = false;
+  $('name-input').value = ''; // The original default-name draw stays at Ready.
+  if (save?.char) {
+    const c = save.char;
+    UI.realm = c.realm; UI.cls = c.cls;
+    $('continue-desc').textContent = `${c.name}, level ${c.level} ${CLASSES[c.cls].name} of ${REALMS[c.realm].name}. Realm rank ${realmRank(c.rp || 0)}.`;
+    if ($('season-title')) $('season-title').textContent = ''; // Its offline-season calculation stays at Ready.
+  }
+  $('continue').hidden = !save?.char;
+  $('character-create-fields').hidden = !!save?.char;
+  $('btn-dice').disabled = true;
+  document.querySelector('#create .card-foot').prepend(loading);
+  document.body.classList.add('title-preparing');
+  nativePlayerRender(); syncTitle(); $('title').hidden = false;
+  return true;
+}
+function finishTitleDraft() {
+  const draft = TITLE_DRAFT;
+  if (!draft || !titleDraftCurrent(draft)) { titleDraftCancel(); return false; }
+  if (typeof loreCancelBegin === 'function') loreCancelBegin();
+  if (UI.titleSave?.char && $('season-title')) $('season-title').textContent = seasonTitleText(UI.titleSave);
+  const name = randomName(UI.realm); // Same one draw at the original Ready boundary, even for a typed name.
+  if (!UI.nameTouched) $('name-input').value = name;
+  TITLE_DRAFT = null; titleDraftRestore(draft);
+  $('btn-dice').disabled = false;
+  nativePlayerRender(); syncTitle(); $('title').hidden = false;
+  return true;
+}
 function syncTitle() {
   $('realm-pick').querySelectorAll('.realm-card').forEach((b) => { const selected = +b.dataset.realm === UI.realm; b.setAttribute('aria-checked', String(selected)); b.tabIndex = selected ? 0 : -1; });
   $('class-pick').querySelectorAll('.class-card').forEach((b) => { const selected = b.dataset.cls === UI.cls; b.setAttribute('aria-checked', String(selected)); b.tabIndex = selected ? 0 : -1; });
@@ -22,15 +118,15 @@ function bindTitle() {
   const rp = $('realm-pick'), cp = $('class-pick');
   rp.innerHTML = REALMS.map((R) => `<button class="realm-card" type="button" role="radio" data-realm="${R.id}" style="--rc:${R.color}" aria-checked="false"><span class="em">${emblemSvg(R.id, 30)}</span><b>${R.name}</b><small>${['Arthurian', 'Celtic', 'Norse'][R.id]}</small></button>`).join('');
   cp.innerHTML = Object.entries(CLASSES).map(([k, C]) => `<button class="class-card" type="button" role="radio" data-cls="${k}" aria-checked="false"><span class="row">${iconSvg(C.icon, 20)}<b>${C.name}</b></span><span class="role">${C.role}</span></button>`).join('');
-  rp.addEventListener('click', (e) => { const b = e.target.closest('.realm-card'); if (!b) return; audioUnlock(); UI.realm = +b.dataset.realm; if (!UI.nameTouched) $('name-input').value = randomName(UI.realm); syncTitle(); sfx('click'); });
-  cp.addEventListener('click', (e) => { const b = e.target.closest('.class-card'); if (!b) return; audioUnlock(); UI.cls = b.dataset.cls; syncTitle(); sfx('click'); });
+  rp.addEventListener('click', (e) => { const b = e.target.closest('.realm-card'); if (!b || !titleDraftEditable()) return; if (GAME.ready) audioUnlock(); UI.realm = +b.dataset.realm; if (GAME.ready && !UI.nameTouched) $('name-input').value = randomName(UI.realm); syncTitle(); if (GAME.ready) sfx('click'); });
+  cp.addEventListener('click', (e) => { const b = e.target.closest('.class-card'); if (!b || !titleDraftEditable()) return; if (GAME.ready) audioUnlock(); UI.cls = b.dataset.cls; syncTitle(); if (GAME.ready) sfx('click'); });
   rp.addEventListener('keydown', menuRadioKey);
   cp.addEventListener('keydown', menuRadioKey);
-  $('btn-dice').onclick = () => { $('name-input').value = randomName(UI.realm); UI.nameTouched = false; };
-  $('name-input').addEventListener('input', () => { UI.nameTouched = true; });
+  $('btn-dice').onclick = () => { if (titleEntryBlocked()) return; $('name-input').value = randomName(UI.realm); UI.nameTouched = false; };
+  $('name-input').addEventListener('input', () => { if (titleDraftEditable()) UI.nameTouched = true; });
   $('name-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('btn-begin').click(); });
   $('btn-begin').onclick = () => {
-    if (GAME.started) return;
+    if (GAME.started || titleEntryBlocked()) return;
     if (UI.titleSave?.char) {
       audioUnlock();
       void nativePlayerBegin({ ...UI.titleSave.char, fresh: false });
@@ -44,13 +140,14 @@ function bindTitle() {
   };
   $('btn-continue').onclick = () => {
     const s = UI.titleSave;
-    if (GAME.started || !s || !s.char) return;
+    if (GAME.started || titleEntryBlocked() || !s || !s.char) return;
     audioUnlock();
     void nativePlayerBegin({ ...s.char, fresh: false });
   };
   UI.titleBound = true;
 }
 function setupTitle(save) {
+  titleDraftCancel();
   if (typeof loreCancelBegin === 'function') loreCancelBegin(); // A title/account reset cancels the old character's Begin intent.
   if (!UI.titleBound) bindTitle();
   UI.titleSave = save && save.char ? save : null;
@@ -64,6 +161,7 @@ function setupTitle(save) {
     UI.realm = c.realm; UI.cls = c.cls;
   } else $('continue').hidden = true;
   $('name-input').value = randomName(UI.realm);
+  $('btn-dice').disabled = false;
   $('save-note').textContent = nativePlayerSaveMessage();
   nativePlayerRender();
   syncTitle();

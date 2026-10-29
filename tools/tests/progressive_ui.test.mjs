@@ -130,9 +130,9 @@ function boundTitle(f) {
     REALM_BLURB: ['Realm one', 'Realm two', 'Realm three'], CLASSES: { warrior: { name: 'Warrior', role: 'Fighter', blurb: 'Fight' } },
     randomName: () => 'Random stranger', emblemSvg: () => '', iconSvg: () => '', audioUnlock() {}, sfx() {},
     realmRank: () => 3, seasonTitleText: () => '' });
-  const title = titleUI.slice(titleUI.indexOf('function syncTitle()'), titleUI.indexOf('function bindHUD()'));
+  const title = titleUI.slice(titleUI.indexOf('function titleEntryBlocked()'), titleUI.indexOf('function bindHUD()'));
   const radioKeys = titleUI.slice(titleUI.indexOf('function menuRadioKey('), titleUI.indexOf('function menuReplacementBlocked('));
-  vm.runInContext(radioKeys + '\n' + title + `
+  vm.runInContext(titleUI.match(/^let TITLE_DRAFT[^\n]*/m)[0] + '\n' + radioKeys + '\n' + title + `
     const actualBoundTitleBegin = nativePlayerBegin;
     nativePlayerBegin = value => { titleEntry = actualBoundTitleBegin(value); return titleEntry; };
   `, f.context);
