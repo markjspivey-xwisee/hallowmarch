@@ -151,11 +151,72 @@ window.__menuQA=(()=>{
 })();
 """
 
+PANEL_SCROLL_QA=r"""
+window.__menuPanelScrollQA=(()=>{
+  let fixture=null,key=null;
+  const panel=()=>document.getElementById('menu-body');
+  const event=(record,type,e)=>{
+    if(record.events.length<24)record.events.push({type,at:performance.now(),stamp:e.timeStamp,trusted:e.isTrusted,top:record.node.scrollTop});
+  };
+  const clean=record=>{if(record)for(const [node,type,fn]of record.listeners)node.removeEventListener(type,fn);};
+  const listen=(record,node,type,fn)=>{node.addEventListener(type,fn);record.listeners.push([node,type,fn]);};
+  const receipt=record=>record?{kind:record.kind,initial:record.initial,written:record.written,lastTop:record.lastTop,
+    stableAt:record.stableAt,scrolls:record.scrolls,ends:record.ends,down:record.down,moved:record.moved,ended:record.ended,
+    events:record.events,connected:record.node.isConnected,samePanel:record.node===panel(),top:record.node.scrollTop,
+    height:record.node.clientHeight,total:record.node.scrollHeight,focus:document.activeElement?.id,
+    tab:document.querySelector('#menu-tabs [aria-selected="true"]')?.dataset.tab}:null;
+  function reset(){
+    clean(fixture);clean(key);key=null;
+    const node=panel(),at=performance.now();
+    fixture={kind:'fixture',node,listeners:[],initial:node.scrollTop,lastTop:null,stableAt:at,scrolls:0,ends:0,events:[]};
+    const record=fixture;
+    listen(record,node,'scroll',e=>{record.scrolls++;event(record,'scroll',e);});
+    listen(record,node,'scrollend',e=>{record.ends++;event(record,'scrollend',e);});
+    // Fixture setup is one instant reset, not a native scrolling assertion.
+    // No scrollend is guaranteed when layout or another reset already did it.
+    node.scrollTo({top:0,behavior:'instant'});record.written=node.scrollTop;
+    return receipt(record);
+  }
+  function settled(){
+    const record=fixture;if(!record||record.node!==panel()||!record.node.isConnected)return false;
+    const now=performance.now(),top=record.node.scrollTop;
+    if(record.lastTop!==top){record.lastTop=top;record.stableAt=now;return false;}
+    return top<=2&&now-record.stableAt>=200;
+  }
+  function startKey(expected){
+    clean(fixture);clean(key);
+    const node=panel();
+    key={kind:'key',node,listeners:[],initial:node.scrollTop,scrolls:0,ends:0,events:[],down:null,moved:false,ended:false};
+    const record=key;
+    listen(record,document,'keydown',e=>{
+      if(e.key!==expected)return;
+      event(record,'keydown',e);
+      if(!e.isTrusted||e.target!==node||document.activeElement!==node)return;
+      record.down={key:e.key,stamp:e.timeStamp,top:node.scrollTop,prevented:null};
+      queueMicrotask(()=>{record.down.prevented=e.defaultPrevented;});
+    });
+    listen(record,node,'scroll',e=>{
+      record.scrolls++;event(record,'scroll',e);
+      if(record.down&&e.isTrusted&&e.timeStamp>=record.down.stamp&&node.scrollTop!==record.down.top)record.moved=true;
+    });
+    listen(record,node,'scrollend',e=>{
+      record.ends++;event(record,'scrollend',e);
+      if(record.down&&record.moved&&e.isTrusted&&e.timeStamp>=record.down.stamp)record.ended=true;
+    });
+    return receipt(record);
+  }
+  const keyComplete=moves=>!!(key?.node===panel()&&key.node.isConnected&&key.down&&key.down.prevented===false
+    &&(!moves||(key.moved&&key.ended)));
+  const finish=kind=>{const record=kind==='fixture'?fixture:key;const value=receipt(record);clean(record);return value;};
+  return{reset,settled,startKey,keyComplete,finish,fixtureReceipt:()=>receipt(fixture),keyReceipt:()=>receipt(key)};
+})();
+"""
+
 def document(html_path,picker=False):
     source=pathlib.Path(html_path).read_text(encoding='utf-8')
     cut=source.rfind('</script>')
     if cut<0:raise RuntimeError('No module script boundary')
-    source=source[:cut]+'\n'+HOOK+'\n'+source[cut:]
+    source=source[:cut]+'\n'+HOOK+'\n'+PANEL_SCROLL_QA+'\n'+source[cut:]
     source=source.replace(hm.THREE_URL,'/qa/three.mjs')
     source=re.sub(r'<link[^>]+href="https://fonts\.[^>]+>','',source)
     if picker:
@@ -240,54 +301,31 @@ async def audit(args):
             await page.evaluate('__menuQA.play()');await human_play(page)
             # Keep the browser's real paint scheduling. The game menu pauses
             # play itself; native scrolling must not inherit a fixture RAF.
-            async def settle_panel_scroll():
-                # A native Home animation can reach zero before its browser
-                # transaction has finished. Observe a settled position before
-                # sending the next independent key, rather than retrying it.
-                await page.evaluate("document.getElementById('menu-body').__qaScroll={top:null,at:performance.now()}")
-                await page.wait_for_function("""()=>{
-                  const e=document.getElementById('menu-body'),s=e.__qaScroll,now=performance.now();
-                  if(s.top!==e.scrollTop){s.top=e.scrollTop;s.at=now;return false;}
-                  return now-s.at>=200;
-                }""",timeout=5000,polling=50)
             async def panel_fixture_top():
-                # The fixture's instant scroll also emits scrollend. Consume
-                # that event before observing the subsequent native key.
-                await page.evaluate("""()=>{
-                  const e=document.getElementById('menu-body'),moves=e.scrollTop>2;
-                  if(e.__qaScrollEndListener)e.removeEventListener('scrollend',e.__qaScrollEndListener);
-                  if(e.__qaFixtureEndListener)e.removeEventListener('scrollend',e.__qaFixtureEndListener);
-                  e.__qaFixtureEnded=!moves;
-                  e.__qaFixtureEndListener=()=>{e.__qaFixtureEnded=true;};
-                  if(moves)e.addEventListener('scrollend',e.__qaFixtureEndListener,{once:true});
-                  e.scrollTop=0;
-                }""")
-                await page.wait_for_function("(()=>{const e=document.getElementById('menu-body');return e.__qaFixtureEnded&&e.scrollTop<=2})()",timeout=5000,polling=50)
-                await page.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))')
-                await settle_panel_scroll()
-            async def panel_key(key,condition,moves):
-                await page.evaluate("""()=>{
-                  const e=document.getElementById('menu-body');
-                  if(e.__qaScrollEndListener)e.removeEventListener('scrollend',e.__qaScrollEndListener);
-                  e.__qaKeyScroll={ended:false,keys:[]};
-                  e.__qaScrollEndListener=()=>{e.__qaKeyScroll.ended=true;};
-                  e.addEventListener('scrollend',e.__qaScrollEndListener,{once:true});
-                  if(!window.__qaKeyListener){window.__qaKeyListener=true;document.addEventListener('keydown',event=>queueMicrotask(()=>{
-                    const body=document.getElementById('menu-body');
-                    if(body?.__qaKeyScroll)body.__qaKeyScroll.keys.push({key:event.key,target:event.target.id,
-                      active:document.activeElement.id,prevented:event.defaultPrevented,top:body.scrollTop});
-                  }));}
-                }""")
-                await page.keyboard.press(key)
+                await page.evaluate('__menuPanelScrollQA.reset()')
                 try:
+                    await page.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))')
+                    await page.wait_for_function('__menuPanelScrollQA.settled()',timeout=5000,polling=50)
+                except Exception:
+                    report['checks'].append({'task':label+'-fixture-top-settled','passed':False,
+                      'scroll':await page.evaluate('__menuQA.scrollState()'),
+                      'events':await page.evaluate('__menuPanelScrollQA.fixtureReceipt()')})
+                    save();raise
+                finally:
+                    await page.evaluate("__menuPanelScrollQA.finish('fixture')")
+            async def panel_key(key,condition,moves):
+                await page.evaluate('(key)=>__menuPanelScrollQA.startKey(key)',key)
+                try:
+                    await page.keyboard.press(key)
                     await page.wait_for_function(condition,timeout=5000,polling=50)
-                    if moves:
-                        await page.wait_for_function("document.getElementById('menu-body').__qaKeyScroll.ended",timeout=5000,polling=50)
+                    await page.wait_for_function('(moves)=>__menuPanelScrollQA.keyComplete(moves)',arg=moves,timeout=5000,polling=50)
                 except Exception:
                     report['checks'].append({'task':label+'-native-'+key+'-scroll-completed','passed':False,
                       'scroll':await page.evaluate('__menuQA.scrollState()'),
-                      'events':await page.evaluate("document.getElementById('menu-body').__qaKeyScroll")})
+                      'events':await page.evaluate('__menuPanelScrollQA.keyReceipt()')})
                     save();raise
+                finally:
+                    await page.evaluate("__menuPanelScrollQA.finish('key')")
             for viewport in ([{'width':390,'height':780},{'width':320,'height':740},{'width':844,'height':390}] if touch else [{'width':1280,'height':800}]):
                 await page.set_viewport_size(viewport);label=('phone-'+str(viewport['width'])) if touch else 'desktop'
                 for tab in ['char','companion','progress','chronicle','settings','help']:
