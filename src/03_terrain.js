@@ -480,17 +480,45 @@ function buildTerrain() {
 /* date as trees are felled, burn, lose their leaves and grow back.    */
 /* ------------------------------------------------------------------ */
 const CANOPY = { res: 512, acc: null, cache: null, rad: null, bytes: null, tex: null, next: 0, ao: null };
+let meadowRGB = null;
 // the meadow's patches (dry straw, lush clover, tall stands) baked into the same map's rgb, 2 m texels
-function bakeMeadow(b) {
-  const R = CANOPY.res, cell = WSIZE / R;
+function* bakeMeadowChunks(b, R = CANOPY.res, size = WSIZE, half = HALF) {
+  const cell = size / R;
   const ss = (e0, e1, x) => { const t = clamp((x - e0) / (e1 - e0), 0, 1); return t * t * (3 - 2 * t); };
-  for (let j = 0; j < R; j++) for (let i = 0; i < R; i++) {
-    const x = -HALF + (i + 0.5) * cell, z = -HALF + (j + 0.5) * cell, q = (j * R + i) * 4;
-    const a = vnoise(x * 0.019 + 3.1, z * 0.019 + 7.7) * 0.65 + vnoise(x * 0.071 + 1.3, z * 0.071 + 2.9) * 0.35;
-    const bb = vnoise(x * 0.043 + 9.2, z * 0.043 + 4.4) * 0.7 + vnoise(x * 0.15 + 6.1, z * 0.15 + 6.1) * 0.3;
-    const c = vnoise(x * 0.027 + 5.5, z * 0.027 + 0.7) * 0.6 + vnoise(x * 0.09 + 2, z * 0.09 + 2) * 0.4;
-    b[q] = Math.round(ss(0.56, 0.8, a) * 255); b[q + 1] = Math.round(ss(0.5, 0.74, bb) * 255); b[q + 2] = Math.round(ss(0.45, 0.72, c) * 255);
+  for (let j = 0; j < R; j++) {
+    for (let i = 0; i < R; i++) {
+      const x = -half + (i + 0.5) * cell, z = -half + (j + 0.5) * cell, q = (j * R + i) * 4;
+      const a = vnoise(x * 0.019 + 3.1, z * 0.019 + 7.7) * 0.65 + vnoise(x * 0.071 + 1.3, z * 0.071 + 2.9) * 0.35;
+      const bb = vnoise(x * 0.043 + 9.2, z * 0.043 + 4.4) * 0.7 + vnoise(x * 0.15 + 6.1, z * 0.15 + 6.1) * 0.3;
+      const c = vnoise(x * 0.027 + 5.5, z * 0.027 + 0.7) * 0.6 + vnoise(x * 0.09 + 2, z * 0.09 + 2) * 0.4;
+      b[q] = Math.round(ss(0.56, 0.8, a) * 255); b[q + 1] = Math.round(ss(0.5, 0.74, bb) * 255); b[q + 2] = Math.round(ss(0.45, 0.72, c) * 255);
+    }
+    if ((j + 1) % 4 === 0) yield;
   }
+}
+function* prepareMeadowRGBChunks() {
+  if (CANOPY.tex) return;
+  const R = CANOPY.res, size = WSIZE, half = HALF;
+  if (meadowRGB && meadowRGB.res === R && meadowRGB.size === size && meadowRGB.half === half) return;
+  // Only the coordinate noise is prepared. Trees, alpha and GPU resources stay
+  // at their ordinary first-use point, and incomplete work is never published.
+  const bytes = new Uint8Array(R * R * 4);
+  yield* bakeMeadowChunks(bytes, R, size, half);
+  if (!CANOPY.tex && CANOPY.res === R && WSIZE === size && HALF === half) meadowRGB = { res: R, size, half, bytes };
+}
+function bakeMeadow(b) {
+  const prepared = meadowRGB;
+  meadowRGB = null;
+  if (prepared && prepared.res === CANOPY.res && prepared.size === WSIZE && prepared.half === HALF) {
+    for (let q = 0; q < prepared.bytes.length; q += 4) {
+      b[q] = prepared.bytes[q]; b[q + 1] = prepared.bytes[q + 1]; b[q + 2] = prepared.bytes[q + 2];
+    }
+    return;
+  }
+  // Synchronous callers and an absent, cancelled or stale preparation keep the
+  // same serial result. Alpha is owned exclusively by the live canopy stamps.
+  const work = bakeMeadowChunks(b);
+  while (!work.next().done) { /* synchronous compatibility */ }
 }
 function canopyOf(t) {
   if (t.felled || t.gone || t.fallen) return 0;
