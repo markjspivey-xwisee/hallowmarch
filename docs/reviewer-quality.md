@@ -100,6 +100,13 @@ First sight of a real bird can still require its shader compilation.
 
 ## Loading and first-entry follow-up (2026-10-29)
 
+World and dungeon map images are built in four-row slices with bounded tree
+stamps and complete-only publication. Mutable heights, trees and dungeon inputs
+are snapshotted at the original call boundary; synchronous public callers still
+drain the same work. A pinned deployed-source oracle checks exact image bytes
+and ordered canvas commands, including mutations between slices. The final canvas
+upload remains atomic and requires native measurement.
+
 The combined preparation queue retains every original family draw and fence and
 the combined first-view fence. Entry and current-view work share one bounded
 queue; program reflection occurs only after its whole linked wave drains.
@@ -112,6 +119,8 @@ unrounded threshold decision, with independently pinned deployed-source oracles.
 After existing settings/world hydration, eligible players can edit a character
 draft over an opaque background while graphics prepare. Begin, Continue, random
 names and account changes stay locked until the existing Ready gate. The same
+preparation phase disables the panel's redundant backdrop blur; the normal title
+filter returns when the checked world is shown. The same
 owner keeps typed choices; cancellation restores pre-draft choices. An anonymous
 preview requires the existing successful null metadata read and grants no private
 absence, identity admission or save authority. Late private reads still defer

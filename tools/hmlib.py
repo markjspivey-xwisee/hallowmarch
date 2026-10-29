@@ -33,7 +33,9 @@ async def wait_title_settled(page, timeout=180000):
                 stopped:S?.stopped,phase:S?.phase,stage:S?.titleStage,preparing:S?.titlePreparing,
                 error:S?.titleError,errors:H?.errors.slice(0,5),failure:S?.titleFailure,
                 submitted:S?.titleSubmitted,completed:S?.titleCompleted,
-                preparations:S?.titlePreparations?.slice(-3).map(p=>({dependency:p.dependency,
+                preparationCount:S?.titlePreparations?.length,warmupCount:S?.titleWarmup?.length,
+                warmupTail:S?.titleWarmup?.slice(-3).map(p=>({id:p.id,completed:p.completed,fenceComplete:p.fenceComplete})),
+                preparations:S?.titlePreparations?.slice(-3).map(p=>({generation:p.generation,dependency:p.dependency,
                   outcome:p.outcome,eligibleJobs:p.eligibleJobs,preparedJobs:p.preparedJobs,
                   newPrograms:p.newPrograms,maxPending:p.maxPending,visibleMs:p.visibleMs,
                   waves:p.waves,tail:p.waveLatency?.slice(-2)}))};

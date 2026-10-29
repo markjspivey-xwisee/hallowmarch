@@ -46,6 +46,7 @@
   #loading #load-detail { font-variant-numeric: tabular-nums; }
   /* The early form is a draft over an opaque background, never an unfinished 3D view. */
   body.title-preparing #title { background: var(--void); }
+  body.title-preparing #create { backdrop-filter: none; -webkit-backdrop-filter: none; }
   body.title-preparing #loading { position: static; inset: auto; z-index: auto; background: none; transition: none; }
   body.title-preparing #loading .inner { width: 100%; gap: 6px; }
   body.title-preparing #loading h1, body.title-preparing #loading .lore-ltip { display: none; }
