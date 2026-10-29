@@ -78,6 +78,50 @@ EMPTY_CANVAS_POINT = """({touch})=>{const H=__hm;""" + CANVAS_POINT_RULE + """
   return null;
 }"""
 
+# Diagnostic around one native blank-canvas tap. Observe both sides of the game
+# handlers without changing them, renewing play, or creating any synthetic input.
+INSTALL_POINTER_RECEIPTS = """point=>{
+  if(window.__journeyPointerReceipt)throw Error('Pointer receipt already active');
+  const types=['pointerdown','pointermove','pointerup','pointercancel','gotpointercapture','lostpointercapture'];
+  const describe=node=>node===window?'window':node===document?'document':{
+    tag:String(node?.tagName||''),id:String(node?.id||''),className:typeof node?.className==='string'?node.className.slice(0,120):''};
+  const stateAt=(x,y,pointerId)=>{
+    const H=window.__hm,I=H?.INPUT,p=I?.pointers?.get(pointerId),canvas=document.getElementById('scene');
+    const overlays=Array.from(document.querySelectorAll('#pf,#tf,#lore-path,#banners > *')).slice(0,12).map(node=>{
+      const r=node.getBoundingClientRect(),s=getComputedStyle(node);return{element:describe(node),
+        text:(node.textContent||'').trim().slice(0,100),hidden:!!node.hidden,display:s.display,visibility:s.visibility,
+        opacity:s.opacity,pointerEvents:s.pointerEvents,rect:{left:r.left,top:r.top,right:r.right,bottom:r.bottom,width:r.width,height:r.height}};});
+    return{at:performance.now(),target:H?.GAME.player?.target??null,modal:H?.UI.modal??null,
+      playerAlive:H?.GAME.player?.alive,hand:H?.mobile?.prefs?.hand,viewport:[innerWidth,innerHeight],
+      focused:document.hasFocus(),hidden:document.hidden,active:describe(document.activeElement),
+      hit:describe(document.elementFromPoint(x,y)),hasCapture:pointerId==null?null:!!canvas?.hasPointerCapture?.(pointerId),
+      pointer:p?{x:p.x,y:p.y,sx:p.sx,sy:p.sy,moved:p.moved,t:p.t,type:p.type,ageMs:performance.now()-p.t}:null,
+      pointerCount:I?.pointers?.size??0,joy:I?.joy?{...I.joy}:null,overlays};
+  };
+  const state={planned:{x:point.x,y:point.y},startedAt:performance.now(),stoppedAt:null,rows:[],omitted:0,
+    kind:'native event/DOM/input-state receipts; passive and read-only; no action retry'};
+  state.before=stateAt(point.x,point.y,null);
+  const receive=phase=>event=>{
+    if(state.rows.length>=32){state.omitted++;return;}
+    const x=event.clientX,y=event.clientY;
+    state.rows.push({phase,type:event.type,isTrusted:event.isTrusted,eventPhase:event.eventPhase,
+      pointerId:event.pointerId,pointerType:event.pointerType,timeStamp:event.timeStamp,x,y,
+      width:event.width,height:event.height,pressure:event.pressure,buttons:event.buttons,
+      defaultPrevented:event.defaultPrevented,target:describe(event.target),
+      path:event.composedPath().slice(0,10).map(describe),state:stateAt(x,y,event.pointerId)});
+  };
+  const capture=receive('capture'),bubble=receive('bubble');
+  for(const type of types){window.addEventListener(type,capture,{capture:true,passive:true});window.addEventListener(type,bubble,{passive:true});}
+  window.__journeyPointerReceipt={stop(){
+    for(const type of types){window.removeEventListener(type,capture,true);window.removeEventListener(type,bubble,false);}
+    state.stoppedAt=performance.now();state.after=stateAt(point.x,point.y,null);
+    delete window.__journeyPointerReceipt;
+    return JSON.parse(JSON.stringify(state));
+  }};
+  return JSON.parse(JSON.stringify(state.before));
+}"""
+STOP_POINTER_RECEIPTS = "() => window.__journeyPointerReceipt?.stop() ?? null"
+
 
 def require(condition, message):
     if not condition:
@@ -259,6 +303,27 @@ class Journey:
     async def open_menu(self):
         await self.action('#mobile-character' if self.args.touch else '#btn-menu', "()=>__hm.UI.modal==='menu'")
 
+    async def clear_target(self):
+        if not self.args.touch:
+            await self.page.keyboard.press('Escape')
+            await self.wait('()=>__hm.GAME.player.target===null')
+            return
+        empty = await self.page.evaluate(EMPTY_CANVAS_POINT, {'touch': True})
+        require(empty, 'No verified empty canvas point outside the touch movement area')
+        self.report['targetClearPoint'] = empty
+        self.report['targetClearBeforeTap'] = await self.page.evaluate(INSTALL_POINTER_RECEIPTS, empty)
+        self.save()
+        try:
+            await self.page.touchscreen.tap(empty['x'], empty['y'])
+            await self.wait('()=>__hm.GAME.player.target===null')
+        finally:
+            try:
+                self.report['targetClearReceipt'] = await self.page.evaluate(STOP_POINTER_RECEIPTS)
+            except Exception as error:
+                self.report.setdefault('diagnosticErrors', []).append({'operation': 'pointer-receipt.stop',
+                    'type': type(error).__name__, 'error': str(error) or repr(error)})
+            self.save()
+
     async def play(self):
         self.phase('navigation-start', entry='fresh')
         await self.page.goto('http://journey.test/', wait_until='commit')
@@ -340,14 +405,7 @@ class Journey:
             await self.record('06-combat-feedback', shot=True)
         finally:
             await self.restore_quarry()
-        if self.args.touch:
-            empty = await self.page.evaluate(EMPTY_CANVAS_POINT, {'touch': True})
-            require(empty, 'No verified empty canvas point outside the touch movement area')
-            self.report['targetClearPoint'] = empty
-            await self.page.touchscreen.tap(empty['x'], empty['y'])
-        else:
-            await self.page.keyboard.press('Escape')
-        await self.wait('()=>__hm.GAME.player.target===null')
+        await self.clear_target()
         await self.action('#mobile-inventory' if self.args.touch else '#btn-kit', "()=>__hm.UI.modal==='kit'")
         await self.panel('#kit')
         require(await self.page.locator('#kit-right').inner_text(), 'Inventory has no readable contents')

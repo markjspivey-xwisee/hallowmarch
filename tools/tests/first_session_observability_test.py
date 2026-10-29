@@ -6,6 +6,7 @@ import contextlib
 import io
 import json
 import pathlib
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -13,6 +14,46 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import first_session_journey as journey
+from native_journey_browser import installed_driver, process_options
+
+
+POINTER_PROGRAM = r"""
+import assert from 'node:assert/strict';import vm from 'node:vm';import{readFileSync}from'node:fs';
+const source=JSON.parse(readFileSync(0,'utf8')),listeners=new Map();let clock=100;
+const rect={left:8,top:80,right:201,bottom:149,width:193,height:69};
+const node=(id,r=rect)=>({id,tagName:id==='scene'?'CANVAS':'DIV',className:'fixture',textContent:id,
+  hidden:false,getBoundingClientRect:()=>({...r}),hasPointerCapture:()=>true});
+const canvas=node('scene',{left:0,top:0,right:390,bottom:780,width:390,height:780}),overlay=node('tf');
+const player=Object.freeze({target:5,alive:true}),pointer=Object.freeze({x:195,y:156,sx:195,sy:156,moved:0,t:50,type:'touch'});
+const input=Object.freeze({pointers:new Map([[1,pointer]]),joy:null});
+const window={__hm:{GAME:{player,t:12},INPUT:input,UI:{modal:null},mobile:{prefs:{hand:'right'}}},
+  addEventListener(type,fn,options){assert.equal(options.passive,true);const entries=listeners.get(type)||[];entries.push({fn,capture:!!options.capture});listeners.set(type,entries);},
+  removeEventListener(type,fn,capture){listeners.set(type,(listeners.get(type)||[]).filter(value=>value.fn!==fn||value.capture!==capture));}};
+const document={hidden:false,activeElement:canvas,hasFocus:()=>true,getElementById:()=>canvas,
+  querySelectorAll:()=>[overlay],elementFromPoint:()=>canvas};
+const context=vm.createContext({window,document,innerWidth:390,innerHeight:780,performance:{now:()=>++clock},
+  getComputedStyle:()=>({display:'block',visibility:'visible',opacity:'1',pointerEvents:'auto'})});
+const before=vm.runInContext('('+source.install+')',context)({x:195,y:156});
+assert.equal(before.hit.id,'scene');assert.equal(before.overlays[0].rect.bottom,149);
+const event={type:'pointerup',isTrusted:true,eventPhase:1,pointerId:1,pointerType:'touch',timeStamp:99.1,
+  clientX:195,clientY:156,width:8,height:8,pressure:0,buttons:0,defaultPrevented:false,target:overlay,
+  composedPath:()=>[overlay,document,window],preventDefault(){throw Error('read-only probe cancelled input');},
+  stopPropagation(){throw Error('read-only probe changed propagation');}};
+const dispatch=e=>{for(const row of listeners.get(e.type)||[])row.fn(e);};
+dispatch(event);dispatch({...event,type:'pointercancel',isTrusted:false});
+for(let i=0;i<100;i++)dispatch({...event,type:'pointermove'});
+const receipt=vm.runInContext('('+source.stop+')',context)();
+assert.equal(receipt.rows.length,32);assert(receipt.omitted>0);
+assert.equal(receipt.rows[0].target.id,'tf');assert.equal(receipt.rows[0].state.hit.id,'scene');
+assert.deepEqual(Array.from(receipt.rows[0].path,value=>typeof value==='string'?value:value.id),['tf','document','window']);
+assert.equal(receipt.rows[0].isTrusted,true);assert.equal(receipt.rows[2].isTrusted,false);
+assert.equal(receipt.rows[0].phase,'capture');assert.equal(receipt.rows[1].phase,'bubble');
+assert.equal(receipt.rows[0].state.pointer.ageMs>=50,true);assert.equal(receipt.rows[0].state.pointer.moved,0);
+assert.equal(receipt.after.target,5);assert.equal(player.target,5);assert.equal(window.__hm.GAME.t,12);
+assert.equal(input.pointers.get(1),pointer);assert.equal(input.pointers.size,1);
+assert.equal([...listeners.values()].flat().length,0);assert.equal(window.__journeyPointerReceipt,undefined);
+console.log('bounded passive receipts preserve native flags, dispatch targets, input state, and cleanup');
+"""
 
 
 class TraceFixture:
@@ -123,6 +164,58 @@ class FirstSessionObservability(unittest.TestCase):
         calls.clear()
         asyncio.run(self.fixture.record('02-prologue', shot=True))
         self.assertEqual(calls, ['snapshot', 'screenshot'])
+
+    def test_pointer_receipt_is_readonly_bounded_and_cleans_up_all_listeners(self):
+        node, _ = installed_driver()
+        result = subprocess.run([str(node), '--input-type=module', '-e', POINTER_PROGRAM],
+            input=json.dumps({'install': journey.INSTALL_POINTER_RECEIPTS, 'stop': journey.STOP_POINTER_RECEIPTS}),
+            capture_output=True, text=True, encoding='utf-8', timeout=10, **process_options())
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn('bounded passive receipts', result.stdout)
+
+    def test_touch_target_clear_keeps_one_native_tap_and_the_original_assertion(self):
+        calls = []
+        self.fixture.args.touch = True
+        async def evaluate(expression, arg=None):
+            calls.append(expression)
+            if expression == journey.EMPTY_CANVAS_POINT:
+                return {'x': 195, 'y': 156}
+            if expression == journey.INSTALL_POINTER_RECEIPTS:
+                self.assertEqual(arg, {'x': 195, 'y': 156})
+                return {'hit': {'id': 'scene'}}
+            self.assertEqual(expression, journey.STOP_POINTER_RECEIPTS)
+            return {'rows': [{'type': 'pointerup', 'isTrusted': True}]}
+        async def tap(x, y):
+            calls.append(('native-tap', x, y))
+        async def wait(expression):
+            self.assertEqual(expression, '()=>__hm.GAME.player.target===null')
+            calls.append('target-null-assertion')
+        self.fixture.page = argparse.Namespace(evaluate=evaluate, touchscreen=argparse.Namespace(tap=tap))
+        self.fixture.wait = wait
+        asyncio.run(self.fixture.clear_target())
+        self.assertEqual(calls, [journey.EMPTY_CANVAS_POINT, journey.INSTALL_POINTER_RECEIPTS,
+            ('native-tap', 195, 156), 'target-null-assertion', journey.STOP_POINTER_RECEIPTS])
+        self.assertEqual(self.fixture.report['targetClearReceipt']['rows'][0]['isTrusted'], True)
+
+    def test_pointer_receipt_cleanup_failure_cannot_replace_the_target_clear_failure(self):
+        self.fixture.args.touch = True
+        taps = []
+        async def evaluate(expression, arg=None):
+            if expression == journey.EMPTY_CANVAS_POINT:
+                return {'x': 195, 'y': 156}
+            if expression == journey.INSTALL_POINTER_RECEIPTS:
+                return {'hit': {'id': 'scene'}}
+            raise RuntimeError('receipt cleanup failed')
+        async def tap(x, y):
+            taps.append((x, y))
+        async def wait(expression):
+            raise TimeoutError('actual target was not cleared')
+        self.fixture.page = argparse.Namespace(evaluate=evaluate, touchscreen=argparse.Namespace(tap=tap))
+        self.fixture.wait = wait
+        with self.assertRaisesRegex(TimeoutError, 'actual target was not cleared'):
+            asyncio.run(self.fixture.clear_target())
+        self.assertEqual(taps, [(195, 156)])
+        self.assertEqual(self.fixture.report['diagnosticErrors'][0]['operation'], 'pointer-receipt.stop')
 
 
 if __name__ == '__main__':
