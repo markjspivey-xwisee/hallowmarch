@@ -96,7 +96,7 @@ function bindHUD() {
     if (!P || UI.modal) return;
     const id = e.target.closest('button')?.id;
     if (id === 't-target') cycleTarget();
-    if (id === 't-use') playerInteract();
+    if (id === 't-use') playerInteract(e);
     if (id === 't-jump' && P.onGround && P.alive && !isRooted(P)) { P.vy = P.mount ? 7.0 : 6.2; P.onGround = false; }
     if (id === 't-ride') toggleMount();
     if (id === 't-potion') usePotion();
@@ -106,7 +106,7 @@ function bindHUD() {
   $('btn-kit').onclick = () => toggleKit();
   $('btn-menu').onclick = () => openMenu('char');
   $('btn-log').onclick = () => toggleLog();
-  $('prompt').onclick = () => playerInteract();
+  $('prompt').onclick = (e) => playerInteract(e);
   UI.hudBound = true;
   mobileBind();
 }

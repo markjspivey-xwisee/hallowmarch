@@ -74,7 +74,7 @@ window.addEventListener('keydown', (e) => {
   if (k.startsWith('Digit')) { const n = parseInt(k.slice(5), 10); if (n >= 1 && n <= 8) playerUseSlot(n - 1); }
   if (k === 'Tab') cycleTarget(e.shiftKey);
   if (k === 'KeyF') { setPlayerTarget(GAME.player); }
-  if (k === 'KeyE') playerInteract();
+  if (k === 'KeyE') playerInteract(e);
   if (k === 'KeyR') toggleMount();
   if (k === 'KeyQ') usePotion();
   if (k === 'KeyL') toggleLog();
@@ -220,7 +220,7 @@ function playerUseSlot(i) {
 /* ------------------------------------------------------------------ */
 /* interactions                                                        */
 /* ------------------------------------------------------------------ */
-function currentInteraction() {
+function currentInteraction(event) {
   const P = GAME.player;
   if (!P || !P.alive) return null;
   const R = REALMS[P.faction];
@@ -236,7 +236,13 @@ function currentInteraction() {
     offer(dist(P.x, P.z, R.town.x, R.town.z), 4.8, `Step through the stones to ${R.name} Muster`, () => teleportPlayer(R.musterSite, 'frontier'));
     offer(dist(P.x, P.z, R.musterSite.x, R.musterSite.z), 4.8, `Step through the stones to ${R.townName}`, () => teleportPlayer(R.town, 'home'));
   }
-  if (R.herald) offer(dist(P.x, P.z, R.herald.x, R.herald.z), 4.5, `Speak with the ${R.name} Herald`, () => openHerald());
+  if (R.herald) {
+    const observed = typeof loreObservationScope === 'function' ? loreObservationScope(event, 'herald', R.herald) : null;
+    offer(dist(P.x, P.z, R.herald.x, R.herald.z), 4.5, `Speak with the ${R.name} Herald`, () => {
+      openHerald();
+      if (observed) loreObserve(observed);
+    });
+  }
   if (R.merchant) offer(dist(P.x, P.z, R.merchant.x, R.merchant.z), 4.6, `Trade with ${R.merchant.name}`, () => openKit('shop'));
   // the barrow: in through the door, out by the stair, and whatever the dead left behind
   if (inDungeon(P)) {
@@ -262,8 +268,8 @@ function currentInteraction() {
   loopsOffers(P, offer); // [loops] the quartermaster: the realm's stores (08m_loops.js)
   return best;
 }
-function playerInteract() {
-  const it = currentInteraction();
+function playerInteract(event) {
+  const it = currentInteraction(event);
   if (it) { it.act(); sfx('click'); }
 }
 function teleportPlayer(S, kind) {

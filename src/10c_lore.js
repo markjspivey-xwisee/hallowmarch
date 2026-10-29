@@ -1094,17 +1094,60 @@ function openChronicle(sec) {
 /* ------------------------------------------------------------------ */
 /* watching the world for steps taken and things seen                  */
 /* ------------------------------------------------------------------ */
+const LORE_OBSERVATIONS = new WeakSet();
+function loreObservationScope(event, kind, target = null) {
+  if (typeof Event === 'undefined' || !(event instanceof Event) || event.isTrusted !== true || !event.eventPhase
+    || !GAME.ready || !GAME.started || !GAME.player?.alive || !GAME.prog?.lore || pathDone(kind)) return null;
+  const P = GAME.player, R = REALMS[P.faction];
+  if (kind === 'herald') {
+    const input = event.type === 'keydown' ? event.code === 'KeyE' && !event.repeat
+      : event.type === 'click' && event.target?.closest?.('#prompt, #t-use');
+    if (!input || UI.modal || !target || target !== R.herald || dist2(P.x, P.z, target.x, target.z) >= 4.5 ** 2) return null;
+  } else if (kind === 'draught') {
+    const control = event.type === 'click' && event.target?.closest?.('[data-buyp]');
+    if (!control || control.disabled || !control.getClientRects().length || !$('kit')?.contains(control)
+      || UI.modal !== 'kit' || UI.kitMode !== 'shop') return null;
+  } else return null;
+  const transport = typeof NETWS === 'undefined' ? null : NETWS, owner = typeof NATIVE_PLAYER === 'undefined' ? null : NATIVE_PLAYER;
+  const scope = { event, kind, target, player: P, prog: GAME.prog, realm: P.faction,
+    ref: SAVE.ref, key: SAVE.lsKey, native: SAVE.native, host: transport?.host, account: transport?.acct?.id,
+    profile: owner?.profile, potions: INV.potions, gold: INV.gold };
+  LORE_OBSERVATIONS.add(scope);
+  return scope;
+}
+function loreObservationCurrent(scope) {
+  const transport = typeof NETWS === 'undefined' ? null : NETWS, owner = typeof NATIVE_PLAYER === 'undefined' ? null : NATIVE_PLAYER;
+  return GAME.ready && GAME.started && GAME.player === scope.player && GAME.player?.alive && GAME.prog === scope.prog
+    && GAME.player.faction === scope.realm && SAVE.ref === scope.ref && SAVE.lsKey === scope.key && SAVE.native === scope.native && !SAVE.wiping
+    && transport?.host === scope.host && transport?.acct?.id === scope.account && !transport?.reload && owner?.profile === scope.profile;
+}
+function loreObservationEvidence(scope) {
+  if (scope.kind === 'herald') return UI.modal === 'dialog' && !$('dialog')?.hidden
+    && REALMS[scope.realm].herald === scope.target && $('dlg-title')?.textContent === scope.target.name
+    && dist2(scope.player.x, scope.player.z, scope.target.x, scope.target.z) < 49;
+  return UI.modal === 'kit' && UI.kitMode === 'shop' && Number.isFinite(INV.potions) && Number.isFinite(INV.gold)
+    && INV.potions > scope.potions && INV.gold < scope.gold;
+}
+function loreObserve(scope) {
+  if (!scope || !LORE_OBSERVATIONS.has(scope) || !scope.event.eventPhase || !loreObservationCurrent(scope) || !loreObservationEvidence(scope)) return false;
+  LORE_OBSERVATIONS.delete(scope);
+  // Ordinary trusted-input synchronization runs first. This records a deed,
+  // without renewing play, simulating time or paying while its window is open.
+  queueMicrotask(() => {
+    if (loreObservationCurrent(scope) && typeof netHumanLive === 'function' && netHumanLive()
+      && loreObservationEvidence(scope) && !pathDone(scope.kind)) LORE.ev[scope.kind] = true;
+  });
+  return true;
+}
 function loreWatch() {
   const P = GAME.player, prog = GAME.prog, R = REALMS[P.faction], ev = LORE.ev;
   // a bounty paid out by the herald
   const b = prog.bounty;
   if (LORE.bounty && LORE.bounty.done && b !== LORE.bounty) ev.bounty = true;
   LORE.bounty = b;
-  // a draught bought at a stall
-  if (INV.potions > LORE.potions && UI.modal === 'kit' && UI.kitMode === 'shop') ev.draught = true;
+  // Conversation/purchase evidence is latched by its actual interaction,
+  // rather than inferred from a window that a quick player may already close.
   LORE.potions = INV.potions;
-  // the herald's dialog open beside him
-  if (UI.modal === 'dialog' && R.herald && dist2(P.x, P.z, R.herald.x, R.herald.z) < 49 && $('dlg-title').textContent === R.herald.name) ev.herald = true;
   // a hallow carried all the way home
   if (P.carrying != null) LORE.carried = WAR.relics[P.carrying] || null;
   else if (LORE.carried) { const rel = LORE.carried; LORE.carried = null; if (rel.state === 'temple' && rel.at === P.faction) ev.hallow = true; }
