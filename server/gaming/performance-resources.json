@@ -40,7 +40,7 @@
     },
     {
       "path": "src/10_ui.js",
-      "digest": "sha256:4cba97510c40d724f159dff922be0503b245d98ff527ddba342505fee2e183ed"
+      "digest": "sha256:a31d2820e0c2f3a2be22d2f0b91dac701bf8ef5a2add1241c5ead4382e335eaa"
     },
     {
       "path": "src/10c_lore.js",
@@ -3055,7 +3055,7 @@
       ],
       "source": {
         "path": "src/10_ui.js",
-        "digest": "sha256:4cba97510c40d724f159dff922be0503b245d98ff527ddba342505fee2e183ed",
+        "digest": "sha256:a31d2820e0c2f3a2be22d2f0b91dac701bf8ef5a2add1241c5ead4382e335eaa",
         "selector": "drawWorldMap(): .legend",
         "lines": {
           "start": 730,
@@ -3070,7 +3070,7 @@
       "ui": {
         "destination": "Map"
       },
-      "revisionDigest": "sha256:c4f17d538728a2b0a2558e5629580658af5b132238538fcfe1437c78d78bd0b0"
+      "revisionDigest": "sha256:6bda1f4f591e8b1b14322b1fe355594114b9d9f1365cd30bb45c525ba2fca8ca"
     }
   ],
   "courses": [
@@ -3093,5 +3093,5 @@
       "assessment": null
     }
   ],
-  "revisionDigest": "sha256:6881762ec61267fbbca26b8217c0bb5801a99c9f920edeeae014a98658b4d983"
+  "revisionDigest": "sha256:14cbc7c36ea15afc238c25f033f3299ae9d48aee44bfc4b9072766b10d6f075f"
 }

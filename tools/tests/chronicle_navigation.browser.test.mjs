@@ -28,6 +28,11 @@ const [audit,ui]=await Promise.all([read('tools/tests/menu_usability.py'),read('
 const panelScroll=audit.match(/\nPANEL_SCROLL_QA=r"""([\s\S]*?)"""/)[1];
 const renderMenuNode=parse(ui,{ecmaVersion:'latest'}).body.find(node=>node.type==='FunctionDeclaration'&&node.id.name==='renderMenu');
 const renderMenuCode=ui.slice(renderMenuNode.start,renderMenuNode.end);
+const readingKeyNode=parse(ui,{ecmaVersion:'latest'}).body.find(node=>node.type==='FunctionDeclaration'&&node.id.name==='menuReadingKey');
+const readingHandler=parse(ui,{ecmaVersion:'latest'}).body.find(node=>node.type==='ExpressionStatement'&&node.expression.callee?.property?.name==='addEventListener'
+  &&node.expression.callee.object?.callee?.name==='$'&&node.expression.callee.object.arguments[0]?.value==='menu-body'&&node.expression.arguments[0]?.value==='keydown');
+assert(readingKeyNode&&readingHandler,'Use the actual owned reading-key helper and delegated handler');
+const readingKeyCode=ui.slice(readingKeyNode.start,readingKeyNode.end)+'\n'+ui.slice(readingHandler.start,readingHandler.end);
 const tabClick=parse(ui,{ecmaVersion:'latest'}).body.find(node=>node.type==='ExpressionStatement'&&node.expression.callee?.property?.name==='addEventListener'
   &&node.expression.callee.object?.callee?.name==='$'&&node.expression.callee.object.arguments[0]?.value==='menu-tabs'&&node.expression.arguments[0]?.value==='click');
 assert(tabClick,'Use the actual delegated menu tab click handler');
@@ -140,6 +145,7 @@ async function scrollFixture(t){
     window.guideHelpHTML=()=>Array.from({length:80},(_,i)=>'<p>Reading paragraph '+i+': movement, equipment and the March.</p>').join('')+'<p id="reading-end">End of the reading page</p>';
     ${renderMenuCode}
     ${tabClickCode}
+    ${readingKeyCode}
     ${panelScroll}
     $('menu').hidden=false;renderMenu('help');$('menu-body').focus();
   `});
@@ -165,7 +171,7 @@ async function resetPanel(page){
   }finally{await page.evaluate(()=>__menuPanelScrollQA.finish('fixture'));}
 }
 async function nativePanelKey(page,key,condition,moves=true){
-  await page.evaluate(key=>__menuPanelScrollQA.startKey(key),key);
+  await page.evaluate(key=>__menuPanelScrollQA.startKey(key,['Home','End'].includes(key)?'panel':'native'),key);
   try{
     await page.keyboard.press(key);
     await page.waitForFunction(condition,undefined,{timeout:5000,polling:50});
@@ -307,15 +313,17 @@ test('released, settled Help touch precedes the audit mouse tab click and indepe
     await recordPanelFailure(page,'native-touch-transaction-failure','touchReceipt',{settledTouch});throw error;
   }finally{await page.evaluate(()=>__menuPanelScrollQA.finish('touch'));await cdp.detach();}
 });
-test('native PageDown, End and Home keep trusted key, movement and end receipts',async t=>{
+test('native PageDown and owned End/Home keep trusted key, movement and native end receipts',async t=>{
   const page=await scrollFixture(t);await resetPanel(page);
   const down=await nativePanelKey(page,'PageDown',()=>$('menu-body').scrollTop>0);
   assert.equal(down.down.key,'PageDown');assert.equal(down.down.prevented,false);assert(down.moved&&down.ended);
   await resetPanel(page);
   const end=await nativePanelKey(page,'End',()=>{const e=$('menu-body');return e.scrollTop+e.clientHeight>=e.scrollHeight-2;});
+  assert.equal(end.mode,'panel');assert.equal(end.down.prevented,true);
   assert(end.moved&&end.ended);assert.equal(end.focus,'menu-body');
   assert(await page.evaluate(()=>{const e=$('reading-end').getBoundingClientRect(),body=$('menu-body').getBoundingClientRect();return e.bottom<=body.bottom&&e.top>=body.top;}));
   const home=await nativePanelKey(page,'Home',()=>$('menu-body').scrollTop<=2);
+  assert.equal(home.mode,'panel');assert.equal(home.down.prevented,true);
   assert(home.moved&&home.ended);assert.equal(home.focus,'menu-body');
   assert(home.events.some(e=>e.type==='keydown'&&e.trusted));
   assert(home.events.some(e=>e.type==='scrollend'&&e.trusted));

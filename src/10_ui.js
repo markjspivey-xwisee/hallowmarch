@@ -1163,8 +1163,19 @@ $('menu-body').addEventListener('click', (e) => {
     menuReplacementSync();
   }
 });
+function menuReadingKey(e) {
+  const body = $('menu-body');
+  if (UI.modal !== 'menu' || UI.menuTab === 'settings' || !body?.isConnected
+    || e.currentTarget !== body || e.target !== body || document.activeElement !== body
+    || e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || e.isComposing
+    || (e.key !== 'Home' && e.key !== 'End')) return false;
+  e.preventDefault();
+  body.scrollTo({ top: e.key === 'Home' ? 0 : body.scrollHeight, behavior: 'instant' });
+  return true;
+}
 $('menu-body').addEventListener('keydown', (e) => {
   if (UI.menuTab === 'settings') menuRadioKey(e);
+  else menuReadingKey(e);
 });
 bgClose('menu', () => closeMenu());
 
