@@ -1,8 +1,8 @@
 /* Prepare only this title's required shader programs. Actual draws and GPU
    fences remain the readiness gate; compilation completion is not a frame. */
-// Experiment: fill by new programs, then validate a drained wave before refill.
+// Fill by new programs, then validate a drained wave before refill.
 // Context loss and completed failed links still stop admission immediately.
-const TITLE_COMPILE_LIMITS = Object.freeze({ pending: 8, perTurn: 4, turnMs: 8, pollMs: 10, programMs: 90000, totalMs: 180000 });
+const TITLE_COMPILE_LIMITS = Object.freeze({ pending: 4, perTurn: 4, turnMs: 8, pollMs: 10, programMs: 90000, totalMs: 180000 });
 
 function titleCompileEligible(object) {
   if (!liveIn(object) || !object.layers.test(camera.layers)) return false;

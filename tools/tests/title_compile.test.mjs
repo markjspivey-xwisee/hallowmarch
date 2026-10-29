@@ -7,6 +7,7 @@ import { WebGLPrograms } from '../node_modules/three/src/renderers/webgl/WebGLPr
 
 const root = new URL('../../', import.meta.url);
 const source = readFileSync(new URL('src/13o_title_compile.js', root), 'utf8');
+const productPending = Number(source.match(/pending:\s*(\d+)/)[1]);
 const originalRender = readFileSync(new URL('src/02_render.js', root), 'utf8');
 // Small shader/attribute fixture exercises real r160 cache parameters without
 // compiling GLSL or retaining the large native capture in CI. Native evidence
@@ -29,7 +30,7 @@ function target() {
     emit(name) { for (const fn of [...(listeners.get(name) || [])]) fn({}); },
     listenerCount: () => [...listeners.values()].reduce((n, set) => n + set.size, 0) };
 }
-function fixture({ safe = false, supported = true, count = 20, readyDelay = 25, failure = '', avatar = false, compileMs = 0, flushMs = 0, inventoryCheckMs = 0 } = {}) {
+function fixture({ safe = false, supported = true, count = 20, readyDelay = 25, failure = '', avatar = false, compileMs = 0, flushMs = 0, inventoryCheckMs = 0, pendingLimit = productPending } = {}) {
   let now = 0, timerId = 0, currentTarget, lost = false, randomCalls = 0;
   const timers = new Map(), document = { hidden: false, ...target() }, window = target(), canvas = target();
   const scene = new THREE.Scene(), sceneRT = {}, originalTarget = currentTarget = {};
@@ -72,7 +73,9 @@ function fixture({ safe = false, supported = true, count = 20, readyDelay = 25, 
     },
   };
   vm.createContext(ctx);
-  vm.runInContext('function install(){' + compile + '}\ninstall.call(renderer);\n' + actualConstructors + '\n' + source, ctx);
+  // CPU-only configuration coverage; the product has no runtime cap override.
+  const configured = source.replace(/pending:\s*\d+/, 'pending: ' + pendingLimit);
+  vm.runInContext('function install(){' + compile + '}\ninstall.call(renderer);\n' + actualConstructors + '\n' + configured, ctx);
   const compileCalls = [], actualCompile = renderer.compile; renderer.compile = function(collection, camera, targetScene) { compileCalls.push({ collection, camera, targetScene, target: currentTarget, at: now }); now += compileMs; return actualCompile.call(this, collection, camera, targetScene); };
   const objects = [];
   for (let i = 0; i < count; i++) {
@@ -129,8 +132,8 @@ test('bounded preparation uses exact original leaves/flags and restores sides an
   const receipt = await f.finish(f.run());
   assert.equal(receipt.completed, true); assert.equal(receipt.outcome, 'completed');
   assert.equal(receipt.errorPolicy, 'drained-waves');
-  assert(receipt.maxPending <= 8 && receipt.maxPending > 1); assert(receipt.maxPreparesPerTurn <= 4);
-  assert(receipt.maxWavePrograms <= 8);
+  assert(receipt.maxPending <= productPending && receipt.maxPending > 1); assert(receipt.maxPreparesPerTurn <= 4);
+  assert(receipt.maxWavePrograms <= productPending);
   assert(f.errorChecks.every(check => check.pendingPrograms.length === 0));
   assert(f.calls.every(call => f.all.includes(call.object) && call.geometry === call.object.geometry));
   for (const object of [f.hidden, f.offscreen, f.wrongLayer, f.array, f.hooked, f.cacheHook]) assert(!f.calls.some(call => call.object === object));
@@ -140,6 +143,11 @@ test('bounded preparation uses exact original leaves/flags and restores sides an
   assert.deepEqual(f.all.map(object => object.parent), parents); assert.deepEqual(f.objects.map(object => object.material.side), sides);
   assert.equal(f.currentTarget(), f.originalTarget); assert.equal(f.randomCalls(), 0);
   assert.equal(f.ctx.GRAPHICS_STARTUP.titlePreparations[0], receipt); assert.equal(f.ctx.GRAPHICS_STARTUP.titlePreparing, false); f.clean();
+});
+test('product concurrency is four without changing turn, poll or visible deadline bounds', () => {
+  const f = fixture(), limits = vm.runInContext('TITLE_COMPILE_LIMITS', f.ctx);
+  assert.equal(productPending, 4); assert.equal(limits.pending, 4); assert.equal(limits.perTurn, 4); assert.equal(limits.turnMs, 8);
+  assert.equal(limits.pollMs, 10); assert.equal(limits.programMs, 90000); assert.equal(limits.totalMs, 180000); assert(Object.isFrozen(limits)); f.clean();
 });
 test('recovery and absent parallel extension retain serial rendering without timers or preparation', async () => {
   for (const options of [{ safe: true }, { supported: false }]) {
@@ -183,13 +191,13 @@ test('a five-second synchronous prepare yields before another job and reports th
   assert.equal(first.slowestPrepare.objectId, f.objects[0].id);
   const receipt = await f.finish(promise);
   assert.equal(receipt.completed, true); assert.equal(receipt.preparedJobs, receipt.eligibleJobs);
-  assert(receipt.maxPending <= 8); assert.equal(receipt.maxPreparesPerTurn, 1); f.clean();
+  assert(receipt.maxPending <= productPending); assert.equal(receipt.maxPreparesPerTurn, 1); f.clean();
 });
-test('fast prepares retain four calls per turn and eight programs per wave while elapsed time can yield sooner', async () => {
+test('fast prepares retain four calls per turn and the configured program cap while elapsed time can yield sooner', async () => {
   const fast = fixture({ compileMs: 1 }); fast.objects[0].material.transparent = false;
   const fp = fast.run(); await fast.flush();
   assert.equal(fast.compileCalls.length, 4);
-  const fr = await fast.finish(fp); assert(fr.maxPending <= 8); assert.equal(fr.maxPreparesPerTurn, 4); fast.clean();
+  const fr = await fast.finish(fp); assert(fr.maxPending <= productPending); assert.equal(fr.maxPreparesPerTurn, 4); fast.clean();
   const slow = fixture({ count: 3, compileMs: 5 }), sp = slow.run(); await slow.flush();
   assert.equal(slow.compileCalls.length, 2);
   const sr = await slow.finish(sp); assert.equal(sr.maxFullTurnMs, 10); assert.equal(sr.maxSinglePrepareMs, 5); slow.clean();
@@ -281,7 +289,7 @@ test('completed failed links and GL errors fail closed without a completion rece
 });
 test('a queued GL error rejects at the drained boundary before another wave or flush', async () => {
   const f = fixture({ readyDelay: 100 }), promise = f.run(); await f.flush();
-  await f.timer(); assert.equal(f.programs.length, 8, 'the first wave fills over bounded turns');
+  await f.timer(); assert.equal(f.programs.length, productPending, 'the first wave fills within its bounded turns');
   const submitted = f.calls.length, flushed = f.flushes.length, checks = f.errorChecks.length;
   assert(submitted > 0 && f.timers.size === 1);
   f.glErrors.push(['0x0502']);
@@ -293,45 +301,45 @@ test('a queued GL error rejects at the drained boundary before another wave or f
 });
 test('a flush GL error is rejected when its wave drains and never starts another wave', async () => {
   const f = fixture({ failure: 'flushGL' }); await assert.rejects(f.finish(f.run()), /GL errors/);
-  assert.equal(f.programs.length, 8); assert.equal(f.flushes.length, 2);
+  assert.equal(f.programs.length, productPending); assert(f.flushes.length >= 1);
   assert.equal(f.ctx.GRAPHICS_STARTUP.titlePreparations[0].waves, 1);
   assert.equal(f.ctx.GRAPHICS_STARTUP.titlePreparations[0].outcome, 'failed'); f.clean();
   assert(f.errorChecks.every(check => check.pendingPrograms.length === 0));
 });
-test('a partially completed wave never refills its newly available program slots', async () => {
-  const f = fixture({ readyDelay: 100 }), promise = f.run(); await f.flush();
-  await f.timer(); assert.equal(f.programs.length, 8);
+for (const pendingLimit of [4, 8]) test('a partially completed wave never refills its newly available slots, cap=' + pendingLimit, async () => {
+  const f = fixture({ readyDelay: 100, pendingLimit }), promise = f.run(); await f.flush();
+  await f.timer(); assert.equal(f.programs.length, pendingLimit);
   const submitted = f.compileCalls.length, checks = f.errorChecks.length;
   f.programs[0].readyAt = 0; f.programs[1].readyAt = 0;
   await f.timer();
   assert.equal(f.compileCalls.length, submitted, 'two available slots do not authorize another wave');
   assert.equal(f.errorChecks.length, checks);
   const receipt = await f.finish(promise);
-  assert(receipt.waves > 1); assert(receipt.maxPending <= 8); assert.equal(receipt.maxWavePrograms, 8);
+  assert(receipt.waves > 1); assert(receipt.maxPending <= pendingLimit); assert.equal(receipt.maxWavePrograms, pendingLimit);
   assert(f.errorChecks.every(check => check.pendingPrograms.length === 0)); f.clean();
 });
-test('23 terrain cache-hit jobs do not force their one new program to drain before distinct materials fill the wave', async () => {
-  const f = fixture({ count: 36, readyDelay: 1000 }), shared = f.objects[0].material;
+for (const pendingLimit of [4, 8]) test('23 terrain cache-hit jobs allow distinct programs to fill the first wave, cap=' + pendingLimit, async () => {
+  const f = fixture({ count: 36, readyDelay: 1000, pendingLimit }), shared = f.objects[0].material;
   shared.transparent = false; shared.forceSinglePass = true;
   for (const object of f.objects.slice(0, 23)) { object.material = shared; object.isInstancedMesh = false; object.instanceColor = null; }
   for (const object of f.objects.slice(23)) { object.material.transparent = false; object.material.forceSinglePass = true; }
   const promise = f.run(); await f.flush();
   assert.equal(f.programs.length, 1); assert.equal(f.compileCalls.length, 4);
-  while (f.programs.length < 8) await f.timer();
-  assert.equal(f.programs.length, 8); assert.equal(f.queries.length, 0, 'fill distinct programs before the first handle drains');
+  while (f.programs.length < pendingLimit) await f.timer();
+  assert.equal(f.programs.length, pendingLimit); assert.equal(f.queries.length, 0, 'fill distinct programs before the first handle drains');
   assert(f.compileCalls.length > 23); assert.equal(f.ctx.GRAPHICS_STARTUP.titlePreparations[0].waves, 1);
   const submitted = f.compileCalls.length; f.programs[0].readyAt = 0; await f.timer();
   assert.equal(f.compileCalls.length, submitted, 'partial completion cannot create another wave');
   const receipt = await f.finish(promise);
-  assert.equal(receipt.completed, true); assert.equal(receipt.maxWavePrograms, 8); assert(receipt.maxPending <= 8);
+  assert.equal(receipt.completed, true); assert.equal(receipt.maxWavePrograms, pendingLimit); assert(receipt.maxPending <= pendingLimit);
   assert(receipt.maxPreparesPerTurn <= 4); assert(f.errorChecks.every(check => check.pendingPrograms.length === 0)); f.clean();
 });
-test('completion while filling does not free capacity already consumed by a wave handle', async () => {
-  const f = fixture({ readyDelay: 1000 }), promise = f.run(); await f.flush();
-  assert.equal(f.programs.length, 5); f.programs[0].readyAt = 0;
-  await f.timer(); assert.equal(f.programs.length, 8);
+for (const pendingLimit of [4, 8]) test('completion while filling never frees already consumed capacity, cap=' + pendingLimit, async () => {
+  const f = fixture({ readyDelay: 1000, compileMs: 5, pendingLimit }), promise = f.run(); await f.flush();
+  assert.equal(f.programs.length, 3); f.programs[0].readyAt = 0;
+  while (f.programs.length < pendingLimit) await f.timer(); assert.equal(f.programs.length, pendingLimit);
   const submitted = f.compileCalls.length; await f.timer(); assert.equal(f.compileCalls.length, submitted);
-  const receipt = await f.finish(promise); assert.equal(receipt.maxWavePrograms, 8); assert(receipt.maxPending <= 8); f.clean();
+  const receipt = await f.finish(promise); assert.equal(receipt.maxWavePrograms, pendingLimit); assert(receipt.maxPending <= pendingLimit); f.clean();
 });
 test('cached-only jobs still check their GL errors before completing or adding another wave', async () => {
   const f = fixture({ count: 1, readyDelay: 0 }); await f.finish(f.run());
@@ -388,7 +396,7 @@ test('one exact existing avatar proxy is compiled once in its real shadow scene/
   for (const decoy of [f.shadowDecoy, f.hiddenShadowDecoy]) assert(!f.calls.some(call => call.object === decoy));
   assert.equal(receipt.families['avatar-shadow'].jobs, 1); assert.equal(receipt.families['avatar-shadow'].prepared, 1);
   assert.equal(receipt.families['avatar-shadow'].programs, 1); assert.equal(receipt.avatarShadowQueued, true);
-  assert(receipt.maxPending <= 8 && receipt.maxPreparesPerTurn <= 4);
+  assert(receipt.maxPending <= productPending && receipt.maxPreparesPerTurn <= 4);
   assert.equal(f.avatarProxy.parent, f.SHADOW.scene); assert.equal(f.avatarSource.parent, sourceParent);
   assert.equal(f.avatarProxy.material.side, side); assert.equal(f.currentTarget(), f.originalTarget); f.clean();
 });

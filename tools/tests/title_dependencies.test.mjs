@@ -8,6 +8,7 @@ import { WebGLPrograms } from '../node_modules/three/src/renderers/webgl/WebGLPr
 const root = new URL('../../', import.meta.url);
 const read = path => readFileSync(new URL(path, root), 'utf8');
 const original = read('src/02_render.js'), controller = read('src/13o_title_compile.js');
+const productPending = Number(controller.match(/pending:\s*(\d+)/)[1]);
 const dive = read('src/07d_dive.js'), diagnostic = read('src/13y_gpu_diagnostic.js');
 const rendererSource = read('tools/node_modules/three/src/renderers/WebGLRenderer.js');
 const section = (text, start, end) => text.slice(text.indexOf(start), text.indexOf(end, text.indexOf(start)));
@@ -29,7 +30,7 @@ function events() {
     count: () => [...listeners.values()].reduce((count, set) => count + set.size, 0) };
 }
 
-function fixture({ level = 'medium', safe = false, supported = true, readyDelay = 25, compileMs = 0, failure = '' } = {}) {
+function fixture({ level = 'medium', safe = false, supported = true, readyDelay = 25, compileMs = 0, failure = '', pendingLimit = productPending } = {}) {
   let now = 0, timerId = 0, lost = false, cache, randomCalls = 0, preflightCalls = 0;
   const timers = new Map(), programs = [], known = new Map(), compileCalls = [], calls = [], errors = [], errorChecks = [];
   const document = { hidden: false, ...events() }, window = events(), canvas = events();
@@ -84,7 +85,8 @@ function fixture({ level = 'medium', safe = false, supported = true, readyDelay 
   vm.runInContext(constructors + grouping + '\ngroupOutdoors(); view.w=1280;view.h=800;makeTargets();\n'
     + 'skyU.uSunDir.value.set(0,0.5,-1).normalize(); skyU.uSunVis.value=1;\n'
     + 'this.resources={skyMesh,skyU,fsMesh,fsTriGeo,fsScene,fsCam,sceneRT,bloomRTs,bloomDown,bloomUp,composite,raysMat,raysRT,_sunNdc,_camDir};\n'
-    + 'function install(){' + compile + '} install.call(renderer);\n' + capture + controller, ctx);
+    + 'function install(){' + compile + '} install.call(renderer);\n' + capture
+    + controller.replace(/pending:\s*\d+/, 'pending: ' + pendingLimit), ctx);
   const r = ctx.resources;
   const maps = { get: value => value || null };
   cache = WebGLPrograms(renderer, maps, maps, { has: () => true }, { isWebGL2: true, logarithmicDepthBuffer: false,
@@ -128,7 +130,7 @@ test('post preparation uses only exact original leaves, materials, camera and ta
   assert(f.calls.every(call => call.geometry === f.r.fsTriGeo));
   assert.deepEqual(f.state(), before); assert.equal(f.currentTarget(), f.originalTarget); assert.equal(f.randomCalls(), 0);
   assert.equal(f.preflightCalls(), 1); assert.equal(receipt.dependency, 'post'); assert.equal(receipt.completed, true);
-  assert.equal(receipt.newPrograms, 4); assert(receipt.maxPending <= 8); assert.equal(receipt.waves, 1); assert.equal(receipt.maxWavePrograms, 4);
+  assert.equal(receipt.newPrograms, 4); assert(receipt.maxPending <= productPending); assert.equal(receipt.waves, 1); assert.equal(receipt.maxWavePrograms, 4);
   assert.equal(f.ctx.GRAPHICS_STARTUP.titleCompleted, undefined);
   assert(f.errorChecks.every(count => count === 0)); f.clean();
 });
@@ -143,14 +145,14 @@ test('sky preparation compiles only the owned eligible original sky and leaves n
   assert.equal(receipt.waves, 1); assert.equal(receipt.maxWavePrograms, 1); f.clean();
 });
 
-test('the dependency API reserves all double-sided variants in one eight-program wave across bounded turns', async () => {
-  const f = fixture({ compileMs: 10, readyDelay: 1000 });
+for (const pendingLimit of [4, 8]) test('the dependency API reserves double-sided variants across bounded waves, cap=' + pendingLimit, async () => {
+  const f = fixture({ compileMs: 10, readyDelay: 1000, pendingLimit });
   for (const material of [f.r.bloomDown, f.r.bloomUp, f.r.raysMat, f.r.composite]) {
     material.transparent = true; material.side = THREE.DoubleSide; material.forceSinglePass = false;
   }
   const before = f.state(), receipt = await f.finish(f.run('post'));
-  assert.equal(receipt.waves, 1); assert.equal(receipt.newPrograms, 8); assert.equal(receipt.maxWavePrograms, 8);
-  assert.equal(receipt.maxPending, 8); assert.equal(receipt.maxPreparesPerTurn, 1); assert.equal(f.compileCalls.length, 4);
+  assert.equal(receipt.waves, pendingLimit === 4 ? 2 : 1); assert.equal(receipt.newPrograms, 8); assert.equal(receipt.maxWavePrograms, pendingLimit);
+  assert.equal(receipt.maxPending, pendingLimit); assert.equal(receipt.maxPreparesPerTurn, 1); assert.equal(f.compileCalls.length, 4);
   assert(f.errorChecks.every(count => count === 0)); assert.deepEqual(f.state(), before); f.clean();
 });
 
