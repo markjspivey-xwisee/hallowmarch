@@ -74,7 +74,7 @@ function seasonMapBuild() {
   SEAS.tex = T; U.uSeasonMap.value = T;
 }
 // the snow lying on the land: dts seconds of the year's clock
-function seasonLieStep(dts) {
+function seasonLieStep(dts, repeats = 1) {
   const R = SEAS.res, c = SEAS.cell, L = SEAS.lie, Wm = SEAS.warm, B = SEAS.bytes;
   const air = seasonAirNow(), snowing0 = WEATHER.snowing || 0, rain0 = (WEATHER.raining || 0) * (1 - clamp(snowing0 * 3, 0, 1));
   const cx = (camera.position.x + HALF) / c, cz = (camera.position.z + HALF) / c, near2 = (300 / c) ** 2, view2 = (420 / c) ** 2;
@@ -90,11 +90,20 @@ function seasonLieStep(dts) {
       near = 1; snowing = wxGridAt('snowing', x, z); rain = wxGridAt('rain', x, z) * (1 - clamp(snowing * 3, 0, 1));
       T += wxTempAdjGrid(x, z) - airAdj;
     }
+    // Settling repeats the same synchronous weather snapshot forty times.
+    // Sample it once per texel, retaining every original Float32 store/load,
+    // clamp and final unrounded value used by the display bytes and view max.
+    const freezing = T < 0.5;
+    const change = freezing ? dts * (0.00035 * Math.min(6, 0.3 + (0.5 - T)) + near * snowing / 70)
+      : dts * (T - 0.5) * 0.0011 * (1 + near * 1.5 * rain);
     let v = L[q];
-    if (T < 0.5) v += dts * (0.00035 * Math.min(6, 0.3 + (0.5 - T)) + near * snowing / 70);
-    else v -= dts * (T - 0.5) * 0.0011 * (1 + near * 1.5 * rain);
-    v = v < 0 ? 0 : v > 1 ? 1 : v;
-    L[q] = v;
+    for (let n = 0; n < repeats; n++) {
+      v = L[q];
+      if (freezing) v += change;
+      else v -= change;
+      v = v < 0 ? 0 : v > 1 ? 1 : v;
+      L[q] = v;
+    }
     B[q * 4] = Math.round(v * 255);
     if (d2 < view2 && v > vmax) vmax = v;
   }
@@ -344,7 +353,7 @@ function seasonsInit() {
 function seasonSettle() {
   SEAS.cur = seasonCurves(SEASON.k);
   seasonIceSettle();
-  if (SEAS.lie) { SEAS.lie.fill(0); for (let n = 0; n < 40; n++) seasonLieStep(30); }
+  if (SEAS.lie) { SEAS.lie.fill(0); seasonLieStep(30, 40); }
   SEAS.lastT = SEASON.t;
   if (typeof CANOPY !== 'undefined' && CANOPY.tex) CANOPY.next = 0;
 }
