@@ -19,6 +19,7 @@ from urllib.parse import urlparse
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'tools'))
 from hmlib import wait_title_settled
+from native_journey_browser import NativeJourneyBrowser
 from playwright.async_api import async_playwright
 
 THREE_URL = 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.min.js'
@@ -53,7 +54,7 @@ class Journey:
         self.report = {'kind': 'local-agent-first-session', 'headless': True, 'foregroundControls': False,
                        'hostedIdentityOrWorld': False, 'automaticRetries': 0, 'browserClosed': False,
                        'html': str(args.html.resolve()), 'htmlSha256': hashlib.sha256(args.html.read_bytes()).hexdigest(),
-                       'touch': args.touch, 'steps': [], 'requestsBlocked': [], 'pageErrors': [], 'fixtures': []}
+                       'touch': args.touch, 'edgeNative': args.edge_native, 'steps': [], 'requestsBlocked': [], 'pageErrors': [], 'fixtures': []}
         self.mob_fixture = None
 
     def save(self):
@@ -165,6 +166,12 @@ class Journey:
     async def play(self):
         await self.page.goto('http://journey.test/', wait_until='commit')
         await wait_title_settled(self.page, timeout=240000)
+        if self.args.edge_native:
+            renderer = await self.page.evaluate("""()=>{const gl=__hm.dbg.renderer.getContext(),ext=gl.getExtension('WEBGL_debug_renderer_info');return ext?gl.getParameter(ext.UNMASKED_RENDERER_WEBGL):gl.getParameter(gl.RENDERER);}""")
+            self.report['rendererIdentity'] = renderer
+            require(not re.search(r'SwiftShader|llvmpipe|software|basic render|\bWARP\b', renderer, re.I)
+                    and re.search(r'NVIDIA|AMD|Radeon|Intel|Apple|Adreno|Mali', renderer, re.I), 'Native Edge did not provide verifiable hardware graphics: ' + renderer)
+            self.report['nativeHardwareVerified'] = True
         await self.record('01-title', shot=True)
         require(await self.page.locator('#btn-begin').is_enabled(), 'Fresh entry is disabled')
         require(await self.page.locator('#btn-continue').is_hidden(), 'Competing entry actions on the fresh title')
@@ -275,10 +282,13 @@ class Journey:
         if self.args.expect_sha256:
             require(self.report['htmlSha256'] == self.args.expect_sha256, 'Frozen build hash differs from the expected candidate')
         browser = None
+        owned = NativeJourneyBrowser(self.out, self.args.timeout + 120, edge=self.args.edge_native, executable=self.args.executable)
         self.report['outcome'] = 'FAIL'
         try:
             async with async_playwright() as p:
-                browser = await p.chromium.launch(headless=True, chromium_sandbox=True, executable_path=self.args.executable)
+                endpoint = await owned.start()
+                self.report['ownedBrowser'] = owned.receipt
+                browser = await p.chromium.connect(endpoint, timeout=45000)
                 self.report['browserVersion'] = browser.version
                 context = await browser.new_context(viewport={'width': self.args.width, 'height': self.args.height}, has_touch=self.args.touch,
                                                     is_mobile=self.args.touch, service_workers='block')
@@ -319,18 +329,27 @@ class Journey:
                     try: await self.page.screenshot(path=str(self.out / 'failure.png'), timeout=5000)
                     except Exception: pass
                 finally:
-                    await context.tracing.stop(path=str(self.out / 'trace.zip'))
-                    await asyncio.wait_for(browser.close(), timeout=20)
-                    self.report['browserClosed'] = True
+                    try:
+                        await asyncio.wait_for(context.tracing.stop(path=str(self.out / 'trace.zip')), timeout=20)
+                    except Exception as error:
+                        self.report['traceCleanupError'] = str(error)
+                    try:
+                        await asyncio.wait_for(browser.close(), timeout=15)
+                    except Exception as error:
+                        self.report['browserCloseFailure'] = str(error)
+                    self.report['browserClosed'] = await owned.stop()
         except Exception as error:
+            self.report['outcome'] = 'FAIL'
             self.report['failure'] = str(error)
         finally:
-            if browser and not self.report['browserClosed']:
+            if owned.process and not self.report['browserClosed']:
                 try:
-                    await asyncio.wait_for(browser.close(), timeout=20)
-                    self.report['browserClosed'] = True
+                    self.report['browserClosed'] = await owned.stop()
                 except Exception as error:
                     self.report['cleanupError'] = str(error)
+            self.report['ownedBrowser'] = owned.receipt
+            if not self.report['browserClosed']:
+                self.report['outcome'] = 'FAIL'
             self.report['elapsedSeconds'] = round(time.monotonic() - self.started, 3)
             self.save()
         print(json.dumps({'outcome': self.report.get('outcome', 'FAIL'), 'evidence': str(self.out), 'browserClosed': self.report['browserClosed']}), flush=True)
@@ -343,11 +362,14 @@ def arguments():
     parser.add_argument('--expect-sha256', help='Refuse to run a different candidate')
     parser.add_argument('--out', type=pathlib.Path, default=ROOT.parent / 'first-session-qa')
     parser.add_argument('--executable', help='Optional browser executable; always launches headless with a fresh context')
+    parser.add_argument('--edge-native', action='store_true', help='Installed headless Edge with native GPU/security defaults and hardware identity verification')
     parser.add_argument('--touch', action='store_true', help='Use real touch input and the compact phone controls')
     parser.add_argument('--width', type=int)
     parser.add_argument('--height', type=int)
     parser.add_argument('--timeout', type=int, default=720, help='Whole-journey deadline in seconds; no automatic retry')
     args = parser.parse_args()
+    if args.edge_native and args.executable:
+        parser.error('--edge-native uses the installed Edge channel; do not combine it with --executable')
     args.width = args.width or (390 if args.touch else 1280)
     args.height = args.height or (780 if args.touch else 800)
     return args
