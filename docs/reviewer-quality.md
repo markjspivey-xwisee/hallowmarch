@@ -172,6 +172,11 @@ grass, LOD and HUD work. The 37.893 ms ground-AO component motivated separate
 private byte preparation with collision/path snapshots; texture creation and
 uniform publication retain their original live boundary. These component samples
 are not total first-input latency or evidence that all entry work is resolved.
+The first live simulation also appends three yard props. Cache consumption
+validates the original prefix and at most three appended props, applies the same
+max-compositing calculation within a 4096-cell tail bound, and refreshes the red
+channel at the original publication point. Other input changes use the original
+synchronous builder; green path bytes and all normal validity guards remain intact.
 
 Menu QA preserves native keyboard movement, focus, end visibility and completion
 checks. It records movement/end timestamps independently because one CI browser
