@@ -309,7 +309,7 @@ function guideWarAimHTML() {
   const A = guideAims(), a = A.find((q) => /RP/.test((q.m && q.m[1]) || '')) || A[0];
   if (!a) return '';
   const pct = a.m ? Math.round(clamp(a.m[0], 0, 1) * 100) : null;
-  const t = a.t.replace(/^Realm rank (\d+):.*$/, 'Realm rank $1');
+  const t = a.t.replace(/^Realm rank (\d+):.*$/, 'Next rank: $1');
   return `<div class="g2-aim" data-g2="goals" title="Your aims: open them in the Chronicle"><span class="gem"></span><span class="t">${esc(t)}</span>${pct != null ? `<span class="d">${pct}%</span><i><b style="width:${pct}%"></b></i>` : ''}</div>`;
 }
 // (a line, not a button: on a touch screen the whole panel is the target, 40 px and more; a mouse clicks the line)

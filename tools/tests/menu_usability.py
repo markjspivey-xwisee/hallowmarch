@@ -151,11 +151,135 @@ window.__menuQA=(()=>{
 })();
 """
 
+PANEL_SCROLL_QA=r"""
+window.__menuPanelScrollQA=(()=>{
+  let fixture=null,key=null,touch=null;
+  const panel=()=>document.getElementById('menu-body');
+  const event=(record,type,e)=>{
+    if(record.events.length<24)record.events.push({type,at:performance.now(),stamp:e.timeStamp,trusted:e.isTrusted,top:record.node.scrollTop});
+  };
+  const clean=record=>{if(record)for(const [node,type,fn]of record.listeners)node.removeEventListener(type,fn);};
+  const listen=(record,node,type,fn,options)=>{node.addEventListener(type,fn,options);record.listeners.push([node,type,fn]);};
+  const receipt=record=>record?{kind:record.kind,initial:record.initial,written:record.written,lastTop:record.lastTop,
+    stableAt:record.stableAt,scrolls:record.scrolls,ends:record.ends,down:record.down,released:record.released,invalid:record.invalid,moved:record.moved,ended:record.ended,endStamp:record.endStamp,endTop:record.endTop,invalidEndStamp:record.invalidEndStamp,lastMovementStamp:record.lastMovementStamp,
+    events:record.events,connected:record.node.isConnected,samePanel:record.node===panel(),top:record.node.scrollTop,
+    height:record.node.clientHeight,total:record.node.scrollHeight,focus:document.activeElement?.id,
+    tab:document.querySelector('#menu-tabs [aria-selected="true"]')?.dataset.tab}:null;
+  function reset(){
+    clean(fixture);clean(key);clean(touch);key=touch=null;
+    const node=panel(),at=performance.now();
+    fixture={kind:'fixture',node,listeners:[],initial:node.scrollTop,lastTop:null,stableAt:at,scrolls:0,ends:0,events:[]};
+    const record=fixture;
+    listen(record,node,'scroll',e=>{record.scrolls++;event(record,'scroll',e);});
+    listen(record,node,'scrollend',e=>{record.ends++;event(record,'scrollend',e);});
+    // Fixture setup is one instant reset, not a native scrolling assertion.
+    // No scrollend is guaranteed when layout or another reset already did it.
+    node.scrollTo({top:0,behavior:'instant'});record.written=node.scrollTop;
+    return receipt(record);
+  }
+  function settled(){
+    const record=fixture;if(!record||record.node!==panel()||!record.node.isConnected)return false;
+    const now=performance.now(),top=record.node.scrollTop;
+    if(record.lastTop!==top){record.lastTop=top;record.stableAt=now;return false;}
+    return top<=2&&now-record.stableAt>=200;
+  }
+  function startKey(expected){
+    clean(fixture);clean(key);clean(touch);touch=null;
+    const node=panel();
+    key={kind:'key',node,listeners:[],initial:node.scrollTop,lastTop:node.scrollTop,scrolls:0,ends:0,events:[],down:null,moved:false,ended:false,endStamp:null,endTop:null,invalidEndStamp:null,lastMovementStamp:null};
+    const record=key;
+    const reconcile=()=>{record.ended=record.moved&&record.endStamp!==null&&record.endTop===record.lastTop;};
+    listen(record,document,'keydown',e=>{
+      if(e.key!==expected)return;
+      event(record,'keydown',e);
+      if(!e.isTrusted||e.target!==node||document.activeElement!==node)return;
+      record.down={key:e.key,stamp:e.timeStamp,top:node.scrollTop,prevented:null};
+      record.lastTop=node.scrollTop;
+      queueMicrotask(()=>{record.down.prevented=e.defaultPrevented;});
+    });
+    listen(record,node,'scroll',e=>{
+      record.scrolls++;event(record,'scroll',e);
+      if(record.down&&e.isTrusted&&e.timeStamp>=record.down.stamp){
+        // A trailing native scroll notification can be created just after its
+        // end at the same final position. Bind completion to that observed
+        // position; any different position invalidates the prior end forever.
+        if(record.endStamp!==null&&node.scrollTop!==record.endTop)clearKeyEnd(record);
+        if(node.scrollTop!==record.lastTop){
+          record.moved=true;record.lastTop=node.scrollTop;
+          record.lastMovementStamp=Math.max(record.lastMovementStamp??-Infinity,e.timeStamp);
+        }
+        reconcile();
+      }
+    });
+    listen(record,node,'scrollend',e=>{
+      record.ends++;event(record,'scrollend',e);
+      if(record.down&&e.isTrusted&&e.timeStamp>=record.down.stamp
+        &&(record.lastMovementStamp===null||e.timeStamp>=record.lastMovementStamp)
+        &&(record.invalidEndStamp===null||e.timeStamp>record.invalidEndStamp)){
+        record.endStamp=e.timeStamp;record.endTop=node.scrollTop;reconcile();
+      }
+    });
+    return receipt(record);
+  }
+  function startTouch(){
+    clean(fixture);clean(key);clean(touch);fixture=key=null;
+    const node=panel();
+    touch={kind:'touch',node,listeners:[],initial:node.scrollTop,lastTop:node.scrollTop,stableAt:performance.now(),
+      scrolls:0,ends:0,events:[],down:null,released:null,invalid:false,moved:false,ended:false};
+    const record=touch;
+    listen(record,node,'touchstart',e=>{
+      event(record,'touchstart',e);
+      if(!e.isTrusted)return;
+      if(record.down||e.touches.length!==1){record.invalid=true;return;}
+      record.down={stamp:e.timeStamp,top:node.scrollTop};
+    },{passive:true});
+    listen(record,node,'touchend',e=>{
+      event(record,'touchend',e);
+      if(record.down&&e.isTrusted&&e.timeStamp>=record.down.stamp&&e.touches.length===0){
+        record.released=e.timeStamp;record.lastTop=node.scrollTop;record.stableAt=performance.now();record.ended=false;
+      }
+    },{passive:true});
+    listen(record,node,'touchcancel',e=>{event(record,'touchcancel',e);if(e.isTrusted)record.invalid=true;},{passive:true});
+    listen(record,node,'scroll',e=>{
+      record.scrolls++;event(record,'scroll',e);
+      if(record.down&&e.isTrusted&&e.timeStamp>=record.down.stamp){
+        if(node.scrollTop!==record.down.top)record.moved=true;record.ended=false;
+      }
+      if(record.lastTop!==node.scrollTop){record.lastTop=node.scrollTop;record.stableAt=performance.now();}
+    },{passive:true});
+    listen(record,node,'scrollend',e=>{
+      record.ends++;event(record,'scrollend',e);
+      if(record.down&&record.released!==null&&record.moved&&e.isTrusted&&e.timeStamp>=record.released){record.ended=true;record.endStamp=e.timeStamp;}
+    },{passive:true});
+    return receipt(record);
+  }
+  // Touch scrollend is not emitted by every pinned engine. Require a native
+  // release and a real position quiet for200ms after release/last movement.
+  function touchSettled(){
+    const record=touch;if(!record||record.node!==panel()||!record.node.isConnected)return false;
+    const now=performance.now(),top=record.node.scrollTop;
+    if(record.lastTop!==top){record.lastTop=top;record.stableAt=now;return false;}
+    return !!(record.down&&record.released!==null&&!record.invalid&&record.moved&&now-record.stableAt>=200);
+  }
+  const clearKeyEnd=record=>{
+    record.invalidEndStamp=Math.max(record.invalidEndStamp??-Infinity,record.endStamp);
+    record.endStamp=record.endTop=null;record.ended=false;
+  };
+  const keyComplete=moves=>{
+    if(key&&key.endStamp!==null&&key.node.scrollTop!==key.endTop)clearKeyEnd(key);
+    return !!(key?.node===panel()&&key.node.isConnected&&key.down&&key.down.prevented===false
+      &&(!moves||(key.moved&&key.ended)));
+  };
+  const finish=kind=>{const record=kind==='fixture'?fixture:kind==='touch'?touch:key;const value=receipt(record);clean(record);return value;};
+  return{reset,settled,startKey,keyComplete,startTouch,touchSettled,finish,fixtureReceipt:()=>receipt(fixture),keyReceipt:()=>receipt(key),touchReceipt:()=>receipt(touch)};
+})();
+"""
+
 def document(html_path,picker=False):
     source=pathlib.Path(html_path).read_text(encoding='utf-8')
     cut=source.rfind('</script>')
     if cut<0:raise RuntimeError('No module script boundary')
-    source=source[:cut]+'\n'+HOOK+'\n'+source[cut:]
+    source=source[:cut]+'\n'+HOOK+'\n'+PANEL_SCROLL_QA+'\n'+source[cut:]
     source=source.replace(hm.THREE_URL,'/qa/three.mjs')
     source=re.sub(r'<link[^>]+href="https://fonts\.[^>]+>','',source)
     if picker:
@@ -240,54 +364,31 @@ async def audit(args):
             await page.evaluate('__menuQA.play()');await human_play(page)
             # Keep the browser's real paint scheduling. The game menu pauses
             # play itself; native scrolling must not inherit a fixture RAF.
-            async def settle_panel_scroll():
-                # A native Home animation can reach zero before its browser
-                # transaction has finished. Observe a settled position before
-                # sending the next independent key, rather than retrying it.
-                await page.evaluate("document.getElementById('menu-body').__qaScroll={top:null,at:performance.now()}")
-                await page.wait_for_function("""()=>{
-                  const e=document.getElementById('menu-body'),s=e.__qaScroll,now=performance.now();
-                  if(s.top!==e.scrollTop){s.top=e.scrollTop;s.at=now;return false;}
-                  return now-s.at>=200;
-                }""",timeout=5000,polling=50)
             async def panel_fixture_top():
-                # The fixture's instant scroll also emits scrollend. Consume
-                # that event before observing the subsequent native key.
-                await page.evaluate("""()=>{
-                  const e=document.getElementById('menu-body'),moves=e.scrollTop>2;
-                  if(e.__qaScrollEndListener)e.removeEventListener('scrollend',e.__qaScrollEndListener);
-                  if(e.__qaFixtureEndListener)e.removeEventListener('scrollend',e.__qaFixtureEndListener);
-                  e.__qaFixtureEnded=!moves;
-                  e.__qaFixtureEndListener=()=>{e.__qaFixtureEnded=true;};
-                  if(moves)e.addEventListener('scrollend',e.__qaFixtureEndListener,{once:true});
-                  e.scrollTop=0;
-                }""")
-                await page.wait_for_function("(()=>{const e=document.getElementById('menu-body');return e.__qaFixtureEnded&&e.scrollTop<=2})()",timeout=5000,polling=50)
-                await page.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))')
-                await settle_panel_scroll()
-            async def panel_key(key,condition,moves):
-                await page.evaluate("""()=>{
-                  const e=document.getElementById('menu-body');
-                  if(e.__qaScrollEndListener)e.removeEventListener('scrollend',e.__qaScrollEndListener);
-                  e.__qaKeyScroll={ended:false,keys:[]};
-                  e.__qaScrollEndListener=()=>{e.__qaKeyScroll.ended=true;};
-                  e.addEventListener('scrollend',e.__qaScrollEndListener,{once:true});
-                  if(!window.__qaKeyListener){window.__qaKeyListener=true;document.addEventListener('keydown',event=>queueMicrotask(()=>{
-                    const body=document.getElementById('menu-body');
-                    if(body?.__qaKeyScroll)body.__qaKeyScroll.keys.push({key:event.key,target:event.target.id,
-                      active:document.activeElement.id,prevented:event.defaultPrevented,top:body.scrollTop});
-                  }));}
-                }""")
-                await page.keyboard.press(key)
+                await page.evaluate('__menuPanelScrollQA.reset()')
                 try:
+                    await page.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))')
+                    await page.wait_for_function('__menuPanelScrollQA.settled()',timeout=5000,polling=50)
+                except Exception:
+                    report['checks'].append({'task':label+'-fixture-top-settled','passed':False,
+                      'scroll':await page.evaluate('__menuQA.scrollState()'),
+                      'events':await page.evaluate('__menuPanelScrollQA.fixtureReceipt()')})
+                    save();raise
+                finally:
+                    await page.evaluate("__menuPanelScrollQA.finish('fixture')")
+            async def panel_key(key,condition,moves):
+                await page.evaluate('(key)=>__menuPanelScrollQA.startKey(key)',key)
+                try:
+                    await page.keyboard.press(key)
                     await page.wait_for_function(condition,timeout=5000,polling=50)
-                    if moves:
-                        await page.wait_for_function("document.getElementById('menu-body').__qaKeyScroll.ended",timeout=5000,polling=50)
+                    await page.wait_for_function('(moves)=>__menuPanelScrollQA.keyComplete(moves)',arg=moves,timeout=5000,polling=50)
                 except Exception:
                     report['checks'].append({'task':label+'-native-'+key+'-scroll-completed','passed':False,
                       'scroll':await page.evaluate('__menuQA.scrollState()'),
-                      'events':await page.evaluate("document.getElementById('menu-body').__qaKeyScroll")})
+                      'events':await page.evaluate('__menuPanelScrollQA.keyReceipt()')})
                     save();raise
+                finally:
+                    await page.evaluate("__menuPanelScrollQA.finish('key')")
             for viewport in ([{'width':390,'height':780},{'width':320,'height':740},{'width':844,'height':390}] if touch else [{'width':1280,'height':800}]):
                 await page.set_viewport_size(viewport);label=('phone-'+str(viewport['width'])) if touch else 'desktop'
                 for tab in ['char','companion','progress','chronicle','settings','help']:
@@ -426,13 +527,28 @@ async def audit(args):
                     if touch and viewport['width']==320 and long_page=='help':
                         rect=await page.locator('#menu-body').bounding_box();x=rect['x']+rect['width']-20;y=rect['y']+rect['height']*.8
                         cdp=await page.context.new_cdp_session(page)
-                        await cdp.send('Input.dispatchTouchEvent',{'type':'touchStart','touchPoints':[{'x':x,'y':y,'id':1}]})
-                        for step in range(1,7):await cdp.send('Input.dispatchTouchEvent',{'type':'touchMove','touchPoints':[{'x':x,'y':y-20*step,'id':1}]})
-                        await cdp.send('Input.dispatchTouchEvent',{'type':'touchEnd','touchPoints':[]})
-                        await page.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))')
-                        await page.wait_for_function("document.getElementById('menu-body').scrollTop>0",timeout=5000,polling=50)
-                        touch_state=await page.evaluate('__menuQA.scrollState()')
-                        report['checks'].append({'task':label+'-help-touch-scroll','passed':touch_state['top']>0,'scroll':touch_state})
+                        await page.evaluate('__menuPanelScrollQA.startTouch()')
+                        try:
+                            await cdp.send('Input.dispatchTouchEvent',{'type':'touchStart','touchPoints':[{'x':x,'y':y,'id':1}]})
+                            for step in range(1,7):await cdp.send('Input.dispatchTouchEvent',{'type':'touchMove','touchPoints':[{'x':x,'y':y-20*step,'id':1}]})
+                            await cdp.send('Input.dispatchTouchEvent',{'type':'touchEnd','touchPoints':[]})
+                            await page.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))')
+                            # Observe the released touch and a stable real position
+                            # before the independent Character/keyboard task.
+                            # Some pinned engines omit touch scrollend; it is
+                            # retained as a diagnostic, not a setup requirement.
+                            await page.wait_for_function("document.getElementById('menu-body').scrollTop>0&&__menuPanelScrollQA.touchSettled()",timeout=5000,polling=50)
+                            touch_state=await page.evaluate('__menuQA.scrollState()')
+                            report['checks'].append({'task':label+'-help-touch-scroll','passed':touch_state['top']>0,'scroll':touch_state,
+                              'events':await page.evaluate('__menuPanelScrollQA.touchReceipt()')})
+                        except Exception:
+                            report['checks'].append({'task':label+'-help-native-touch-scroll-settled','passed':False,
+                              'scroll':await page.evaluate('__menuQA.scrollState()'),
+                              'events':await page.evaluate('__menuPanelScrollQA.touchReceipt()')})
+                            save();raise
+                        finally:
+                            await page.evaluate("__menuPanelScrollQA.finish('touch')")
+                            await cdp.detach()
                     if long_page=='char':await page.keyboard.press('Escape')
                 if touch:
                     await page.evaluate("__menuQA.open('skills')");await capture('skills')

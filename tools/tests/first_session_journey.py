@@ -251,7 +251,9 @@ class Journey:
                        'touch': args.touch, 'edgeNative': args.edge_native, 'steps': [], 'phases': [], 'requestsBlocked': [],
                        'pageErrors': [], 'rawPageErrors': [], 'extensionPageErrors': [], 'browserLocalRequests': [], 'fixtures': [],
                        'tracePolicy': {'coldStartup': False, 'reloadWarmup': False, 'uiOnly': True,
-                                       'timingLimit': 'UI screenshot tracing is an active screencast; this journey does not attribute startup timing to tracing.'}}
+                                       'screenshots': False, 'snapshots': True, 'sources': True,
+                                       'visualEvidence': 'Explicit step PNGs; no continuous trace screencast.',
+                                       'timingLimit': 'DOM/action tracing adds observation overhead; this journey does not attribute startup timing to tracing.'}}
         self.mob_fixture = None
         self.trace_state = 'off'
         self.trace_label = None
@@ -292,7 +294,7 @@ class Journey:
         self.trace_state = 'starting'
         self.phase('ui-trace-start', segment=label)
         try:
-            await asyncio.wait_for(self.context.tracing.start(screenshots=True, snapshots=True, sources=True), timeout=20)
+            await asyncio.wait_for(self.context.tracing.start(screenshots=False, snapshots=True, sources=True), timeout=20)
         except Exception as error:
             self.fail(error)
             raise

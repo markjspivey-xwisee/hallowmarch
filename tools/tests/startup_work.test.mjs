@@ -113,6 +113,38 @@ test('load steps retain real progress, bounded work receipts and the established
   assert(h.ctx.GRAPHICS_STARTUP.bootWork.every(r=>r.completed&&r.workMs===2));
   assert.equal(h.events.filter(x=>x==='paint').length,20);
 });
+
+test('the actual meadow boot step prepares RGB cooperatively after farming before completing',async()=>{
+  const h=harness(),seen=[];
+  for(const name of ['buildGrass','buildFlowers','buildNature','buildFarming'])h.ctx[name]=()=>seen.push(name);
+  h.ctx.prepareMeadowRGBChunks=function*(){
+    seen.push('RGB begin');
+    for(let row=0;row<16;row++){h.advance(3);seen.push(row);yield;}
+    seen.push('RGB complete');
+  };
+  const start=source.indexOf("  await loadStep(0.58, 'Sowing the meadows'");assert(start>=0);
+  const actualStep=source.slice(start,source.indexOf('\n',start)).split('//')[0];
+  vm.runInContext('async function prepareActualMeadowStep(){'+actualStep+'}',h.ctx);
+  await h.ctx.prepareActualMeadowStep();
+  assert.deepEqual(seen.slice(0,5),['buildGrass','buildFlowers','buildNature','buildFarming','RGB begin']);
+  assert.deepEqual(seen.slice(5,-1),Array.from({length:16},(_,i)=>i));assert.equal(seen.at(-1),'RGB complete');
+  const [receipt]=h.ctx.GRAPHICS_STARTUP.bootWork;
+  assert(receipt.completed&&receipt.chunked);assert.equal(receipt.workMs,48);assert(receipt.maxSliceMs<=9);
+  assert(receipt.yields>=5);assert.equal(h.ctx.BOOT_STEPS[0][0],'Sowing the meadows');
+  assert.equal(h.nodes.loadbar.style.width,'58%');
+});
+test('the actual ground preparation step stays cooperative before title admission',async()=>{
+  const h=harness(),seen=[];
+  h.ctx.prepareGroundAOChunks=function*(){for(let i=0;i<12;i++){h.advance(3);seen.push(i);yield;}};
+  const start=source.indexOf("  await loadStep(0.83, 'Preparing the ground'");assert(start>=0);
+  const actualStep=source.slice(start,source.indexOf('\n',start));
+  vm.runInContext('async function prepareActualGroundStep(){'+actualStep+'}',h.ctx);
+  await h.ctx.prepareActualGroundStep();
+  assert.deepEqual(seen,Array.from({length:12},(_,i)=>i));
+  const [receipt]=h.ctx.GRAPHICS_STARTUP.bootWork;
+  assert(receipt.completed&&receipt.chunked);assert.equal(receipt.workMs,36);assert(receipt.maxSliceMs<=9);assert(receipt.yields>=3);
+});
+
 test('the actual profiling wrapper preserves resumable generation through its last chunk',async()=>{
   const h=harness(),seen=[];
   const perf=readFileSync(new URL('../../src/13p_perf.js',import.meta.url),'utf8');

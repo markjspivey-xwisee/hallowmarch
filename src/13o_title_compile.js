@@ -2,7 +2,7 @@
    fences remain the readiness gate; compilation completion is not a frame. */
 // Fill by new programs, then validate a drained wave before refill.
 // Context loss and completed failed links still stop admission immediately.
-const TITLE_COMPILE_LIMITS = Object.freeze({ pending: 4, perTurn: 4, turnMs: 8, pollMs: 10, programMs: 90000, totalMs: 180000 });
+const TITLE_COMPILE_LIMITS = Object.freeze({ pending: 4, perTurn: 4, turnMs: 8, pollMs: 10, idlePollMaxMs: 100, programMs: 90000, totalMs: 180000 });
 
 function titleCompileEligible(object) {
   if (!liveIn(object) || !object.layers.test(camera.layers)) return false;
@@ -136,6 +136,29 @@ function titleEntryJobs(inventory, receipt, weatherResources) {
   };
   const shaft = WXR.shafts;
   if (WXR.on && !INDOOR.on && shaft) addWorld('entry-weather-shafts', shaft, () => WXR.on && !INDOOR.on && WXR.shafts === shaft, true);
+  // The title camera can leave both original crag lists empty, while a realm's
+  // first world view populates them. Compile those two owned resources without
+  // filling their lists or changing their visibility, camera or shader inputs.
+  if (!INDOOR.on && typeof MTN !== 'undefined' && MTN && typeof cragMatBase !== 'undefined') {
+    const cragJobs = [];
+    for (const [key, kind, sides, layers, far] of [['meshN', 'near', 12, 7, 0], ['meshF', 'far', 9, 4, 1]]) {
+      const object = MTN[key]; if (!object) continue;
+      const material = object.material, geometry = object.geometry, index = geometry?.index;
+      const lod = material?.uniforms?.uCragLod, distance = material?.uniforms?.uCragFar, eye = MTN.eye;
+      const owned = () => !INDOOR.on && MTN[key] === object && allowed.has(object) && object.userData.mtn === kind && !object.frustumCulled
+        && material?.isShaderMaterial && !!material.uniforms && material.vertexShader === cragMatBase.vertexShader && material.fragmentShader === cragMatBase.fragmentShader
+        && geometry?.isInstancedBufferGeometry && geometry.index === index && !!index
+        && geometry.attributes?.position?.itemSize === 3 && geometry.attributes.iA?.isInstancedBufferAttribute && geometry.attributes.iA.itemSize === 4
+        && geometry.attributes.iB?.isInstancedBufferAttribute && geometry.attributes.iB.itemSize === 4
+        && material.uniforms.uCragLod === lod && lod?.value?.x === sides && lod.value.y === layers
+        && material.uniforms.uCragFar === distance && distance?.value?.z === far
+        && eye?.value?.isVector3 && MTN.eye === eye && material.uniforms.uCragEye === eye;
+      const before = jobs.length;
+      addWorld('entry-crag-' + kind, object, owned, true);
+      if (jobs.length > before) cragJobs.push(jobs[jobs.length - 1]);
+    }
+    if (cragJobs.length) checks.push(titleInitialSnapshots(cragJobs));
+  }
   if (houseGlassMat) for (const owner of new Set(HOUSES.map(house => house.S.houseSet).filter(Boolean))) {
     const object = owner.mGl, material = object?.material;
     const owned = () => allowed.has(object) && HOUSES.some(house => house.S.houseSet === owner) && owner.mGl === object
@@ -229,15 +252,136 @@ async function prepareTitleDependencies(id, inventory, generation) {
 function prepareTitleEntryPrograms(inventory, generation, weatherResources) {
   return prepareTitleProgramJobs(inventory, [], generation, 'entry', weatherResources);
 }
+function prepareTitleInitialPrograms(inventory, stages, generation, weatherResources) {
+  return prepareTitleProgramJobs(inventory, stages, generation, 'initial', weatherResources);
+}
+
+function titleInitialSnapshots(jobs) {
+  const objects = [], materials = [], geometries = [], ancestors = [], cameras = [], scenes = [];
+  const seenMaterials = new Set(), seenGeometry = new Set(), seenAncestors = new Set(), seenCameras = new Set(), seenScenes = new Set();
+  const fields = ['type', 'isShaderMaterial', 'isRawShaderMaterial', 'glslVersion', 'precision', 'vertexShader', 'fragmentShader',
+    'side', 'transparent', 'forceSinglePass', 'vertexColors', 'fog', 'lights', 'clipping', 'flatShading', 'sizeAttenuation',
+    'blending', 'alphaTest', 'alphaHash', 'premultipliedAlpha', 'dithering', 'toneMapped', 'combine', 'normalMapType',
+    'anisotropy', 'clearcoat', 'iridescence', 'sheen', 'transmission', 'depthPacking', 'index0AttributeName'];
+  const textureFields = ['map', 'matcap', 'envMap', 'aoMap', 'lightMap', 'bumpMap', 'normalMap', 'displacementMap', 'emissiveMap',
+    'metalnessMap', 'roughnessMap', 'anisotropyMap', 'clearcoatMap', 'clearcoatNormalMap', 'clearcoatRoughnessMap',
+    'iridescenceMap', 'iridescenceThicknessMap', 'sheenColorMap', 'sheenRoughnessMap', 'specularMap', 'specularColorMap',
+    'specularIntensityMap', 'transmissionMap', 'thicknessMap', 'gradientMap', 'alphaMap'];
+  const objectFields = ['isInstancedMesh', 'isBatchedMesh', 'isSkinnedMesh', 'isPoints', 'isSprite', 'instanceColor', 'frustumCulled', 'receiveShadow'];
+  const sceneFields = ['overrideMaterial', 'fog', 'environment'];
+  const entries = value => value == null ? value : Object.entries(value);
+  const own = Object.prototype.hasOwnProperty;
+  const ownCount = value => { let count = 0; for (const key in value) if (own.call(value, key)) count++; return count; };
+  const sameEntries = (value, original) => {
+    if (original == null) return value === original;
+    if (!value) return false;
+    let index = 0;
+    for (const key in value) if (own.call(value, key)) {
+      if (index >= original.length || key !== original[index][0] || value[key] !== original[index][1]) return false;
+      index++;
+    }
+    return index === original.length;
+  };
+  for (const job of jobs) {
+    const { object, material, geometry } = job;
+    job.version ??= material.version;
+    job.vertexShader ??= material.vertexShader; job.fragmentShader ??= material.fragmentShader;
+    job.side ??= material.side; job.transparent ??= material.transparent; job.forceSinglePass ??= material.forceSinglePass;
+    objects.push({ object, material, geometry, inputs: objectFields.map(key => object[key]) });
+    if (!seenMaterials.has(material)) {
+      seenMaterials.add(material);
+      materials.push({ material, job, inputs: fields.map(key => material[key]), defines: entries(material.defines), extensions: entries(material.extensions),
+        textures: textureFields.map(key => material[key]), textureInputs: textureFields.filter(key => material[key] != null)
+          .map(key => { const texture = material[key]; return [texture, texture.channel, texture.mapping, texture.image?.height]; }) });
+    }
+    if (!seenGeometry.has(geometry)) {
+      seenGeometry.add(geometry);
+      geometries.push({ geometry, attributes: Object.entries(geometry.attributes).map(([key, attribute]) => [key, attribute, attribute.itemSize]),
+        morphs: Object.entries(geometry.morphAttributes).map(([key, values]) => [key, values, values.length]), relative: geometry.morphTargetsRelative });
+    }
+    for (let node = object; node; node = node.parent) if (!seenAncestors.has(node)) {
+      seenAncestors.add(node); ancestors.push([node, node.parent, node.visible, node.layers.mask]);
+    }
+    if (!seenCameras.has(job.camera)) { seenCameras.add(job.camera); cameras.push([job.camera, job.camera.layers.mask]); }
+    if (!seenScenes.has(job.targetScene)) { seenScenes.add(job.targetScene); scenes.push([job.targetScene, sceneFields.map(key => job.targetScene[key])]); }
+  }
+  // Pool shared inputs once. The hot predicate performs the same comparisons
+  // without per-job closures, Object.keys arrays or newly created callbacks.
+  return () => {
+    for (let i = 0; i < objects.length; i++) {
+      const row = objects[i], object = row.object;
+      if (object.geometry !== row.geometry || object.material !== row.material || !titleCompileSupported(object, row.material)) return false;
+      for (let j = 0; j < objectFields.length; j++) if (object[objectFields[j]] !== row.inputs[j]) return false;
+    }
+    for (let i = 0; i < materials.length; i++) {
+      const row = materials[i], material = row.material;
+      if (material.version !== row.job.version || material.visible === false || !sameEntries(material.defines, row.defines) || !sameEntries(material.extensions, row.extensions)) return false;
+      for (let j = 0; j < fields.length; j++) if (material[fields[j]] !== row.inputs[j]) return false;
+      for (let j = 0; j < textureFields.length; j++) if (material[textureFields[j]] !== row.textures[j]) return false;
+      for (let j = 0; j < row.textureInputs.length; j++) {
+        const input = row.textureInputs[j], texture = input[0];
+        if (texture.channel !== input[1] || texture.mapping !== input[2] || texture.image?.height !== input[3]) return false;
+      }
+    }
+    for (let i = 0; i < geometries.length; i++) {
+      const row = geometries[i], geometry = row.geometry;
+      if (geometry.morphTargetsRelative !== row.relative || ownCount(geometry.attributes) !== row.attributes.length || ownCount(geometry.morphAttributes) !== row.morphs.length) return false;
+      for (let j = 0; j < row.attributes.length; j++) {
+        const input = row.attributes[j]; if (geometry.attributes[input[0]] !== input[1] || input[1].itemSize !== input[2]) return false;
+      }
+      for (let j = 0; j < row.morphs.length; j++) {
+        const input = row.morphs[j]; if (geometry.morphAttributes[input[0]] !== input[1] || input[1].length !== input[2]) return false;
+      }
+    }
+    for (let i = 0; i < ancestors.length; i++) {
+      const row = ancestors[i]; if (row[0].parent !== row[1] || row[0].visible !== row[2] || row[0].layers.mask !== row[3]) return false;
+    }
+    for (let i = 0; i < cameras.length; i++) if (cameras[i][0].layers.mask !== cameras[i][1]) return false;
+    for (let i = 0; i < scenes.length; i++) {
+      const row = scenes[i]; for (let j = 0; j < sceneFields.length; j++) if (row[0][sceneFields[j]] !== row[1][j]) return false;
+    }
+    return true;
+  };
+}
+
+function titleInitialOrder(jobs, receipt) {
+  const seen = new Map(), ordered = [];
+  for (const job of jobs) {
+    const peers = seen.get(job.object) || [];
+    const duplicate = peers.find(peer => peer.material === job.material && peer.geometry === job.geometry
+      && peer.target === job.target && peer.camera === job.camera && peer.targetScene === job.targetScene
+      && peer.version === job.version && peer.cost === job.cost && !!peer.postDependency === !!job.postDependency
+      && peer.side === job.side && peer.transparent === job.transparent && peer.forceSinglePass === job.forceSinglePass
+      && peer.vertexShader === job.vertexShader && peer.fragmentShader === job.fragmentShader);
+    if (duplicate) {
+      duplicate.entryPreparation ||= job.entryPreparation;
+      receipt.deduplicatedJobs++;
+      if (--receipt.families[job.family].jobs === 0) delete receipt.families[job.family];
+      continue;
+    }
+    peers.push(job); seen.set(job.object, peers);
+    ordered.push({ job, index: ordered.length, chars: (job.material.vertexShader?.length || 0) + (job.material.fragmentShader?.length || 0) });
+  }
+  // Experimental scheduling only: measured native stragglers have large
+  // original shaders. Reorder preparation, never draws or shader/cache inputs.
+  // The renderer remains the authority for actual program-cache identity.
+  ordered.sort((a, b) => b.chars - a.chars || a.index - b.index);
+  return ordered.map(row => row.job);
+}
 
 async function prepareTitleProgramJobs(inventory, stages, generation, dependencyId = null, weatherResources = null) {
   const started = performance.now();
   const receipt = { generation, dependency: dependencyId, errorPolicy: 'drained-waves', supported: false, outcome: 'serial', completed: false, stale: false,
     eligibleJobs: 0, preparedJobs: 0, skipped: 0, newPrograms: 0, maxPending: 0, maxPreparesPerTurn: 0,
     prepareMs: 0, maxSinglePrepareMs: 0, slowestPrepare: null, maxFullTurnMs: 0, budgetYields: 0, waves: 0, maxWavePrograms: 0,
+    reflectedPrograms: 0, deferredReflections: 0, reflectionMs: 0, maxSingleReflectionMs: 0, maxReflectionsPerTurn: 0, reflectionBudgetYields: 0, slowestReflection: null,
     inventoryMs: 0, inventoryObjects: 0, maxInventoryCheckMs: 0, slowestInventory: null,
+    dependencyChecks: 0, dependencyCheckMs: 0, maxDependencyCheckMs: 0,
+    mainSnapshotChecks: 0, mainSnapshotCheckMs: 0, maxMainSnapshotCheckMs: 0,
+    scheduledPollWaits: 0, requestedPollWaitMs: 0, maxRequestedPollWaitMs: 0, backoffWaits: 0, budgetClippedWaits: 0,
     flushMs: 0, maxFlushMs: 0, pollMs: 0, maxPollMs: 0,
-    errorCheckMs: 0, maxErrorCheckMs: 0, elapsedMs: 0, visibleMs: 0, hiddenMs: 0, disposed: 0, families: {} };
+    errorCheckMs: 0, maxErrorCheckMs: 0, elapsedMs: 0, visibleMs: 0, hiddenMs: 0, disposed: 0, families: {},
+    waveLatency: [], droppedWaveLatency: 0, queuePolicy: dependencyId === 'initial' ? 'combined-source-size' : 'staged', deduplicatedJobs: 0 };
   const history = GRAPHICS_STARTUP.titlePreparations ||= [];
   history.push(receipt);
   if (history.length > 8) history.shift();
@@ -245,10 +389,23 @@ async function prepareTitleProgramJobs(inventory, stages, generation, dependency
   receipt.supported = true;
   GRAPHICS_STARTUP.titlePreparing = true;
   const message = document.getElementById?.('loadmsg');
-  if (message) message.textContent = 'Preparing the first view';
-  const pending = new Map(), initialTarget = sceneRT;
-  let timer = null, wake = null, lost = false, stale = false, avatarJob = null, dependencies = null;
+  if (message && dependencyId !== 'initial' && message.textContent !== 'Preparing the first view') message.textContent = 'Preparing the first view';
+  const pending = new Map(), entryInitializers = [], initialTarget = sceneRT;
+  let timer = null, wake = null, lost = false, stale = false, avatarJob = null, dependencies = null, mainSnapshots = null;
+  let idlePollMs = TITLE_COMPILE_LIMITS.pollMs, idleWaiting = false;
+  const materialJobs = new Map();
   let clockAt = started, visibleMs = 0, wasHidden = !!document.hidden;
+  let waveLatency = null, wavePollAt = null;
+  let loadingProgressState = '';
+  const loadingProgress = (index, total, clear = false) => {
+    if (dependencyId !== 'initial' || typeof titleLoadingProgress !== 'function') return;
+    const phase = clear ? 'clear' : index < total ? 'preparing' : 'waiting';
+    const current = phase === 'preparing' ? Math.max(1, index) : 0;
+    const state = phase + ':' + current + ':' + total;
+    if (state === loadingProgressState) return;
+    titleLoadingProgress({ generation, phase, current, total });
+    loadingProgressState = state;
+  };
   // Driver work may be throttled in a background tab. Spend deadlines only
   // while visible; context loss and genuine GL/link failures remain fatal.
   const visibleElapsed = () => {
@@ -259,25 +416,67 @@ async function prepareTitleProgramJobs(inventory, stages, generation, dependency
     clockAt = now; wasHidden = hiddenNow;
     return visibleMs;
   };
-  const invalidate = reason => { stale = true; receipt.reason ||= reason; resume(); };
+  // Diagnostic timestamps are observations, not driver completion times. Keep
+  // them free of GPU objects and bounded independently of the finite job list.
+  // Reading this clock must not change visibility accounting or any deadline.
+  const observedVisible = () => visibleMs + (!wasHidden && !document.hidden ? Math.max(0, performance.now() - clockAt) : 0);
+  const startWaveLatency = () => {
+    if (waveLatency) return;
+    waveLatency = { wave: receipt.waves + 1, startMs: performance.now() - started, visibleStartMs: observedVisible(),
+      elapsedMs: 0, visibleMs: 0, preparedJobs: 0, newPrograms: 0, completedPrograms: 0, disposedPrograms: 0,
+      firstProgramQueuedMs: null, lastProgramQueuedMs: null, lastPreparedMs: null, sealedMs: null,
+      firstObservedReadyMs: null, lastObservedReadyMs: null, polls: 0, maxObservedPollGapMs: 0,
+      timerSchedules: 0, timerCallbacks: 0, timerLateMs: 0, maxTimerLateMs: 0, validationMs: 0,
+      requestedPollWaitMs: 0, maxRequestedPollWaitMs: 0, backoffWaits: 0, budgetClippedWaits: 0,
+      reflectedPrograms: 0, reflectionMs: 0, outcome: 'preparing', families: {}, programs: [] };
+    wavePollAt = null;
+    if (receipt.waveLatency.length < 128) receipt.waveLatency.push(waveLatency);
+    else receipt.droppedWaveLatency++;
+  };
+  const finishWaveLatency = outcome => {
+    if (!waveLatency) return;
+    waveLatency.elapsedMs = Math.max(0, performance.now() - started - waveLatency.startMs);
+    waveLatency.visibleMs = Math.max(0, observedVisible() - waveLatency.visibleStartMs);
+    waveLatency.outcome = outcome;
+    waveLatency = null; wavePollAt = null;
+  };
+  const invalidate = reason => { stale = true; receipt.reason ||= reason; loadingProgress(0, 0, true); resume(); };
   const resume = () => {
+    idlePollMs = TITLE_COMPILE_LIMITS.pollMs; idleWaiting = false;
     if (timer !== null) clearTimeout(timer);
     timer = null;
     if (wake) { const resolve = wake; wake = null; resolve(); }
   };
   const hidden = () => { visibleElapsed(); if (document.hidden) invalidate('visibility'); else resume(); };
   const resized = () => invalidate('resize');
-  const contextLost = () => { lost = true; resume(); };
+  const contextLost = () => { lost = true; loadingProgress(0, 0, true); resume(); };
   const active = () => {
     if (lost) throw new Error('Graphics stopped while preparing title programs.');
     titleAssertActive();
+  };
+  const dependenciesCurrent = () => {
+    const checkStarted = performance.now();
+    try { return dependencies.current(); }
+    finally {
+      const ms = performance.now() - checkStarted; receipt.dependencyChecks++; receipt.dependencyCheckMs += ms;
+      receipt.maxDependencyCheckMs = Math.max(receipt.maxDependencyCheckMs, ms);
+    }
+  };
+  const mainSnapshotsCurrent = () => {
+    const checkStarted = performance.now();
+    try { return mainSnapshots(); }
+    finally {
+      const ms = performance.now() - checkStarted; receipt.mainSnapshotChecks++; receipt.mainSnapshotCheckMs += ms;
+      receipt.maxMainSnapshotCheckMs = Math.max(receipt.maxMainSnapshotCheckMs, ms);
+    }
   };
   const changed = () => {
     visibleElapsed();
     if (document.hidden) invalidate('visibility');
     if (TITLE_RESIZE_PENDING || resizeTimer || sceneRT !== initialTarget) invalidate('resize');
     if (avatarJob && (SHADOW.rt !== avatarJob.target || INDOOR.on)) invalidate('avatar-shadow');
-    if (dependencies && !dependencies.current()) invalidate('dependencies');
+    if (dependencies && !dependenciesCurrent()) invalidate('dependencies');
+    if (mainSnapshots && !mainSnapshotsCurrent()) invalidate('main-dependencies');
     if (TITLE_WARM_GENERATION !== generation || GAME.started) invalidate('generation');
   };
   const errors = () => {
@@ -287,11 +486,38 @@ async function prepareTitleProgramJobs(inventory, stages, generation, dependency
     active();
     const checked = performance.now() - checkStarted;
     receipt.errorCheckMs += checked; receipt.maxErrorCheckMs = Math.max(receipt.maxErrorCheckMs, checked);
+    if (waveLatency) waveLatency.validationMs += checked;
     if (found.length) throw new Error('GL errors while preparing title programs: ' + found.join(', '));
   };
-  const pause = () => new Promise(resolve => {
+  const pause = requestedMs => new Promise(resolve => {
     wake = resolve;
-    timer = setTimeout(() => { timer = null; wake = null; resolve(); }, TITLE_COMPILE_LIMITS.pollMs);
+    const visibleNow = visibleElapsed();
+    let remaining = TITLE_COMPILE_LIMITS.totalMs - visibleNow;
+    for (const job of pending.values()) remaining = Math.min(remaining, TITLE_COMPILE_LIMITS.programMs - (visibleNow - job.queuedVisibleMs));
+    // A hidden interval spends no deadline. Listener wakes still cancel this
+    // timer immediately; every resumed turn validates before doing more work.
+    const delay = document.hidden ? requestedMs : Math.max(0, Math.min(requestedMs, remaining));
+    const clipped = delay < requestedMs, backedOff = delay > TITLE_COMPILE_LIMITS.pollMs;
+    receipt.scheduledPollWaits++; receipt.requestedPollWaitMs += delay;
+    receipt.maxRequestedPollWaitMs = Math.max(receipt.maxRequestedPollWaitMs, delay);
+    if (backedOff) receipt.backoffWaits++;
+    if (clipped) receipt.budgetClippedWaits++;
+    const expectedAt = performance.now() + delay, scheduledWave = waveLatency;
+    if (scheduledWave) {
+      scheduledWave.requestedPollWaitMs += delay;
+      scheduledWave.maxRequestedPollWaitMs = Math.max(scheduledWave.maxRequestedPollWaitMs, delay);
+      if (backedOff) scheduledWave.backoffWaits++;
+      if (clipped) scheduledWave.budgetClippedWaits++;
+    }
+    if (scheduledWave) scheduledWave.timerSchedules++;
+    timer = setTimeout(() => {
+      if (scheduledWave) {
+        const late = Math.max(0, performance.now() - expectedAt);
+        scheduledWave.timerCallbacks++;
+        scheduledWave.timerLateMs += late; scheduledWave.maxTimerLateMs = Math.max(scheduledWave.maxTimerLateMs, late);
+      }
+      timer = null; wake = null; resolve();
+    }, delay);
   });
   document.addEventListener('visibilitychange', hidden);
   window.addEventListener('resize', resized);
@@ -300,10 +526,15 @@ async function prepareTitleProgramJobs(inventory, stages, generation, dependency
     active(); changed(); errors();
     const jobs = [], inventoryStarted = performance.now();
     try {
-      if (dependencyId) {
+      if (dependencyId && dependencyId !== 'initial') {
         dependencies = dependencyId === 'entry' ? titleEntryJobs(inventory, receipt, weatherResources) : titleDependencyJobs(dependencyId, inventory, receipt);
         jobs.push(...dependencies.jobs);
       } else {
+      if (dependencyId === 'initial') {
+        dependencies = titleEntryJobs(inventory, receipt, weatherResources);
+        for (const job of dependencies.jobs) { job.entryPreparation = true; jobs.push(job); }
+      }
+      const mainStart = jobs.length;
       const allowed = new Set(inventory.renderables), seen = new Set();
       const priority = id => id === 'terrain' ? 0 : id === 'structures' ? 1 : id === 'crowds-1' ? 2 : 3;
       const ordered = stages.map(([id, members], index) => ({ id, members, index }))
@@ -335,27 +566,41 @@ async function prepareTitleProgramJobs(inventory, stages, generation, dependency
       avatarJob = titleAvatarShadowJob();
       if (avatarJob) {
         const human = jobs.findIndex(job => job.family === 'crowds-1');
-        jobs.splice(human < 0 ? 0 : human, 0, avatarJob);
+        jobs.splice(human < 0 ? mainStart : human, 0, avatarJob);
         receipt.families['avatar-shadow'] = { jobs: 1, prepared: 0, programs: 0 };
       }
+      if (dependencyId === 'initial') mainSnapshots = titleInitialSnapshots(jobs.slice(mainStart));
       }
+      for (const job of jobs) {
+        const peers = materialJobs.get(job.material) || [];
+        peers.push(job); materialJobs.set(job.material, peers);
+      }
+      if (dependencyId === 'initial') jobs.splice(0, jobs.length, ...titleInitialOrder(jobs, receipt));
     } finally {
       receipt.inventoryMs = performance.now() - inventoryStarted;
     }
     receipt.avatarShadowQueued = !!avatarJob;
     receipt.eligibleJobs = jobs.length;
+    if (!stale) loadingProgress(0, jobs.length);
     let index = 0, wavePrograms = 0, waveStarted = false, waveSealed = false;
-    while (index < jobs.length || pending.size || waveStarted) {
+    while (index < jobs.length || pending.size || entryInitializers.length || waveStarted) {
       const turnStarted = performance.now();
-      let shouldPause = false;
+      let shouldPause = false, deferAdmission = false, reflected = 0, progressed = false, pauseMs = TITLE_COMPILE_LIMITS.pollMs;
       try {
         active(); changed();
         const pollStarted = performance.now();
+        if (pending.size && waveLatency) {
+          waveLatency.polls++;
+          if (wavePollAt !== null) waveLatency.maxObservedPollGapMs = Math.max(waveLatency.maxObservedPollGapMs, pollStarted - wavePollAt);
+          wavePollAt = pollStarted;
+        }
         for (const [program, job] of pending) {
           active();
           if (!program.program) {
+            if (job.observation) job.observation.outcome = 'disposed';
             if (!stale) throw new Error('A required title program was disposed before completion.');
-            receipt.disposed++; pending.delete(program); continue;
+            receipt.disposed++; if (waveLatency) waveLatency.disposedPrograms++;
+            pending.delete(program); progressed = true; continue;
           }
           // Check availability before visible-time deadlines. Context loss
           // reports KHR completion=true, so reject it before accepting a result.
@@ -364,10 +609,20 @@ async function prepareTitleProgramJobs(inventory, stages, generation, dependency
             const linked = gl.getProgramParameter(program.program, gl.LINK_STATUS);
             active();
             if (linked !== true) {
+              if (job.observation) job.observation.outcome = 'failed-link';
               receipt.failedProgram = { id: program.id, family: job.family, linked };
               throw new Error('A required title program failed to link.');
             }
+            if (waveLatency) {
+              const observedAt = performance.now() - started - waveLatency.startMs;
+              waveLatency.firstObservedReadyMs ??= observedAt;
+              waveLatency.lastObservedReadyMs = observedAt;
+              waveLatency.completedPrograms++;
+              if (job.observation) { job.observation.observedReadyMs = observedAt; job.observation.outcome = 'linked'; }
+            }
+            if (job.entryReflection && !stale) entryInitializers.push({ program, handle: program.program, family: job.family });
             pending.delete(program);
+            progressed = true;
           }
         }
         const polled = performance.now() - pollStarted;
@@ -379,24 +634,70 @@ async function prepareTitleProgramJobs(inventory, stages, generation, dependency
         if (!pending.size && (!waveStarted || waveSealed)) {
           // Observe queued GL errors before another wave adds driver work.
           errors();
-          if (stale) { receipt.outcome = 'stale'; receipt.stale = true; return receipt; }
-          if (index === jobs.length) break;
-          wavePrograms = 0; waveStarted = false; waveSealed = false;
+          if (stale) { entryInitializers.length = 0; finishWaveLatency('stale'); receipt.outcome = 'stale'; receipt.stale = true; return receipt; }
+          // r160 defers its original diagnostics and uniform/attribute lookup
+          // until getUniforms(). Run that same initializer only for newly
+          // acquired entry programs after the entire wave has linked. Never
+          // query reflection while sibling compiler work is pending. A stale
+          // generation retains the normal first-draw initializer fallback.
+          while (entryInitializers.length && reflected < TITLE_COMPILE_LIMITS.perTurn) {
+            active(); changed(); if (stale) break;
+            // Reflection is an optional first-use optimization. Do not start
+            // another initializer after the visible preparation budget; keep
+            // the original completion-before-deadline / first-draw fallback.
+            if (visibleElapsed() >= TITLE_COMPILE_LIMITS.totalMs) {
+              receipt.deferredReflections += entryInitializers.length; entryInitializers.length = 0; break;
+            }
+            const { program, handle, family } = entryInitializers[0];
+            if (!handle || program.program !== handle || !renderer.info.programs.includes(program)) throw new Error('A required entry program was disposed before reflection.');
+            if (typeof program.getUniforms !== 'function' || typeof program.getAttributes !== 'function') throw new Error('Required entry program reflection is unavailable.');
+            const debug = renderer.debug;
+            if (!debug) throw new Error('Required entry program diagnostics are unavailable.');
+            const originalShaderCheck = debug.checkShaderErrors;
+            const reflectionStarted = performance.now();
+            try { debug.checkShaderErrors = true; program.getUniforms(); }
+            finally {
+              debug.checkShaderErrors = originalShaderCheck;
+              const ms = performance.now() - reflectionStarted;
+              receipt.reflectionMs += ms; if (waveLatency) waveLatency.reflectionMs += ms;
+              if (ms > receipt.maxSingleReflectionMs) {
+                receipt.maxSingleReflectionMs = ms; receipt.slowestReflection = { programId: program.id, family, ms };
+              }
+            }
+            active(); changed();
+            if (program.program !== handle || !renderer.info.programs.includes(program)) throw new Error('A required entry program was disposed during reflection.');
+            if (program.diagnostics?.runnable === false) throw new Error('A required entry program failed its original diagnostics.');
+            errors();
+            entryInitializers.shift(); reflected++; receipt.reflectedPrograms++;
+            if (waveLatency) waveLatency.reflectedPrograms++;
+            if (performance.now() - turnStarted >= TITLE_COMPILE_LIMITS.turnMs) { receipt.reflectionBudgetYields++; deferAdmission = true; break; }
+          }
+          if (entryInitializers.length && visibleElapsed() >= TITLE_COMPILE_LIMITS.totalMs) {
+            receipt.deferredReflections += entryInitializers.length; entryInitializers.length = 0;
+          }
+          receipt.maxReflectionsPerTurn = Math.max(receipt.maxReflectionsPerTurn, reflected);
+          if (stale) { entryInitializers.length = 0; finishWaveLatency('stale'); receipt.outcome = 'stale'; receipt.stale = true; return receipt; }
+          if (!entryInitializers.length) {
+            finishWaveLatency('drained');
+            if (index === jobs.length) break;
+            wavePrograms = 0; waveStarted = false; waveSealed = false;
+          }
         }
-        if (visibleNow >= TITLE_COMPILE_LIMITS.totalMs) throw new Error('Title program preparation exceeded its time budget.');
+        if (visibleElapsed() >= TITLE_COMPILE_LIMITS.totalMs) throw new Error('Title program preparation exceeded its time budget.');
         let prepared = 0;
         // Cache hits do not consume a wave's program capacity. Fill across
         // bounded turns, counting even completed handles in this wave; partial
         // completion cannot free slots or permit a new wave before draining.
-        while (!waveSealed && !stale && index < jobs.length && prepared < TITLE_COMPILE_LIMITS.perTurn) {
+        while (!deferAdmission && !waveSealed && !stale && index < jobs.length && prepared + reflected < TITLE_COMPILE_LIMITS.perTurn) {
           const job = jobs[index];
           if (wavePrograms + job.cost > TITLE_COMPILE_LIMITS.pending) { waveSealed = true; break; }
           active(); changed();
           if (stale) break;
-          const eligible = job.dependency ? dependencies.current() && titleCompileSupported(job.object, job.material)
+          const eligible = job.dependency ? dependenciesCurrent() && titleCompileSupported(job.object, job.material)
             && job.material.visible !== false && job.material.version === job.version
             : job.avatarShadow ? SHADOW.rt === job.target && !INDOOR.on && job.object.parent === job.targetScene && job.object.userData.src === crowdHuman.mesh : titleCompileEligible(job.object);
           if (!eligible || job.object.geometry !== job.geometry || (!job.postDependency && job.object.material !== job.material)) { invalidate('inventory'); break; }
+          startWaveLatency();
           const before = new Set(renderer.info.programs), saved = gpuDiagCaptureRenderer(), side = job.material.side, originalMaterial = job.object.material;
           const queuedAt = performance.now(), queuedVisibleMs = visibleElapsed();
           // Flat original leaves preserve the renderer's real flags and cache keys.
@@ -411,7 +712,9 @@ async function prepareTitleProgramJobs(inventory, stages, generation, dependency
             } finally {
               job.material.side = side;
               if (job.postDependency) job.object.material = originalMaterial;
-              if (compiled && job.dependency) job.version = job.material.version;
+              if (compiled && (job.dependency || dependencyId === 'initial')) {
+                for (const peer of materialJobs.get(job.material)) peer.version = job.material.version;
+              }
               // A failed r160 compile can leave its render-state stack dirty.
               // Restore CPU values only, then fail without retrying that renderer.
               gpuDiagRestoreRenderer(saved, compiled && !lost);
@@ -427,8 +730,27 @@ async function prepareTitleProgramJobs(inventory, stages, generation, dependency
           active();
           const added = renderer.info.programs.filter(program => !before.has(program));
           if (added.length > job.cost) throw new Error('Title compilation exceeded its reserved program window.');
-          for (const program of added) pending.set(program, { queuedVisibleMs, family: job.family });
+          for (const program of added) {
+            // The cap bounds these numeric signatures too. Original shader text
+            // and renderer resources stay out of retained diagnostic history.
+            const observation = { programId: program.id, family: job.family, objectId: job.object.id, materialId: job.material.id,
+              geometryId: job.geometry.id, kind: job.object.isInstancedMesh ? 'instanced-mesh' : job.geometry.isInstancedBufferGeometry ? 'instanced-buffer' : 'mesh',
+              instances: job.object.isInstancedMesh ? job.object.count : Number.isFinite(job.geometry.instanceCount) ? job.geometry.instanceCount : null,
+              vertexChars: job.material.vertexShader?.length || 0, fragmentChars: job.material.fragmentShader?.length || 0,
+              queuedMs: performance.now() - started - waveLatency.startMs, observedReadyMs: null, outcome: 'pending' };
+            waveLatency.programs.push(observation);
+            pending.set(program, { queuedVisibleMs, family: job.family, observation,
+              entryReflection: dependencyId === 'entry' || !!job.entryPreparation });
+          }
           wavePrograms += added.length;
+          waveLatency.preparedJobs++; waveLatency.newPrograms += added.length;
+          waveLatency.lastPreparedMs = performance.now() - started - waveLatency.startMs;
+          if (added.length) {
+            waveLatency.firstProgramQueuedMs ??= waveLatency.lastPreparedMs;
+            waveLatency.lastProgramQueuedMs = waveLatency.lastPreparedMs;
+          }
+          const latencyFamily = waveLatency.families[job.family] ||= { jobs: 0, programs: 0 };
+          latencyFamily.jobs++; latencyFamily.programs += added.length;
           receipt.maxWavePrograms = Math.max(receipt.maxWavePrograms, wavePrograms);
           receipt.newPrograms += added.length;
           receipt.families[job.family].prepared++;
@@ -441,6 +763,7 @@ async function prepareTitleProgramJobs(inventory, stages, generation, dependency
           if (performance.now() - turnStarted >= TITLE_COMPILE_LIMITS.turnMs) { receipt.budgetYields++; break; }
         }
         receipt.maxPreparesPerTurn = Math.max(receipt.maxPreparesPerTurn, prepared);
+        if (waveSealed && waveLatency) waveLatency.sealedMs ??= performance.now() - started - waveLatency.startMs;
         if (prepared) {
           if (!waveStarted) { receipt.waves++; waveStarted = true; }
           active(); const flushStarted = performance.now(); gl.flush();
@@ -449,11 +772,19 @@ async function prepareTitleProgramJobs(inventory, stages, generation, dependency
           active();
           if (!pending.size) errors();
         }
-        shouldPause = index < jobs.length || pending.size;
+        shouldPause = index < jobs.length || pending.size || entryInitializers.length;
+        if (!stale && waveSealed && pending.size) {
+          // Only an unchanged, sealed wave can idle. Admission, reflection and
+          // any observed completion reset the next wait to the original 10 ms.
+          idlePollMs = idleWaiting && !progressed && !prepared && !reflected
+            ? Math.min(TITLE_COMPILE_LIMITS.idlePollMaxMs, idlePollMs * 2) : TITLE_COMPILE_LIMITS.pollMs;
+          idleWaiting = true; pauseMs = idlePollMs;
+        } else { idlePollMs = TITLE_COMPILE_LIMITS.pollMs; idleWaiting = false; }
+        if (!stale) loadingProgress(index, jobs.length);
       } finally {
         receipt.maxFullTurnMs = Math.max(receipt.maxFullTurnMs, performance.now() - turnStarted);
       }
-      if (shouldPause) await pause();
+      if (shouldPause) await pause(pauseMs);
     }
     active(); changed(); errors();
     if (stale) { receipt.outcome = 'stale'; receipt.stale = true; return receipt; }
@@ -467,6 +798,8 @@ async function prepareTitleProgramJobs(inventory, stages, generation, dependency
     };
     throw error;
   } finally {
+    loadingProgress(0, 0, true);
+    finishWaveLatency(receipt.outcome === 'failed' ? 'failed' : receipt.stale ? 'stale' : 'drained');
     if (timer !== null) clearTimeout(timer);
     timer = null; wake = null;
     document.removeEventListener('visibilitychange', hidden);

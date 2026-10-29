@@ -7,7 +7,7 @@ const playerSource=read('09_player.js');
 const keydown=parse(playerSource,{ecmaVersion:'latest'}).body.find(n=>n.type==='ExpressionStatement'&&n.expression.callee?.object?.name==='window'&&n.expression.callee?.property?.name==='addEventListener'&&n.expression.arguments[0]?.value==='keydown').expression.arguments[1];
 const code=pick('09_player.js',['currentInteraction','playerInteract','bountyCampInfo','chooseBounty','typing','gameplayKeyIgnored','gameplayControlKey'])+'\n'
  +pick('10e_guide.js',['guideCampResidents'])+'\n'+pick('10_ui.js',['bindHUD','dialogReturnFocus','openHerald','closeDialog'])+'\n'
- +pick('10c_lore.js',['LORE_OBSERVATIONS','loreObservationScope','loreObservationCurrent','loreObservationEvidence','loreObserve','PATH_STEPS','PATH_BY_ID','pathDone','pathPay','pathComplete','loreWatch','updateLore'])+'\n'
+ +pick('10c_lore.js',['LORE_OBSERVATIONS','loreObservationScope','loreObservationCurrent','loreObservationEvidence','loreObserve','PATH_STEPS','PATH_BY_ID','pathDone','pathPay','pathComplete','loreWatch','loreFinishNote','loreUpdateNote','updateLore'])+'\n'
  +pick('14m_liveplay.js',['NET_HUMAN_PLAY_MS','NET_HUMAN_START_MS','NET_HUMAN_PLAY','netHumanEligible','netHumanLive','netHumanInput','netHumanSync'])
  +'\nglobalThis.keydown='+playerSource.slice(keydown.start,keydown.end)+';';
 // CPU stand-in exercises actual dispatch/lease code; browser trust is verified by
@@ -26,7 +26,7 @@ export function fixture(){
   contains(value){return value===this||value.parent===this;},getClientRects(){return[1];},focus(){}};nodes.set(id,n);}return nodes.get(id);};
  const player={id:1,name:'Fast path fixture',alive:true,faction:0,cls:'warrior',x:0,y:0,z:0,carrying:null,hp:100,maxHp:100,combatUntil:-1};
  const herald={id:3,name:'Fixture Herald',x:0,z:1},mob={id:2,alive:true,level:1,mobType:'wolf',name:'wolf',camp:0};
- const LORE={ev:{},watchT:.25,bounty:null,potions:3,carried:null,doors:new Map(),elites:new Set(),loot:new Set(),queue:[],mwNames:new Set(),keepRealm:[],campN:0,hudT:.3,placeT:.25,noteUntil:Infinity};
+ const LORE={ev:{},watchT:.25,bounty:null,potions:3,carried:null,doors:new Map(),elites:new Set(),loot:new Set(),queue:[],noteActive:null,noteOwner:null,noteReplay:new Set(),mwNames:new Set(),keepRealm:[],campN:0,hudT:.3,placeT:.25,noteUntil:Infinity};
  const c={console,Map,Set,Object,Array,Math,Number,performance:{now:()=>clock},LORE,UI:{modal:null},CAPTURE:{on:false},
   GAME:{started:true,ready:true,t:0,player,prog:{level:1,xp:0,rp:0,bounty:null,lore:{done:[],seen:['loot']}}},
   REALMS:[{name:'Fixture',townName:'Fixture Town',herald,merchant:null,town:{x:100,z:100},musterSite:{x:200,z:200,r:10}}],

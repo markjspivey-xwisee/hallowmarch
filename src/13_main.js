@@ -5,6 +5,7 @@ quality.auto = !BOOT_SAFE;
 GAME.ready = false;
 let TITLE_FRAME_PROMISE = null, TITLE_FRAME_DIRTY = false, TITLE_FRAME_FAILED = false;
 let TITLE_RESIZE_PENDING = false, TITLE_WARMED = false, TITLE_WARM_GENERATION = 0, TITLE_START_PROMISE = null;
+let TITLE_LOADING_GENERATION = 0;
 renderer.info.autoReset = false;
 const HM_ERRORS = [];
 function reportError(err) {
@@ -207,15 +208,23 @@ function titleAssertActive() {
 }
 function titleGraphicsBusy(active) {
   const loadingBar = document.getElementById('loadbar')?.parentElement;
-  const hint = document.getElementById('loadhint');
+  const hint = document.getElementById('load-hint');
   if (loadingBar && !GAME.ready) {
     loadingBar.setAttribute('aria-busy', String(active));
     if (active) loadingBar.removeAttribute('aria-valuenow');
   }
   if (hint) hint.hidden = !active || GAME.ready;
+  if (!active) {
+    const detail = document.getElementById('load-detail');
+    if (detail) { detail.hidden = true; detail.textContent = ''; }
+    TITLE_LOADING_GENERATION = 0;
+  } else if (!GAME.ready) {
+    const message = document.getElementById('loadmsg');
+    if (message && message.textContent !== 'Preparing graphics for your device') message.textContent = 'Preparing graphics for your device';
+  }
   const title = document.getElementById('title');
   if (!title) return;
-  title.setAttribute('aria-busy', String(active));
+  title.setAttribute('aria-busy', String(active && !(typeof titleDraftActive === 'function' && titleDraftActive())));
   let status = document.getElementById('title-graphics-status');
   if (active && GAME.ready) {
     if (!status) {
@@ -224,6 +233,30 @@ function titleGraphicsBusy(active) {
     }
     status.textContent = 'Preparing the resized view. Please wait.';
   } else if (status) status.remove();
+}
+function titleLoadingProgress({ generation, phase, current, total }) {
+  const detail = document.getElementById('load-detail');
+  const clear = () => {
+    if (detail) {
+      if (!detail.hidden) detail.hidden = true;
+      if (detail.textContent) detail.textContent = '';
+    }
+    TITLE_LOADING_GENERATION = 0;
+  };
+  if (phase === 'clear') { if (generation === TITLE_LOADING_GENERATION) clear(); return; }
+  if (generation !== TITLE_WARM_GENERATION) return;
+  if (GAME.ready || GAME.started) { clear(); return; }
+  TITLE_LOADING_GENERATION = generation;
+  const admitting = phase === 'preparing';
+  const message = document.getElementById('loadmsg');
+  const text = admitting ? 'Preparing graphics for your device' : 'Waiting for the view to finish preparing';
+  if (message && message.textContent !== text) message.textContent = text;
+  if (detail) {
+    const count = admitting && Number.isInteger(current) && Number.isInteger(total) && current >= 1 && current <= total;
+    const text = count ? 'Preparation step ' + current + ' of ' + total : '';
+    if (detail.textContent !== text) detail.textContent = text;
+    if (detail.hidden === count) detail.hidden = !count;
+  }
 }
 // Submit only existing production resources. Unlike renderer.compile(), a
 // restricted render does not traverse invisible families and link their shaders.
@@ -328,17 +361,15 @@ function renderTitleFrame() {
         const stages = [['post', new Set()], ...families];
         let resized = false;
         rippleAllocate();
-        const entryPreparation = await prepareTitleEntryPrograms(inventory, TITLE_WARM_GENERATION, wxPrepareCloudResources());
+        const entryPreparation = await prepareTitleInitialPrograms(inventory, stages, TITLE_WARM_GENERATION, wxPrepareCloudResources());
         captureTitleResizeRequest();
         if (entryPreparation.stale || TITLE_RESIZE_PENDING) { TITLE_FRAME_DIRTY = true; continue; }
         for (const [id, members] of stages) {
           await waitForTitleVisibility();
           titleAssertActive();
           if (GAME.started) return false;
-          if (id === 'post' || id === 'sky' || id === 'terrain') {
-            const preparation = id === 'terrain'
-              ? await prepareTitlePrograms(inventory, stages, TITLE_WARM_GENERATION)
-              : await prepareTitleDependencies(id, inventory, TITLE_WARM_GENERATION);
+          if (id === 'post' || id === 'sky') {
+            const preparation = await prepareTitleDependencies(id, inventory, TITLE_WARM_GENERATION);
             captureTitleResizeRequest();
             if (preparation.stale || TITLE_RESIZE_PENDING) { TITLE_FRAME_DIRTY = true; resized = true; break; }
           }
@@ -367,6 +398,7 @@ function renderTitleFrame() {
     }
     return true;
   })().catch(error => {
+    if (typeof titleDraftCancel === 'function') titleDraftCancel();
     TITLE_FRAME_DIRTY = false; TITLE_FRAME_FAILED = true;
     GRAPHICS_STARTUP.stopped = true; GRAPHICS_STARTUP.titleError = String(error.message || error); GAME.ready = false;
     if (!GRAPHICS_STARTUP.titleFailure) GRAPHICS_STARTUP.titleFailure = {
@@ -514,7 +546,7 @@ async function boot() {
   await loadStep(0.34, 'Planting the forests', () => bootSequence([buildTrees, buildNearTrees, buildRocks, buildHeroTree, buildCrags])); // [land] buildCrags (03c_land.js)
   await loadStep(0.48, 'Raising the keeps', () => bootSequence([buildStructuresChunks, buildBarrowSurface, buildSurvival, buildBoats])); // [survival] plants, workstations (before the grass reads the cover map); [water2] jetties and boats (07e_boats.js)
   await loadStep(0.54, 'Digging the barrow', () => buildDungeon());
-  await loadStep(0.58, 'Sowing the meadows', () => bootSequence([buildGrass, buildFlowers, buildNature, buildFarming])); // [farming] beds, town strips, wild herbs (08h_farming.js)
+  await loadStep(0.58, 'Sowing the meadows', () => bootSequence([buildGrass, buildFlowers, buildNature, buildFarming, prepareMeadowRGBChunks])); // [farming] beds, town strips, wild herbs; prepare deterministic meadow RGB before first live use
   await loadStep(0.63, 'Raising the mountains', () => mtnHeightsChunks()); // [heights] the whole mountain shaped once everything is placed, hardy trees, the crags (03d_heights.js)
   await loadStep(0.68, 'Mustering the realms', () => bootSequence([buildCrowds, buildParticles, buildSpellFX, buildFireflies, buildWeather, buildAmbientLife, buildDragon, buildLootMeshes, initCamps, initTowns, initMerchants, initWar, initWildlife, initAnimals, spawnDragon, initBarrow]));
   GAME.built = true;
@@ -533,7 +565,10 @@ async function boot() {
   camera.updateMatrixWorld();
   // Isolation owns every draw and never enters ordinary compilation or the game loop.
   if (await graphicsRunDiagnostic()) return;
-  await loadStep(0.84, 'Drawing the map', () => bootSequence([buildMapImage, buildDungeonMap]));
+  await loadStep(0.82, 'Preparing the sounds', () => prepareSoundBuffersChunks());
+  await loadStep(0.83, 'Preparing the ground', () => prepareGroundAOChunks());
+  if (typeof prepareTitleDraft === 'function') prepareTitleDraft(save);
+  await loadStep(0.84, 'Drawing the map', () => bootSequence([buildMapImageChunks, buildDungeonMapChunks]));
   await loadStep(0.9, 'Preparing the first view', () => {
     updateCamera(0.016);
     camera.updateMatrixWorld();
@@ -544,13 +579,17 @@ async function boot() {
   window.__hm.ready = true;
   $('loadbar').style.width = '100%';
   $('loadbar').parentElement?.setAttribute('aria-valuenow', '100');
-  setupTitle(save);
+  const drafted = typeof finishTitleDraft === 'function' && finishTitleDraft();
+  if (!drafted) setupTitle(save);
   graphicsRecoveryNotice();
   graphicsCheckpoint('Ready');
   const L = $('loading');
-  L.style.opacity = 0;
-  L.style.pointerEvents = 'none'; // [v9] a fading veil takes no taps
-  setTimeout(() => { L.hidden = true; }, 850);
+  if (drafted) L.hidden = true; // Reveal only the now-checked world behind the existing form.
+  else {
+    L.style.opacity = 0;
+    L.style.pointerEvents = 'none'; // [v9] a fading veil takes no taps
+    setTimeout(() => { L.hidden = true; }, 850);
+  }
   lastNow = performance.now();
   requestAnimationFrame(frame);
 }
@@ -1058,6 +1097,7 @@ window.__hm = {
 window.__hm.water = WATER_DEBUG; // [water] test hooks (07b_swim.js)
 
 function bootStartFailure(err) {
+  if (typeof titleDraftCancel === 'function') titleDraftCancel();
   if (GRAPHICS_CONTEXT_LOST) return;
   reportError(err);
   // Title rendering already owns its detailed, stopped recovery panel.

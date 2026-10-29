@@ -3,6 +3,7 @@
 /* ================================================================== */
 const $ = (id) => document.getElementById(id);
 const UI = { modal: null, realm: 0, cls: 'warrior', frame: 0, npPool: [], flPool: [], floaters: [], mapImg: null, logOpen: true, errorT: 0 };
+let TITLE_DRAFT = null; // Private owner/session bindings never belong to the public UI/debug state.
 const REALM_BLURB = [
   'Stone keeps and slate roofs on rolling downs and wheat fields. Its knights guard the Grail.',
   'Green glens, standing stones and ringforts of mossy stone. Its people keep Lia Fáil, the stone that names kings.',
@@ -12,6 +13,142 @@ const REALM_BLURB = [
 /* ------------------------------------------------------------------ */
 /* title screen                                                        */
 /* ------------------------------------------------------------------ */
+function titleEntryBlocked() {
+  return !GAME.ready || (typeof GRAPHICS_CONTEXT_LOST !== 'undefined' && GRAPHICS_CONTEXT_LOST)
+    || (typeof GRAPHICS_STARTUP !== 'undefined' && GRAPHICS_STARTUP.stopped);
+}
+function titleDraftScope() {
+  return { ref: SAVE.ref, key: SAVE.lsKey, native: SAVE.native, save: SAVE.loaded, char: SAVE.loaded?.char,
+    host: NETWS.host, account: NETWS.acct?.id, profile: NATIVE_PLAYER.profile,
+    did: NATIVE_PLAYER.status?.binding?.subjectDid, pod: NATIVE_PLAYER.status?.binding?.podUrl, preview: NATIVE_PLAYER.draftPreview };
+}
+function titleDraftPreviewCurrent() {
+  const p = NATIVE_PLAYER.draftPreview;
+  const current = !!(p && p.initialization === SAVE.loading && p.initialization.settled && !p.initialization.timedOut
+    && p.session === NATIVE_PLAYER.provisional && p.context === NATIVE_PLAYER.provisionalContext
+    && p.host === NETWS.host && p.account === NETWS.acct?.id && p.status === NATIVE_PLAYER.status
+    && !NETWS.reload && !SAVE.loaded && !SAVE.readConfirmed && !NATIVE_PLAYER.profile
+    && !NATIVE_PLAYER.claimConfirmationPending && !NATIVE_PLAYER.openExistingPending && !NATIVE_PLAYER.claimPendingResume
+    && !p.status.bound && p.status.provisional !== true && nativePlayerCanPlayNow());
+  if (p && !current) NATIVE_PLAYER.draftPreview = null;
+  return current;
+}
+function titleDraftEligible(save) {
+  if (GAME.started || save !== SAVE.loaded || !SAVE.loading?.settled || !saveLoadOwned(SAVE.loading)) return false;
+  // An unbound preview is not a private-absence or admission receipt.
+  if (SAVE.native && titleDraftPreviewCurrent()) return true;
+  if (SAVE.native && (!SAVE.readConfirmed || !NATIVE_PLAYER.status?.verified || NATIVE_PLAYER.switching
+    || NATIVE_PLAYER.claimConfirmationPending || NATIVE_PLAYER.openExistingPending || nativePlayerGuestExpired() || NATIVE_PLAYER.expiredAdventure)) return false;
+  const profile = NATIVE_PLAYER.profile?.status();
+  return !SAVE.native || nativePlayerCanPlayNow() || !!(profile && (!profile.hasRecord || profile.keyPresent && save?.char));
+}
+function titleDraftCurrent(draft) {
+  if (!draft || !titleDraftEligible(draft.scope.save)) return false;
+  const scope = titleDraftScope();
+  return Object.keys(scope).every(key => scope[key] === draft.scope[key]);
+}
+function titleDraftRestore(draft) {
+  draft.stopLayout?.();
+  if (draft.next?.parentNode === draft.parent) draft.parent.insertBefore(draft.loading, draft.next);
+  else draft.parent.appendChild(draft.loading);
+  document.body.classList.remove('title-preparing');
+}
+function titleDraftCancel() {
+  const draft = TITLE_DRAFT;
+  if (!draft) return;
+  TITLE_DRAFT = null;
+  titleDraftRestore(draft);
+  UI.realm = draft.realm; UI.cls = draft.cls;
+  UI.titleSave = null; UI.nameTouched = false;
+  $('name-input').value = '';
+  $('character-create-fields').hidden = true;
+  $('continue').hidden = true;
+  $('title').hidden = true;
+}
+function titleDraftSync() {
+  if (TITLE_DRAFT && (!titleDraftCurrent(TITLE_DRAFT)
+    || (typeof GRAPHICS_CONTEXT_LOST !== 'undefined' && GRAPHICS_CONTEXT_LOST)
+    || (typeof GRAPHICS_STARTUP !== 'undefined' && GRAPHICS_STARTUP.stopped))) titleDraftCancel();
+}
+function titleDraftActive() { return !!TITLE_DRAFT; }
+function titleDraftEditable() {
+  titleDraftSync();
+  return !titleEntryBlocked() || !!(TITLE_DRAFT && titleDraftCurrent(TITLE_DRAFT) && !UI.titleSave?.char);
+}
+function titleDraftObserveLayout(draft) {
+  if (!draft || TITLE_DRAFT !== draft || GAME.ready) return;
+  titleDraftSync();
+  if (TITLE_DRAFT !== draft) return;
+  const field = $('name-input'), viewport = window.visualViewport;
+  let frame = null;
+  const reveal = () => {
+    if (TITLE_DRAFT !== draft || GAME.ready || document.activeElement !== field || field.disabled || field.readOnly || UI.titleSave?.char) return;
+    if (frame !== null) return;
+    frame = requestAnimationFrame(() => {
+      frame = null;
+      titleDraftSync();
+      if (TITLE_DRAFT !== draft || GAME.ready || document.activeElement !== field || field.disabled || field.readOnly) return;
+      const panel = document.querySelector('#create .card-body');
+      if (!panel?.contains(field) || !field.getClientRects().length) return;
+      const box = panel.getBoundingClientRect(), input = field.getBoundingClientRect();
+      const offset = Number.isFinite(viewport?.offsetTop) ? viewport.offsetTop : 0;
+      const height = Number.isFinite(viewport?.height) && viewport.height > 0 ? viewport.height : window.innerHeight;
+      const top = Math.max(box.top, offset) + 8, bottom = Math.min(box.bottom, offset + height) - 8;
+      if (bottom <= top) return;
+      const delta = input.top < top || input.height > bottom - top ? input.top - top : input.bottom > bottom ? input.bottom - bottom : 0;
+      if (delta) panel.scrollTop += delta;
+    });
+  };
+  window.addEventListener('resize', reveal, { passive: true });
+  viewport?.addEventListener('resize', reveal, { passive: true });
+  field.addEventListener('focusin', reveal);
+  draft.stopLayout = () => {
+    window.removeEventListener('resize', reveal);
+    viewport?.removeEventListener('resize', reveal);
+    field.removeEventListener('focusin', reveal);
+    if (frame !== null) cancelAnimationFrame(frame);
+    frame = null;
+  };
+}
+function prepareTitleDraft(save) {
+  if (GAME.ready || TITLE_DRAFT || !titleDraftEligible(save)) return false;
+  if (typeof loreCancelBegin === 'function') loreCancelBegin();
+  if (!UI.titleBound) bindTitle();
+  const loading = $('loading'), parent = loading.parentNode;
+  const draft = { scope: titleDraftScope(), loading, parent, next: loading.nextSibling, realm: UI.realm, cls: UI.cls };
+  TITLE_DRAFT = draft;
+  UI.titleSave = save?.char ? save : null; UI.nameTouched = false;
+  $('name-input').value = ''; // The original default-name draw stays at Ready.
+  if (save?.char) {
+    const c = save.char;
+    UI.realm = c.realm; UI.cls = c.cls;
+    $('continue-desc').textContent = `${c.name}, level ${c.level} ${CLASSES[c.cls].name} of ${REALMS[c.realm].name}. Realm rank ${realmRank(c.rp || 0)}.`;
+    if ($('season-title')) $('season-title').textContent = ''; // Its offline-season calculation stays at Ready.
+  }
+  $('continue').hidden = !save?.char;
+  $('character-create-fields').hidden = !!save?.char;
+  $('btn-dice').disabled = true;
+  document.querySelector('#create .card-foot').prepend(loading);
+  document.body.classList.add('title-preparing');
+  nativePlayerRender();
+  titleDraftSync();
+  if (TITLE_DRAFT !== draft) return false;
+  syncTitle(); $('title').hidden = false;
+  titleDraftObserveLayout(draft);
+  return TITLE_DRAFT === draft;
+}
+function finishTitleDraft() {
+  const draft = TITLE_DRAFT;
+  if (!draft || !titleDraftCurrent(draft)) { titleDraftCancel(); return false; }
+  if (typeof loreCancelBegin === 'function') loreCancelBegin();
+  if (UI.titleSave?.char && $('season-title')) $('season-title').textContent = seasonTitleText(UI.titleSave);
+  const name = randomName(UI.realm); // Same one draw at the original Ready boundary, even for a typed name.
+  if (!UI.nameTouched) $('name-input').value = name;
+  TITLE_DRAFT = null; titleDraftRestore(draft);
+  $('btn-dice').disabled = false;
+  nativePlayerRender(); syncTitle(); $('title').hidden = false;
+  return true;
+}
 function syncTitle() {
   $('realm-pick').querySelectorAll('.realm-card').forEach((b) => { const selected = +b.dataset.realm === UI.realm; b.setAttribute('aria-checked', String(selected)); b.tabIndex = selected ? 0 : -1; });
   $('class-pick').querySelectorAll('.class-card').forEach((b) => { const selected = b.dataset.cls === UI.cls; b.setAttribute('aria-checked', String(selected)); b.tabIndex = selected ? 0 : -1; });
@@ -22,15 +159,15 @@ function bindTitle() {
   const rp = $('realm-pick'), cp = $('class-pick');
   rp.innerHTML = REALMS.map((R) => `<button class="realm-card" type="button" role="radio" data-realm="${R.id}" style="--rc:${R.color}" aria-checked="false"><span class="em">${emblemSvg(R.id, 30)}</span><b>${R.name}</b><small>${['Arthurian', 'Celtic', 'Norse'][R.id]}</small></button>`).join('');
   cp.innerHTML = Object.entries(CLASSES).map(([k, C]) => `<button class="class-card" type="button" role="radio" data-cls="${k}" aria-checked="false"><span class="row">${iconSvg(C.icon, 20)}<b>${C.name}</b></span><span class="role">${C.role}</span></button>`).join('');
-  rp.addEventListener('click', (e) => { const b = e.target.closest('.realm-card'); if (!b) return; audioUnlock(); UI.realm = +b.dataset.realm; if (!UI.nameTouched) $('name-input').value = randomName(UI.realm); syncTitle(); sfx('click'); });
-  cp.addEventListener('click', (e) => { const b = e.target.closest('.class-card'); if (!b) return; audioUnlock(); UI.cls = b.dataset.cls; syncTitle(); sfx('click'); });
+  rp.addEventListener('click', (e) => { const b = e.target.closest('.realm-card'); if (!b || !titleDraftEditable()) return; if (GAME.ready) audioUnlock(); UI.realm = +b.dataset.realm; if (GAME.ready && !UI.nameTouched) $('name-input').value = randomName(UI.realm); syncTitle(); if (GAME.ready) sfx('click'); });
+  cp.addEventListener('click', (e) => { const b = e.target.closest('.class-card'); if (!b || !titleDraftEditable()) return; if (GAME.ready) audioUnlock(); UI.cls = b.dataset.cls; syncTitle(); if (GAME.ready) sfx('click'); });
   rp.addEventListener('keydown', menuRadioKey);
   cp.addEventListener('keydown', menuRadioKey);
-  $('btn-dice').onclick = () => { $('name-input').value = randomName(UI.realm); UI.nameTouched = false; };
-  $('name-input').addEventListener('input', () => { UI.nameTouched = true; });
+  $('btn-dice').onclick = () => { if (titleEntryBlocked()) return; $('name-input').value = randomName(UI.realm); UI.nameTouched = false; };
+  $('name-input').addEventListener('input', () => { if (titleDraftEditable()) UI.nameTouched = true; });
   $('name-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('btn-begin').click(); });
   $('btn-begin').onclick = () => {
-    if (GAME.started) return;
+    if (GAME.started || titleEntryBlocked()) return;
     if (UI.titleSave?.char) {
       audioUnlock();
       void nativePlayerBegin({ ...UI.titleSave.char, fresh: false });
@@ -44,13 +181,14 @@ function bindTitle() {
   };
   $('btn-continue').onclick = () => {
     const s = UI.titleSave;
-    if (GAME.started || !s || !s.char) return;
+    if (GAME.started || titleEntryBlocked() || !s || !s.char) return;
     audioUnlock();
     void nativePlayerBegin({ ...s.char, fresh: false });
   };
   UI.titleBound = true;
 }
 function setupTitle(save) {
+  titleDraftCancel();
   if (typeof loreCancelBegin === 'function') loreCancelBegin(); // A title/account reset cancels the old character's Begin intent.
   if (!UI.titleBound) bindTitle();
   UI.titleSave = save && save.char ? save : null;
@@ -64,6 +202,7 @@ function setupTitle(save) {
     UI.realm = c.realm; UI.cls = c.cls;
   } else $('continue').hidden = true;
   $('name-input').value = randomName(UI.realm);
+  $('btn-dice').disabled = false;
   $('save-note').textContent = nativePlayerSaveMessage();
   nativePlayerRender();
   syncTitle();
@@ -274,61 +413,116 @@ function updateWarPanel() {
 /* map image (rendered once from the world data)                       */
 /* ------------------------------------------------------------------ */
 function buildMapImage() {
+  const work = buildMapImageChunks();
+  while (!work.next().done) { /* synchronous callers drain the same pixel/draw order */ }
+}
+function* buildMapImageChunks() {
   const S = 512;
   const c = document.createElement('canvas');
   c.width = S; c.height = S;
   const ctx = c.getContext('2d');
   const img = ctx.createImageData(S, S);
   const rcols = REALMS.map((R) => hex3(R.color));
+  // Pin the original call's terrain/tree state across paint/input yields.
+  // Masks and water grids are immutable after world construction; capture their references.
+  const H = W.H.slice(), rock = W.rock, road = W.road, field = W.field;
+  const trees = new Float64Array(W.trees.length * 2), bearings = REALMS.map(R => R.bearing);
+  for (let i = 0; i < W.trees.length; i++) { trees[i * 2] = W.trees[i].x; trees[i * 2 + 1] = W.trees[i].z; }
+  // All map samples, including the +/-2 slope offsets, are inside the overworld.
+  const height = (x, z) => sampleGrid(H, x, z);
+  const realm = (x, z) => {
+    const b = bearingOf(x, z), r = Math.hypot(x, z);
+    const w = bearings.map(bearing => Math.pow(Math.max(0, Math.cos(angDiff(b, bearing) * 0.75)), 6));
+    const blend = sstep(10, 60, r);
+    let s = 0;
+    for (let k = 0; k < 3; k++) { w[k] = lerp(1 / 3, w[k], blend); s += w[k]; }
+    for (let k = 0; k < 3; k++) w[k] /= s || 1;
+    return w;
+  };
+  const surface = WATERGRID.surf, flowX = WATERGRID.fx, flowZ = WATERGRID.fz, out = { y: 0, depth: 0, fx: 0, fz: 0 };
+  const water = (x, z) => {
+    if (!surface || Math.abs(x) > HALF - 2 || Math.abs(z) > HALF - 2) return null;
+    const gx = (x + HALF) / HS, gz = (z + HALF) / HS, i = Math.floor(gx), j = Math.floor(gz), u = gx - i, v = gz - j;
+    let y = 0, w = 0, fx = 0, fz = 0;
+    for (let q = 0; q < 4; q++) {
+      const ii = i + (q & 1), jj = j + (q >> 1), k = jj * HN + ii, s = surface[k];
+      if (isNaN(s)) continue;
+      const ww = ((q & 1) ? u : 1 - u) * ((q >> 1) ? v : 1 - v) + 1e-4;
+      y += s * ww; fx += flowX[k] * ww; fz += flowZ[k] * ww; w += ww;
+    }
+    if (!w) return null;
+    y /= w;
+    const g = height(x, z);
+    if (y <= g + 0.01) return null;
+    out.y = y; out.depth = y - g; out.fx = fx / w; out.fz = fz / w;
+    return out;
+  };
   for (let py = 0; py < S; py++) {
     for (let px = 0; px < S; px++) {
       const x = -HALF + (px + 0.5) * (WSIZE / S), z = -HALF + (py + 0.5) * (WSIZE / S);
-      const h = heightAt(x, z);
-      const hx = heightAt(x + 2, z) - heightAt(x - 2, z), hz = heightAt(x, z + 2) - heightAt(x, z - 2);
+      const h = height(x, z);
+      const hx = height(x + 2, z) - height(x - 2, z), hz = height(x, z + 2) - height(x, z - 2);
       const shade = clamp(0.78 + (-hx * 0.55 - hz * 0.55) * 0.12, 0.45, 1.2);
-      const rw = realmWeightsAt(x, z);
+      const rw = realm(x, z);
       // [perf2] the same sums channel by channel (six arrays a pixel were made and thrown away: a phone spent seconds here)
       let c0 = 0.34, c1 = 0.42, c2 = 0.24;
       for (let k = 0; k < 3; k++) { const rc = rcols[k], w = rw[k]; c0 = c0 + (rc[0] - 0.35) * w * 0.18; c1 = c1 + (rc[1] - 0.35) * w * 0.18; c2 = c2 + (rc[2] - 0.35) * w * 0.18; }
-      const rk = sampleGrid(W.rock, x, z), rd = sampleGrid(W.road, x, z), fl = sampleGrid(W.field, x, z);
+      const rk = sampleGrid(rock, x, z), rd = sampleGrid(road, x, z), fl = sampleGrid(field, x, z);
       c0 = lerp(c0, 0.5, rk); c1 = lerp(c1, 0.48, rk); c2 = lerp(c2, 0.45, rk);
       if (h > 24) { const sk = clamp((h - 24) / 16, 0, 0.8); c0 = lerp(c0, 0.88, sk); c1 = lerp(c1, 0.88, sk); c2 = lerp(c2, 0.88, sk); }
       c0 = lerp(c0, 0.72, fl * 0.8); c1 = lerp(c1, 0.6, fl * 0.8); c2 = lerp(c2, 0.3, fl * 0.8);
       c0 = lerp(c0, 0.6, rd * 0.9); c1 = lerp(c1, 0.5, rd * 0.9); c2 = lerp(c2, 0.36, rd * 0.9);
-      { const wa = waterAt(x, z); if (wa && wa.depth > 0.05) { if (wa.fx || wa.fz) { c0 = 0.16; c1 = 0.3; c2 = 0.38; } else { c0 = 0.12; c1 = 0.24; c2 = 0.32; } } } // [water] lakes, ponds and rivers
+      { const wa = water(x, z); if (wa && wa.depth > 0.05) { if (wa.fx || wa.fz) { c0 = 0.16; c1 = 0.3; c2 = 0.38; } else { c0 = 0.12; c1 = 0.24; c2 = 0.32; } } } // [water] lakes, ponds and rivers
       const k = (py * S + px) * 4;
       img.data[k] = clamp(c0 * shade, 0, 1) * 255; img.data[k + 1] = clamp(c1 * shade, 0, 1) * 255; img.data[k + 2] = clamp(c2 * shade, 0, 1) * 255; img.data[k + 3] = 255;
     }
+    if ((py & 3) === 3) yield;
   }
   ctx.putImageData(img, 0, 0);
   ctx.fillStyle = 'rgba(16, 40, 20, 0.5)';
-  for (const t of W.trees) { const px = (t.x + HALF) / 2, py = (t.z + HALF) / 2; ctx.fillRect(px - 0.8, py - 0.8, 1.6, 1.6); }
+  for (let i = 0; i < trees.length / 2; i++) {
+    const px = (trees[i * 2] + HALF) / 2, py = (trees[i * 2 + 1] + HALF) / 2;
+    ctx.fillRect(px - 0.8, py - 0.8, 1.6, 1.6);
+    if ((i & 255) === 255) yield;
+  }
   UI.mapImg = c;
 }
 const w2m = (x, z, S) => [((x + HALF) / WSIZE) * S, ((z + HALF) / WSIZE) * S];
 /* the barrow's own map: 4 px to the metre */
 const DMAP_PX = 4;
 function buildDungeonMap() {
+  const work = buildDungeonMapChunks();
+  while (!work.next().done) { /* synchronous callers retain complete-only publication */ }
+}
+function* buildDungeonMapChunks() {
   const GW = DUN.GW, GH = DUN.GH, k = DMAP_PX;
+  const cells = DUN.cell.slice(), floors = DUN.fy.slice();
+  const index = (i, j) => i < 0 || j < 0 || i >= GW || j >= GH ? -1 : j * GW + i;
   const c = document.createElement('canvas');
   c.width = GW * k; c.height = GH * k;
   const ctx = c.getContext('2d');
   ctx.fillStyle = '#0b0c0e'; ctx.fillRect(0, 0, c.width, c.height);
-  for (let j = 0; j < GH; j++) for (let i = 0; i < GW; i++) {
-    const t = DUN.cell[j * GW + i];
-    if (!t) continue;
-    const f = DUN.fy[j * GW + i];
-    const g = Math.round(clamp(118 + f * 6, 60, 140));
-    ctx.fillStyle = t === 3 ? '#cfd9e2' : `rgb(${g + 14},${g + 6},${g - 8})`;
-    ctx.fillRect(i * k, j * k, k, k);
+  for (let j = 0; j < GH; j++) {
+    for (let i = 0; i < GW; i++) {
+      const t = cells[j * GW + i];
+      if (!t) continue;
+      const f = floors[j * GW + i];
+      const g = Math.round(clamp(118 + f * 6, 60, 140));
+      ctx.fillStyle = t === 3 ? '#cfd9e2' : `rgb(${g + 14},${g + 6},${g - 8})`;
+      ctx.fillRect(i * k, j * k, k, k);
+    }
+    if ((j & 3) === 3 || j === GH - 1) yield;
   }
   // walls drawn as a darker rim
   ctx.fillStyle = 'rgba(30,26,22,0.95)';
-  for (let j = 0; j < GH; j++) for (let i = 0; i < GW; i++) {
-    if (DUN.cell[j * GW + i]) continue;
-    let near = false;
-    for (const [a, b] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const q = dunIdx(i + a, j + b); if (q >= 0 && DUN.cell[q]) near = true; }
-    if (near) ctx.fillRect(i * k, j * k, k, k);
+  for (let j = 0; j < GH; j++) {
+    for (let i = 0; i < GW; i++) {
+      if (cells[j * GW + i]) continue;
+      let near = false;
+      for (const [a, b] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const q = index(i + a, j + b); if (q >= 0 && cells[q]) near = true; }
+      if (near) ctx.fillRect(i * k, j * k, k, k);
+    }
+    if ((j & 3) === 3 || j === GH - 1) yield;
   }
   UI.dunImg = c;
 }

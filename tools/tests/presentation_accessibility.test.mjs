@@ -51,6 +51,40 @@ test('successful dependency load removes the watchdog before slow world generati
   const b=fileBoot(), timeout=b.timers.get(1);b.context.window.__hmFileBoot.ready();timeout();
   assert.equal(b.notice.hidden,true);assert.equal(b.loading.hidden,false);
 });
+
+test('the main loading status is live while inventory detail and hint stay hidden and quiet',()=>{
+  const loading=shell.slice(shell.indexOf('<div id="loading">'),shell.indexOf('<div id="title"'));
+  const paragraph=id=>{
+    const match=loading.match(new RegExp('<p\\b([^>]*\\bid="'+id+'"[^>]*)>([\\s\\S]*?)<\\/p>'));
+    assert.ok(match,'loading paragraph '+id);return{attributes:match[1],text:match[2]};
+  };
+  const main=paragraph('loadmsg');
+  assert.match(main.attributes,/role="status"/);assert.match(main.attributes,/aria-live="polite"/);
+  assert.match(main.attributes,/aria-atomic="true"/);
+  for(const id of ['load-detail','load-hint']){
+    const el=paragraph(id);assert.match(el.attributes,/\bhidden\b/);
+    assert.doesNotMatch(el.attributes,/aria-live|\brole=/);
+  }
+  assert.equal(paragraph('load-detail').text,'');
+  assert.equal(paragraph('load-hint').text,'Keep this tab open while the view is prepared.');
+  assert.match(loading,/role="progressbar" aria-label="Loading Hallowmarch"/);
+});
+
+test('actual rotating Chronicle tips remain readable without a competing live announcement',()=>{
+  const lore=read('src/10c_lore.js'),tips=lore.match(/\(function loreLoadingTips\(\) \{[\s\S]*?\n\}\)\(\);/)[0];
+  const children=[],callbacks=[],delayed=[];
+  const inner={appendChild:el=>children.push(el)},loading={hidden:false,querySelector:()=>inner};
+  const context={$:()=>loading,GAME:{ready:false},LOADING_TIPS:['First tip','Second tip'],
+    shuffle:(_random,values)=>values,document:{createElement:()=>({attributes:{},style:{},setAttribute(k,v){this.attributes[k]=v;}})},
+    setInterval(fn,ms){assert.equal(ms,6000);callbacks.push(fn);return 1;},clearInterval(){},setTimeout:fn=>delayed.push(fn)};
+  vm.runInNewContext(tips,context);
+  assert.equal(children.length,1);const tip=children[0];
+  assert.match(tip.innerHTML,/From the Chronicle.*First tip/);assert.equal(tip.className,'lore-ltip');
+  assert.equal(tip.attributes['aria-live'],undefined);assert.equal(tip.attributes.role,undefined);
+  callbacks[0]();delayed[0]();
+  assert.match(tip.innerHTML,/From the Chronicle.*Second tip/);
+  assert.equal(tip.attributes['aria-live'],undefined);assert.equal(tip.attributes.role,undefined);
+});
 function motion({system=false,saved=null,blocked=false}={}) {
   const events={}, storage=new Map(saved===null?[]:[['hallowmarch.motion.v1',saved]]);
   const query={matches:system, addEventListener:(k,f)=>events[k]=f}, attr={};

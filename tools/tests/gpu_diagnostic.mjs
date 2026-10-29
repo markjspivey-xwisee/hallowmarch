@@ -361,7 +361,12 @@ function bootHarness({ diagnostic = true, safe = true } = {}) {
     perf2Shaders: async () => calls.push('shader-wait'),
     buildMapImage: () => calls.push('map'),
     buildDungeonMap: () => calls.push('dungeon-map'),
-    renderFirstTitleFrame: async () => calls.push('title-draw'),
+    *prepareMeadowRGBChunks() { calls.push('meadow-start'); yield; calls.push('meadow-ready'); },
+    *prepareSoundBuffersChunks() { assert.equal(ctx.GAME.ready,false); calls.push('sound-start'); yield; calls.push('sound-ready'); return true; },
+    *prepareGroundAOChunks() { assert.equal(ctx.GAME.ready,false); calls.push('ground-start'); yield; calls.push('ground-ready'); return true; },
+    prepareTitleDraft: () => { assert.equal(ctx.GAME.ready,false); calls.push('draft-prepare'); return false; },
+    finishTitleDraft: () => { assert.equal(ctx.GAME.ready,true); assert.equal(ctx.window.__hm.ready,true); calls.push('draft-finish'); return false; },
+    renderFirstTitleFrame: async () => { assert.equal(ctx.GAME.ready,false); calls.push('title-draw'); },
     graphicsRecoveryNotice: () => calls.push('recovery-notice'),
     tick: () => {throw Error('boot must not simulate a title frame');},
     setupTitle: () => calls.push('title'),
@@ -379,6 +384,8 @@ function bootHarness({ diagnostic = true, safe = true } = {}) {
     'spellCompileVisible',
   ]) ctx[name] = () => {};
   ctx.buildWorldChunks=ctx.mtnHeightsChunks=ctx.buildStructuresChunks=function*(){yield;};
+  ctx.buildMapImageChunks=function*(){ctx.buildMapImage();yield;};
+  ctx.buildDungeonMapChunks=function*(){ctx.buildDungeonMap();yield;};
   const start = mainSource.indexOf('async function boot() {');
   const end = mainSource.indexOf('\n}',start);
   assert.ok(start>=0 && end>start);
@@ -386,13 +393,13 @@ function bootHarness({ diagnostic = true, safe = true } = {}) {
   const workStart=mainSource.indexOf('const BOOT_WORK_BUDGET_MS'),workEnd=mainSource.indexOf('async function loadStep(');
   assert.ok(workStart>=0&&workEnd>workStart);
   vm.runInContext(mainSource.slice(workStart,workEnd)+'\n'+mainSource.slice(start,end+2),ctx);
-  return {ctx,calls};
+  return {ctx,calls,nodes};
 }
 
 test('diagnostic boot returns before compilation, map, first tick, title and normal RAF', async () => {
   const h = bootHarness({diagnostic:true,safe:true});
   await vm.runInContext('boot()',h.ctx);
-  assert.deepEqual(h.calls,['scene-ready','diagnostic']);
+  assert.deepEqual(h.calls,['meadow-start','meadow-ready','scene-ready','diagnostic']);
   assert.equal(h.ctx.GAME.ready,false);
   assert.equal(h.ctx.window.__hm.ready,false);
 });
@@ -408,12 +415,16 @@ test('boot releases canonical scene updates only after its private world snapsho
   assert(h.calls.indexOf('settings-restored')<h.calls.indexOf('private-world-restored'));
   assert(h.calls.indexOf('private-world-restored')<h.calls.indexOf('scene-ready'));
   assert(h.calls.indexOf('scene-ready')<h.calls.indexOf('sizing'));
+  assert(h.calls.indexOf('sizing')<h.calls.indexOf('sound-start'));
+  assert(h.calls.indexOf('diagnostic')<h.calls.indexOf('sound-start'));
+  assert(h.calls.indexOf('sound-ready')<h.calls.indexOf('draft-prepare'));
+  assert(h.calls.indexOf('draft-prepare')<h.calls.indexOf('map'));
 });
 
 test('ordinary safe boot still renders its first view and enters the normal loop', async () => {
   const h = bootHarness({diagnostic:false,safe:true});
   await vm.runInContext('boot()',h.ctx);
-  assert.deepEqual(h.calls,['scene-ready','diagnostic','map','dungeon-map','title-draw','title','recovery-notice','raf']);
+  assert.deepEqual(h.calls,['meadow-start','meadow-ready','scene-ready','diagnostic','sound-start','sound-ready','ground-start','ground-ready','draft-prepare','map','dungeon-map','title-draw','draft-finish','title','recovery-notice','raf']);
   assert.equal(h.ctx.GAME.ready,true);
   assert.equal(h.ctx.window.__hm.ready,true);
 });
@@ -427,8 +438,33 @@ test('ordinary boot reaches its fenced title without bulk-compiling hidden world
   h.ctx.renderer.compile=forbidden('renderer.compile');
   Object.defineProperty(h.ctx.DUN.root,'visible',{set:forbidden('hidden dungeon visibility')});
   await vm.runInContext('boot()',h.ctx);
-  assert.deepEqual(h.calls,['scene-ready','diagnostic','map','dungeon-map','title-draw','title','recovery-notice','raf']);
+  assert.deepEqual(h.calls,['meadow-start','meadow-ready','scene-ready','diagnostic','sound-start','sound-ready','ground-start','ground-ready','draft-prepare','map','dungeon-map','title-draw','draft-finish','title','recovery-notice','raf']);
   assert.equal(h.ctx.GAME.ready,true);
+});
+
+test('a retained early draft still awaits the real title gate and avoids resetting the form',async()=>{
+  const h=bootHarness({diagnostic:false,safe:false});let release;
+  h.ctx.prepareTitleDraft=()=>{assert.equal(h.ctx.GAME.ready,false);h.calls.push('draft-prepare');return true;};
+  h.ctx.finishTitleDraft=()=>{assert.equal(h.ctx.GAME.ready,true);h.calls.push('draft-finish');return true;};
+  h.ctx.renderFirstTitleFrame=()=>{h.calls.push('title-draw');return new Promise(resolve=>{release=resolve;});};
+  const pending=vm.runInContext('boot()',h.ctx);
+  for(let i=0;i<200&&!release;i++)await Promise.resolve();
+  assert.equal(typeof release,'function');assert.equal(h.ctx.GAME.ready,false);assert.equal(h.ctx.window.__hm.ready,false);
+  assert.equal(h.calls.includes('draft-finish'),false);assert.equal(h.calls.includes('title'),false);assert.equal(h.calls.includes('raf'),false);
+  release();await pending;
+  assert.deepEqual(h.calls,['meadow-start','meadow-ready','scene-ready','diagnostic','sound-start','sound-ready','ground-start','ground-ready','draft-prepare','map','dungeon-map','title-draw','draft-finish','recovery-notice','raf']);
+  assert.equal(h.nodes.loading.hidden,true);
+});
+
+test('optional sound preparation failure preserves every normal title readiness gate',async()=>{
+  const h=bootHarness({diagnostic:false,safe:false});
+  h.ctx.prepareSoundBuffersChunks=function*(){assert.equal(h.ctx.GAME.ready,false);h.calls.push('sound-start');yield;return false;};
+  await vm.runInContext('boot()',h.ctx);
+  assert(h.calls.indexOf('sound-start')<h.calls.indexOf('draft-prepare'));
+  assert(h.calls.indexOf('draft-prepare')<h.calls.indexOf('title-draw'));
+  assert(h.calls.indexOf('title-draw')<h.calls.indexOf('draft-finish'));
+  assert(h.calls.indexOf('draft-finish')<h.calls.indexOf('raf'));
+  assert.equal(h.ctx.GAME.ready,true);assert.equal(h.ctx.window.__hm.ready,true);
 });
 
 test('shader diagnostic failure stops the stage and restores hooks and visibility',async()=>{

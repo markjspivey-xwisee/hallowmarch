@@ -10,7 +10,7 @@ function fixture() {
   const nodes = Object.fromEntries(ids.map(id => [id, { value: '', hidden: false, innerHTML: '', textContent: '',
     addEventListener() {}, querySelectorAll: () => [], click() { this.onclick?.(); } }]));
   const saves = [];
-  const c = vm.createContext({ document: { getElementById: id => nodes[id] || null }, GAME: { started: false },
+  const c = vm.createContext({ document: { getElementById: id => nodes[id] || null }, GAME: { started: false, ready: true },
     CLASSES: Object.fromEntries(['warrior', 'archer', 'mage', 'priest'].map(name => [name, { name, blurb: name, icon: name }])),
     REALMS: ['Logres', 'Eriu', 'Thule'].map((name, id) => ({ name, id, color: '#fff' })),
     emblemSvg: () => '', iconSvg: () => '', audioUnlock() {}, randomName: () => 'Aldric', sfx() {},
