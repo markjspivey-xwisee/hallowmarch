@@ -155,6 +155,32 @@ preparation task, so the four-program limit remains. An audio impulse cache pass
 byte/RNG equivalence but regressed cold lite cases and added temporary memory;
 it was rejected. All failed and rejected native trials remain in the evidence.
 
+The later first-pointer trace attributes a 3.511-second task to audio unlock,
+without resolving its child costs. A separate protected native audio-only check
+measured 611.4 ms in unlock: 252.8 ms creating the context and 314.0 ms generating
+six seeded ambient buffers. Loading now prepares those exact mono 22050 Hz PCM
+buffers cooperatively before exposing the draft. Independent original-source
+oracles compare every byte. All buffers remain private until the batch completes;
+interrupted preparation preserves live cache winners and the synchronous fallback.
+Context creation/resume, noise, impulse responses, graph wiring and global random
+draws stay at their original boundaries. This targets the measured buffer work;
+it does not establish that the entire recorded 3.511-second pause is eliminated.
+
+An exact afad first-entry CPU profile captured a 572.5 ms game-frame script.
+Frame-ancestor samples covered 553.083 ms across simulation, seasons, audio,
+grass, LOD and HUD work. The 37.893 ms ground-AO component motivated separate
+private byte preparation with collision/path snapshots; texture creation and
+uniform publication retain their original live boundary. These component samples
+are not total first-input latency or evidence that all entry work is resolved.
+
+Menu QA preserves native keyboard movement, focus, end visibility and completion
+checks. It records movement/end timestamps independently because one CI browser
+delivered equal-timestamp scroll completion before its movement event. A separate
+released-touch/settled-position boundary keeps a preceding gesture out of the next
+keyboard scenario. Native taps consumed to stop a fling and older-browser missing
+touch `scrollend` events remain retained diagnostic observations, not repaired
+product touch behavior or permission to retry a player action.
+
 ## Release limits
 
 Three- and five-minute ordinary SwiftShader title failures are retained as a
