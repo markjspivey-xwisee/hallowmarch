@@ -8,7 +8,7 @@
     },
     {
       "path": "src/05k_seasons.js",
-      "digest": "sha256:4e12ab5b2e2349a07442aa5309b94f0932f2014469a301a9b4d4ab2b334eb434"
+      "digest": "sha256:b3645af2658ce6b4a522b7130662610acc886f246c19ca0a43624a55e4abdb37"
     },
     {
       "path": "src/07b_swim.js",
@@ -1700,7 +1700,7 @@
       ],
       "source": {
         "path": "src/05k_seasons.js",
-        "digest": "sha256:4e12ab5b2e2349a07442aa5309b94f0932f2014469a301a9b4d4ab2b334eb434",
+        "digest": "sha256:b3645af2658ce6b4a522b7130662610acc886f246c19ca0a43624a55e4abdb37",
         "selector": "FIELD_NOTES.lakeice",
         "lines": {
           "start": 339,
@@ -1716,7 +1716,7 @@
         "note": "lakeice",
         "availability": "Collected in the game when relevant"
       },
-      "revisionDigest": "sha256:3be5c5785f86b507e4fc21cef59c97150a284c2c0def9f7d7e147df77e7871f0"
+      "revisionDigest": "sha256:6254a740fe4904e4eb667b49bbcee90c14edf52a60b0388255281990f07478e8"
     },
     {
       "id": "field-note:lcart",
@@ -2492,7 +2492,7 @@
       ],
       "source": {
         "path": "src/05k_seasons.js",
-        "digest": "sha256:4e12ab5b2e2349a07442aa5309b94f0932f2014469a301a9b4d4ab2b334eb434",
+        "digest": "sha256:b3645af2658ce6b4a522b7130662610acc886f246c19ca0a43624a55e4abdb37",
         "selector": "FIELD_NOTES.snowlies",
         "lines": {
           "start": 338,
@@ -2509,7 +2509,7 @@
         "note": "snowlies",
         "availability": "Collected in the game when relevant"
       },
-      "revisionDigest": "sha256:a7bf2dbe8167f5565f88a8259a2b8d1f73a9e82ddd6c00848f1910b36b66af2b"
+      "revisionDigest": "sha256:e39c34ec20517d8c45596bb3caae0dada6ee244d3e3c39b7d933a15042b6b809"
     },
     {
       "id": "field-note:start",
@@ -3093,5 +3093,5 @@
       "assessment": null
     }
   ],
-  "revisionDigest": "sha256:fdeabed95c149ad98f5326ee9ccc2b9e89d1771d8c75a1659f89e11d8a59c3f8"
+  "revisionDigest": "sha256:95bf198d7bb1ee33a6ea5176be7c07b152dee9339f6b3839080f6a57c51293fe"
 }
