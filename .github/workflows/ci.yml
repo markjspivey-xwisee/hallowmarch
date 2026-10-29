@@ -85,6 +85,7 @@ jobs:
               python3 -m unittest discover -s tools/tests -p native_journey_browser_test.py
               python3 -m unittest discover -s tools/tests -p first_session_points_test.py
               python3 -m unittest discover -s tools/tests -p first_session_observability_test.py
+              python3 -m unittest discover -s tools/tests -p mobile_viewport_observation_test.py
               node --test tools/tests/startup_file_guard.browser.test.mjs
               node --test tools/tests/reduced_effects_layout.browser.test.mjs
               node --test tools/tests/graphics_recovery_ui.browser.test.mjs

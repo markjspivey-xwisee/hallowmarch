@@ -8,6 +8,8 @@ import asyncio
 import json
 import pathlib
 import sys
+import time
+from datetime import datetime, timezone
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
@@ -28,6 +30,19 @@ def check(ok, message):
     print(('PASS ' if ok else 'FAIL ') + message, flush=True)
     if not ok:
         FAILS.append(message)
+
+
+# Test-local data only: no timer replacement, game state or resize intervention.
+VIEWPORT_POLL_SNAPSHOT = r"""() => {
+  const records=window.__mobileViewportWaits;
+  if (!Array.isArray(records)) return [];
+  return records.slice(-16).map(record=>({id:record.id,firstPollAt:record.firstPollAt,
+    firstPollUTCms:record.firstPollUTCms,lastPollAt:record.lastPollAt,lastPollUTCms:record.lastPollUTCms,
+    firstMatchAt:record.firstMatchAt,firstMatchUTCms:record.firstMatchUTCms,pageTimeOrigin:record.pageTimeOrigin,polls:record.polls,
+    maxGapMs:record.maxGapMs,lastOutcome:record.lastOutcome,
+    predicateErrors:record.predicateErrors,droppedSamples:record.droppedSamples,
+    samples:Array.isArray(record.samples)?record.samples.slice(0,8).map(sample=>({at:sample.at,outcome:sample.outcome})):[]}));
+}"""
 
 
 HELP = r"""
@@ -78,7 +93,7 @@ window.ME = {
       });
     }
     const rendered=__hm.dbg.renderer.getSize({set(x,y){this.x=x;this.y=y;return this;}});
-    return {controls:rects,gaps,avatar:{inView,body,points,covered},
+    return {viewportWaitPolls:(__VIEWPORT_POLL_SNAPSHOT__)(),controls:rects,gaps,avatar:{inView,body,points,covered},
       viewport:{w:innerWidth,h:innerHeight,renderW:rendered.x,renderH:rendered.y,aspect:__hm.camera.aspect,fov:__hm.camera.fov},
       primary:p?{slot:+primary.dataset.slot,x:p.x,y:p.y,w:p.width,h:p.height,label:primary.getAttribute('aria-label')}:null,
       secondary:secondary.map(e=>+e.dataset.slot),utilities:utilities.map(e=>e.id),
@@ -91,10 +106,11 @@ window.ME = {
   }
 };
 0;
-"""
+""".replace('__VIEWPORT_POLL_SNAPSHOT__', VIEWPORT_POLL_SNAPSHOT)
 
 
 VIEWPORT_WAITS = []
+VIEWPORT_WAIT_SERIAL = 0
 VIEWPORT_STATE = r"""() => {
   const H=window.__hm,S=window.__hmStartup,R=H?.dbg?.renderer,C=H?.camera;
   const size=R?.getSize({set(x,y){this.x=x;this.y=y;return this;}});
@@ -119,8 +135,9 @@ VIEWPORT_STATE = r"""() => {
       titleStage:S.titleStage,submitted:S.titleSubmitted,completed:S.titleCompleted}:null,
     title:title?{hidden:title.hidden,busy:title.getAttribute('aria-busy')}:null,
     recovery:notice?{hidden:notice.hidden,text:notice.textContent.slice(0,300)}:null,
+    viewportWaitPolls:(__VIEWPORT_POLL_SNAPSHOT__)(),
     errors:H?.errors.slice(0,5).map(error=>String(error).slice(0,1500))};
-}"""
+}""".replace('__VIEWPORT_POLL_SNAPSHOT__', VIEWPORT_POLL_SNAPSHOT)
 
 
 async def viewport_state(page):
@@ -130,25 +147,85 @@ async def viewport_state(page):
         return {'unavailable': type(error).__name__}
 
 
-async def wait_for_viewport(page):
-    # The game's resize handler is debounced. Simulated frames do not advance
-    # that browser timer, so wait for its renderer/projection update explicitly.
-    # RAF polling cannot run while this suite holds the game's animation loop.
-    receipt = {'requested': page.viewport_size, 'timeoutMs': 15000, 'pollingMs': 20}
-    VIEWPORT_WAITS.append(receipt)
-    del VIEWPORT_WAITS[:-16]
-    try:
-        await page.wait_for_function(r"""()=>{
+VIEWPORT_PREDICATE = r"""()=>{
           const size=__hm.dbg.renderer.getSize({set(x,y){this.x=x;this.y=y;return this;}});
           return size.x===innerWidth&&size.y===innerHeight&&
             Math.abs(__hm.camera.aspect-innerWidth/innerHeight)<1e-9;
-        }""",polling=20,timeout=15000)
+        }"""
+VIEWPORT_POLL = r"""request => {
+  const observe=outcome=>{try{
+    const at=performance.now(),utc=Date.now(),origin=performance.timeOrigin;
+    if (!Array.isArray(window.__mobileViewportWaits)) window.__mobileViewportWaits=[];
+    const records=window.__mobileViewportWaits;
+    let record=records.find(value=>value.id===request.id);
+    if (!record) {
+      record={id:request.id,firstPollAt:at,firstPollUTCms:utc,lastPollAt:null,lastPollUTCms:null,
+        firstMatchAt:null,firstMatchUTCms:null,pageTimeOrigin:typeof origin==='number'&&Number.isFinite(origin)?origin:null,polls:0,
+        maxGapMs:0,lastOutcome:null,predicateErrors:0,samples:[],droppedSamples:0};
+      records.push(record);if(records.length>16)records.splice(0,records.length-16);
+    }
+    if (record.lastPollAt!==null) record.maxGapMs=Math.max(record.maxGapMs,at-record.lastPollAt);
+    record.lastPollAt=at;record.lastPollUTCms=utc;record.polls++;record.lastOutcome=outcome;
+    if (outcome==='matched'&&record.firstMatchAt===null) {record.firstMatchAt=at;record.firstMatchUTCms=utc;}
+    if (outcome==='error') record.predicateErrors++;
+    if (record.samples.length<8) record.samples.push({at,outcome});else record.droppedSamples++;
+  }catch(ignored){/* Diagnostic failure never changes the original predicate. */}};
+  try {const matched=(__VIEWPORT_PREDICATE__)();observe(matched?'matched':'pending');return matched;}
+  catch(error){observe('error');throw error;}
+}""".replace('__VIEWPORT_PREDICATE__', VIEWPORT_PREDICATE)
+
+
+def merge_viewport_polls(records):
+    """Merge test-owned bounded page data after an already required page read."""
+    by_id = {receipt['id']: receipt for receipt in VIEWPORT_WAITS}
+    if not isinstance(records, list):
+        return
+    for record in records[-16:]:
+        if isinstance(record, dict) and record.get('id') in by_id:
+            by_id[record['id']]['polls'] = record
+            by_id[record['id']]['pagePollsCaptured'] = True
+
+
+async def geometry(page):
+    value = await page.evaluate('ME.geometry()')
+    merge_viewport_polls(value.pop('viewportWaitPolls', []))
+    return value
+
+
+def finish_viewport_wait(receipt):
+    # Stop the primary wait clock before any failure-only browser witness.
+    receipt['hostFinishedUTC'] = datetime.now(timezone.utc).isoformat()
+    receipt['hostFinishedMonotonicMs'] = time.monotonic()*1000
+    receipt['hostElapsedMs'] = receipt['hostFinishedMonotonicMs']-receipt['hostStartedMonotonicMs']
+
+
+async def wait_for_viewport(page):
+    # Keep the original predicate, polling and deadline. Observation has no say
+    # in acceptance and adds no browser await to the public success path.
+    global VIEWPORT_WAIT_SERIAL
+    VIEWPORT_WAIT_SERIAL += 1
+    receipt = {'id': VIEWPORT_WAIT_SERIAL, 'requested': page.viewport_size,
+               'timeoutMs': 15000, 'pollingMs': 20, 'pagePollsCaptured': False,
+               'hostStartedUTC': datetime.now(timezone.utc).isoformat(),
+               'hostStartedMonotonicMs': time.monotonic()*1000}
+    VIEWPORT_WAITS.append(receipt)
+    del VIEWPORT_WAITS[:-16]
+    try:
+        await page.wait_for_function(VIEWPORT_POLL, arg={'id': receipt['id']}, polling=20, timeout=15000)
     except Exception as error:
-        receipt.update({'outcome':'failed','error':f'{type(error).__name__}: {error}'[:2000],
-                        'after':await viewport_state(page)})
-        print('VIEWPORT WAIT '+json.dumps(receipt),flush=True)
+        finish_viewport_wait(receipt)
+        receipt.update({'outcome': 'failed', 'error': f'{type(error).__name__}: {error}'[:2000]})
+        try:
+            after = await viewport_state(page)
+            merge_viewport_polls(after.pop('viewportWaitPolls', []))
+            receipt['after'] = after
+        except Exception as probe_error:
+            receipt['after'] = {'unavailable': type(probe_error).__name__}
+        print('VIEWPORT WAIT '+json.dumps(receipt), flush=True)
         raise
-    receipt['outcome'] = 'matched'
+    else:
+        finish_viewport_wait(receipt)
+        receipt['outcome'] = 'matched'
 
 
 async def tap(page, selector, tag=''):
@@ -227,7 +304,7 @@ async def touch_camera(page, left):
 
 
 async def menu_flows(page):
-    before = await page.evaluate('ME.geometry()')
+    before = await geometry(page)
     await page.keyboard.down('w')
     try:
         check(await page.evaluate('__hm.INPUT.keys.size>0'),
@@ -282,7 +359,7 @@ async def menu_flows(page):
           'real preference controls update appearance and persist all four choices '+json.dumps(state))
     await tap(page, '#mobile-tray-close', 'Options')
     await hud.frame(page)
-    after = await page.evaluate('ME.geometry()')
+    after = await geometry(page)
     check(after['primary']['w'] > before['primary']['w'] and after['primary']['h'] > before['primary']['h'],
           'Large controls visibly enlarge the main action')
     check(min(c['font'] for c in after['controls'] if c['text']) >= min(c['font'] for c in before['controls'] if c['text']),
@@ -324,7 +401,7 @@ async def notch_cases(page):
                     await page.evaluate('p=>ME.prefs(p)',{'hand':hand,'size':size,'text':text,'names':'relevant'})
                     await hud.frame(page)
                     await page.evaluate("document.getElementById('zonetoast').classList.remove('on');0")
-                    m=await page.evaluate('ME.geometry()')
+                    m=await geometry(page)
                     tag=f'844x390 inset simulation {name} priest lv50 {hand} {size} text-{text}'
                     NOTCH_RESULTS.append({'tag':tag,'insets':insets,**m})
                     check(not m['measure']['off'],tag+': all controls within safe viewport '+json.dumps(m['measure']['off']))
@@ -377,7 +454,7 @@ async def main():
                         await page.evaluate('p=>ME.prefs(p)',{'hand':hand,'size':size,'text':text,'names':'relevant'})
                         await hud.frame(page)
                         await page.evaluate("document.getElementById('zonetoast').classList.remove('on');0")
-                        m=await page.evaluate('ME.geometry()')
+                        m=await geometry(page)
                         tag=f'{w}x{h} {cls} lv{level} {hand} {size} text-{text}'
                         RESULTS.append({'tag':tag,**m})
                         check(not m['measure']['off'],tag+': safe viewport bounds '+json.dumps(m['measure']['off']))
@@ -412,7 +489,9 @@ async def main():
                 await touch_move_and_hold(page,False)
                 await touch_camera(page,False)
                 await menu_flows(page)
-            errors=await page.evaluate('__hm.errors')
+            final=await page.evaluate('({errors:__hm.errors,viewportWaitPolls:('+VIEWPORT_POLL_SNAPSHOT+')()})')
+            errors=final['errors']
+            merge_viewport_polls(final['viewportWaitPolls'])
             check(not errors and not logs,f'no browser/game errors {errors[:2]} {logs[:2]}')
         except Exception as exc:
             FAILS.append(f'{type(exc).__name__}: {exc}')
