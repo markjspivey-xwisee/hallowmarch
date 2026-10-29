@@ -356,6 +356,7 @@ function bootHarness({ diagnostic = true, safe = true } = {}) {
     nextPaint: async () => {},
     graphicsAssertActive() {}, graphicsCheckpoint() {},
     graphicsRunDiagnostic: async () => { calls.push('diagnostic'); return diagnostic; },
+    netSharedSceneFlushBuilt: () => calls.push('scene-ready'),
     perf2Compile: () => calls.push('compile'),
     perf2Shaders: async () => calls.push('shader-wait'),
     buildMapImage: () => calls.push('map'),
@@ -391,15 +392,28 @@ function bootHarness({ diagnostic = true, safe = true } = {}) {
 test('diagnostic boot returns before compilation, map, first tick, title and normal RAF', async () => {
   const h = bootHarness({diagnostic:true,safe:true});
   await vm.runInContext('boot()',h.ctx);
-  assert.deepEqual(h.calls,['diagnostic']);
+  assert.deepEqual(h.calls,['scene-ready','diagnostic']);
   assert.equal(h.ctx.GAME.ready,false);
   assert.equal(h.ctx.window.__hm.ready,false);
+});
+test('boot releases canonical scene updates only after its private world snapshot is restored',async()=>{
+  const h=bootHarness({diagnostic:false,safe:true});
+  const saved={settings:{quality:'medium'},world:{fixture:'private checkpoint'}};
+  h.ctx.loadSave=async()=>{assert.equal(h.ctx.GAME.built,false);return saved;};
+  h.ctx.applySettings=value=>{assert.equal(value,saved.settings);h.calls.push('settings-restored');};
+  h.ctx.applyWorldSave=value=>{assert.equal(value,saved.world);h.calls.push('private-world-restored');};
+  h.ctx.netSharedSceneFlushBuilt=()=>{assert.equal(h.ctx.GAME.built,true);h.calls.push('scene-ready');};
+  h.ctx.resize=()=>h.calls.push('sizing');
+  await vm.runInContext('boot()',h.ctx);
+  assert(h.calls.indexOf('settings-restored')<h.calls.indexOf('private-world-restored'));
+  assert(h.calls.indexOf('private-world-restored')<h.calls.indexOf('scene-ready'));
+  assert(h.calls.indexOf('scene-ready')<h.calls.indexOf('sizing'));
 });
 
 test('ordinary safe boot still renders its first view and enters the normal loop', async () => {
   const h = bootHarness({diagnostic:false,safe:true});
   await vm.runInContext('boot()',h.ctx);
-  assert.deepEqual(h.calls,['diagnostic','map','dungeon-map','title-draw','title','recovery-notice','raf']);
+  assert.deepEqual(h.calls,['scene-ready','diagnostic','map','dungeon-map','title-draw','title','recovery-notice','raf']);
   assert.equal(h.ctx.GAME.ready,true);
   assert.equal(h.ctx.window.__hm.ready,true);
 });
@@ -413,7 +427,7 @@ test('ordinary boot reaches its fenced title without bulk-compiling hidden world
   h.ctx.renderer.compile=forbidden('renderer.compile');
   Object.defineProperty(h.ctx.DUN.root,'visible',{set:forbidden('hidden dungeon visibility')});
   await vm.runInContext('boot()',h.ctx);
-  assert.deepEqual(h.calls,['diagnostic','map','dungeon-map','title-draw','title','recovery-notice','raf']);
+  assert.deepEqual(h.calls,['scene-ready','diagnostic','map','dungeon-map','title-draw','title','recovery-notice','raf']);
   assert.equal(h.ctx.GAME.ready,true);
 });
 

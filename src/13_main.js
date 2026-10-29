@@ -342,6 +342,12 @@ document.addEventListener('visibilitychange', () => {
 });
 const BOOT_STEPS = []; // [perf2] every step's time, the first too (13x_perf2.js)
 const BOOT_WORK_BUDGET_MS = 8;
+function yieldBootWork() {
+  // Let input/rendering run without waiting for a fresh display frame after
+  // every CPU slice. Older browsers retain the existing paint/timer fallback.
+  if (window.scheduler && typeof window.scheduler.yield === 'function') return window.scheduler.yield();
+  return nextPaint();
+}
 function* bootSequence(tasks) {
   for (const task of tasks) {
     const work = task();
@@ -369,7 +375,7 @@ async function runBootWork(fn, receipt) {
   receipt.chunked = true;
   if (performance.now() - sliceAt >= BOOT_WORK_BUDGET_MS) {
     receipt.yields++;
-    await nextPaint();
+    await yieldBootWork();
     graphicsAssertActive();
     sliceAt = performance.now();
   }
@@ -397,7 +403,7 @@ async function runBootWork(fn, receipt) {
     }
     if (sliceMs >= BOOT_WORK_BUDGET_MS) {
       receipt.yields++;
-      await nextPaint();
+      await yieldBootWork();
       graphicsAssertActive();
       sliceAt = performance.now();
     }
@@ -422,6 +428,7 @@ async function loadStep(frac, msg, fn) {
   BOOT_STEPS.push([msg || '', +(performance.now() - t).toFixed(1), +t.toFixed(0), performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) : null]); // [perf2] (the JS heap as the step ends: its garbage still in it)
 }
 async function boot() {
+  GAME.built = false;
   const savePromise = loadSave().catch(() => null);
   await loadStep(0.03, 'Raising the hills', () => buildWorldChunks(7));
   await loadStep(0.2, 'Shaping the land', () => bootSequence([uploadWorldTextures, buildTerrain, buildWater]));
@@ -439,6 +446,7 @@ async function boot() {
   const save = await savePromise;
   graphicsAssertActive();
   if (save) { applySettings(save.settings); applyWorldSave(save.world); }
+  netSharedSceneFlushBuilt();
   graphicsCheckpoint('Sizing graphics targets');
   resize();
   applyTimeOfDay(tod.p);

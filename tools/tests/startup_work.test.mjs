@@ -71,6 +71,16 @@ test('an expensive iterator factory yields before starting its next chunk',async
   await h.ctx.runBootWork(()=>{h.advance(12);return (function*(){seen.push('chunk');yield;})();},receipt);
   assert.deepEqual(seen,['paint','chunk']);assert.equal(receipt.maxChunkMs,12);
 });
+test('the browser scheduler gets real task boundaries with its receiver preserved',async()=>{
+  const h=harness(),receipt=h.receipt(),seen=[];let yields=0;
+  const scheduler={yield(){assert.equal(this,scheduler);yields++;return new Promise(resolve=>setImmediate(()=>{seen.push('host');resolve();}));}};
+  h.ctx.window.scheduler=scheduler;
+  function* chunks(){for(let i=0;i<10;i++){h.advance(5);seen.push(i);yield;}}
+  await h.ctx.runBootWork(chunks,receipt);
+  assert(yields>0);assert.equal(h.paints,0);assert.equal(yields,receipt.yields);
+  assert(seen.indexOf('host')<seen.indexOf(2));
+  assert.deepEqual(seen.filter(x=>typeof x==='number'),Array.from({length:10},(_,i)=>i));
+});
 test('nested generation keeps every synchronous subtask in its original order',async()=>{
   const h=harness(),receipt=h.receipt(),seen=[];
   function* middle(){seen.push(2);yield;seen.push(3);yield;}
