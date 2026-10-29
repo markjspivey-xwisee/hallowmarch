@@ -540,8 +540,162 @@ function stampCanopy(i0, t, k) {
     }
   }
 }
+// Private byte preparation only. Ordinary buildGroundAO still owns allocation
+// and publication of its texture; a changed world uses the synchronous path.
+const GROUND_AO_WORK = 1024;
+const GROUND_AO_BOX_FIELDS = ['tag', 'x', 'z', 'h', 'hx', 'hz', 'cos', 'sin'];
+const GROUND_AO_CIRCLE_FIELDS = ['tag', 'x', 'z', 'h', 'r'];
+const GROUND_AO_PATH_FIELDS = ['ax', 'az', 'bx', 'bz', 'w'];
+const groundAOPathFns = [typeof look2PathMap === 'function' ? look2PathMap : null,
+  typeof look3PathMap === 'function' ? look3PathMap : null,
+  typeof lookTownPlan === 'function' ? lookTownPlan : null,
+  typeof look3HallPlan === 'function' ? look3HallPlan : null];
+let groundAOPrepared = null, groundAOPreparation = 0;
+function groundAONote(outcome, reason = null, generation = groundAOPreparation) {
+  if (generation !== groundAOPreparation || typeof GRAPHICS_STARTUP !== 'object') return;
+  const note = GRAPHICS_STARTUP.groundAO ||= { preparations: 0, stale: 0, canceled: 0, fallbacks: 0, completed: false, consumed: false };
+  note.generation = generation; note.outcome = outcome; note.reason = reason;
+  if (outcome === 'preparing') { note.preparations = Math.min(255, note.preparations + 1); note.completed = false; note.consumed = false; }
+  if (outcome === 'completed') { note.completed = true; note.bytes = 3 * 1024 * 1024; }
+  if (outcome === 'consumed') note.consumed = true;
+  if (outcome === 'stale') note.stale = Math.min(255, note.stale + 1);
+  if (outcome === 'canceled') note.canceled = Math.min(255, note.canceled + 1);
+  if (outcome === 'fallback') note.fallbacks = Math.min(255, note.fallbacks + 1);
+}
+function groundAOList(list, fields) {
+  return { list, rows: list.map(object => ({ object, values: fields.map(key => object[key]) })) };
+}
+function groundAOListCurrent(snapshot, fields) {
+  if (snapshot.list.length !== snapshot.rows.length) return false;
+  for (let i = 0; i < snapshot.rows.length; i++) {
+    const row = snapshot.rows[i], object = snapshot.list[i];
+    if (object !== row.object) return false;
+    for (let j = 0; j < fields.length; j++) if (!Object.is(object[fields[j]], row.values[j])) return false;
+  }
+  return true;
+}
+function groundAOInputs() {
+  // buildCoverMask already makes these plans during ordinary world building.
+  // Never cause their lazy global-cache publication during optional preparation.
+  if (CANOPY.ao || CANOPY.tex || typeof LOOK === 'undefined' || typeof LOOK3 === 'undefined'
+    || !Array.isArray(LOOK.towns) || !LOOK.towns.length || !Array.isArray(LOOK3.halls)
+    || !groundAOPathFns.every(Boolean) || !Array.isArray(COLL.boxes) || !Array.isArray(COLL.circles)) return null;
+  const towns = LOOK.towns;
+  return { size: WSIZE, half: HALF, boxes: groundAOList(COLL.boxes, GROUND_AO_BOX_FIELDS),
+    circles: groundAOList(COLL.circles, GROUND_AO_CIRCLE_FIELDS), towns,
+    townPaths: towns.map(town => ({ town, paths: groundAOList(town.paths, GROUND_AO_PATH_FIELDS) })),
+    halls: groundAOList(LOOK3.halls, GROUND_AO_PATH_FIELDS), houses: HOUSES, houseCount: HOUSES.length,
+    uniform: U.uGroundAO, uniformValue: U.uGroundAO.value, ao: CANOPY.ao, canopy: CANOPY.tex,
+    segmentDistance: lookSegD, segmentSquared: segDist2 };
+}
+function groundAOInputsCurrent(input) {
+  if (WSIZE !== input.size || HALF !== input.half || CANOPY.ao !== input.ao || CANOPY.tex !== input.canopy
+    || U.uGroundAO !== input.uniform || U.uGroundAO.value !== input.uniformValue
+    || HOUSES !== input.houses || HOUSES.length !== input.houseCount
+    || COLL.boxes !== input.boxes.list || COLL.circles !== input.circles.list || LOOK.towns !== input.towns
+    || LOOK.towns.length !== input.townPaths.length || LOOK3.halls !== input.halls.list
+    || look2PathMap !== groundAOPathFns[0] || look3PathMap !== groundAOPathFns[1]
+    || lookTownPlan !== groundAOPathFns[2] || look3HallPlan !== groundAOPathFns[3]
+    || lookSegD !== input.segmentDistance || segDist2 !== input.segmentSquared) return false;
+  if (!groundAOListCurrent(input.boxes, GROUND_AO_BOX_FIELDS) || !groundAOListCurrent(input.circles, GROUND_AO_CIRCLE_FIELDS)
+    || !groundAOListCurrent(input.halls, GROUND_AO_PATH_FIELDS)) return false;
+  for (let i = 0; i < input.townPaths.length; i++) {
+    const row = input.townPaths[i];
+    if (LOOK.towns[i] !== row.town || row.town.paths !== row.paths.list || !groundAOListCurrent(row.paths, GROUND_AO_PATH_FIELDS)) return false;
+  }
+  return true;
+}
+function* groundAOBytesChunks(input) {
+  const R = 1024, cell = input.size / R, half = input.half, b = new Uint8Array(R * R);
+  let work = 0;
+  function* put(x0, z0, rr, fn) {
+    const i0 = Math.max(0, Math.floor((x0 - rr + half) / cell)), i1 = Math.min(R - 1, Math.ceil((x0 + rr + half) / cell));
+    const j0 = Math.max(0, Math.floor((z0 - rr + half) / cell)), j1 = Math.min(R - 1, Math.ceil((z0 + rr + half) / cell));
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+      const v = fn(-half + (i + 0.5) * cell, -half + (j + 0.5) * cell);
+      if (v > 0) { const q = j * R + i; b[q] = Math.max(b[q], Math.round(clamp(v, 0, 1) * 255)); }
+      if (++work % GROUND_AO_WORK === 0) yield;
+    }
+  }
+  for (const row of input.boxes.rows) {
+    const [tag, x0, z0, h, hx, hz, cos, sin] = row.values;
+    if (!['wall', 'house', 'gate', 'stone', 'fence', 'prop'].includes(tag)) continue;
+    const reach = clamp((h || 3) * 0.32, 0.7, 2.6), k = clamp((h || 3) / 3, 0.35, 1);
+    yield* put(x0, z0, Math.hypot(hx, hz) + reach, (x, z) => {
+      const dx = x - x0, dz = z - z0;
+      const lx = Math.abs(dx * cos - dz * sin) - hx, lz = Math.abs(dx * sin + dz * cos) - hz;
+      const d = Math.hypot(Math.max(lx, 0), Math.max(lz, 0)), f = 1 - d / reach;
+      return f > 0 ? k * f * f : 0;
+    });
+  }
+  for (const row of input.circles.rows) {
+    const [tag, x0, z0, h, r] = row.values;
+    if (tag === 'tree') continue;
+    const reach = clamp((h || 2) * 0.3, 0.5, 1.6), k = clamp((h || 2) / 3, 0.3, 0.8);
+    yield* put(x0, z0, r + reach, (x, z) => { const f = 1 - Math.max(0, Math.hypot(x - x0, z - z0) - r) / reach; return f > 0 ? k * f * f : 0; });
+  }
+  const rg = new Uint8Array(R * R * 2);
+  for (let q = 0; q < R * R; q++) { rg[q * 2] = b[q]; if (++work % GROUND_AO_WORK === 0) yield; }
+  const pathRows = [];
+  if (input.houseCount) for (const town of input.townPaths) pathRows.push(...town.paths.rows);
+  pathRows.push(...input.halls.rows);
+  for (const row of pathRows) {
+    const [ax, az, bx, bz, w] = row.values, path = { ax, az, bx, bz, w }, hw = w / 2, pad = hw + 1.2;
+    const x0 = Math.min(ax, bx) - pad, x1 = Math.max(ax, bx) + pad, z0 = Math.min(az, bz) - pad, z1 = Math.max(az, bz) + pad;
+    for (let j = Math.max(0, Math.floor(z0 + 512)); j <= Math.min(R - 1, Math.ceil(z1 + 512)); j++) {
+      for (let i = Math.max(0, Math.floor(x0 + 512)); i <= Math.min(R - 1, Math.ceil(x1 + 512)); i++) {
+        const x = i - 512 + 0.5, z = j - 512 + 0.5;
+        const pd = input.segmentDistance(x, z, path);
+        const v = Math.round(255 * sstep(hw + 0.9, hw - 0.35, pd)), q = (j * R + i) * 2 + 1;
+        if (v > rg[q]) rg[q] = v;
+        if (++work % GROUND_AO_WORK === 0) yield;
+      }
+    }
+  }
+  return { b, rg };
+}
+function* prepareGroundAOChunks() {
+  if (groundAOPrepared && groundAOInputsCurrent(groundAOPrepared.input)) return true;
+  const generation = ++groundAOPreparation;
+  groundAOPrepared = null;
+  groundAONote('preparing');
+  let work = null, ended = false;
+  try {
+    const input = groundAOInputs();
+    if (!input) { ended = true; groundAONote('unavailable', CANOPY.ao || CANOPY.tex ? 'map-already-built' : 'plans-or-collision-inputs-unavailable'); return false; }
+    if (!groundAOInputsCurrent(input)) { ended = true; groundAONote('stale', 'inputs-changed'); return false; }
+    work = groundAOBytesChunks(input);
+    let step = work.next();
+    while (!step.done) {
+      yield;
+      if (generation !== groundAOPreparation || CANOPY.ao !== input.ao || CANOPY.tex !== input.canopy) {
+        ended = true; groundAONote('stale', 'superseded-or-live-map', generation); return false;
+      }
+      step = work.next();
+    }
+    if (generation !== groundAOPreparation || !groundAOInputsCurrent(input)) {
+      ended = true; groundAONote('stale', 'inputs-changed', generation); return false;
+    }
+    groundAOPrepared = { generation, input, ...step.value };
+    ended = true; groundAONote('completed');
+    return true;
+  } catch (e) { ended = true; groundAONote('unavailable', 'optional-preparation-failed', generation); return false; }
+  finally { work?.return(); if (!ended) groundAONote('canceled', 'iterator-closed', generation); }
+}
 // baked contact shade on the ground round the foot of walls, houses, gates, fences and posts (1 m texels)
 function buildGroundAO() {
+  const prepared = groundAOPrepared;
+  groundAOPrepared = null;
+  if (prepared && prepared.generation === groundAOPreparation && groundAOInputsCurrent(prepared.input)) {
+    const { b, rg } = prepared, R = 1024;
+    const tex = new THREE.DataTexture(rg, R, R, THREE.RGFormat, THREE.UnsignedByteType);
+    tex.minFilter = THREE.LinearFilter; tex.magFilter = THREE.LinearFilter; tex.generateMipmaps = false;
+    tex.needsUpdate = true;
+    U.uGroundAO.value = tex;
+    CANOPY.ao = b;
+    groundAONote('consumed', null, prepared.generation);
+    return;
+  }
   const R = 1024, cell = WSIZE / R, b = new Uint8Array(R * R);
   const put = (x0, z0, rr, fn) => {
     const i0 = Math.max(0, Math.floor((x0 - rr + HALF) / cell)), i1 = Math.min(R - 1, Math.ceil((x0 + rr + HALF) / cell));
@@ -577,6 +731,7 @@ function buildGroundAO() {
   tex.needsUpdate = true;
   U.uGroundAO.value = tex;
   CANOPY.ao = b;
+  groundAONote('fallback', prepared ? 'prepared-inputs-changed' : 'not-prepared');
 }
 function updateCanopy() {
   if (!W.trees || !U.uCanopy) return;

@@ -363,6 +363,7 @@ function bootHarness({ diagnostic = true, safe = true } = {}) {
     buildDungeonMap: () => calls.push('dungeon-map'),
     *prepareMeadowRGBChunks() { calls.push('meadow-start'); yield; calls.push('meadow-ready'); },
     *prepareSoundBuffersChunks() { assert.equal(ctx.GAME.ready,false); calls.push('sound-start'); yield; calls.push('sound-ready'); return true; },
+    *prepareGroundAOChunks() { assert.equal(ctx.GAME.ready,false); calls.push('ground-start'); yield; calls.push('ground-ready'); return true; },
     prepareTitleDraft: () => { assert.equal(ctx.GAME.ready,false); calls.push('draft-prepare'); return false; },
     finishTitleDraft: () => { assert.equal(ctx.GAME.ready,true); assert.equal(ctx.window.__hm.ready,true); calls.push('draft-finish'); return false; },
     renderFirstTitleFrame: async () => { assert.equal(ctx.GAME.ready,false); calls.push('title-draw'); },
@@ -423,7 +424,7 @@ test('boot releases canonical scene updates only after its private world snapsho
 test('ordinary safe boot still renders its first view and enters the normal loop', async () => {
   const h = bootHarness({diagnostic:false,safe:true});
   await vm.runInContext('boot()',h.ctx);
-  assert.deepEqual(h.calls,['meadow-start','meadow-ready','scene-ready','diagnostic','sound-start','sound-ready','draft-prepare','map','dungeon-map','title-draw','draft-finish','title','recovery-notice','raf']);
+  assert.deepEqual(h.calls,['meadow-start','meadow-ready','scene-ready','diagnostic','sound-start','sound-ready','ground-start','ground-ready','draft-prepare','map','dungeon-map','title-draw','draft-finish','title','recovery-notice','raf']);
   assert.equal(h.ctx.GAME.ready,true);
   assert.equal(h.ctx.window.__hm.ready,true);
 });
@@ -437,7 +438,7 @@ test('ordinary boot reaches its fenced title without bulk-compiling hidden world
   h.ctx.renderer.compile=forbidden('renderer.compile');
   Object.defineProperty(h.ctx.DUN.root,'visible',{set:forbidden('hidden dungeon visibility')});
   await vm.runInContext('boot()',h.ctx);
-  assert.deepEqual(h.calls,['meadow-start','meadow-ready','scene-ready','diagnostic','sound-start','sound-ready','draft-prepare','map','dungeon-map','title-draw','draft-finish','title','recovery-notice','raf']);
+  assert.deepEqual(h.calls,['meadow-start','meadow-ready','scene-ready','diagnostic','sound-start','sound-ready','ground-start','ground-ready','draft-prepare','map','dungeon-map','title-draw','draft-finish','title','recovery-notice','raf']);
   assert.equal(h.ctx.GAME.ready,true);
 });
 
@@ -451,7 +452,7 @@ test('a retained early draft still awaits the real title gate and avoids resetti
   assert.equal(typeof release,'function');assert.equal(h.ctx.GAME.ready,false);assert.equal(h.ctx.window.__hm.ready,false);
   assert.equal(h.calls.includes('draft-finish'),false);assert.equal(h.calls.includes('title'),false);assert.equal(h.calls.includes('raf'),false);
   release();await pending;
-  assert.deepEqual(h.calls,['meadow-start','meadow-ready','scene-ready','diagnostic','sound-start','sound-ready','draft-prepare','map','dungeon-map','title-draw','draft-finish','recovery-notice','raf']);
+  assert.deepEqual(h.calls,['meadow-start','meadow-ready','scene-ready','diagnostic','sound-start','sound-ready','ground-start','ground-ready','draft-prepare','map','dungeon-map','title-draw','draft-finish','recovery-notice','raf']);
   assert.equal(h.nodes.loading.hidden,true);
 });
 
