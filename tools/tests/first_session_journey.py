@@ -31,7 +31,8 @@ SNAPSHOT = """() => {
    documentHidden:document.hidden,focused:document.hasFocus(),backend:H?.SAVE.backend,native:!!H?.SAVE.native,
    host:H?.net?.NETWS.host||'',player:P?{id:P.id,name:P.name,alive:P.alive,x:P.x,z:P.z,hp:P.hp,level:P.level}:null,
    progress:G?{level:G.level,xp:G.xp,rp:G.rp,kills:G.kills,deaths:G.deaths,bounty:G.bounty,lore:G.lore}:null,
-   gold:H?.INV.gold,potions:H?.INV.potions,errors:H?.errors.slice(0,10)||[]};
+   gold:H?.INV.gold,potions:H?.INV.potions,errors:H?.errors.slice(0,10)||[],
+   ambientCounters:S?.ambientErrors?{extensionError:S.ambientErrors.extensionError,extensionRejection:S.ambientErrors.extensionRejection}:null};
 }"""
 EARNED = """() => {const H=__hm,G=H.GAME.prog;return {
  level:G.level,xp:G.xp,rp:G.rp,kills:G.kills,realmKills:G.realmKills,deaths:G.deaths,
@@ -147,6 +148,45 @@ INSTALL_POINTER_RECEIPTS = """point=>{
 }"""
 STOP_POINTER_RECEIPTS = "() => window.__journeyPointerReceipt?.stop() ?? null"
 
+# Init-only observer for a bounded ambient-error provenance diagnostic. It does
+# not classify, cancel, suppress or forward events, and never wraps game code.
+INSTALL_AMBIENT_RECEIPTS = """() => {
+  if(window.__journeyAmbientReceipt)throw Error('Ambient receipt already active');
+  const read=(object,key)=>{try{return{ok:true,value:object?.[key]};}catch{return{ok:false};}};
+  const kind=value=>value===null?'null':typeof value;
+  const text=(field,limit)=>({readable:field.ok,type:field.ok?kind(field.value):'unreadable',
+    value:field.ok&&typeof field.value==='string'?field.value.slice(0,limit):null,
+    truncated:field.ok&&typeof field.value==='string'&&field.value.length>limit});
+  const preview=value=>({type:kind(value),name:text(read(value,'name'),256),message:text(read(value,'message'),2048),stack:text(read(value,'stack'),8192)});
+  const startup=()=>{try{const S=window.__hmStartup,A=S?.ambientErrors;return S?{phase:S.phase,
+    stopped:!!S.stopped,ambient:A?{extensionError:A.extensionError,extensionRejection:A.extensionRejection}:null}:null;}catch{return{unreadable:true};}};
+  const state={version:1,available:true,startedAt:performance.now(),stoppedAt:null,rows:[],omitted:0,
+    kind:'passive native ambient-event provenance; no classification or event mutation'};
+  const receive=type=>event=>{
+    if(state.rows.length>=32){state.omitted++;return;}
+    const target=read(event,'target'),current=read(event,'currentTarget'),trusted=read(event,'isTrusted');
+    const reason=read(event,type==='error'?'error':'reason'),cause=reason.ok?read(reason.value,'cause'):{ok:false},errors=reason.ok?read(reason.value,'errors'):{ok:false};
+    const row={type,at:performance.now(),timeStamp:read(event,'timeStamp').value??null,
+      isTrusted:trusted.ok?trusted.value:null,targetIsWindow:target.ok?target.value===window:null,
+      currentTargetIsWindow:current.ok?current.value===window:null,
+      filename:text(read(event,'filename'),4096),message:text(read(event,'message'),2048),
+      reasonReadable:reason.ok,reason:reason.ok?preview(reason.value):null,
+      cause:{readable:cause.ok,present:cause.ok?cause.value!==undefined:null,type:cause.ok?kind(cause.value):'unreadable',preview:cause.ok&&cause.value!=null?preview(cause.value):null},
+      errors:{readable:errors.ok,present:errors.ok?errors.value!==undefined:null,type:errors.ok?kind(errors.value):'unreadable'},
+      startup:startup()};
+    state.rows.push(row);
+  };
+  const onError=receive('error'),onRejection=receive('unhandledrejection');
+  window.addEventListener('error',onError,{capture:true,passive:true});
+  window.addEventListener('unhandledrejection',onRejection,{capture:true,passive:true});
+  window.__journeyAmbientReceipt={stop(){
+    window.removeEventListener('error',onError,true);window.removeEventListener('unhandledrejection',onRejection,true);
+    state.stoppedAt=performance.now();state.finalStartup=startup();delete window.__journeyAmbientReceipt;
+    return JSON.parse(JSON.stringify(state));
+  }};
+}"""
+STOP_AMBIENT_RECEIPTS = "() => window.__journeyAmbientReceipt?.stop() ?? {available:false}"
+
 
 def extension_script_url(resource):
     if not isinstance(resource, str) or len(resource) > 4096 or not re.fullmatch(r'chrome-extension://[a-p]{32}/[^\\\x00-\x20\x7f]+', resource):
@@ -215,6 +255,7 @@ class Journey:
         self.mob_fixture = None
         self.trace_state = 'off'
         self.trace_label = None
+        self.ambient_document = 'fresh'
 
     def save(self):
         (self.out / 'journey.json').write_text(json.dumps(self.report, indent=2), encoding='utf-8')
@@ -224,7 +265,9 @@ class Journey:
                'stack': getattr(error, 'stack', None)}
         self.report['rawPageErrors'].append(raw)
         if extension_only_stack(raw['stack']):
-            self.report['extensionPageErrors'].append({**raw, 'classification': 'verified-extension-only-stack'})
+            # PageError omits the original cause/aggregate tree. This attributes
+            # its visible stack only; it never overrides the game's H.errors.
+            self.report['extensionPageErrors'].append({**raw, 'classification': 'verified-extension-only-stack', 'causeChainObserved': False})
         else:
             self.report['pageErrors'].append(raw['message'])
         self.save()
@@ -424,6 +467,16 @@ class Journey:
         require(down and up and all(abs(row[axis] - empty[axis]) < 1 for row in [down, up] for axis in ['x', 'y'])
                 and up['state']['target'] is None, 'The native clear tap did not produce matching trusted canvas down/up and a cleared target')
 
+    async def capture_ambient(self, label):
+        if not getattr(self.args, 'ambient_receipts', False):
+            return
+        try:
+            self.report.setdefault('ambientReceipts', {})[label] = await self.page.evaluate(STOP_AMBIENT_RECEIPTS)
+        except Exception as error:
+            self.report.setdefault('diagnosticErrors', []).append({'operation': 'ambient-receipt.stop',
+                'type': type(error).__name__, 'error': str(error) or repr(error)})
+        self.save()
+
     async def play(self):
         self.phase('navigation-start', entry='fresh')
         await self.page.goto('http://journey.test/', wait_until='commit')
@@ -530,6 +583,8 @@ class Journey:
         self.report['savedCheckpoint'] = {'name': saved['char']['name'], 'level': saved['char']['level'], 'xp': saved['char']['xp'], 'track': saved['char']['lore']['track'], 'music': saved['settings']['music']}
         self.save()
         await self.stop_ui_trace()
+        await self.capture_ambient('fresh')
+        self.ambient_document = 'reload'
         self.phase('navigation-start', entry='reload')
         await self.page.reload(wait_until='commit')
         self.phase('navigation-committed', entry='reload')
@@ -572,6 +627,8 @@ class Journey:
                 context = await browser.new_context(viewport={'width': self.args.width, 'height': self.args.height}, has_touch=self.args.touch,
                                                     is_mobile=self.args.touch, service_workers='block')
                 self.context = context
+                if getattr(self.args, 'ambient_receipts', False):
+                    await context.add_init_script('(' + INSTALL_AMBIENT_RECEIPTS + ')()')
                 self.phase('page-create')
                 self.page = await context.new_page()
                 self.page.set_default_timeout(20000)
@@ -618,6 +675,7 @@ class Journey:
                         await self.stop_ui_trace()
                     except Exception:
                         pass  # The explicit trace error is retained; browser ownership cleanup still runs.
+                    await self.capture_ambient(self.ambient_document)
                     self.phase('browser-close')
                     try:
                         await asyncio.wait_for(browser.close(), timeout=15)
@@ -651,6 +709,7 @@ def arguments():
     parser.add_argument('--edge-native', action='store_true', help='Installed headless Edge with native GPU/security defaults and hardware identity verification')
     parser.add_argument('--touch', action='store_true', help='Use real touch input and the compact phone controls')
     parser.add_argument('--pointer-receipts', action='store_true', help='Opt-in passive dispatch/HUD diagnostics around the single touch target-clear action')
+    parser.add_argument('--ambient-receipts', action='store_true', help='Opt-in bounded passive ambient-error provenance on fresh load and reload')
     parser.add_argument('--width', type=int)
     parser.add_argument('--height', type=int)
     parser.add_argument('--timeout', type=int, default=720, help='Whole-journey deadline in seconds; no automatic retry')

@@ -66,6 +66,41 @@ const scope=vm.createContext({URL});vm.runInContext(functions,scope);
 console.log(JSON.stringify({stacks:cases.stacks.map(value=>scope.extensionOnlyStack(value)),urls:cases.urls.map(value=>scope.extensionScriptURL(value))}));
 """
 
+AMBIENT_PROGRAM = r"""
+import assert from 'node:assert/strict';import vm from 'node:vm';import{readFileSync}from'node:fs';
+const source=JSON.parse(readFileSync(0,'utf8')),listeners=new Map();let clock=100;
+const ownedReport=()=>{throw Error('observer must not forward or suppress errors');};
+const window={reportError:ownedReport,__hmStartup:{phase:'sky',stopped:false,ambientErrors:{extensionError:0,extensionRejection:0}},
+  addEventListener(type,fn,options){assert.equal(options.passive,true);assert.equal(options.capture,true);listeners.set(type,fn);},
+  removeEventListener(type,fn,capture){assert.equal(capture,true);assert.equal(listeners.get(type),fn);listeners.delete(type);}};
+const scope=vm.createContext({window,performance:{now:()=>++clock}});
+vm.runInContext('('+source.install+')',scope)();
+const base='chrome-extension://ejbalbakoplchlghecdalmeeeajnimhm/scripts/inpage.js';
+const reason=Object.freeze({name:'i',message:'outer',stack:'i: outer\n    at Object.connect ('+base+':7:84292)',
+  cause:Object.freeze({name:'Error',message:'inner',stack:'Error: inner\n    at '+base+':4:42708'})});
+const event={isTrusted:true,target:window,currentTarget:window,timeStamp:99,reason,
+  preventDefault(){throw Error('observer changed event');},stopPropagation(){throw Error('observer changed propagation');}};
+listeners.get('unhandledrejection')(event);
+const unreadable={stack:'known'};Object.defineProperty(unreadable,'cause',{get(){throw Error('opaque');}});
+listeners.get('unhandledrejection')({...event,isTrusted:false,reason:unreadable});
+const noReason={...event,target:{},currentTarget:{}};Object.defineProperty(noReason,'error',{get(){throw Error('opaque');}});
+listeners.get('error')(noReason);
+listeners.get('unhandledrejection')({...event,reason:{stack:'x'.repeat(9000)}});
+for(let i=0;i<100;i++)listeners.get('unhandledrejection')(event);
+window.__hmStartup.ambientErrors.extensionRejection=2;
+const receipt=vm.runInContext('('+source.stop+')',scope)();
+assert.equal(receipt.rows.length,32);assert(receipt.omitted>0);assert.equal(listeners.size,0);
+assert.equal(window.reportError,ownedReport);assert.equal(window.__journeyAmbientReceipt,undefined);
+const row=receipt.rows[0];assert.equal(row.isTrusted,true);assert.equal(row.targetIsWindow,true);assert.equal(row.currentTargetIsWindow,true);
+assert.equal(row.filename.type,'undefined');assert.equal(row.reason.stack.value,reason.stack);assert.equal(row.cause.present,true);
+assert.equal(row.cause.preview.stack.value,reason.cause.stack);assert.equal(row.errors.present,false);
+assert.equal(receipt.rows[1].isTrusted,false);assert.equal(receipt.rows[1].cause.readable,false);
+assert.equal(receipt.rows[2].targetIsWindow,false);assert.equal(receipt.rows[2].reasonReadable,false);
+assert.equal(receipt.rows[3].reason.stack.truncated,true);assert.equal(receipt.rows[3].reason.stack.value.length,8192);
+assert.equal(row.startup.ambient.extensionRejection,0);assert.equal(receipt.finalStartup.ambient.extensionRejection,2);
+assert.equal(reason.cause.message,'inner');console.log('bounded passive ambient receipts preserve provenance and cleanup');
+"""
+
 
 class TraceFixture:
     def __init__(self):
@@ -296,6 +331,44 @@ class FirstSessionObservability(unittest.TestCase):
         self.assertEqual(saved['quarrySearch'], search)
         self.assertEqual(saved['fixtures'], [])
         self.assertIsNone(self.fixture.mob_fixture)
+
+    def test_ambient_receipt_is_bounded_passive_readonly_and_retains_opaque_provenance(self):
+        node, _ = installed_driver()
+        result = subprocess.run([str(node), '--input-type=module', '-e', AMBIENT_PROGRAM],
+            input=json.dumps({'install': journey.INSTALL_AMBIENT_RECEIPTS, 'stop': journey.STOP_AMBIENT_RECEIPTS}),
+            capture_output=True, text=True, encoding='utf-8', timeout=10, **process_options())
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn('bounded passive ambient receipts', result.stdout)
+
+    def test_ambient_receipt_is_opt_in_and_cleanup_errors_preserve_primary_failure(self):
+        async def evaluate(expression):
+            self.assertEqual(expression, journey.STOP_AMBIENT_RECEIPTS)
+            return {'available': True, 'rows': [{'isTrusted': True}]}
+        self.fixture.page = argparse.Namespace(evaluate=evaluate)
+        asyncio.run(self.fixture.capture_ambient('fresh'))
+        self.assertNotIn('ambientReceipts', self.fixture.report)
+        self.fixture.args.ambient_receipts = True
+        asyncio.run(self.fixture.capture_ambient('fresh'))
+        self.assertEqual(self.fixture.report['ambientReceipts']['fresh']['rows'], [{'isTrusted': True}])
+        async def failed(expression):
+            raise RuntimeError('collection failed')
+        self.fixture.fail(AssertionError('primary title failure'))
+        self.fixture.page.evaluate = failed
+        asyncio.run(self.fixture.capture_ambient('reload'))
+        self.assertEqual(self.fixture.report['failure'], 'primary title failure')
+        self.assertEqual(self.fixture.report['diagnosticErrors'][0]['operation'], 'ambient-receipt.stop')
+
+    def test_optional_ambient_init_precedes_page_creation_and_both_documents_are_captured(self):
+        tree = ast.parse(pathlib.Path(journey.__file__).read_text(encoding='utf-8'))
+        run = next(node for node in ast.walk(tree) if isinstance(node, ast.AsyncFunctionDef) and node.name == 'run')
+        init = next(node for node in ast.walk(run) if isinstance(node, ast.Await) and isinstance(node.value, ast.Call)
+                    and isinstance(node.value.func, ast.Attribute) and node.value.func.attr == 'add_init_script')
+        page = next(node for node in ast.walk(run) if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == 'new_page')
+        self.assertLess(init.lineno, page.lineno)
+        play = next(node for node in ast.walk(tree) if isinstance(node, ast.AsyncFunctionDef) and node.name == 'play')
+        captures = [node for node in ast.walk(play) if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == 'capture_ambient']
+        self.assertEqual([node.args[0].value for node in captures], ['fresh'])
+        self.assertTrue(any(isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == 'capture_ambient' for node in ast.walk(run)))
 
     def test_extension_stack_classification_is_proven_and_keeps_every_raw_error(self):
         resource = 'chrome-extension://fnjhmkhhmkbjkkabndcnnogagogbneec/assets/js/index.DRTaNfek.js'
