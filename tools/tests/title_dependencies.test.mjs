@@ -17,6 +17,7 @@ const constructors = section(original, 'const U =', 'const GLSL_PLIGHT')
   + section(original, 'function mat(opts)', '// a copy of a material')
   + section(original, 'const GLSL_CLOUDS', '/* applies a time-of-day phase')
   + section(dive, '(function divePatchComposite()', 'function reportErrorLater');
+const grouping = section(read('src/04d_barrow.js'), 'function groupOutdoors()', 'function regroupOutdoors()');
 const compile = section(rendererSource, '\t\tfunction prepareMaterial(', '\t\t// compileAsync');
 const capture = section(diagnostic, 'function gpuDiagCaptureRenderer()', 'function gpuDiagGlErrors(');
 
@@ -80,7 +81,7 @@ function fixture({ level = 'medium', safe = false, supported = true, readyDelay 
     renderStates: { get: () => renderState }, renderStateStack: [], currentRenderState: null,
     _this: renderer, BackSide: THREE.BackSide, FrontSide: THREE.FrontSide, DoubleSide: THREE.DoubleSide, getProgram };
   vm.createContext(ctx);
-  vm.runInContext(constructors + '\nview.w=1280;view.h=800;makeTargets();\n'
+  vm.runInContext(constructors + grouping + '\ngroupOutdoors(); view.w=1280;view.h=800;makeTargets();\n'
     + 'skyU.uSunDir.value.set(0,0.5,-1).normalize(); skyU.uSunVis.value=1;\n'
     + 'this.resources={skyMesh,skyU,fsMesh,fsTriGeo,fsScene,fsCam,sceneRT,bloomRTs,bloomDown,bloomUp,composite,raysMat,raysRT,_sunNdc,_camDir};\n'
     + 'function install(){' + compile + '} install.call(renderer);\n' + capture + controller, ctx);
@@ -138,6 +139,21 @@ test('sky preparation compiles only the owned eligible original sky and leaves n
   assert.equal(f.calls.length, 1); assert.equal(f.calls[0].object, f.r.skyMesh); assert.equal(f.calls[0].target, f.r.sceneRT);
   assert.equal(f.compileCalls[0].object, f.r.skyMesh); assert.equal(f.compileCalls[0].camera, f.camera); assert.equal(f.compileCalls[0].targetScene, f.scene);
   assert.equal(f.preflightCalls(), 0); assert.equal(receipt.dependency, 'sky'); assert.equal(receipt.newPrograms, 1); f.clean();
+});
+
+test('the actual production groupOutdoors path and the direct scene path retain exact sky ownership', async () => {
+  for (const direct of [false, true]) {
+    const f = fixture(); assert.equal(f.r.skyMesh.parent, f.ctx.INDOOR.outdoor); assert.equal(f.ctx.INDOOR.outdoor.parent, f.scene);
+    if (direct) f.scene.add(f.r.skyMesh);
+    const receipt = await f.finish(f.run('sky'));
+    assert.equal(receipt.eligibleJobs, 1); assert.equal(receipt.preparedJobs, 1); assert.equal(receipt.newPrograms, 1);
+    assert.equal(f.calls[0].object, f.r.skyMesh); assert.equal(f.compileCalls[0].targetScene, f.scene); f.clean();
+  }
+});
+
+test('an arbitrary group under the scene does not gain ownership of the sky preparation lane', async () => {
+  const f = fixture(), foreign = new THREE.Group(); f.scene.add(foreign); foreign.add(f.r.skyMesh);
+  const receipt = await f.run('sky'); assert.equal(receipt.eligibleJobs, 0); assert.equal(f.compileCalls.length, 0); f.clean();
 });
 
 for (const levels of [0, 1]) test('only post passes present in the current bloom chain are prepared: ' + levels, async () => {
@@ -241,12 +257,16 @@ for (const change of ['target', 'bloom target', 'ray target', 'material', 'geome
   assert.equal(f.compileCalls.length, submitted); assert.equal(f.currentTarget(), f.originalTarget); f.clean();
 });
 
-for (const change of ['hidden', 'geometry', 'shader', 'hook']) test('pending sky dependency drains before stale replan: ' + change, async () => {
+for (const change of ['hidden', 'geometry', 'shader', 'hook', 'outdoor hidden', 'outdoor detached', 'outdoor replaced', 'reparented']) test('pending sky dependency drains before stale replan: ' + change, async () => {
   const f = fixture({ readyDelay: 50 }), promise = f.run('sky'); await f.flush();
   if (change === 'hidden') f.r.skyMesh.visible = false;
   if (change === 'geometry') f.r.skyMesh.geometry = new THREE.BufferGeometry();
   if (change === 'shader') f.r.skyMesh.material.vertexShader += '\n';
   if (change === 'hook') f.r.skyMesh.material.onBeforeCompile = () => {};
+  if (change === 'outdoor hidden') f.ctx.INDOOR.outdoor.visible = false;
+  if (change === 'outdoor detached') f.ctx.INDOOR.outdoor.removeFromParent();
+  if (change === 'outdoor replaced') f.ctx.INDOOR.outdoor = new THREE.Group();
+  if (change === 'reparented') f.scene.add(f.r.skyMesh);
   const receipt = await f.finish(promise); assert.equal(receipt.stale, true); assert.equal(f.compileCalls.length, 1); f.clean();
 });
 

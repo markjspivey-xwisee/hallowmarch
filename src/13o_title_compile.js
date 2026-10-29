@@ -53,7 +53,12 @@ function titleDependencyJobs(id, inventory, receipt) {
   if (id === 'sky') {
     if (!inventory.renderables.includes(skyMesh) || !inventory.sets.sky.has(skyMesh)) throw new Error('Title sky preparation received an unowned renderable.');
     const geometry = skyMesh.geometry, material = skyMesh.material;
-    const owned = () => skyMesh.parent === scene && skyMesh.children.length === 0 && skyMesh.geometry === geometry
+    // groupOutdoors places the original sky under this one owned group. Keep
+    // that exact ancestry, rather than accepting any group rooted in the scene.
+    const parent = skyMesh.parent, outdoor = parent === INDOOR.outdoor && parent?.parent === scene ? parent : null;
+    const ownedPath = () => skyMesh.parent === parent && (parent === scene
+      || (outdoor !== null && parent === outdoor && INDOOR.outdoor === outdoor && outdoor.parent === scene));
+    const owned = () => ownedPath() && skyMesh.children.length === 0 && skyMesh.geometry === geometry
       && geometry === fsTriGeo && skyMesh.material === material && titleCompileEligible(skyMesh)
       && titleCompileSupported(skyMesh) && scene.overrideMaterial === null
       && scene.onBeforeRender === THREE.Object3D.prototype.onBeforeRender
