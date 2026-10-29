@@ -136,6 +136,29 @@ function titleEntryJobs(inventory, receipt, weatherResources) {
   };
   const shaft = WXR.shafts;
   if (WXR.on && !INDOOR.on && shaft) addWorld('entry-weather-shafts', shaft, () => WXR.on && !INDOOR.on && WXR.shafts === shaft, true);
+  // The title camera can leave both original crag lists empty, while a realm's
+  // first world view populates them. Compile those two owned resources without
+  // filling their lists or changing their visibility, camera or shader inputs.
+  if (typeof MTN !== 'undefined' && MTN && typeof cragMatBase !== 'undefined') {
+    const cragJobs = [];
+    for (const [key, kind, sides, layers, far] of [['meshN', 'near', 12, 7, 0], ['meshF', 'far', 9, 4, 1]]) {
+      const object = MTN[key]; if (!object) continue;
+      const material = object.material, geometry = object.geometry, index = geometry?.index;
+      const lod = material?.uniforms?.uCragLod, distance = material?.uniforms?.uCragFar, eye = MTN.eye;
+      const owned = () => MTN[key] === object && allowed.has(object) && object.userData.mtn === kind && !object.frustumCulled
+        && material?.isShaderMaterial && !!material.uniforms && material.vertexShader === cragMatBase.vertexShader && material.fragmentShader === cragMatBase.fragmentShader
+        && geometry?.isInstancedBufferGeometry && geometry.index === index && !!index
+        && geometry.attributes?.position?.itemSize === 3 && geometry.attributes.iA?.isInstancedBufferAttribute && geometry.attributes.iA.itemSize === 4
+        && geometry.attributes.iB?.isInstancedBufferAttribute && geometry.attributes.iB.itemSize === 4
+        && material.uniforms.uCragLod === lod && lod?.value?.x === sides && lod.value.y === layers
+        && material.uniforms.uCragFar === distance && distance?.value?.z === far
+        && eye?.value?.isVector3 && MTN.eye === eye && material.uniforms.uCragEye === eye;
+      const before = jobs.length;
+      addWorld('entry-crag-' + kind, object, owned, true);
+      if (jobs.length > before) cragJobs.push(jobs[jobs.length - 1]);
+    }
+    if (cragJobs.length) checks.push(titleInitialSnapshots(cragJobs));
+  }
   if (houseGlassMat) for (const owner of new Set(HOUSES.map(house => house.S.houseSet).filter(Boolean))) {
     const object = owner.mGl, material = object?.material;
     const owned = () => allowed.has(object) && HOUSES.some(house => house.S.houseSet === owner) && owner.mGl === object

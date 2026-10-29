@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
+import { parse } from 'acorn';
 import * as THREE from 'three';
 import { WebGLPrograms } from '../node_modules/three/src/renderers/webgl/WebGLPrograms.js';
 import { WebGLUniforms } from '../node_modules/three/src/renderers/webgl/WebGLUniforms.js';
@@ -871,4 +872,108 @@ test('a failing snapshot retains its guard cost and closes preparation without a
   const receipt=f.ctx.GRAPHICS_STARTUP.titlePreparations[0];
   assert.equal(receipt.mainSnapshotChecks,1);assert.equal(receipt.mainSnapshotCheckMs,7);assert.equal(receipt.maxMainSnapshotCheckMs,7);
   assert.equal(receipt.completed,false);assert.equal(f.compileCalls.length,0);f.clean();
+});
+
+const syntaxCache=new Map();
+function actualDeclaration(text,name){
+  if(!syntaxCache.has(text))syntaxCache.set(text,parse(text,{ecmaVersion:'latest'}).body);
+  const statement=syntaxCache.get(text).find(node=>node.type==='FunctionDeclaration'&&node.id.name===name
+    ||node.type==='VariableDeclaration'&&node.declarations.some(value=>value.id.name===name));
+  assert(statement,name);return text.slice(statement.start,statement.end);
+}
+function cragFixture(options={}){
+  const f=entryFixture({level:'low',shadows:0,...options}),land=read('src/03c_land.js');
+  const globals=[...['GLSL_PLIGHT','GLSL_WEATHER','GLSL_SHADOW_BASE','GLSL_SHADOW','GLSL_WORLD'].map(name=>actualDeclaration(original,name)),
+    actualDeclaration(read('src/03_terrain.js'),'GLSL_LIGHT'),actualDeclaration(read('src/02d_season.js'),'GLSL_SHELTER'),actualDeclaration(read('src/02d_season.js'),'GLSL_SEASON'),
+    actualDeclaration(read('src/02e_land.js'),'GLSL_LAND')];
+  f.ctx.window.__hm={};f.ctx.TAU=Math.PI*2;f.ctx.DEPTH_FS=original.match(/const DEPTH_FS = \/\* glsl \*\/`([^`]+)`;/)[1];
+  let allocations=0,updates=0;
+  f.ctx.mtnUploadMap=()=>allocations++;f.ctx.towerInnerVis=()=>updates++;
+  for(const name of['mtnMountAt','mtnTopAt','mtnCamRoom','mtnCheck','mtnSettle'])f.ctx[name]=()=>{throw Error('no mountain simulation');};
+  f.ctx.syntheticCrags=Array.from({length:111},(_,index)=>({x:1000+index*.01,z:0,y0:0,sl:0,yaw:0,w:8,d:8,h:10,kind:2,seed:.5,r:8}));
+  f.eval(globals.join('\n')+'\n'+['MTN','MTN_D','mtnCragGeo','CRAG_VS','cragMatBase','mtnCragMat','buildCrags','updateMountains']
+    .map(name=>actualDeclaration(land,name)).join('\n')+'\nMTN.crags=syntheticCrags;buildCrags();updateMountains();this.mountain=MTN;');
+  Object.assign(f.ctx,{terrainChunks:[],grassMeshes:[],flowerMeshes:[],treeChunks:[],WATER_MESHES:[],crowdHumanLo:{mesh:null},
+    AURORA:{mesh:null},AUR_STAR:{mesh:null},crowdHumanFar:null,crowdBeast:{},DRAGON:{mesh:null},NEAR_TREES:{kinds:{}},
+    LOD:{terrain:[],blocks:[]},buildingMat:{vertexShader:'building-fixture'},houseMat:{vertexShader:'house-fixture'},castleMat:{vertexShader:'castle-fixture'}});
+  f.eval(actualDeclaration(diagnostic,'gpuDiagFamilies')+'\nthis.cragInventory=gpuDiagFamilies();');
+  f.inventory=f.ctx.cragInventory;
+  return Object.assign(f,{mountain:f.ctx.mountain,allocationCount:()=>allocations,updateCount:()=>updates,
+    runCrags:()=>f.ctx.prepareTitleEntryPrograms(f.inventory,f.ctx.TITLE_WARM_GENERATION,f.resources)});
+}
+
+test('real low title inventory includes hidden original crags and prepares their unchanged native-signature materials only',async()=>{
+  const f=cragFixture(),m=f.mountain,N=m.meshN,F=m.meshF,before=f.state();
+  assert(f.inventory.renderables.includes(N)&&f.inventory.renderables.includes(F));
+  assert(f.inventory.sets.other.has(N)&&f.inventory.sets.other.has(F));
+  assert.equal(N.visible,false);assert.equal(F.visible,false);assert.equal(N.geometry.instanceCount,0);assert.equal(F.geometry.instanceCount,0);
+  assert.equal(F.material.vertexShader.length,5818);assert.equal(F.material.fragmentShader.length,26384);
+  const parents=[N.parent,F.parent],uniforms=[N.material.uniforms,F.material.uniforms],allocations=f.allocationCount(),updates=f.updateCount();
+  const decoy=F.clone();f.scene.add(decoy);f.inventory.renderables.push(decoy);
+  const receipt=await f.finish(f.runCrags());
+  assert.equal(receipt.families['entry-crag-near'].prepared,1);assert.equal(receipt.families['entry-crag-far'].prepared,1);
+  assert.equal(receipt.families['entry-crag-near'].programs+receipt.families['entry-crag-far'].programs,1);
+  assert(!f.calls.some(call=>call.object===decoy));assert.deepEqual(f.state(),before);
+  assert.equal(N.visible,false);assert.equal(F.visible,false);assert.equal(N.geometry.instanceCount,0);assert.equal(F.geometry.instanceCount,0);
+  assert.deepEqual([N.parent,F.parent],parents);assert.deepEqual([N.material.uniforms,F.material.uniforms],uniforms);
+  assert.equal(f.allocationCount(),allocations);assert.equal(f.updateCount(),updates);assert.equal(f.randomCalls(),0);f.clean();
+});
+
+test('real low camera hidden-to-populated111-instance crag entry reuses exact prepared r160 program keys and objects',async()=>{
+  const f=cragFixture(),F=f.mountain.meshF;
+  await f.finish(f.run('sky'));await f.finish(f.runCrags());
+  const count=f.programs.length,known=new Map(f.known),prepared=f.calls.filter(call=>call.object===F);
+  assert.equal(prepared.length,1);f.camera.position.x=900;f.eval('updateMountains();');
+  assert.equal(F.visible,true);assert.equal(F.geometry.instanceCount,111);
+  f.eval('renderer.render(scene,camera);');assert.equal(f.programs.length,count);
+  for(const[key,program]of known)assert.equal(f.known.get(key),program);
+  assert(f.calls.some(call=>call.object===F&&call.targetScene===f.scene&&call.target===f.r.sceneRT));f.clean();
+});
+
+test('already populated original crags deduplicate with the combined title queue without skipping either resource',async()=>{
+  const f=cragFixture();f.camera.position.x=956;f.eval('updateMountains();');
+  assert.equal(f.mountain.meshN.visible,true);assert.equal(f.mountain.meshF.visible,true);
+  const stages=Object.entries(f.inventory.sets).map(([id,members])=>[id,new Set([...members].filter(Boolean))]);
+  const receipt=await f.finish(f.ctx.prepareTitleInitialPrograms(f.inventory,stages,f.ctx.TITLE_WARM_GENERATION,f.resources));
+  assert.equal(receipt.completed,true);assert.equal(receipt.deduplicatedJobs,2);assert(receipt.maxPending<=4);
+  for(const object of[f.mountain.meshN,f.mountain.meshF])assert.equal(f.calls.filter(call=>call.object===object).length,1);
+  assert.equal(receipt.families['entry-crag-near'].prepared,1);assert.equal(receipt.families['entry-crag-far'].prepared,1);f.clean();
+});
+
+for(const change of['missing','unowned inventory','foreign shader','render hook','child','bad marker','bad attribute','missing eye','hidden parent'])
+test('unsupported or unavailable crag resources retain normal draw fallback without admission: '+change,async()=>{
+  const f=cragFixture(),object=f.mountain.meshF;
+  if(change==='missing')f.mountain.meshF=null;
+  if(change==='unowned inventory')f.inventory.renderables=f.inventory.renderables.filter(value=>value!==object);
+  if(change==='foreign shader')object.material.fragmentShader+='\n// foreign';
+  if(change==='render hook')object.onBeforeRender=()=>{};
+  if(change==='child')object.add(new THREE.Mesh());
+  if(change==='bad marker')object.userData.mtn='other';
+  if(change==='bad attribute')object.geometry.attributes.iA.itemSize=3;
+  if(change==='missing eye')delete object.material.uniforms.uCragEye;
+  if(change==='hidden parent'){const parent=new THREE.Group();f.scene.add(parent);parent.add(object);parent.visible=false;}
+  const receipt=await f.finish(f.runCrags());assert.equal(receipt.completed,true);
+  assert.equal(receipt.families['entry-crag-far'],undefined);assert(!f.calls.some(call=>call.object===object));f.clean();
+});
+
+for(const change of['pointer','geometry','index','attribute','material','shader','version','hook','parent','visible','eye','lod','target','camera layers'])
+test('original crag input changes stop further admission and drain stale: '+change,async()=>{
+  const f=cragFixture({readyDelay:50,compileMs:10}),object=f.mountain.meshN,promise=f.runCrags();await f.flush();
+  const submitted=f.compileCalls.length;
+  if(change==='pointer')f.mountain.meshN=object.clone();
+  if(change==='geometry')object.geometry=object.geometry.clone();
+  if(change==='index')object.geometry.setIndex([0,1,2]);
+  if(change==='attribute')object.geometry.setAttribute('iA',new THREE.InstancedBufferAttribute(new Float32Array(444),4));
+  if(change==='material')object.material=object.material.clone();
+  if(change==='shader')object.material.vertexShader+='\n// replaced';
+  if(change==='version')object.material.needsUpdate=true;
+  if(change==='hook')object.material.onBeforeCompile=()=>{};
+  if(change==='parent'){const parent=new THREE.Group();f.scene.add(parent);parent.add(object);}
+  if(change==='visible')object.visible=true;
+  if(change==='eye')f.mountain.eye={value:new THREE.Vector3()};
+  if(change==='lod')object.material.uniforms.uCragLod.value.x=9;
+  if(change==='target')f.eval('sceneRT=new THREE.WebGLRenderTarget();');
+  if(change==='camera layers')f.camera.layers.set(3);
+  const receipt=await f.finish(promise);assert.equal(receipt.stale,true);assert.equal(receipt.completed,false);
+  assert.equal(f.compileCalls.length,submitted);assert(f.errorChecks.every(value=>value===0));f.clean();
 });
