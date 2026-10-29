@@ -29,7 +29,7 @@ function target() {
     emit(name) { for (const fn of [...(listeners.get(name) || [])]) fn({}); },
     listenerCount: () => [...listeners.values()].reduce((n, set) => n + set.size, 0) };
 }
-function fixture({ safe = false, supported = true, count = 20, readyDelay = 25, failure = '', avatar = false } = {}) {
+function fixture({ safe = false, supported = true, count = 20, readyDelay = 25, failure = '', avatar = false, compileMs = 0, flushMs = 0, inventoryCheckMs = 0 } = {}) {
   let now = 0, timerId = 0, currentTarget, lost = false, randomCalls = 0;
   const timers = new Map(), document = { hidden: false, ...target() }, window = target(), canvas = target();
   const scene = new THREE.Scene(), sceneRT = {}, originalTarget = currentTarget = {};
@@ -43,7 +43,7 @@ function fixture({ safe = false, supported = true, count = 20, readyDelay = 25, 
     GRAPHICS_STARTUP: { stopped: false }, GRAPHICS_CONTEXT_LOST: false, GAME: { started: false },
     TITLE_RESIZE_PENDING: false, resizeTimer: 0, TITLE_WARM_GENERATION: 1,
     performance: { now: () => now }, camera: new THREE.PerspectiveCamera(),
-    frustum: { intersectsObject: object => !object.userData.offscreen, intersectsSprite: object => !object.userData.offscreen },
+    frustum: { intersectsObject: object => { now += inventoryCheckMs; return !object.userData.offscreen; }, intersectsSprite: object => { now += inventoryCheckMs; return !object.userData.offscreen; } },
     Math: Object.assign(Object.create(Math), { random() { randomCalls++; return 0.5; } }),
     setTimeout(fn, delay) { const id = ++timerId; timers.set(id, { fn, due: now + delay }); return id; },
     clearTimeout(id) { timers.delete(id); },
@@ -52,7 +52,7 @@ function fixture({ safe = false, supported = true, count = 20, readyDelay = 25, 
     gpuDiagCaptureRenderer: () => ({ target: currentTarget }),
     gpuDiagRestoreRenderer(saved, restoreGl) { restores.push(restoreGl); if (restoreGl && !lost) currentTarget = saved.target; },
     gpuDiagGlErrors: () => glErrors.shift() || [],
-    gl: { LINK_STATUS: 35714, isContextLost: () => lost, flush() { assert(!lost); flushes.push(now); if (failure === 'flushGL') glErrors.push(['0x0502']); },
+    gl: { LINK_STATUS: 35714, isContextLost: () => lost, flush() { assert(!lost); flushes.push(now); now += flushMs; if (failure === 'flushGL') glErrors.push(['0x0502']); },
       getProgramParameter(program) { assert(!lost); queries.push(program); return failure !== 'link'; } },
     renderStates: { get: () => renderState }, renderStateStack: [], currentRenderState: null, _this: renderer,
     BackSide: THREE.BackSide, FrontSide: THREE.FrontSide, DoubleSide: THREE.DoubleSide,
@@ -71,7 +71,7 @@ function fixture({ safe = false, supported = true, count = 20, readyDelay = 25, 
   };
   vm.createContext(ctx);
   vm.runInContext('function install(){' + compile + '}\ninstall.call(renderer);\n' + actualConstructors + '\n' + source, ctx);
-  const compileCalls = [], actualCompile = renderer.compile; renderer.compile = function(collection, camera, targetScene) { compileCalls.push({ collection, camera, targetScene, target: currentTarget }); return actualCompile.call(this, collection, camera, targetScene); };
+  const compileCalls = [], actualCompile = renderer.compile; renderer.compile = function(collection, camera, targetScene) { compileCalls.push({ collection, camera, targetScene, target: currentTarget }); now += compileMs; return actualCompile.call(this, collection, camera, targetScene); };
   const objects = [];
   for (let i = 0; i < count; i++) {
     const geometry = new THREE.BufferGeometry(), material = new THREE.ShaderMaterial({ transparent: i % 4 === 0,
@@ -168,6 +168,92 @@ test('late complete poll succeeds before both elapsed deadlines are considered',
 test('late pending poll times out without queueing another object', async () => {
   const f = fixture({ readyDelay: 1000000 }), promise = f.run(), rejected = assert.rejects(promise, /timed out/);
   await f.flush(); const submitted = f.calls.length; await f.timer(90000); await rejected; assert.equal(f.calls.length, submitted); f.clean();
+});
+test('a five-second synchronous prepare yields before another job and reports the unpreemptible call', async () => {
+  const f = fixture({ count: 3, compileMs: 5000 }), promise = f.run(); await f.flush();
+  assert.equal(f.compileCalls.length, 1, 'one slow call returns before the first poll/paint opportunity');
+  const first = f.ctx.GRAPHICS_STARTUP.titlePreparations[0];
+  assert.equal(first.maxSinglePrepareMs, 5000); assert.equal(first.maxFullTurnMs, 5000);
+  assert.equal(first.maxPreparesPerTurn, 1); assert.equal(first.budgetYields, 1);
+  assert.equal(first.slowestPrepare.objectId, f.objects[0].id);
+  const receipt = await f.finish(promise);
+  assert.equal(receipt.completed, true); assert.equal(receipt.preparedJobs, receipt.eligibleJobs);
+  assert(receipt.maxPending <= 8); assert.equal(receipt.maxPreparesPerTurn, 1); f.clean();
+});
+test('fast prepares retain the four-job/eight-program window while elapsed time can end a turn sooner', async () => {
+  const fast = fixture({ compileMs: 1 }), fp = fast.run(); await fast.flush();
+  assert.equal(fast.compileCalls.length, 4);
+  const fr = await fast.finish(fp); assert(fr.maxPending <= 8); assert.equal(fr.maxPreparesPerTurn, 4); fast.clean();
+  const slow = fixture({ count: 3, compileMs: 5 }), sp = slow.run(); await slow.flush();
+  assert.equal(slow.compileCalls.length, 2);
+  const sr = await slow.finish(sp); assert.equal(sr.maxFullTurnMs, 10); assert.equal(sr.maxSinglePrepareMs, 5); slow.clean();
+});
+test('full-turn telemetry includes a slow flush and excludes asynchronous poll waits', async () => {
+  const flush = fixture({ count: 1, flushMs: 3000 }), fp = flush.run();
+  const fr = await flush.finish(fp); assert.equal(fr.maxSinglePrepareMs, 0); assert.equal(fr.maxFlushMs, 3000);
+  assert.equal(fr.maxFullTurnMs, 3000); flush.clean();
+  const waiting = fixture({ count: 1, readyDelay: 50000 }), wp = waiting.run(); await waiting.flush();
+  await waiting.timer(60000); const wr = await wp;
+  assert(wr.elapsedMs >= 60000); assert.equal(wr.maxFullTurnMs, 0); waiting.clean();
+});
+test('inventory telemetry is bounded and separates expensive eligibility checks from preparation', async () => {
+  const f = fixture({ count: 1, inventoryCheckMs: 13 }), receipt = await f.finish(f.run());
+  assert.equal(receipt.inventoryObjects, 1); assert.equal(receipt.inventoryMs, 13);
+  assert.equal(receipt.maxInventoryCheckMs, 13); assert.equal(receipt.slowestInventory.objectId, f.objects[0].id);
+  assert.equal(receipt.maxSinglePrepareMs, 0); assert(receipt.maxFullTurnMs >= 13);
+  assert.deepEqual(Object.keys(receipt.slowestInventory).sort(), ['family','materialId','ms','objectId']); f.clean();
+});
+test('an inventory failure retains its timing and clears preparation listeners without compiling', async () => {
+  const f = fixture({ count: 1, inventoryCheckMs: 13 });
+  Object.defineProperty(f.objects[0].userData, 'offscreen', { get() { throw Error('controlled inventory failure'); } });
+  await assert.rejects(f.run(), /controlled inventory failure/);
+  const receipt = f.ctx.GRAPHICS_STARTUP.titlePreparations[0];
+  assert.equal(receipt.inventoryMs, 13); assert.equal(receipt.maxInventoryCheckMs, 13);
+  assert.equal(receipt.outcome, 'failed'); assert.equal(f.compileCalls.length, 0); f.clean();
+});
+for (const eventDelivered of [true, false]) test('background time beyond the program deadline is excluded, visibility event=' + eventDelivered, async () => {
+  const f = fixture({ readyDelay: 1000000 }), promise = f.run(); let failed = false;
+  promise.catch(() => { failed = true; }); await f.flush();
+  const submitted = f.calls.length; f.ctx.document.hidden = true;
+  if (eventDelivered) f.ctx.document.emit('visibilitychange');
+  await f.flush(); await f.timer(120000);
+  assert.equal(failed, false); assert.equal(f.calls.length, submitted);
+  f.ctx.document.hidden = false; f.ctx.document.emit('visibilitychange'); await f.flush();
+  await f.timer(); assert.equal(failed, false, 'returning to the foreground does not spend the hidden interval');
+  const rejected = assert.rejects(promise, /timed out/);
+  await f.timer(90000); await rejected;
+  const receipt = f.ctx.GRAPHICS_STARTUP.titlePreparations[0];
+  assert(receipt.visibleMs >= 90000); assert(receipt.hiddenMs >= 120000); assert.equal(receipt.reason, 'visibility'); f.clean();
+});
+test('a completed background window drains as stale without claiming a frame or spending hidden time', async () => {
+  const f = fixture({ readyDelay: 100000 }), promise = f.run(); await f.flush();
+  f.ctx.document.hidden = true; f.ctx.document.emit('visibilitychange'); await f.flush();
+  await f.timer(200000); const receipt = await promise;
+  assert.equal(receipt.stale, true); assert.equal(receipt.completed, false);
+  assert.equal(receipt.visibleMs, 0); assert(receipt.hiddenMs >= 200000);
+  assert.equal(f.ctx.GRAPHICS_STARTUP.titleCompleted, undefined); f.clean();
+});
+for (const failure of ['link', 'GL', 'context']) test('hidden-time suspension still fails closed on ' + failure, async () => {
+  const f = fixture({ readyDelay: 100000, failure: failure === 'link' ? 'link' : '' }), promise = f.run();
+  const rejected = assert.rejects(promise, failure === 'link' ? /failed to link/ : failure === 'GL' ? /GL errors/ : /Graphics stopped/);
+  await f.flush(); const submitted = f.calls.length;
+  f.ctx.document.hidden = true; f.ctx.document.emit('visibilitychange'); await f.flush();
+  if (failure === 'context') f.lose();
+  else { if (failure === 'GL') f.glErrors.push(['0x0502']); await f.timer(200000); }
+  await rejected; assert.equal(f.calls.length, submitted); assert.equal(f.ctx.GRAPHICS_STARTUP.titlePreparations[0].outcome, 'failed'); f.clean();
+});
+test('failed slow preparation still records its blocking time without retry or GL restoration', async () => {
+  const f = fixture({ failure: 'throw', compileMs: 5000 }); await assert.rejects(f.run(), /controlled compile/);
+  const receipt = f.ctx.GRAPHICS_STARTUP.titlePreparations[0];
+  assert.equal(receipt.maxSinglePrepareMs, 5000); assert.equal(receipt.maxFullTurnMs, 5000);
+  assert.equal(f.compileCalls.length, 1); assert.deepEqual(f.restores, [false]); f.clean();
+});
+test('the total visible-time deadline still bounds a stream of individually completed programs', async () => {
+  const f = fixture({ count: 50, readyDelay: 0, compileMs: 8000 });
+  await assert.rejects(f.finish(f.run()), /exceeded its time budget/);
+  const receipt = f.ctx.GRAPHICS_STARTUP.titlePreparations[0];
+  assert(receipt.visibleMs >= 180000); assert.equal(receipt.hiddenMs, 0);
+  assert(receipt.preparedJobs < receipt.eligibleJobs); f.clean();
 });
 test('context loss rejects before completion=true can be accepted and removes listeners immediately', async () => {
   const f = fixture(), promise = f.run(), rejected = assert.rejects(promise, /Graphics stopped/); await f.flush();
