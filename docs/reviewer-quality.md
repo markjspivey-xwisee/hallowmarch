@@ -71,7 +71,7 @@ approximately 18-second first-play page stall while further programs appeared.
 An equivalent fog-expression factoring passed numerical and native correctness
 checks but took 117.9 seconds in its comparison run; it was rejected as an
 unproven optimization. The retained title scheduler prepares only supported current-view materials in
-an eight-program window, at most four preparation calls per turn. Every original
+a four-program window, at most four preparation calls per turn. Every original
 real draw and fence, and the combined visible-frame gate, remain mandatory.
 Recovery and unsupported cases keep the serial path. Visibility/resize changes
 drain a stale window before replanning; context, link and GL failures stop it.
@@ -97,6 +97,46 @@ count is zero, and reappear after population at either detail level. The generic
 crowds and title human preparation are unchanged. Actual-game near/far checks
 confirmed populated color/shadow submissions and no empty bird submissions.
 First sight of a real bird can still require its shader compilation.
+
+## Loading and first-entry follow-up (2026-10-29)
+
+The combined preparation queue retains every original family draw and fence and
+the combined first-view fence. Entry and current-view work share one bounded
+queue; program reflection occurs only after its whole linked wave drains.
+Identity, private reads, character admission, consent and earned progress retain
+their existing gates. Deterministic meadow RGB is prepared in four-row slices;
+its live canopy alpha and first-use texture publication remain unchanged.
+Yearly snow and ice settling preserve every Float32 store, clamp, byte and final
+unrounded threshold decision, with independently pinned deployed-source oracles.
+
+After existing settings/world hydration, eligible players can edit a character
+draft over an opaque background while graphics prepare. Begin, Continue, random
+names and account changes stay locked until the existing Ready gate. The same
+owner keeps typed choices; cancellation restores pre-draft choices. An anonymous
+preview requires the existing successful null metadata read and grants no private
+absence, identity admission or save authority. Late private reads still defer
+their normal title hydration until Ready.
+
+Pooled scene/material guards and backoff on unchanged sealed waves reduce polling
+work. In sequential native Edge / GTX 980 Ti local fixtures, pooled fixed polling
+used 17.326 seconds of guard CPU, while bounded 10–100 ms idle backoff used
+3.364 seconds. Preparation-loop turns fell from a 391.3 ms maximum to 17.3 ms.
+Ready was 94.032 / 95.536 seconds in those runs: this pair does not establish a
+total-loading speed improvement. The backoff recording also contains a separate
+85 ms setup task and an unattributed 1.16-second frame-callback gap. Those are
+retained open findings, not evidence that all startup pauses are fixed.
+
+A fresh deployed-build control took 125.912 seconds to Ready and recorded 559 ms
+and 222 ms first-entry long tasks. The later backoff candidate recorded 424 ms
+and 113 ms entry tasks, with no new entry programs and exact weather/shadow
+program reuse. These are single sequential runs, not input latency, displayed
+FPS or statistically isolated benchmark results. They precede the final ice and
+character-draft changes; final frozen-build evidence must be recorded separately.
+
+An eight-program experiment reached Ready sooner but produced a 2.991-second
+preparation task, so the four-program limit remains. An audio impulse cache passed
+byte/RNG equivalence but regressed cold lite cases and added temporary memory;
+it was rejected. All failed and rejected native trials remain in the evidence.
 
 ## Release limits
 
