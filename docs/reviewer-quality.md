@@ -157,12 +157,14 @@ it was rejected. All failed and rejected native trials remain in the evidence.
 
 ## Release limits
 
-Explicit SwiftShader test boots have a five-minute allowance after three-minute
-receipts showed visible, error-free forward progress through the unchanged
-serial family path. The helper's normal three-minute default, native-browser
-budgets, product deadlines and every shader/draw/fence/state assertion remain
-unchanged. A software timeout never counts as success and is not a native loading
-benchmark; previous failures are retained.
+Three- and five-minute ordinary SwiftShader title failures are retained as a
+regression, alongside the deployed control's 16.828-second Ready receipt.
+With bounded map work and the redundant preparation-panel blur removed, the next
+software title reached Ready at 21.531 seconds with all 43 family and combined
+fences, unchanged world state and zero preparation RNG calls. The original
+three-minute software allowance is restored; native/product deadlines and every
+shader/draw/fence/state assertion remain unchanged. This is a small rendering-path
+workaround, not proof of a specific browser/driver defect or a native benchmark.
 
 Fresh full CI and desktop/phone verification must run on the final frozen build,
 with its exact hash and inspected screenshots. The isolated shader result must

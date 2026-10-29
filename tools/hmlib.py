@@ -5,9 +5,6 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import hm
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeoutError
 OUT = str(hm.OUT) + '/'
-# Explicit software rendering can progress through the original serial title
-# beyond three minutes on CI. This is not the native-browser readiness budget.
-SOFTWARE_BOOT_TIMEOUT_MS = 300000
 
 
 async def wait_title_settled(page, timeout=180000):
@@ -63,7 +60,7 @@ async def setup(p, touch=False, w=800, h=450, init=None):
     async def doc_route(route): await route.fulfill(status=200, content_type='text/html', body=hm.SKELETON.replace('%s', hm.HTML.read_text()))
     await page.route('http://hm.test/', doc_route)
     await page.goto('http://hm.test/', wait_until='commit')
-    await wait_title_settled(page, timeout=SOFTWARE_BOOT_TIMEOUT_MS)
+    await wait_title_settled(page)
     await page.evaluate("__hm.fn.setQuality('low')")
     await wait_title_settled(page)
     return b, page, logs
