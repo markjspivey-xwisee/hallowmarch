@@ -122,6 +122,7 @@ function fixture({ level = 'medium', safe = false, supported = true, readyDelay 
     aspect: r.raysMat.uniforms.uAspect.value, ndc: r._sunNdc.toArray(), direction: r._camDir.toArray(),
     autoClear: renderer.autoClear, clearColor: clearColor.getHex(), clearAlpha, viewport: viewport.toArray(), scissor: scissor.toArray(), scissorTest });
   return { ctx, r, scene, camera, inventory, programs, known, compileCalls, calls, timers, errors, errorChecks, reflections, originalTarget,
+    advance: ms => { now += ms; },
     currentTarget: () => currentTarget, randomCalls: () => randomCalls, preflightCalls: () => preflightCalls, state,
     run: id => ctx.prepareTitleDependencies(id, inventory, ctx.TITLE_WARM_GENERATION),
     eval: text => vm.runInContext(text, ctx),
@@ -812,4 +813,44 @@ test('recovery and absent parallel compile never publish an initial inventory co
     const f=initialFixture(options),events=[];f.ctx.titleLoadingProgress=state=>events.push(state);
     const receipt=await f.runInitial();assert.equal(receipt.supported,false);assert.equal(events.length,0);f.clean();
   }
+});
+
+test('initial snapshots inspect each shared material, geometry, ancestor, camera and scene once per guard',()=>{
+  const f=initialFixture({shadows:0}),material=new THREE.ShaderMaterial(),geometry=new THREE.BufferGeometry(),parent=new THREE.Group();
+  const color=new THREE.BufferAttribute(new Float32Array(4),4);geometry.setAttribute('color',color);f.scene.add(parent);
+  const counts={material:0,geometry:0,parent:0,camera:0,scene:0};
+  const observe=(object,key,name)=>{let value=object[key];Object.defineProperty(object,key,{configurable:true,enumerable:true,
+    get(){counts[name]++;return value;},set(next){value=next;}});};
+  observe(material,'toneMapped','material');observe(color,'itemSize','geometry');observe(parent,'visible','parent');
+  observe(f.camera.layers,'mask','camera');observe(f.scene,'fog','scene');
+  const jobs=[];
+  for(let i=0;i<300;i++){
+    const object=new THREE.Mesh(geometry,material);parent.add(object);
+    jobs.push({object,material,geometry,camera:f.camera,targetScene:f.scene});
+  }
+  const current=f.ctx.titleInitialSnapshots(jobs);for(const key of Object.keys(counts))counts[key]=0;
+  for(let i=0;i<4;i++)assert.equal(current(),true);
+  assert.deepEqual(counts,{material:4,geometry:4,parent:4,camera:4,scene:4});
+  material.defines.DIRECT_CHANGE=1;assert.equal(current(),false);delete material.defines.DIRECT_CHANGE;
+  material.toneMapped=!material.toneMapped;assert.equal(current(),false);f.clean();
+});
+
+test('guard-cost telemetry includes every actual main/dependency predicate without counting async waits',async()=>{
+  const f=initialFixture({shadows:3,readyDelay:50}),originalMain=f.ctx.titleInitialSnapshots,originalEntry=f.ctx.titleEntryJobs;
+  f.ctx.titleInitialSnapshots=jobs=>{const current=originalMain(jobs);return()=>{f.advance(2);return current();};};
+  f.ctx.titleEntryJobs=(...args)=>{const snapshot=originalEntry(...args),current=snapshot.current;
+    snapshot.current=()=>{f.advance(3);return current();};return snapshot;};
+  const receipt=await f.finish(f.runInitial());
+  assert(receipt.mainSnapshotChecks>0);assert.equal(receipt.mainSnapshotCheckMs,receipt.mainSnapshotChecks*2);assert.equal(receipt.maxMainSnapshotCheckMs,2);
+  assert(receipt.dependencyChecks>=receipt.mainSnapshotChecks);assert.equal(receipt.dependencyCheckMs,receipt.dependencyChecks*3);assert.equal(receipt.maxDependencyCheckMs,3);
+  assert(receipt.maxFullTurnMs>=5);assert.equal(receipt.completed,true);f.clean();
+});
+
+test('a failing snapshot retains its guard cost and closes preparation without any compile admission',async()=>{
+  const f=initialFixture({shadows:3});
+  f.ctx.titleInitialSnapshots=()=>()=>{f.advance(7);throw Error('controlled guard failure');};
+  await assert.rejects(f.runInitial(),/controlled guard failure/);
+  const receipt=f.ctx.GRAPHICS_STARTUP.titlePreparations[0];
+  assert.equal(receipt.mainSnapshotChecks,1);assert.equal(receipt.mainSnapshotCheckMs,7);assert.equal(receipt.maxMainSnapshotCheckMs,7);
+  assert.equal(receipt.completed,false);assert.equal(f.compileCalls.length,0);f.clean();
 });

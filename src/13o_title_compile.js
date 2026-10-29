@@ -233,45 +233,92 @@ function prepareTitleInitialPrograms(inventory, stages, generation, weatherResou
   return prepareTitleProgramJobs(inventory, stages, generation, 'initial', weatherResources);
 }
 
-function titleInitialSnapshot(job) {
-  const { object, material, geometry } = job, ancestry = [];
-  for (let node = object; node; node = node.parent) ancestry.push([node, node.parent, node.visible, node.layers.mask]);
-  job.version ??= material.version;
-  job.vertexShader ??= material.vertexShader; job.fragmentShader ??= material.fragmentShader;
-  job.side ??= material.side; job.transparent ??= material.transparent; job.forceSinglePass ??= material.forceSinglePass;
+function titleInitialSnapshots(jobs) {
+  const objects = [], materials = [], geometries = [], ancestors = [], cameras = [], scenes = [];
+  const seenMaterials = new Set(), seenGeometry = new Set(), seenAncestors = new Set(), seenCameras = new Set(), seenScenes = new Set();
   const fields = ['type', 'isShaderMaterial', 'isRawShaderMaterial', 'glslVersion', 'precision', 'vertexShader', 'fragmentShader',
     'side', 'transparent', 'forceSinglePass', 'vertexColors', 'fog', 'lights', 'clipping', 'flatShading', 'sizeAttenuation',
     'blending', 'alphaTest', 'alphaHash', 'premultipliedAlpha', 'dithering', 'toneMapped', 'combine', 'normalMapType',
     'anisotropy', 'clearcoat', 'iridescence', 'sheen', 'transmission', 'depthPacking', 'index0AttributeName'];
-  const inputs = fields.map(key => [key, material[key]]);
-  const textures = ['map', 'matcap', 'envMap', 'aoMap', 'lightMap', 'bumpMap', 'normalMap', 'displacementMap', 'emissiveMap',
+  const textureFields = ['map', 'matcap', 'envMap', 'aoMap', 'lightMap', 'bumpMap', 'normalMap', 'displacementMap', 'emissiveMap',
     'metalnessMap', 'roughnessMap', 'anisotropyMap', 'clearcoatMap', 'clearcoatNormalMap', 'clearcoatRoughnessMap',
     'iridescenceMap', 'iridescenceThicknessMap', 'sheenColorMap', 'sheenRoughnessMap', 'specularMap', 'specularColorMap',
-    'specularIntensityMap', 'transmissionMap', 'thicknessMap', 'gradientMap', 'alphaMap']
-    .map(key => [key, material[key], material[key]?.channel, material[key]?.mapping, material[key]?.image?.height]);
+    'specularIntensityMap', 'transmissionMap', 'thicknessMap', 'gradientMap', 'alphaMap'];
+  const objectFields = ['isInstancedMesh', 'isBatchedMesh', 'isSkinnedMesh', 'isPoints', 'isSprite', 'instanceColor', 'frustumCulled', 'receiveShadow'];
+  const sceneFields = ['overrideMaterial', 'fog', 'environment'];
   const entries = value => value == null ? value : Object.entries(value);
-  const defines = entries(material.defines), extensions = entries(material.extensions);
-  const sameEntries = (value, original) => original == null ? value === original : !!value
-    && Object.keys(value).length === original.length && Object.keys(value).every((key, index) => key === original[index][0] && value[key] === original[index][1]);
-  const objectInputs = ['isInstancedMesh', 'isBatchedMesh', 'isSkinnedMesh', 'isPoints', 'isSprite', 'instanceColor', 'frustumCulled', 'receiveShadow']
-    .map(key => [key, object[key]]);
-  const attributes = Object.entries(geometry.attributes).map(([key, attribute]) => [key, attribute, attribute.itemSize]);
-  const morphs = Object.entries(geometry.morphAttributes).map(([key, values]) => [key, values, values.length]);
-  const morphTargetsRelative = geometry.morphTargetsRelative, cameraLayers = job.camera.layers.mask;
-  const sceneInputs = ['overrideMaterial', 'fog', 'environment'].map(key => [key, job.targetScene[key]]);
-  return () => object.geometry === geometry && object.material === material && material.version === job.version
-    && titleCompileSupported(object, material) && material.visible !== false
-    && inputs.every(([key, value]) => material[key] === value) && sameEntries(material.defines, defines) && sameEntries(material.extensions, extensions)
-    && textures.every(([key, texture, channel, mapping, height]) => material[key] === texture
-      && texture?.channel === channel && texture?.mapping === mapping && texture?.image?.height === height)
-    && objectInputs.every(([key, value]) => object[key] === value) && job.camera.layers.mask === cameraLayers
-    && sceneInputs.every(([key, value]) => job.targetScene[key] === value)
-    && Object.keys(geometry.attributes).length === attributes.length
-    && attributes.every(([key, attribute, size]) => geometry.attributes[key] === attribute && attribute.itemSize === size)
-    && Object.keys(geometry.morphAttributes).length === morphs.length
-    && morphs.every(([key, values, length]) => geometry.morphAttributes[key] === values && values.length === length)
-    && geometry.morphTargetsRelative === morphTargetsRelative
-    && ancestry.every(([node, parent, visible, layers]) => node.parent === parent && node.visible === visible && node.layers.mask === layers);
+  const own = Object.prototype.hasOwnProperty;
+  const ownCount = value => { let count = 0; for (const key in value) if (own.call(value, key)) count++; return count; };
+  const sameEntries = (value, original) => {
+    if (original == null) return value === original;
+    if (!value) return false;
+    let index = 0;
+    for (const key in value) if (own.call(value, key)) {
+      if (index >= original.length || key !== original[index][0] || value[key] !== original[index][1]) return false;
+      index++;
+    }
+    return index === original.length;
+  };
+  for (const job of jobs) {
+    const { object, material, geometry } = job;
+    job.version ??= material.version;
+    job.vertexShader ??= material.vertexShader; job.fragmentShader ??= material.fragmentShader;
+    job.side ??= material.side; job.transparent ??= material.transparent; job.forceSinglePass ??= material.forceSinglePass;
+    objects.push({ object, material, geometry, inputs: objectFields.map(key => object[key]) });
+    if (!seenMaterials.has(material)) {
+      seenMaterials.add(material);
+      materials.push({ material, job, inputs: fields.map(key => material[key]), defines: entries(material.defines), extensions: entries(material.extensions),
+        textures: textureFields.map(key => material[key]), textureInputs: textureFields.filter(key => material[key] != null)
+          .map(key => { const texture = material[key]; return [texture, texture.channel, texture.mapping, texture.image?.height]; }) });
+    }
+    if (!seenGeometry.has(geometry)) {
+      seenGeometry.add(geometry);
+      geometries.push({ geometry, attributes: Object.entries(geometry.attributes).map(([key, attribute]) => [key, attribute, attribute.itemSize]),
+        morphs: Object.entries(geometry.morphAttributes).map(([key, values]) => [key, values, values.length]), relative: geometry.morphTargetsRelative });
+    }
+    for (let node = object; node; node = node.parent) if (!seenAncestors.has(node)) {
+      seenAncestors.add(node); ancestors.push([node, node.parent, node.visible, node.layers.mask]);
+    }
+    if (!seenCameras.has(job.camera)) { seenCameras.add(job.camera); cameras.push([job.camera, job.camera.layers.mask]); }
+    if (!seenScenes.has(job.targetScene)) { seenScenes.add(job.targetScene); scenes.push([job.targetScene, sceneFields.map(key => job.targetScene[key])]); }
+  }
+  // Pool shared inputs once. The hot predicate performs the same comparisons
+  // without per-job closures, Object.keys arrays or newly created callbacks.
+  return () => {
+    for (let i = 0; i < objects.length; i++) {
+      const row = objects[i], object = row.object;
+      if (object.geometry !== row.geometry || object.material !== row.material || !titleCompileSupported(object, row.material)) return false;
+      for (let j = 0; j < objectFields.length; j++) if (object[objectFields[j]] !== row.inputs[j]) return false;
+    }
+    for (let i = 0; i < materials.length; i++) {
+      const row = materials[i], material = row.material;
+      if (material.version !== row.job.version || material.visible === false || !sameEntries(material.defines, row.defines) || !sameEntries(material.extensions, row.extensions)) return false;
+      for (let j = 0; j < fields.length; j++) if (material[fields[j]] !== row.inputs[j]) return false;
+      for (let j = 0; j < textureFields.length; j++) if (material[textureFields[j]] !== row.textures[j]) return false;
+      for (let j = 0; j < row.textureInputs.length; j++) {
+        const input = row.textureInputs[j], texture = input[0];
+        if (texture.channel !== input[1] || texture.mapping !== input[2] || texture.image?.height !== input[3]) return false;
+      }
+    }
+    for (let i = 0; i < geometries.length; i++) {
+      const row = geometries[i], geometry = row.geometry;
+      if (geometry.morphTargetsRelative !== row.relative || ownCount(geometry.attributes) !== row.attributes.length || ownCount(geometry.morphAttributes) !== row.morphs.length) return false;
+      for (let j = 0; j < row.attributes.length; j++) {
+        const input = row.attributes[j]; if (geometry.attributes[input[0]] !== input[1] || input[1].itemSize !== input[2]) return false;
+      }
+      for (let j = 0; j < row.morphs.length; j++) {
+        const input = row.morphs[j]; if (geometry.morphAttributes[input[0]] !== input[1] || input[1].length !== input[2]) return false;
+      }
+    }
+    for (let i = 0; i < ancestors.length; i++) {
+      const row = ancestors[i]; if (row[0].parent !== row[1] || row[0].visible !== row[2] || row[0].layers.mask !== row[3]) return false;
+    }
+    for (let i = 0; i < cameras.length; i++) if (cameras[i][0].layers.mask !== cameras[i][1]) return false;
+    for (let i = 0; i < scenes.length; i++) {
+      const row = scenes[i]; for (let j = 0; j < sceneFields.length; j++) if (row[0][sceneFields[j]] !== row[1][j]) return false;
+    }
+    return true;
+  };
 }
 
 function titleInitialOrder(jobs, receipt) {
@@ -306,6 +353,8 @@ async function prepareTitleProgramJobs(inventory, stages, generation, dependency
     prepareMs: 0, maxSinglePrepareMs: 0, slowestPrepare: null, maxFullTurnMs: 0, budgetYields: 0, waves: 0, maxWavePrograms: 0,
     reflectedPrograms: 0, deferredReflections: 0, reflectionMs: 0, maxSingleReflectionMs: 0, maxReflectionsPerTurn: 0, reflectionBudgetYields: 0, slowestReflection: null,
     inventoryMs: 0, inventoryObjects: 0, maxInventoryCheckMs: 0, slowestInventory: null,
+    dependencyChecks: 0, dependencyCheckMs: 0, maxDependencyCheckMs: 0,
+    mainSnapshotChecks: 0, mainSnapshotCheckMs: 0, maxMainSnapshotCheckMs: 0,
     flushMs: 0, maxFlushMs: 0, pollMs: 0, maxPollMs: 0,
     errorCheckMs: 0, maxErrorCheckMs: 0, elapsedMs: 0, visibleMs: 0, hiddenMs: 0, disposed: 0, families: {},
     waveLatency: [], droppedWaveLatency: 0, queuePolicy: dependencyId === 'initial' ? 'combined-source-size' : 'staged', deduplicatedJobs: 0 };
@@ -378,13 +427,29 @@ async function prepareTitleProgramJobs(inventory, stages, generation, dependency
     if (lost) throw new Error('Graphics stopped while preparing title programs.');
     titleAssertActive();
   };
+  const dependenciesCurrent = () => {
+    const checkStarted = performance.now();
+    try { return dependencies.current(); }
+    finally {
+      const ms = performance.now() - checkStarted; receipt.dependencyChecks++; receipt.dependencyCheckMs += ms;
+      receipt.maxDependencyCheckMs = Math.max(receipt.maxDependencyCheckMs, ms);
+    }
+  };
+  const mainSnapshotsCurrent = () => {
+    const checkStarted = performance.now();
+    try { return mainSnapshots(); }
+    finally {
+      const ms = performance.now() - checkStarted; receipt.mainSnapshotChecks++; receipt.mainSnapshotCheckMs += ms;
+      receipt.maxMainSnapshotCheckMs = Math.max(receipt.maxMainSnapshotCheckMs, ms);
+    }
+  };
   const changed = () => {
     visibleElapsed();
     if (document.hidden) invalidate('visibility');
     if (TITLE_RESIZE_PENDING || resizeTimer || sceneRT !== initialTarget) invalidate('resize');
     if (avatarJob && (SHADOW.rt !== avatarJob.target || INDOOR.on)) invalidate('avatar-shadow');
-    if (dependencies && !dependencies.current()) invalidate('dependencies');
-    if (mainSnapshots && !mainSnapshots.every(current => current())) invalidate('main-dependencies');
+    if (dependencies && !dependenciesCurrent()) invalidate('dependencies');
+    if (mainSnapshots && !mainSnapshotsCurrent()) invalidate('main-dependencies');
     if (TITLE_WARM_GENERATION !== generation || GAME.started) invalidate('generation');
   };
   const errors = () => {
@@ -460,7 +525,7 @@ async function prepareTitleProgramJobs(inventory, stages, generation, dependency
         jobs.splice(human < 0 ? mainStart : human, 0, avatarJob);
         receipt.families['avatar-shadow'] = { jobs: 1, prepared: 0, programs: 0 };
       }
-      if (dependencyId === 'initial') mainSnapshots = jobs.slice(mainStart).map(titleInitialSnapshot);
+      if (dependencyId === 'initial') mainSnapshots = titleInitialSnapshots(jobs.slice(mainStart));
       }
       for (const job of jobs) {
         const peers = materialJobs.get(job.material) || [];
@@ -583,7 +648,7 @@ async function prepareTitleProgramJobs(inventory, stages, generation, dependency
           if (wavePrograms + job.cost > TITLE_COMPILE_LIMITS.pending) { waveSealed = true; break; }
           active(); changed();
           if (stale) break;
-          const eligible = job.dependency ? dependencies.current() && titleCompileSupported(job.object, job.material)
+          const eligible = job.dependency ? dependenciesCurrent() && titleCompileSupported(job.object, job.material)
             && job.material.visible !== false && job.material.version === job.version
             : job.avatarShadow ? SHADOW.rt === job.target && !INDOOR.on && job.object.parent === job.targetScene && job.object.userData.src === crowdHuman.mesh : titleCompileEligible(job.object);
           if (!eligible || job.object.geometry !== job.geometry || (!job.postDependency && job.object.material !== job.material)) { invalidate('inventory'); break; }
