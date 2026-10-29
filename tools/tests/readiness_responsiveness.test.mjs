@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
+import { createRequire } from 'node:module';
 import { installReadinessResponsivenessProbe, sampleTrustedReadinessInputs } from '../readiness_responsiveness.mjs';
 
 // CPU fixtures test bounded accounting/cleanup only. Mock trust and visibility
@@ -23,7 +24,7 @@ function fixture() {
     at: value => { now = value; }, focus: value => { focused = value; },
     frame(at, stamp = at) { now = at; const callbacks = [...frames.values()]; frames.clear(); for (const callback of callbacks) callback(stamp); },
     key(type = 'keydown', changes = {}) { let prevented = 0, stopped = 0;
-      const event = { type, code: 'F24', isTrusted: true, timeStamp: now, repeat: false,
+      const event = { type, code: 'F8', isTrusted: true, timeStamp: now, repeat: false,
         preventDefault() { prevented++; }, stopImmediatePropagation() { stopped++; }, ...changes };
       for (const callback of windowListeners.get(type) || []) callback(event);
       return { prevented, stopped };
@@ -104,8 +105,15 @@ test('stop is idempotent and captured late callbacks cannot restart monitoring',
 test('host sampler sends only bounded real keyboard commands in order', async () => {
   const keys = [], page = { keyboard: { async press(key) { keys.push(key); } } };
   const result = await sampleTrustedReadinessInputs(page, { maxSamples: 3, intervalMs: 1, timeoutMs: 100 });
-  assert.deepEqual(keys, ['F24', 'F24', 'F24']); assert.equal(result.samples.length, 3); assert(result.samples.every(value => value.deliveredCommand));
+  assert.deepEqual(keys, ['F8', 'F8', 'F8']); assert.equal(result.samples.length, 3); assert(result.samples.every(value => value.deliveredCommand));
   assert.equal(result.timedOut, false);
+});
+
+test('the diagnostic key is supported by the actual installed Playwright keyboard table', async () => {
+  const require = createRequire(import.meta.url), { USKeyboardLayout } = require('../node_modules/playwright-core/lib/server/usKeyboardLayout.js');
+  const result = await sampleTrustedReadinessInputs({ keyboard: { async press() {} } }, { maxSamples: 1 });
+  assert(USKeyboardLayout[result.key], 'do not accept mocked keyboard success for an unsupported key');
+  assert.equal(USKeyboardLayout[result.key].key, 'F8');
 });
 
 test('a timed-out host command never overlaps a retry or next sample', async () => {

@@ -52,7 +52,7 @@ export function installReadinessResponsivenessProbe() {
     acknowledgment.textContent = 'Startup input check'; document.documentElement.appendChild(acknowledgment);
   };
   const onKey = event => {
-    if (event.code !== 'F24') return;
+    if (event.code !== 'F8') return;
     // Consume only this diagnostic's unbound key, before game/audio/human-play
     // listeners. Native event delivery remains real; no game activity is forged.
     event.preventDefault(); event.stopImmediatePropagation();
@@ -112,12 +112,12 @@ export async function sampleTrustedReadinessInputs(page, { maxSamples = 12, inte
   if (!Number.isInteger(maxSamples) || maxSamples < 1 || maxSamples > 12
     || !Number.isFinite(intervalMs) || intervalMs < 1 || intervalMs > 60000
     || !Number.isFinite(timeoutMs) || timeoutMs < 1 || timeoutMs > 10000) throw Error('Invalid bounded input sampling options.');
-  const result = { key: 'F24', clock: 'Node elapsed time; compare browser event timestamps separately', samples: [], aborted: false, timedOut: false };
+  const result = { key: 'F8', clock: 'Node elapsed time; compare browser event timestamps separately', samples: [], aborted: false, timedOut: false };
   for (let ordinal = 1; ordinal <= maxSamples; ordinal++) {
     if (signal?.aborted) { result.aborted = true; break; }
     const sentAt = performance.now(); let timer;
     try {
-      await Promise.race([page.keyboard.press('F24'), new Promise((_, reject) => { timer = setTimeout(() => reject(Error('Trusted input command timed out.')), timeoutMs); })]);
+      await Promise.race([page.keyboard.press('F8'), new Promise((_, reject) => { timer = setTimeout(() => reject(Error('Trusted input command timed out.')), timeoutMs); })]);
       result.samples.push({ ordinal, sentAt, commandMs: performance.now() - sentAt, deliveredCommand: true });
     } catch (error) {
       result.timedOut = String(error.message).includes('timed out');
