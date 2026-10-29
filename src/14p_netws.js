@@ -6,6 +6,8 @@
 const NETWS = { ws: null, url: '', host: '', state: 'off', acct: null, token: '', world: null, worldPauseReason: '', worldPersistence: null, liveAdmission: null, worldAdmission: null, activeWorldAdmission: null, worldInit: null, worldInitialized: false, worldAdmissionRequired: false, worldReloadRequired: false, link: null, linkP: null, openP: null, generation: 0, cancelOpen: null, retryTimer: 0, pingTimer: 0, closed: false, waits: [], backoff: 1, lastFailure: '', lastClose: null, stats: { opens: 0, drops: 0, sent: 0, recv: 0, bytesUp: 0, bytesDown: 0, rtt: 0 } };
 // Only a recognized refusal of this exact opening can offer explicit recovery.
 NETWS.sessionRefusal = null;
+// Released once after the private world restore; reconnects do not re-enter boot.
+NETWS.sceneBootReady = false;
 // World/season admission and the owner's character save are separate. Keep a
 // pause visible across disconnects; only a fresh server status can clear it.
 function netWorldAdmissionRead(value) {
@@ -487,8 +489,76 @@ async function netServerSaveRef() {
 }
 
 
+// Character reads may open the socket before the resumable world build ends.
+// Keep original packets in order: snapshots can be multipart deltas, and their
+// receipts must not be collapsed or applied against partially built records.
+const NET_SCENE_BOOT = { scope: null, packets: [], chars: 0, failure: '' };
+function netSharedSceneBootClear() {
+  NET_SCENE_BOOT.scope = null; NET_SCENE_BOOT.packets = []; NET_SCENE_BOOT.chars = 0;
+}
+function netSharedSceneBootScope() {
+  return { ws: NETWS.ws, generation: NETWS.generation, host: NETWS.host,
+    account: NETWS.acct?.id || '', admission: netCurrentWorldAdmission() };
+}
+function netSharedSceneBootCurrent(scope) {
+  return !!scope && !NETWS.closed && !NETWS.reload && NETWS.state === 'on' && NETWS.ws?.readyState === 1
+    && scope.ws === NETWS.ws && scope.generation === NETWS.generation && scope.host === NETWS.host
+    && scope.account === (NETWS.acct?.id || '') && netSameWorldAdmission(scope.admission, netCurrentWorldAdmission());
+}
+function netSharedSceneBootFail(message) {
+  netSharedSceneBootClear(); NET_SCENE_BOOT.failure = message;
+  // Do not retire the authenticated read: NETWS.reload also stops its replies.
+  // The explicit release after private restore raises the shared-play refusal.
+}
+function netSharedSceneFlushBuilt() {
+  if (!GAME.built) return false;
+  NETWS.sceneBootReady = true;
+  if (NET_SCENE_BOOT.failure) { netSceneReloadRequired(NET_SCENE_BOOT.failure); return false; }
+  return netSharedSceneDrainBuilt();
+}
+function netSharedSceneDrainBuilt() {
+  if (!GAME.built || !NETWS.sceneBootReady || NETWS.reload) return false;
+  const { scope, packets } = NET_SCENE_BOOT;
+  if (!scope) return true;
+  netSharedSceneBootClear();
+  if (!netSharedSceneBootCurrent(scope)) {
+    netSceneReloadRequired('The shared-world connection changed while loading. Reload Hallowmarch to receive its current world. Your saved character is preserved.');
+    return false;
+  }
+  // No yields here: each complete frame retains the existing atomic apply path.
+  for (const packet of packets) {
+    if (!netSharedSceneBootCurrent(scope)) {
+      netSceneReloadRequired('The shared-world connection changed while loading. Reload Hallowmarch to receive its current world. Your saved character is preserved.');
+      return false;
+    }
+    netSharedSceneApply(packet);
+  }
+  return true;
+}
 // Each authority message is scoped to this live socket and its admitted world.
 function netSharedSceneMessage(m) {
+  if (!GAME.built || !NETWS.sceneBootReady) {
+    if (!m || m.t !== 'activity' || NETWS.reload || NET_SCENE_BOOT.failure) return;
+    const scope = netSharedSceneBootScope();
+    if (!netSharedSceneBootCurrent(scope) || !netSameWorldAdmission(scope.admission, netWorldAdmissionRead(m.worldAdmission))) return;
+    if (NET_SCENE_BOOT.scope && !netSharedSceneBootCurrent(NET_SCENE_BOOT.scope)) {
+      netSharedSceneBootFail('The shared-world connection changed while loading. Reload Hallowmarch to receive its current world. Your saved character is preserved.');
+      return;
+    }
+    const chars = JSON.stringify(m).length;
+    // A full server scene fits below 400 KiB. Bound repeated updates as well;
+    // never discard an initial image or delta and continue with a partial world.
+    if (NET_SCENE_BOOT.packets.length >= 2048 || NET_SCENE_BOOT.chars + chars > 4 * 1024 * 1024) {
+      netSharedSceneBootFail('Too many shared-world updates arrived while loading. Reload Hallowmarch to receive its current world. Your saved character is preserved.');
+      return;
+    }
+    NET_SCENE_BOOT.scope ||= scope;
+    NET_SCENE_BOOT.packets.push(m); NET_SCENE_BOOT.chars += chars;
+    return;
+  }
+  if (netSharedSceneDrainBuilt()) netSharedSceneApply(m);
+}
+function netSharedSceneApply(m) {
   if (typeof netThroneMessage === 'function') netThroneMessage(m);
   if (m?.kind === 'authority' && typeof m.peer === 'string' && m.peer.length <= 128
     && typeof netCurrentWorldAdmission === 'function' && netSameWorldAdmission(netCurrentWorldAdmission(), netWorldAdmissionRead(m.worldAdmission)))
@@ -499,6 +569,8 @@ function netSharedSceneMessage(m) {
   if (typeof netWorldPartsMessage === 'function') netWorldPartsMessage(m);
 }
 function netSharedSceneReset() {
+  netSharedSceneBootClear();
+  NET_SCENE_BOOT.failure = '';
   if (typeof netThroneReset === 'function') netThroneReset();
   NET.serverSceneHost = '';
   if (typeof netBoatReset === 'function') netBoatReset();
