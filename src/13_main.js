@@ -173,12 +173,13 @@ async function submitTitleStage(id, members, inventory, combined = false) {
   let current = null, workCalls = 0, workTriangles = 0;
   GRAPHICS_STARTUP.titleStage = id;
   const message = document.getElementById('loadmsg');
-  if (message && !GAME.ready) message.textContent = ({
+  const stageMessage = ({
     post: 'Preparing the view', sky: 'Preparing the sky', terrain: 'Preparing the landscape',
     grass: 'Preparing the meadows', flowers: 'Preparing the meadows', trees: 'Preparing the forests',
     water: 'Preparing the water', structures: 'Preparing the towns and keeps',
     crowds: 'Preparing the people and creatures', other: 'Finishing the world', combined: 'Checking the first view',
   })[id.split('-')[0]] || 'Finishing the view';
+  if (message && !GAME.ready && message.textContent !== stageMessage) message.textContent = stageMessage;
   try {
     const priorErrors = gpuDiagGlErrors(gl);
     if (priorErrors.length) throw new Error('GL errors before title ' + id + ': ' + priorErrors.join(', '));
