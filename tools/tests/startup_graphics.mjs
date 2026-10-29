@@ -168,7 +168,10 @@ test('blocked creation reports browser reason and preserves retry URL without re
   assert.equal(b.elements.nogl.attributes.role,'alert');
   const children=b.elements.nogl.children;
   assert.equal(children[0].textContent,'Graphics could not start');
-  assert.equal(children[1].textContent,reason);
+  assert.equal(children[1].textContent,'The game could not start graphics in this browser.');
+  const technical=children.find(x=>x.tag==='details');
+  assert.equal(technical.children.find(x=>x.tag==='pre').textContent,reason);
+  assert.equal(technical.attributes.open,undefined,'diagnostics stay optional by default');
   const expected=new URL(original);expected.searchParams.set('safe','1');
   assert.equal(children.find(x=>x.tag==='a').href,expected.href);
   assert.equal(b.state.reloads,0);
@@ -177,7 +180,8 @@ test('blocked creation reports browser reason and preserves retry URL without re
 test('unsupported WebGL 2 is distinguished and the failed renderer is disposed',()=>{
   const b=boot({webgl2:false});
   assert.match(b.error.message,/WebGL 2 is not available/);
-  assert.match(b.elements.nogl.children[1].textContent,/WebGL 2 is not available/);
+  assert.match(b.elements.nogl.children[1].textContent,/does not provide the graphics features/);
+  assert.match(b.elements.nogl.children.find(x=>x.tag==='details').children.find(x=>x.tag==='pre').textContent,/WebGL 2 is not available/);
   assert.equal(b.state.disposed,true);
 });
 function settings(b) {
@@ -324,12 +328,13 @@ test('actual context loss persists recovery before a later bare launch',()=>{
 });
 test('standard recovery link drops diagnostic mode and preserves URL and native preference',()=>{
   const url='https://march.example/?server=wss%3A%2F%2Frelay.example%2Fws&tag=a&tag=b&safe=1&gpuDiag=1#return';
-  const b=boot({url}); b.elements.title={children:[],appendChild(child){this.children.push(child);if(child.id)b.elements[child.id]=child;}};
+  const b=boot({url}),footer={children:[],appendChild(child){this.children.push(child);if(child.id)b.elements[child.id]=child;}};
+  b.elements.title={querySelector:selector=>selector==='.card-foot'?footer:null};
   const expected=new URL(url); expected.searchParams.set('safe','0'); expected.searchParams.delete('gpuDiag');
   assert.equal(vm.runInContext('graphicsRecoveryURL(false)',b.ctx),expected.href);
   vm.runInContext('graphicsRecoveryNotice(); graphicsRecoveryNotice();',b.ctx);
-  assert.equal(b.elements.title.children.length,1);
-  const notice=b.elements.title.children[0];
+  assert.equal(footer.children.length,1);
+  const notice=footer.children[0];
   assert.equal(notice.attributes.role,'status');
   assert.equal(notice.children.find(child=>child.tag==='a').href,expected.href);
   assert.match(notice.children[0].textContent,/saved graphics preferences are unchanged/);
