@@ -39,6 +39,45 @@ EARNED = """() => {const H=__hm,G=H.GAME.prog;return {
  gold:H.INV.gold,potions:H.INV.potions,done:G.lore.done.slice(),
  bag:H.INV.bag.map(item=>item.id),eq:Object.fromEntries(Object.entries(H.INV.eq).filter(([,v])=>v).map(([k,v])=>[k,v.id]))};}"""
 
+# A touch on the movement side starts the stick and never reaches pickAt.
+# Keep this readonly predicate aligned with the actual-source CPU contract test.
+CANVAS_POINT_RULE = """const canSelect=p=>!!p&&p.x>0&&p.x<innerWidth&&p.y>0&&p.y<innerHeight
+  &&!(touch&&p.y>innerHeight*.35&&(H.mobile.prefs.hand==='left'?p.x>innerWidth*.58:p.x<innerWidth*.42))
+  &&document.elementFromPoint(p.x,p.y)?.id==='scene';"""
+ARRANGE_QUARRY = """({touch})=>{
+  const H=__hm,P=H.GAME.player,b=H.GAME.prog.bounty,c=H.CAMPS[b.camp];
+  const e=[...c.members].map(H.fn.getEnt).find(e=>e?.alive&&!e.removed&&e.mobType===b.type&&e.level<=P.level+1);
+  if(!e)throw Error('No actual suitable living bounty creature for the combat fixture');
+""" + CANVAS_POINT_RULE + """
+  let point,inputPoint;
+  for(const a of [0,.4,-.4,.8,-.8,1.2,-1.2]) {const yaw=H.CAM.yaw+a,x=P.x+Math.sin(yaw)*2,z=P.z+Math.cos(yaw)*2;
+    const occupied=H.ENT.some(other=>other!==P&&other!==e&&other.alive&&!other.removed&&Math.hypot(other.x-x,other.z-z)<(other.radius||.5)+(e.radius||.5)+.35);
+    if(occupied||!H.fn.isWalkable(x,z))continue;
+    const y=H.fn.heightAt(x,z),screen=H.fn.screenOf(x,y+(e.kind==='humanoid'?1:.6)*(e.scale||1),z);
+    if(canSelect(screen)){point={x,y,z};inputPoint=screen;break;}}
+  if(!point)throw Error('No walkable nearby fixture position with an unobstructed selectable canvas point');
+  const original={x:e.x,y:e.y,z:e.z,home:e.home?{...e.home}:null};
+  e.x=e.prevX=point.x;e.z=e.prevZ=point.z;e.y=point.y;
+  if(e.home)e.home={...e.home,x:point.x,z:point.z};
+  return {id:e.id,name:e.name,level:e.level,hp:e.hp,maxHp:e.maxHp,original,inputPoint,arranged:{x:e.x,y:e.y,z:e.z,home:e.home?{...e.home}:null}};
+}"""
+SELECTABLE_CANVAS_POINT = """({point,touch})=>{const H=__hm;""" + CANVAS_POINT_RULE + """return canSelect(point);}"""
+EMPTY_CANVAS_POINT = """({touch})=>{const H=__hm;""" + CANVAS_POINT_RULE + """
+  // Exclude every projected body in pickAt's envelope, even an occluded one.
+  // This is conservative: no visibility guess can make an occupied point empty.
+  const occupied=(sx,sy)=>H.ENT.some(e=>{
+    if(e.removed||(e.role==='critter'&&!e.game)||e.flying||!e.alive)return false;
+    const d3=Math.hypot(e.x-H.camera.position.x,e.z-H.camera.position.z);if(d3>90)return false;
+    const h=e.kind==='door'?2.5:e.kind==='dragon'?3:(e.kind==='humanoid'?1+(e.mount ? .8 : 0):.6)*(e.scale||1);
+    const s=H.fn.screenOf(e.x,e.y+h,e.z);if(!s)return false;
+    const rad=Math.max(18,Math.min(e.kind==='dragon'?260:120,(e.kind==='door'?900:e.kind==='dragon'?1400:260)/Math.max(d3,1)))*(e.scale||1);
+    return Math.hypot(s.x-sx,(s.y-sy)*.8)<rad;
+  });
+  for(const y of [.2,.28,.4,.55,.7,.82])for(const x of [.5,.58,.68,.8,.9,.42,.32,.2,.1]){
+    const p={x:innerWidth*x,y:innerHeight*y};if(canSelect(p)&&!occupied(p.x,p.y))return p;}
+  return null;
+}"""
+
 
 def require(condition, message):
     if not condition:
@@ -134,20 +173,7 @@ class Journey:
         raise AssertionError('The bounded real-input walk did not reach the herald')
 
     async def arrange_quarry(self):
-        fixture = await self.page.evaluate("""()=>{
-          const H=__hm,P=H.GAME.player,b=H.GAME.prog.bounty,c=H.CAMPS[b.camp];
-          const e=[...c.members].map(H.fn.getEnt).find(e=>e?.alive&&!e.removed&&e.mobType===b.type&&e.level<=P.level+1);
-          if(!e)throw Error('No actual suitable living bounty creature for the combat fixture');
-          let point;
-          for(const a of [0,.4,-.4,.8,-.8,1.2,-1.2]) {const yaw=H.CAM.yaw+a,x=P.x+Math.sin(yaw)*2,z=P.z+Math.cos(yaw)*2;
-            const occupied=H.ENT.some(other=>other!==P&&other!==e&&other.alive&&!other.removed&&Math.hypot(other.x-x,other.z-z)<(other.radius||.5)+(e.radius||.5)+.35);
-            if(!occupied&&H.fn.isWalkable(x,z)){point={x,z};break;}}
-          if(!point)throw Error('No walkable nearby fixture position');
-          const original={x:e.x,y:e.y,z:e.z,home:e.home?{...e.home}:null};
-          e.x=e.prevX=point.x;e.z=e.prevZ=point.z;e.y=H.fn.heightAt(point.x,point.z);
-          if(e.home)e.home={...e.home,x:point.x,z:point.z};
-          return {id:e.id,name:e.name,level:e.level,hp:e.hp,maxHp:e.maxHp,original,arranged:{x:e.x,y:e.y,z:e.z,home:e.home?{...e.home}:null}};
-        }""")
+        fixture = await self.page.evaluate(ARRANGE_QUARRY, {'touch': self.args.touch})
         self.mob_fixture = fixture
         self.report['fixtures'].append(fixture)
         self.save()
@@ -220,7 +246,7 @@ class Journey:
             await self.wait("id=>{const H=__hm,e=H.fn.getEnt(id);return H.UI.npPool.some(node=>node._txt===e?.name&&node.style.display!=='none'&&node.getClientRects().length);}", arg=fixture['id'])
             point = await self.page.evaluate("""id=>{const H=__hm,e=H.fn.getEnt(id),h=(e.kind==='humanoid'?1:.6)*(e.scale||1);return H.fn.screenOf(e.x,e.y+h,e.z);}""", fixture['id'])
             require(point and 0 < point['x'] < self.args.width and 0 < point['y'] < self.args.height, 'The arranged creature is not visible on screen')
-            require(await self.page.evaluate('p=>document.elementFromPoint(p.x,p.y)?.id===\'scene\'', point), 'A HUD element covers the creature input point')
+            require(await self.page.evaluate(SELECTABLE_CANVAS_POINT, {'point': point, 'touch': self.args.touch}), 'The creature input point is covered or belongs to the movement stick')
             if self.args.touch:
                 await self.page.touchscreen.tap(point['x'], point['y'])
             else:
@@ -235,7 +261,10 @@ class Journey:
         finally:
             await self.restore_quarry()
         if self.args.touch:
-            await self.action('#t-target')
+            empty = await self.page.evaluate(EMPTY_CANVAS_POINT, {'touch': True})
+            require(empty, 'No verified empty canvas point outside the touch movement area')
+            self.report['targetClearPoint'] = empty
+            await self.page.touchscreen.tap(empty['x'], empty['y'])
         else:
             await self.page.keyboard.press('Escape')
         await self.wait('()=>__hm.GAME.player.target===null')
