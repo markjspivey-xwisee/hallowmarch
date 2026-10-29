@@ -9,8 +9,7 @@ function titleCompileEligible(object) {
   if (object.frustumCulled && !(object.isSprite ? frustum.intersectsSprite(object) : frustum.intersectsObject(object))) return false;
   return !!object.material && object.material.visible !== false;
 }
-function titleCompileSupported(object) {
-  const material = object.material;
+function titleCompileSupported(object, material = object.material) {
   // compile() traverses every array entry and does not run render hooks. Leave
   // those cases to the existing real draw rather than guessing their variants.
   return !!material && !Array.isArray(material) && !!object.geometry
@@ -34,9 +33,82 @@ function titleAvatarShadowJob() {
     target: SHADOW.rt, camera: SHADOW.cam, targetScene: SHADOW.scene };
 }
 
-async function prepareTitlePrograms(inventory, stages, generation) {
+// Prepare only the resources that the next real post/sky
+// submission will use. It never executes a post pass or creates a renderable.
+function titleDependencyJobs(id, inventory, receipt) {
+  const jobs = [], originalTarget = sceneRT;
+  const add = (family, object, material, target, targetCamera, targetScene, postDependency = false) => {
+    receipt.inventoryObjects++;
+    if (!material?.isShaderMaterial || !titleCompileSupported(object, material) || material.visible === false) { receipt.skipped++; return; }
+    jobs.push({ family, object, material, geometry: object.geometry, target, camera: targetCamera, targetScene,
+      postDependency, dependency: true, version: material.version, vertexShader: material.vertexShader, fragmentShader: material.fragmentShader,
+      side: material.side, transparent: material.transparent, forceSinglePass: material.forceSinglePass,
+      cost: material.transparent && material.side === THREE.DoubleSide && !material.forceSinglePass ? 2 : 1 });
+    receipt.families[family] = { jobs: 1, prepared: 0, programs: 0 };
+  };
+  const materialsCurrent = () => jobs.every(job => titleCompileSupported(job.object, job.material)
+    && job.material.visible !== false && job.material.version === job.version
+    && job.material.vertexShader === job.vertexShader && job.material.fragmentShader === job.fragmentShader
+    && job.material.side === job.side && job.material.transparent === job.transparent && job.material.forceSinglePass === job.forceSinglePass);
+  if (id === 'sky') {
+    if (!inventory.renderables.includes(skyMesh) || !inventory.sets.sky.has(skyMesh)) throw new Error('Title sky preparation received an unowned renderable.');
+    const geometry = skyMesh.geometry, material = skyMesh.material;
+    const owned = () => skyMesh.parent === scene && skyMesh.children.length === 0 && skyMesh.geometry === geometry
+      && geometry === fsTriGeo && skyMesh.material === material && titleCompileEligible(skyMesh)
+      && titleCompileSupported(skyMesh) && scene.overrideMaterial === null
+      && scene.onBeforeRender === THREE.Object3D.prototype.onBeforeRender
+      && scene.onAfterRender === THREE.Object3D.prototype.onAfterRender;
+    if (owned()) add('sky', skyMesh, material, originalTarget, camera, scene);
+    return { jobs, current: () => sceneRT === originalTarget && materialsCurrent() && (!jobs.length || owned()) };
+  }
+  const originalMaterial = fsMesh.material, geometry = fsMesh.geometry;
+  const targets = bloomRTs.slice(), rayTarget = raysRT;
+  const owned = () => fsMesh.parent === fsScene && fsScene.children.length === 1 && fsScene.children[0] === fsMesh
+    && fsMesh.children.length === 0 && fsMesh.geometry === geometry && geometry === fsTriGeo
+    && fsMesh.material === originalMaterial && fsMesh.visible && fsScene.visible && !fsMesh.frustumCulled
+    && fsMesh.layers.test(fsCam.layers) && fsScene.overrideMaterial === null
+    && fsScene.onBeforeRender === THREE.Object3D.prototype.onBeforeRender
+    && fsScene.onAfterRender === THREE.Object3D.prototype.onAfterRender;
+  if (!owned()) { receipt.skipped++; return { jobs, current: () => true }; }
+  if (targets.length) add('post-down', fsMesh, bloomDown, targets[0], fsCam, fsScene, true);
+  if (targets.length > 1) add('post-up', fsMesh, bloomUp, targets[targets.length - 2], fsCam, fsScene, true);
+  // updateRays is the draw's exact conditional selector. Its scratch vectors
+  // and every changed uniform are restored synchronously, including on throw.
+  const rayUniforms = raysMat.uniforms, postUniform = composite.uniforms.uRays;
+  const sun = rayUniforms.uSun.value, color = rayUniforms.uCol.value;
+  const saved = { rays: postUniform.value, sun: sun.clone(), color: color.clone(), aspect: rayUniforms.uAspect.value,
+    ndc: _sunNdc.clone(), direction: _camDir.clone() };
+  let rays = false;
+  try { rays = updateRays() === true; }
+  finally {
+    postUniform.value = saved.rays;
+    rayUniforms.uSun.value = sun; sun.copy(saved.sun);
+    rayUniforms.uCol.value = color; color.copy(saved.color);
+    rayUniforms.uAspect.value = saved.aspect;
+    _sunNdc.copy(saved.ndc); _camDir.copy(saved.direction);
+  }
+  if (rays) add('post-rays', fsMesh, raysMat, rayTarget, fsCam, fsScene, true);
+  add('post-composite', fsMesh, composite, null, fsCam, fsScene, true);
+  const selection = () => [quality.level, INDOOR.on, skyU.uSunVis.value, skyU.uMoonVis.value,
+    ...skyU.uSunDir.value.toArray(), ...skyU.uMoonDir.value.toArray(),
+    ...camera.matrixWorld.elements, ...camera.projectionMatrix.elements];
+  const originalSelection = selection();
+  return { jobs, current: () => owned() && materialsCurrent() && sceneRT === originalTarget && raysRT === rayTarget
+    && bloomRTs.length === targets.length && targets.every((target, index) => bloomRTs[index] === target)
+    && selection().every((value, index) => value === originalSelection[index]) };
+}
+
+function prepareTitlePrograms(inventory, stages, generation) {
+  return prepareTitleProgramJobs(inventory, stages, generation);
+}
+async function prepareTitleDependencies(id, inventory, generation) {
+  if (id !== 'post' && id !== 'sky') throw new Error('Unknown title preparation dependency.');
+  return prepareTitleProgramJobs(inventory, [], generation, id);
+}
+
+async function prepareTitleProgramJobs(inventory, stages, generation, dependencyId = null) {
   const started = performance.now();
-  const receipt = { generation, errorPolicy: 'queue-boundaries', supported: false, outcome: 'serial', completed: false, stale: false,
+  const receipt = { generation, dependency: dependencyId, errorPolicy: 'queue-boundaries', supported: false, outcome: 'serial', completed: false, stale: false,
     eligibleJobs: 0, preparedJobs: 0, skipped: 0, newPrograms: 0, maxPending: 0, maxPreparesPerTurn: 0,
     prepareMs: 0, maxSinglePrepareMs: 0, slowestPrepare: null, maxFullTurnMs: 0, budgetYields: 0,
     inventoryMs: 0, inventoryObjects: 0, maxInventoryCheckMs: 0, slowestInventory: null,
@@ -51,7 +123,7 @@ async function prepareTitlePrograms(inventory, stages, generation) {
   const message = document.getElementById?.('loadmsg');
   if (message) message.textContent = 'Preparing the first view';
   const pending = new Map(), initialTarget = sceneRT;
-  let timer = null, wake = null, lost = false, stale = false, avatarJob = null;
+  let timer = null, wake = null, lost = false, stale = false, avatarJob = null, dependencies = null;
   let clockAt = started, visibleMs = 0, wasHidden = !!document.hidden;
   // Driver work may be throttled in a background tab. Spend deadlines only
   // while visible; context loss and genuine GL/link failures remain fatal.
@@ -81,6 +153,7 @@ async function prepareTitlePrograms(inventory, stages, generation) {
     if (document.hidden) invalidate('visibility');
     if (TITLE_RESIZE_PENDING || resizeTimer || sceneRT !== initialTarget) invalidate('resize');
     if (avatarJob && (SHADOW.rt !== avatarJob.target || INDOOR.on)) invalidate('avatar-shadow');
+    if (dependencies && !dependencies.current()) invalidate('dependencies');
     if (TITLE_WARM_GENERATION !== generation || GAME.started) invalidate('generation');
   };
   const errors = () => {
@@ -103,6 +176,10 @@ async function prepareTitlePrograms(inventory, stages, generation) {
     active(); changed(); errors();
     const jobs = [], inventoryStarted = performance.now();
     try {
+      if (dependencyId) {
+        dependencies = titleDependencyJobs(dependencyId, inventory, receipt);
+        jobs.push(...dependencies.jobs);
+      } else {
       const allowed = new Set(inventory.renderables), seen = new Set();
       const priority = id => id === 'terrain' ? 0 : id === 'structures' ? 1 : id === 'crowds-1' ? 2 : 3;
       const ordered = stages.map(([id, members], index) => ({ id, members, index }))
@@ -136,6 +213,7 @@ async function prepareTitlePrograms(inventory, stages, generation) {
         const human = jobs.findIndex(job => job.family === 'crowds-1');
         jobs.splice(human < 0 ? 0 : human, 0, avatarJob);
         receipt.families['avatar-shadow'] = { jobs: 1, prepared: 0, programs: 0 };
+      }
       }
     } finally {
       receipt.inventoryMs = performance.now() - inventoryStarted;
@@ -185,19 +263,25 @@ async function prepareTitlePrograms(inventory, stages, generation) {
           if (pending.size + job.cost > TITLE_COMPILE_LIMITS.pending) break;
           active(); changed();
           if (stale) break;
-          if (!(job.avatarShadow ? SHADOW.rt === job.target && !INDOOR.on && job.object.parent === job.targetScene && job.object.userData.src === crowdHuman.mesh : titleCompileEligible(job.object)) || job.object.geometry !== job.geometry || job.object.material !== job.material) { invalidate('inventory'); break; }
-          const before = new Set(renderer.info.programs), saved = gpuDiagCaptureRenderer(), side = job.material.side;
+          const eligible = job.dependency ? dependencies.current() && titleCompileSupported(job.object, job.material)
+            && job.material.visible !== false && job.material.version === job.version
+            : job.avatarShadow ? SHADOW.rt === job.target && !INDOOR.on && job.object.parent === job.targetScene && job.object.userData.src === crowdHuman.mesh : titleCompileEligible(job.object);
+          if (!eligible || job.object.geometry !== job.geometry || (!job.postDependency && job.object.material !== job.material)) { invalidate('inventory'); break; }
+          const before = new Set(renderer.info.programs), saved = gpuDiagCaptureRenderer(), side = job.material.side, originalMaterial = job.object.material;
           const queuedAt = performance.now(), queuedVisibleMs = visibleElapsed();
           // Flat original leaves preserve the renderer's real flags and cache keys.
           const collection = { traverse: visit => visit(job.object), traverseVisible: visit => visit(job.object) };
           let compiled = false;
           try {
             try {
+              if (job.postDependency) job.object.material = job.material;
               renderer.setRenderTarget(job.target);
-              renderer.compile(collection, job.camera, job.targetScene);
+              renderer.compile(job.dependency ? job.object : collection, job.camera, job.targetScene);
               compiled = true;
             } finally {
               job.material.side = side;
+              if (job.postDependency) job.object.material = originalMaterial;
+              if (compiled && job.dependency) job.version = job.material.version;
               // A failed r160 compile can leave its render-state stack dirty.
               // Restore CPU values only, then fail without retrying that renderer.
               gpuDiagRestoreRenderer(saved, compiled && !lost);
