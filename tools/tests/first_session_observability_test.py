@@ -286,6 +286,63 @@ class FirstSessionObservability(unittest.TestCase):
         self.assertEqual(saved['fixtures'], [])
         self.assertIsNone(self.fixture.mob_fixture)
 
+    def test_extension_import_classification_is_anchored_and_keeps_every_raw_error(self):
+        resource = 'chrome-extension://fnjhmkhhmkbjkkabndcnnogagogbneec/assets/js/index.DRTaNfek.js'
+        message = 'Failed to fetch dynamically imported module: ' + resource
+        self.assertEqual(journey.extension_import_resource(message), resource)
+        self.assertEqual(journey.extension_import_resource('TypeError: ' + message), resource)
+        for invalid in [
+                'App error: ' + message, message + '\nApplication stack or another error', message + ' extra',
+                'Failed to fetch dynamically imported module: https://app.test/module.js',
+                'Failed to fetch dynamically imported module: http://journey.test/qa/app.mjs',
+                message.replace('chrome-extension://', 'file:///'),
+                message.replace('fnjhmkhhmkbjkkabndcnnogagogbneec', 'invalid-id'),
+                message.replace('/assets', ':443/assets'), message.replace('/assets', '@other/assets')]:
+            with self.subTest(invalid=invalid):
+                self.assertIsNone(journey.extension_import_resource(invalid))
+        class BrowserError(RuntimeError):
+            name = 'TypeError'
+            stack = 'complete raw browser stack\n  at extension entry'
+        self.fixture.record_page_error(BrowserError(message))
+        self.fixture.record_page_error(BrowserError('Game module failed'))
+        self.assertEqual(self.fixture.report['pageErrors'], ['Game module failed'])
+        self.assertEqual(len(self.fixture.report['rawPageErrors']), 2)
+        self.assertEqual(self.fixture.report['rawPageErrors'][0], {
+            'message': message, 'name': 'TypeError', 'stack': BrowserError.stack})
+        self.assertEqual(self.fixture.report['extensionPageErrors'][0]['resource'], resource)
+        self.assertEqual(self.fixture.report['extensionPageErrors'][0]['stack'], BrowserError.stack)
+
+    def test_actual_route_allows_only_valid_browser_local_resource_gets_and_keeps_external_requests_blocked(self):
+        tree = ast.parse(pathlib.Path(journey.__file__).read_text(encoding='utf-8'))
+        route = next(node for node in ast.walk(tree) if isinstance(node, ast.AsyncFunctionDef) and node.name == 'route')
+        scope = {'self': self.fixture, 'urlparse': journey.urlparse, 're': journey.re, 'ROOT': journey.ROOT,
+                 'html': '<html>unchanged local fixture</html>',
+                 'browser_local_extension_resource': journey.browser_local_extension_resource}
+        exec(compile(ast.Module(body=[route], type_ignores=[]), journey.__file__, 'exec'), scope)
+        resource = 'chrome-extension://fnjhmkhhmkbjkkabndcnnogagogbneec/assets/js/index.DRTaNfek.js'
+        for method, url, expected in [
+                ('GET', resource, 'continue'), ('POST', resource, 'abort'),
+                ('GET', resource.replace('fnjhmkhhmkbjkkabndcnnogagogbneec', 'invalid-id'), 'abort'),
+                ('GET', resource.replace('/assets', ':443/assets'), 'abort'),
+                ('GET', 'chrome-extension://journey.test/', 'abort'),
+                ('GET', 'https://external.test/module.js', 'abort'), ('GET', 'wss://external.test/ws', 'abort'),
+                ('GET', 'http://journey.test/', 'fulfill')]:
+            calls = []
+            async def continued():
+                calls.append('continue')
+            async def aborted():
+                calls.append('abort')
+            async def fulfilled(**kwargs):
+                self.assertEqual(kwargs['body'], b'<html>unchanged local fixture</html>')
+                calls.append('fulfill')
+            request = argparse.Namespace(request=argparse.Namespace(method=method, url=url),
+                continue_=continued, abort=aborted, fulfill=fulfilled)
+            with self.subTest(method=method, url=url):
+                asyncio.run(scope['route'](request))
+                self.assertEqual(calls, [expected])
+        self.assertEqual(self.fixture.report['browserLocalRequests'], [{'method': 'GET', 'url': resource}])
+        self.assertEqual(len(self.fixture.report['requestsBlocked']), 6)
+
 
 if __name__ == '__main__':
     unittest.main()

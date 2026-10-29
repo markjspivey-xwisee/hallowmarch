@@ -148,6 +148,22 @@ INSTALL_POINTER_RECEIPTS = """point=>{
 STOP_POINTER_RECEIPTS = "() => window.__journeyPointerReceipt?.stop() ?? null"
 
 
+def browser_local_extension_resource(method, resource):
+    try:
+        url = urlparse(resource)
+    except ValueError:
+        return False
+    return bool(method == 'GET' and url.scheme == 'chrome-extension'
+                and re.fullmatch(r'[a-p]{32}', url.netloc) and url.path.startswith('/')
+                and re.fullmatch(r'\S+', resource))
+
+
+def extension_import_resource(message):
+    match = re.fullmatch(r'(?:TypeError: )?Failed to fetch dynamically imported module: (chrome-extension://\S+)', message)
+    resource = match.group(1) if match else None
+    return resource if resource and browser_local_extension_resource('GET', resource) else None
+
+
 def require(condition, message):
     if not condition:
         raise AssertionError(message)
@@ -162,7 +178,8 @@ class Journey:
         self.report = {'kind': 'local-agent-first-session', 'headless': True, 'foregroundControls': False,
                        'hostedIdentityOrWorld': False, 'automaticRetries': 0, 'browserClosed': False,
                        'html': str(args.html.resolve()), 'htmlSha256': hashlib.sha256(args.html.read_bytes()).hexdigest(),
-                       'touch': args.touch, 'edgeNative': args.edge_native, 'steps': [], 'phases': [], 'requestsBlocked': [], 'pageErrors': [], 'fixtures': [],
+                       'touch': args.touch, 'edgeNative': args.edge_native, 'steps': [], 'phases': [], 'requestsBlocked': [],
+                       'pageErrors': [], 'rawPageErrors': [], 'extensionPageErrors': [], 'browserLocalRequests': [], 'fixtures': [],
                        'tracePolicy': {'coldStartup': False, 'reloadWarmup': False, 'uiOnly': True,
                                        'timingLimit': 'UI screenshot tracing is an active screencast; this journey does not attribute startup timing to tracing.'}}
         self.mob_fixture = None
@@ -171,6 +188,17 @@ class Journey:
 
     def save(self):
         (self.out / 'journey.json').write_text(json.dumps(self.report, indent=2), encoding='utf-8')
+
+    def record_page_error(self, error):
+        raw = {'message': str(error), 'name': getattr(error, 'name', type(error).__name__),
+               'stack': getattr(error, 'stack', None)}
+        self.report['rawPageErrors'].append(raw)
+        resource = extension_import_resource(raw['message'])
+        if resource:
+            self.report['extensionPageErrors'].append({**raw, 'resource': resource})
+        else:
+            self.report['pageErrors'].append(raw['message'])
+        self.save()
 
     def phase(self, name, **detail):
         value = {'name': name, 'elapsed': round(time.monotonic() - self.started, 3), **detail}
@@ -518,13 +546,17 @@ class Journey:
                 self.phase('page-create')
                 self.page = await context.new_page()
                 self.page.set_default_timeout(20000)
-                self.page.on('pageerror', lambda error: self.report['pageErrors'].append(str(error)))
+                self.page.on('pageerror', self.record_page_error)
                 self.phase('context-created')
 
                 async def route(request):
                     url = urlparse(request.request.url)
+                    if browser_local_extension_resource(request.request.method, request.request.url):
+                        self.report['browserLocalRequests'].append({'method': request.request.method, 'url': request.request.url})
+                        await request.continue_()
+                        return
                     value = None
-                    if url.netloc == 'journey.test' and request.request.method == 'GET':
+                    if url.scheme == 'http' and url.netloc == 'journey.test' and request.request.method == 'GET':
                         if url.path == '/': value = ('text/html', html.encode())
                         elif url.path == '/qa/three.mjs': value = ('application/javascript', (ROOT / 'tools/node_modules/three/build/three.module.min.js').read_bytes())
                         elif url.path == '/favicon.ico': value = ('image/x-icon', b'')
