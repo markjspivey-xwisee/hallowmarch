@@ -52,6 +52,8 @@ These apply to every change, not only to the feature that prompted them.
 
 - **Prologue final action (2026-10-29):** The final page has one exit: Begin, or Return to the march during replay. Earlier pages retain Skip the prologue/Close; Back restores that option. Only the header markup changes. The existing close, keyboard, focus, prologue-seen save and first-note behavior remain unchanged. Actual-source CPU checks cover the page controls and identical exit effects; native visual verification remains with the coordinating chat.
 
+- **Low-health guidance (2026-10-29):** Badly hurt can show during combat while the player is alive, below 35% health and carrying a healing draught. Its original combat trigger remains; queued unseen help waits when irrelevant and can teach during a later injury. Healing, death or losing the last draught ends an active banner without replay or changing its collected Field note, saves or earned progress. Other note predicates and stores guidance are unchanged.
+
 - **Phone QA viewport witness (2026-10-29):** The ergonomics test retains its exact renderer/aspect condition, 20 ms polling and 15 s deadline. Bounded host/page poll timestamps are diagnostic only; no successful after-state can waive a failed wait. Existing geometry/report reads harvest observations without an added success-path browser await. This records scheduling evidence; the prior CI resize failure is not claimed fixed.
 
 ## Build and run

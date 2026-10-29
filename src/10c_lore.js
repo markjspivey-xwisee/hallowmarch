@@ -450,6 +450,10 @@ function pathComplete(S, silent = false) {
 /* ------------------------------------------------------------------ */
 /* field notes: first-time context, once per character                 */
 /* ------------------------------------------------------------------ */
+function loreLowHpRelevant() {
+  const P = GAME.player;
+  return !!(P?.alive && P.hp < P.maxHp * 0.35 && INV.potions > 0);
+}
 const FIELD_NOTES = {
   start: { t: 'First steps', x: () => (IS_TOUCH ? `Drag on the ${MOBILE_PREFS.hand === 'left' ? 'right' : 'left'} of the screen to walk and on the ${MOBILE_PREFS.hand === 'left' ? 'left' : 'right'} to look around. Tap a creature to target it, then tap an ability. Your path, at the top left, shows your next step; the gold gem on the minimap marks where.` : 'WASD to walk, drag to look. Click a creature, then press 1. Your path, at the left of the screen, shows your next step; the gold gem on the minimap marks where. H shows every key.') }, // [guide] the gem
   news: { t: 'New: the Chronicle', x: () => `The story of the March, how the war is won and what the commanders' orders mean are now in the Chronicle (${LK().menu}). Your path, at the left, shows your next step.` },
@@ -461,7 +465,7 @@ const FIELD_NOTES = {
   rain: { t: 'Rain', x: () => 'Rain sweeps across the March and soaks the land, and storms bring thunder and lightning. The weather turns every few minutes.' },
   snow: { t: 'Snow', x: () => 'In Thule and up on the passes the rain falls as snow. It settles on the ground and the roofs, and melts when the weather turns.' },
   dragon: { t: 'Cinderwing', x: () => 'The great red dragon. It lands on high ground to fight: keep out of the line of its fire and away from its tail, and do not take it on alone unless you are far stronger.' },
-  lowhp: { t: 'Badly hurt', x: () => `${capFirst(LK().potion)} to drink a healing draught and win back 40% of your health. Out of a fight you heal on your own.` },
+  lowhp: { t: 'Badly hurt', x: () => `${capFirst(LK().potion)} to drink a healing draught and win back 40% of your health. Out of a fight you heal on your own.`, fight: true, ok: loreLowHpRelevant },
   carry: { t: 'Hallow-bearer', x: (R) => `You carry a hallow. You walk slowly and cannot ride or fight, and every enemy wants you dead. Get it to the ${R.templeName} with your warband around you.` },
   command: { t: 'Command', x: (R) => `You may now command the warbands of ${R.name}. Open the map (${LK().map}), choose a band, and give it a keep or temple to take, or tell it to rally to you.` },
   claim: { t: 'A claim on the March', x: () => 'A realm holds four keeps, or both enemy hallows. If it keeps them long enough it wins the campaign: watch the countdown under the minimap, and break the hold if it is not yours.' },
@@ -1227,7 +1231,7 @@ function loreWatch() {
     want('rain', () => out && WEATHER.raining > 0.45 && WEATHER.snowing < 0.15);
     want('snow', () => out && WEATHER.snowing > 0.35);
     want('dragon', () => { const D = DRAGON.e; return out && !!D && D.alive && !D.removed && dist2(P.x, P.z, D.x, D.z) < 140 * 140; });
-    want('lowhp', () => P.hp < P.maxHp * 0.35 && GAME.t < P.combatUntil && INV.potions > 0);
+    want('lowhp', () => loreLowHpRelevant() && GAME.t < P.combatUntil);
     want('carry', () => P.carrying != null);
     // [campaign] (08g_campaign.js)
     want('command', () => out && cwCanCommand() && Math.hypot(P.x, P.z) < R_RING + 40);
@@ -1267,6 +1271,7 @@ function loreUpdateNote() {
   const note = LORE.noteActive;
   if (!note) return;
   if (note.prog !== GAME.prog || !note.element.isConnected) { loreFinishNote(note); return; }
+  if (note.id === 'lowhp' && !loreLowHpRelevant()) { loreFinishNote(note); return; }
   if (GAME.t < GAME.player.combatUntil && !FIELD_NOTES[note.id].fight) loreFinishNote(note, true);
 }
 function showNextNote(announce = !IS_TOUCH) {

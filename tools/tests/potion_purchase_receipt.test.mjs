@@ -52,7 +52,7 @@ function fixture({ gold = 100, potions = 2, price = 10, contract = false, live =
     // normal deferred reward all execute the production 10c functions.
     const lore = read('10c_lore.js');
     const helpers = 'const LORE_OBSERVATIONS = new WeakSet();\n'
-      + ['loreObservationScope', 'loreObservationCurrent', 'loreObservationEvidence', 'loreObserve', 'pathDone', 'pathPay', 'pathComplete', 'loreWatch']
+      + ['loreObservationScope', 'loreObservationCurrent', 'loreObservationEvidence', 'loreObserve', 'pathDone', 'pathPay', 'pathComplete', 'loreLowHpRelevant', 'loreWatch']
         .map(name => extract(lore, name)).join('\n');
     vm.runInContext(helpers, ctx);
     const step = lore.match(/\{ id: 'draught',[\s\S]*?reward:\s*\{[^}]+\}\s*\}/);

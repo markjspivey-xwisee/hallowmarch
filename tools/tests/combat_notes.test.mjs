@@ -15,10 +15,20 @@ function actual(source, names) {
 const extraNotes = parse(guide, { ecmaVersion: 'latest' }).body.find(node =>
   node.type === 'ExpressionStatement' && node.expression.callee?.object?.name === 'Object'
   && node.expression.callee?.property?.name === 'assign' && node.expression.arguments[0]?.name === 'FIELD_NOTES');
-const code = actual(lore, ['LORE', 'FIELD_NOTES', 'LK', 'loreNote', 'loreFinishNote', 'loreUpdateNote', 'showNextNote',
-  'loreSanitize', 'loreSaveData', 'loreOnStart', 'updateLore']) + '\n'
+const code = actual(read('10_ui.js'), ['capFirst']) + '\n' + actual(lore, ['LORE', 'FIELD_NOTES', 'LK', 'loreNote', 'loreFinishNote', 'loreUpdateNote', 'showNextNote',
+  'loreLowHpRelevant', 'loreSanitize', 'loreSaveData', 'loreOnStart', 'updateLore']) + '\n'
   + guide.slice(extraNotes.start, extraNotes.end) + '\n' + actual(guide, ['guideQuiet', 'guideNoteIndex'])
   + '\nglobalThis.state=LORE; globalThis.notes=FIELD_NOTES;';
+const watch = parse(lore, { ecmaVersion: 'latest' }).body.find(node => node.type === 'FunctionDeclaration' && node.id.name === 'loreWatch');
+const want = watch.body.body.find(node => node.type === 'VariableDeclaration' && node.declarations.some(d => d.id.name === 'want'));
+const lowHpWant = watch.body.body.filter(node => node.type === 'IfStatement' && node.test.type === 'MemberExpression'
+  && node.test.object.name === 'P' && node.test.property.name === 'alive').flatMap(node => node.consequent.body)
+  .find(node => node.type === 'ExpressionStatement' && node.expression.callee?.name === 'want' && node.expression.arguments[0]?.value === 'lowhp');
+assert(want && lowHpWant, 'Actual low-health watch and queue admission must exist');
+const lowHpWatch = `(() => { const P = GAME.player, seen = GAME.prog.lore.seen;
+  ${lore.slice(want.start, want.end)}
+  if (P.alive) { ${lore.slice(lowHpWant.start, lowHpWant.end)} }
+})()`;
 
 function fixture({ touch = false, fresh = true } = {}) {
   let now = 100, serial = 0, saves = 0;
@@ -37,7 +47,7 @@ function fixture({ touch = false, fresh = true } = {}) {
     click() { this.listeners.get('click')?.(); }
   }
   const host = new Element(); host.root = true;
-  const GAME = { t: 1, player: { faction: 0, combatUntil: 0, alive: true },
+  const GAME = { t: 1, player: { faction: 0, combatUntil: 0, alive: true, hp: 137, maxHp: 137 },
     prog: { level: 1, xp: 0, rp: 0, bounty: { type: 'boar', n: 6, done: 0 },
       lore: { done: ['herald'], seen: [], pro: 1, pv: 3, track: 'cook' } } };
   const c = vm.createContext({ GAME, IS_TOUCH: touch, MOBILE_PREFS: { hand: 'right' }, UI: { modal: null },
@@ -55,6 +65,7 @@ function fixture({ touch = false, fresh = true } = {}) {
   Object.assign(c.state, { fresh, watchT: Infinity, hudT: Infinity, placeT: Infinity });
   return { c, host, timers, logs, opened, get saves() { return saves; },
     note: id => { c.loreNote(id); c.showNextNote(); },
+    watchLowHp: () => vm.runInContext(lowHpWatch, c),
     frame: () => { now += 1; c.updateLore(0); },
     fight: () => { GAME.player.combatUntil = GAME.t + 10; },
     peace: () => { GAME.t = GAME.player.combatUntil + 1; },
@@ -65,6 +76,106 @@ function fixture({ touch = false, fresh = true } = {}) {
       bounty: GAME.prog.bounty, ev: c.state.ev, inventory: c.INV }),
   };
 }
+
+test('the actual combat watch queues low-health help once and permits it during the relevant fight', () => {
+  const f = fixture({ fresh: false }), P = f.c.GAME.player;
+  P.hp = 40;
+  f.watchLowHp(); assert.deepEqual([...f.c.state.queue], [], 'The original watch still requires combat');
+  f.fight(); f.watchLowHp(); f.watchLowHp();
+  assert.deepEqual([...f.c.state.queue], ['lowhp']);
+  f.c.showNextNote();
+  assert.equal(f.c.state.noteActive?.id, 'lowhp'); assert.equal(f.visible().length, 1);
+  assert.deepEqual([...f.c.GAME.prog.lore.seen], ['lowhp']); assert.equal(f.saves, 1); assert.equal(f.logs.length, 1);
+  assert.equal(f.c.GAME.prog.xp, 0); assert.equal(f.c.GAME.prog.rp, 0);
+  assert.deepEqual([...f.c.GAME.prog.lore.done], ['herald']);
+});
+
+for (const invalid of ['full health', 'dead', 'no potions', 'exactly35percent']) {
+  test(`unseen queued low-health help waits while ${invalid}, then the same queue can teach a later injury`, () => {
+    const f = fixture({ fresh: false }), P = f.c.GAME.player;
+    P.hp = 40; f.fight(); f.watchLowHp();
+    if (invalid === 'full health') P.hp = P.maxHp;
+    if (invalid === 'dead') { P.alive = false; P.hp = 0; }
+    if (invalid === 'no potions') f.c.INV.potions = 0;
+    if (invalid === 'exactly35percent') P.hp = P.maxHp * 0.35;
+    const facts = f.facts();
+    f.c.showNextNote(); f.frame();
+    assert.equal(f.visible().length, 0); assert.equal(f.c.state.noteActive, null);
+    assert.deepEqual([...f.c.state.queue], ['lowhp']); assert.equal(f.c.state.noteReplay.size, 0);
+    assert.equal(f.facts(), facts); assert.equal(f.saves, 0); assert.equal(f.logs.length, 0);
+    P.alive = true; P.hp = 40; f.c.INV.potions = 3; f.fight();
+    // No new watch/queue insertion: this is the original context waiting for a useful moment.
+    f.c.showNextNote();
+    assert.equal(f.c.state.noteActive?.id, 'lowhp'); assert.deepEqual([...f.c.state.queue], []);
+    assert.deepEqual([...f.c.GAME.prog.lore.seen], ['lowhp']); assert.equal(f.saves, 1); assert.equal(f.logs.length, 1);
+  });
+}
+
+for (const change of ['healed', 'dead', 'no potions']) test(`active low-health help expires when ${change}, preserving its collected note without replay or writes`, () => {
+  const f = fixture({ fresh: false }), P = f.c.GAME.player;
+  P.hp = 40; f.fight(); f.watchLowHp(); f.c.showNextNote();
+  const note = f.c.state.noteActive, timer = [...f.timers.values()][0].fn;
+  const saved = JSON.stringify(f.c.loreSaveData()), saves = f.saves, logs = f.logs.length;
+  if (change === 'healed') P.hp = P.maxHp;
+  if (change === 'dead') { P.alive = false; P.hp = 0; }
+  if (change === 'no potions') f.c.INV.potions = 0;
+  f.frame();
+  assert.equal(note.element.isConnected, false); assert.equal(f.visible().length, 0); assert.equal(f.timers.size, 0);
+  assert.equal(f.c.state.noteActive, null); assert.equal(f.c.state.noteReplay.size, 0); assert.deepEqual([...f.c.state.queue], []);
+  assert.equal(JSON.stringify(f.c.loreSaveData()), saved); assert.equal(f.saves, saves); assert.equal(f.logs.length, logs);
+  timer(); assert.equal(f.c.state.noteActive, null, 'A cleared old timer stays harmless');
+  P.alive = true; P.hp = 40; f.c.INV.potions = 3; f.fight(); f.watchLowHp();
+  assert.deepEqual([...f.c.state.queue], [], 'A collected note is retained in the Chronicle, not repeated as a toast');
+});
+
+test('low-health help remains useful after combat while still hurt, and owner cleanup happens before any expiry work', () => {
+  const f = fixture({ fresh: false }), P = f.c.GAME.player;
+  P.hp = 40; f.fight(); f.watchLowHp(); f.c.showNextNote();
+  const oldProgress = f.c.GAME.prog, note = f.c.state.noteActive;
+  f.peace(); f.frame(); assert.equal(f.c.state.noteActive, note, 'Leaving combat alone does not make healing advice false');
+  const saves = f.saves;
+  f.c.GAME.prog = { level: 1, xp: 0, rp: 0, lore: { done: [], seen: [], pro: 1, pv: 3 } };
+  P.hp = P.maxHp; f.frame();
+  assert.equal(f.c.state.noteActive, null); assert.equal(f.c.state.noteReplay.size, 0); assert.deepEqual([...f.c.state.queue], []);
+  assert.deepEqual([...oldProgress.lore.seen], ['lowhp']); assert.deepEqual([...f.c.GAME.prog.lore.seen], []);
+  assert.equal(f.saves, saves);
+});
+
+test('the actual ordinary release restores health and expires the old help without a second save or respawn event', () => {
+  const f = fixture({ fresh: false }), P = f.c.GAME.player, events = [];
+  P.hp = 40; f.fight(); f.watchLowHp(); f.c.showNextNote();
+  const saved = JSON.stringify(f.c.loreSaveData());
+  Object.assign(P, { alive: false, hp: 0, x: 0, z: 0, buffs: [], maxPower: 67 });
+  f.c.REALMS[0].town = { yaw: 0 };
+  Object.assign(f.c, { inDungeon: () => false, R_RING: 0,
+    siteWorld: () => ({ x: 0, y: 0, z: 0 }), heightAt: () => 0, buildBedSpot: () => null,
+    CAM: { yaw: 0 }, FX: { burst() {} }, sfx() {}, activityRecord: (...args) => events.push(args) });
+  vm.runInContext(actual(read('09_player.js'), ['releasePlayer']), f.c);
+  f.c.releasePlayer();
+  assert.equal(P.alive, true); assert.equal(P.hp, P.maxHp);
+  const saves = f.saves;
+  assert.equal(events.length, 1); assert.equal(events[0][0], 'character.respawned');
+  f.frame();
+  assert.equal(f.c.state.noteActive, null); assert.equal(f.visible().length, 0); assert.equal(f.c.state.noteReplay.size, 0);
+  assert.equal(JSON.stringify(f.c.loreSaveData()), saved); assert.equal(f.saves, saves); assert.equal(events.length, 1);
+});
+
+test('touch collects relevant low-health help quietly once and preserves it after healing', () => {
+  const f = fixture({ touch: true, fresh: false }), P = f.c.GAME.player;
+  P.hp = 40; f.fight(); f.watchLowHp(); f.c.showNextNote();
+  assert.deepEqual([...f.c.GAME.prog.lore.seen], ['lowhp']); assert.equal(f.saves, 1);
+  assert.equal(f.visible().length, 0); assert.equal(f.logs.length, 0); assert.equal(f.timers.size, 0);
+  P.hp = P.maxHp; f.frame();
+  assert.deepEqual([...f.c.GAME.prog.lore.seen], ['lowhp']); assert.equal(f.saves, 1);
+  assert.equal(f.c.state.noteReplay.size, 0); assert.deepEqual([...f.c.state.queue], []);
+});
+
+test('active-note updates do not introduce generic per-frame N.ok queries', () => {
+  const f = fixture({ fresh: false }); f.note('stones');
+  const note = f.c.state.noteActive;
+  f.c.notes.stones.ok = () => { throw Error('Unrelated eligibility must not be queried each frame'); };
+  f.frame(); assert.equal(f.c.state.noteActive, note);
+});
 
 test('queued First steps waits during combat, while an actual fight:true note may pass', () => {
   const f = fixture(); f.fight();
