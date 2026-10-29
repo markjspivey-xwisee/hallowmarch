@@ -50,6 +50,8 @@ These apply to every change, not only to the feature that prompted them.
 
 - **Bounty HUD focus (2026-10-29):** Desktop hides the standalone bounty card only while the expanded tracked bounty already renders its active counter. Folded/auto-compact/hidden path, narrow target, RTS and touch states retain their existing alternatives. The CSS mirrors current visibility rules; unsupported `:has` keeps the duplicate card. No progress, rewards, interactions, saves or ownership rules change.
 
+- **Phone QA viewport witness (2026-10-29):** The ergonomics test retains its exact renderer/aspect condition, 20 ms polling and 15 s deadline. Bounded host/page poll timestamps are diagnostic only; no successful after-state can waive a failed wait. Existing geometry/report reads harvest observations without an added success-path browser await. This records scheduling evidence; the prior CI resize failure is not claimed fixed.
+
 ## Build and run
 
 - Run `python3 build.py`. It concatenates `src/page.html` and every `src/NN[a-z]_*.js` module in filename order into one `<script type="module">`, and writes `hallowmarch.html`. three.js 0.160.0 is imported from jsDelivr.
