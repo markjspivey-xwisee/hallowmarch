@@ -33,6 +33,72 @@ function titleAvatarShadowJob() {
     target: SHADOW.rt, camera: SHADOW.cam, targetScene: SHADOW.scene };
 }
 
+// These are the original first-world resources, not substitute renderables.
+// Preparation does not set instance counts, move the camera, simulate or draw.
+function titleEntryJobs(inventory, receipt, weatherResources) {
+  const jobs = [], checks = [], allowed = new Set(inventory.renderables);
+  const shadowScene = SHADOW.scene, shadowCamera = SHADOW.cam, shadowTarget = SHADOW.rt;
+  const add = (family, object, material, target, targetCamera, targetScene, postDependency = false) => {
+    jobs.push({ family, object, material, geometry: object.geometry, target, camera: targetCamera, targetScene,
+      postDependency, dependency: true, version: material.version, vertexShader: material.vertexShader, fragmentShader: material.fragmentShader,
+      side: material.side, transparent: material.transparent, forceSinglePass: material.forceSinglePass,
+      cost: material.transparent && material.side === THREE.DoubleSide && !material.forceSinglePass ? 2 : 1 });
+    const familyReceipt = receipt.families[family] ||= { jobs: 0, prepared: 0, programs: 0 };
+    familyReceipt.jobs++;
+  };
+  const sceneSupported = targetScene => targetScene.overrideMaterial === null
+    && targetScene.onBeforeRender === THREE.Object3D.prototype.onBeforeRender
+    && targetScene.onAfterRender === THREE.Object3D.prototype.onAfterRender;
+  if (shadowTarget && !INDOOR.on && sceneSupported(shadowScene)) {
+    for (const object of new Set(SHADOW.proxies)) {
+      receipt.inventoryObjects++;
+      const source = object.userData.src, material = object.material, geometry = object.geometry;
+      if (!source || !allowed.has(source) || !liveIn(source) || !titleCompileSupported(source)
+        || !material?.isShaderMaterial || !titleCompileSupported(object) || object.children.length
+        || object.parent !== shadowScene || geometry !== source.geometry || material.visible === false
+        || material.colorWrite !== false || material.transparent || !material.depthTest || !material.depthWrite
+        || !object.layers.test(shadowCamera.layers)) { receipt.skipped++; continue; }
+      const sourceMaterial = source.material, ancestry = [];
+      for (let node = source; node !== scene; node = node.parent) ancestry.push([node, node.parent]);
+      checks.push(() => SHADOW.rt === shadowTarget && SHADOW.scene === shadowScene && SHADOW.cam === shadowCamera
+        && !INDOOR.on && sceneSupported(shadowScene) && SHADOW.proxies.includes(object)
+        && object.parent === shadowScene && object.children.length === 0 && object.userData.src === source
+        && object.geometry === geometry && source.geometry === geometry && object.material === material
+        && source.material === sourceMaterial && titleCompileSupported(source)
+        && ancestry.every(([node, parent]) => node.parent === parent && node.visible)
+        && material.colorWrite === false && !material.transparent && material.depthTest && material.depthWrite
+        && object.layers.test(shadowCamera.layers));
+      add('entry-shadow', object, material, shadowTarget, shadowCamera, shadowScene);
+    }
+  }
+  if (!Array.isArray(weatherResources)) throw new Error('First-view preparation requires owned weather resources.');
+  if (weatherResources.length) {
+    const originalMaterial = fsMesh.material, geometry = fsMesh.geometry, weatherQuality = quality.level, q = WXR.q;
+    const bindings = { 'weather-field': ['fieldMat', 'field'], 'weather-dome': ['domeMat', 'dome'], 'weather-screen': ['scrMat', 'scr'] };
+    const fsOwned = () => fsMesh.parent === fsScene && fsScene.children.length === 1 && fsScene.children[0] === fsMesh
+      && fsMesh.children.length === 0 && fsMesh.geometry === geometry && geometry === fsTriGeo
+      && fsMesh.material === originalMaterial && fsMesh.visible && fsScene.visible && !fsMesh.frustumCulled
+      && fsMesh.layers.test(fsCam.layers) && sceneSupported(fsScene);
+    const ids = new Set();
+    for (const { id, material, target } of weatherResources) {
+      receipt.inventoryObjects++;
+      const binding = bindings[id];
+      if (!binding || ids.has(id) || !WXR.on || !fsOwned() || !target?.isWebGLRenderTarget
+        || WXR[binding[0]] !== material || WXR[binding[1]] !== target)
+        throw new Error('First-view preparation received an unowned weather resource.');
+      ids.add(id);
+      if (!material?.isShaderMaterial || !titleCompileSupported(fsMesh, material) || material.visible === false) { receipt.skipped++; continue; }
+      checks.push(() => WXR.on && WXR.q === q && quality.level === weatherQuality && fsOwned()
+        && WXR[binding[0]] === material && WXR[binding[1]] === target);
+      add(id, fsMesh, material, target, fsCam, fsScene, true);
+    }
+  }
+  return { jobs, current: () => checks.every(check => check()) && jobs.every(job => titleCompileSupported(job.object, job.material)
+    && job.material.visible !== false && job.material.version === job.version
+    && job.material.vertexShader === job.vertexShader && job.material.fragmentShader === job.fragmentShader
+    && job.material.side === job.side && job.material.transparent === job.transparent && job.material.forceSinglePass === job.forceSinglePass) };
+}
+
 // Prepare only the resources that the next real post/sky
 // submission will use. It never executes a post pass or creates a renderable.
 function titleDependencyJobs(id, inventory, receipt) {
@@ -110,8 +176,11 @@ async function prepareTitleDependencies(id, inventory, generation) {
   if (id !== 'post' && id !== 'sky') throw new Error('Unknown title preparation dependency.');
   return prepareTitleProgramJobs(inventory, [], generation, id);
 }
+function prepareTitleEntryPrograms(inventory, generation, weatherResources) {
+  return prepareTitleProgramJobs(inventory, [], generation, 'entry', weatherResources);
+}
 
-async function prepareTitleProgramJobs(inventory, stages, generation, dependencyId = null) {
+async function prepareTitleProgramJobs(inventory, stages, generation, dependencyId = null, weatherResources = null) {
   const started = performance.now();
   const receipt = { generation, dependency: dependencyId, errorPolicy: 'drained-waves', supported: false, outcome: 'serial', completed: false, stale: false,
     eligibleJobs: 0, preparedJobs: 0, skipped: 0, newPrograms: 0, maxPending: 0, maxPreparesPerTurn: 0,
@@ -182,7 +251,7 @@ async function prepareTitleProgramJobs(inventory, stages, generation, dependency
     const jobs = [], inventoryStarted = performance.now();
     try {
       if (dependencyId) {
-        dependencies = titleDependencyJobs(dependencyId, inventory, receipt);
+        dependencies = dependencyId === 'entry' ? titleEntryJobs(inventory, receipt, weatherResources) : titleDependencyJobs(dependencyId, inventory, receipt);
         jobs.push(...dependencies.jobs);
       } else {
       const allowed = new Set(inventory.renderables), seen = new Set();

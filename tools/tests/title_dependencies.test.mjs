@@ -307,3 +307,139 @@ test('double-sided preparation restores the original side and material between b
   const receipt = await f.finish(promise); assert.equal(receipt.completed, true); assert.deepEqual(f.state(), before);
   assert.deepEqual(f.calls.filter(call => call.material === f.r.bloomUp).map(call => call.side), [THREE.BackSide, THREE.FrontSide]); f.clean();
 });
+
+// The entry fixture constructs the actual original weather shader strings and
+// targets on the CPU. It never runs a weather frame, simulation or WebGL pass.
+function entryFixture(options = {}) {
+  const f = fixture(options), weatherSource = read('src/12c_weather2.js');
+  f.ctx.WX_N = 12; f.ctx.WX_WETK = [0.62, 1.1, 0.85];
+  f.eval(section(weatherSource, 'const WX_Q =', '// rain hanging under its cloud')
+    + '\nthis.entryResources=wxPrepareCloudResources(); this.weather=WXR;\n');
+  const weather = f.ctx.weather;
+  const resources = Array.from(f.ctx.entryResources);
+  const shadow = f.ctx.SHADOW;
+  shadow.scene = new THREE.Scene(); shadow.cam = new THREE.OrthographicCamera(-100, 100, 100, -100, 0.1, 600);
+  shadow.rt = new THREE.WebGLRenderTarget(1536, 1536);
+  f.eval(section(original, 'function shadowCaster(', '// [perf2]')
+    + section(original, 'function depthFrom(', 'function liveIn('));
+  const sources = [], proxies = [], depthFs = original.match(/const DEPTH_FS = \/\* glsl \*\/`([^`]+)`;/)[1];
+  for (let index = 0; index < (options.shadows ?? 7); index++) {
+    const geometry = new THREE.InstancedBufferGeometry(); geometry.instanceCount = index % 2 ? 4 : 0;
+    geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(9), 3));
+    geometry.setAttribute('iPos', new THREE.InstancedBufferAttribute(new Float32Array(16), 4));
+    const material = new THREE.ShaderMaterial({ vertexShader: 'attribute vec4 iPos; void main(){ gl_Position=projectionMatrix*modelViewMatrix*vec4(position+iPos.xyz+vec3(' + index + '.0),1.0); }' });
+    const source = new THREE.Mesh(geometry, material); f.scene.add(source); f.inventory.renderables.push(source);
+    const proxy = f.ctx.shadowCaster(source, f.ctx.depthFrom(material, depthFs));
+    sources.push(source); proxies.push(proxy);
+  }
+  return Object.assign(f, { weather, resources, shadow, sources, proxies,
+    runEntry: (pairs = resources) => f.ctx.prepareTitleEntryPrograms(f.inventory, f.ctx.TITLE_WARM_GENERATION, pairs) });
+}
+
+for (const pendingLimit of [4, 8]) test('entry preparation uses exact original shadow/weather resources in bounded drained waves, cap=' + pendingLimit, async () => {
+  const f = entryFixture({ shadows: 11, pendingLimit, readyDelay: 50 }), before = f.state();
+  const counts = f.sources.map(source => source.geometry.instanceCount), parents = f.sources.map(source => source.parent);
+  const receipt = await f.finish(f.runEntry());
+  assert.equal(receipt.completed, true); assert.equal(receipt.dependency, 'entry'); assert.equal(receipt.eligibleJobs, 14);
+  assert.equal(receipt.maxPending, pendingLimit); assert.equal(receipt.maxWavePrograms, pendingLimit);
+  assert.equal(receipt.waves, Math.ceil(14 / pendingLimit)); assert(receipt.maxPreparesPerTurn <= 4);
+  assert(f.errorChecks.every(count => count === 0)); assert.deepEqual(f.state(), before);
+  assert.deepEqual(f.sources.map(source => source.geometry.instanceCount), counts); assert.deepEqual(f.sources.map(source => source.parent), parents);
+  assert.equal(f.randomCalls(), 0); assert.equal(f.preflightCalls(), 0); assert.equal(f.currentTarget(), f.originalTarget);
+  const shadowCalls = f.calls.filter(call => call.targetScene === f.shadow.scene);
+  assert.deepEqual(shadowCalls.map(call => call.object), f.proxies);
+  assert(shadowCalls.every(call => call.target === f.shadow.rt && call.geometry === call.object.userData.src.geometry));
+  assert(f.compileCalls.filter(call => call.targetScene === f.shadow.scene).every(call => call.camera === f.shadow.cam));
+  assert.deepEqual(f.calls.filter(call => call.object === f.r.fsMesh).map(call => [call.material, call.target]), f.resources.map(pair => [pair.material, pair.target]));
+  assert(f.compileCalls.filter(call => call.targetScene === f.r.fsScene).every(call => call.object === f.r.fsMesh && call.camera === f.r.fsCam));
+  assert.equal(f.ctx.GRAPHICS_STARTUP.titleCompleted, undefined); f.clean();
+});
+
+test('entry preparation leaves weather bindings, uniforms, counters and original simulation state unchanged', async () => {
+  const f = entryFixture(), snapshot = () => f.eval('({map:U.uCloudMap.value,dome:U.uCloudDome.value,screen:U.uCloudScr.value,domeOn:U.uCloudDomeOn.value.toArray(),screenOn:U.uCloudScrP.value.toArray(),mapP:U.uCloudMapP.value.toArray(),n:WXR.n,domeP:WXR.domeMat.uniforms.uDomeP.value.toArray(),eye:WXR.scrMat.uniforms.uEye.value.toArray()})');
+  const before = snapshot(); await f.finish(f.runEntry()); assert.deepEqual(snapshot(), before);
+  assert.equal(f.randomCalls(), 0); assert.equal(f.preflightCalls(), 0); f.clean();
+});
+
+test('real r160 entry program keys and CPU cache identities survive later original weather passes and populated shadow transforms', async () => {
+  const f = entryFixture(); await f.finish(f.runEntry()); const count = f.programs.length, known = new Map(f.known);
+  f.proxies.forEach((proxy, index) => { proxy.geometry.instanceCount = 3 + index; proxy.matrixWorld.makeTranslation(400, 8, -90); });
+  f.shadow.cam.position.set(100, 300, -200);
+  f.eval('renderer.setRenderTarget(SHADOW.rt); renderer.render(SHADOW.scene, SHADOW.cam); pass(WXR.fieldMat,WXR.field); pass(WXR.domeMat,WXR.dome); pass(WXR.scrMat,WXR.scr);');
+  assert.equal(f.programs.length, count); for (const [key, program] of known) assert.equal(f.known.get(key), program);
+  assert(f.programs.every(program => program.parameters.outputColorSpace === THREE.LinearSRGBColorSpace && program.parameters.toneMapping === THREE.NoToneMapping));
+  f.clean();
+});
+
+for (const change of ['unowned source', 'hidden source', 'source hook', 'proxy hook', 'material hook', 'proxy child', 'foreign proxy', 'geometry', 'array material', 'layer', 'colorWrite', 'depthWrite'])
+test('entry preparation leaves unsupported or unowned shadow cases to their real draw: ' + change, async () => {
+  const f = entryFixture({ shadows: 1 }), source = f.sources[0], proxy = f.proxies[0];
+  if (change === 'unowned source') f.inventory.renderables.splice(f.inventory.renderables.indexOf(source), 1);
+  if (change === 'hidden source') source.visible = false;
+  if (change === 'source hook') source.onBeforeRender = () => {};
+  if (change === 'proxy hook') proxy.onBeforeRender = () => {};
+  if (change === 'material hook') proxy.material.onBeforeCompile = () => {};
+  if (change === 'proxy child') proxy.add(new THREE.Mesh());
+  if (change === 'foreign proxy') f.scene.add(proxy);
+  if (change === 'geometry') source.geometry = new THREE.BufferGeometry();
+  if (change === 'array material') proxy.material = [proxy.material];
+  if (change === 'layer') proxy.layers.set(3);
+  if (change === 'colorWrite') proxy.material.colorWrite = true;
+  if (change === 'depthWrite') proxy.material.depthWrite = false;
+  const receipt = await f.finish(f.runEntry()); assert.equal(receipt.families['entry-shadow'], undefined);
+  assert.equal(f.calls.length, 3); assert(f.calls.every(call => call.object === f.r.fsMesh)); f.clean();
+});
+
+for (const change of ['source parent', 'source material', 'source geometry', 'proxy source', 'proxy material', 'proxy geometry', 'proxy removed', 'target', 'camera', 'scene', 'indoor', 'weather target', 'weather material', 'quality', 'weather off', 'weather q', 'shader', 'version', 'depthWrite'])
+test('entry ownership changes stop new admission and drain before stale return: ' + change, async () => {
+  const f = entryFixture({ shadows: 7, readyDelay: 50, compileMs: 10 }), promise = f.runEntry(); await f.flush();
+  assert.equal(f.compileCalls.length, 1); const source = f.sources[0], proxy = f.proxies[0];
+  if (change === 'source parent') { const group = new THREE.Group(); f.scene.add(group); group.add(source); }
+  if (change === 'source material') source.material = new THREE.ShaderMaterial();
+  if (change === 'source geometry') source.geometry = new THREE.BufferGeometry();
+  if (change === 'proxy source') proxy.userData.src = f.sources[1];
+  if (change === 'proxy material') proxy.material = new THREE.ShaderMaterial();
+  if (change === 'proxy geometry') proxy.geometry = new THREE.BufferGeometry();
+  if (change === 'proxy removed') f.shadow.proxies.splice(0, 1);
+  if (change === 'target') f.shadow.rt = new THREE.WebGLRenderTarget();
+  if (change === 'camera') f.shadow.cam = new THREE.PerspectiveCamera();
+  if (change === 'scene') f.shadow.scene = new THREE.Scene();
+  if (change === 'indoor') f.ctx.INDOOR.on = true;
+  if (change === 'weather target') f.weather.field = new THREE.WebGLRenderTarget();
+  if (change === 'weather material') f.weather.fieldMat = new THREE.ShaderMaterial();
+  if (change === 'quality') f.ctx.quality.level = 'low';
+  if (change === 'weather off') f.weather.on = false;
+  if (change === 'weather q') f.weather.q = {};
+  if (change === 'shader') proxy.material.vertexShader += '\n';
+  if (change === 'version') proxy.material.needsUpdate = true;
+  if (change === 'depthWrite') proxy.material.depthWrite = false;
+  const receipt = await f.finish(promise); assert.equal(receipt.stale, true); assert.equal(f.compileCalls.length, 1);
+  assert(f.errorChecks.every(count => count === 0)); assert.equal(f.currentTarget(), f.originalTarget); f.clean();
+});
+
+for (const change of ['spoof material', 'spoof target', 'unknown id', 'duplicate id', 'fs child', 'fs parent', 'fs hook'])
+test('entry weather resources fail closed on ownership violations: ' + change, async () => {
+  const f = entryFixture({ shadows: 0 }), pairs = f.resources.map(pair => ({ ...pair }));
+  if (change === 'spoof material') pairs[0].material = new THREE.ShaderMaterial();
+  if (change === 'spoof target') pairs[0].target = new THREE.WebGLRenderTarget();
+  if (change === 'unknown id') pairs[0].id = 'weather-foreign';
+  if (change === 'duplicate id') pairs.push(pairs[0]);
+  if (change === 'fs child') f.r.fsMesh.add(new THREE.Mesh());
+  if (change === 'fs parent') f.scene.add(f.r.fsMesh);
+  if (change === 'fs hook') f.r.fsScene.onBeforeRender = () => {};
+  const before = f.state(); await assert.rejects(f.runEntry(pairs), /unowned weather resource/);
+  assert.equal(f.compileCalls.length, 0); assert.deepEqual(f.state(), before); f.clean();
+});
+
+for (const failure of ['compile', 'target', 'context', 'link']) test('entry failure restores shared CPU state and never retries: ' + failure, async () => {
+  const f = entryFixture({ failure }), before = f.state();
+  await assert.rejects(f.finish(f.runEntry()), /controlled|context|Graphics stopped|failed to link/);
+  assert.deepEqual(f.state(), before); assert.equal(f.ctx.GRAPHICS_STARTUP.titlePreparations.at(-1).completed, false); f.clean();
+});
+
+test('entry queued GL failure prevents the next wave and completion even when resources become stale', async () => {
+  const f = entryFixture({ shadows: 7, readyDelay: 50 }), promise = f.runEntry(); await f.flush();
+  assert.equal(f.compileCalls.length, productPending); f.errors.push(['0x0502']); f.weather.on = false;
+  await assert.rejects(f.finish(promise), /GL errors/); assert.equal(f.compileCalls.length, productPending);
+  assert.equal(f.ctx.GRAPHICS_STARTUP.titlePreparations.at(-1).completed, false); assert(f.errorChecks.every(count => count === 0)); f.clean();
+});
