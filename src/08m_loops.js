@@ -1457,7 +1457,10 @@ queueMicrotask(() => { // (CHRON, FIELD_NOTES, GUIDE_WATCH, GUIDE_HELP, LOADING_
   loopsFairPrices();
   chronAdd('stores', 'Stores', 'war', chronStores, 'orders');
   Object.assign(FIELD_NOTES, {
-    lstores: { t: 'The realm\'s stores', x: (R) => `Every band, engine, gate and wall of ${R.name}'s is paid for from its stores. Bring wood, stone, ore, food, hides and wool to the quartermaster in ${R.townName} or a keep's hall: the realm pays in realm points and gold, more for what it lacks. The Chronicle's Stores page shows them.` },
+    lstores: { t: 'The realm\'s stores', x: (R) => `Every band, engine, gate and wall of ${R.name}'s is paid for from its stores. Bring wood, stone, ore, food, hides and wool to the quartermaster in ${R.townName} or a keep's hall: the realm pays in realm points and gold, more for what it lacks. The Chronicle's Stores page shows them.`, ok: () => {
+      const Q = REALMS[GAME.player?.faction]?.quartermaster;
+      return !!Q?.alive && guideNotePrompt() === `Speak with ${Q.name}: the realm's stores`;
+    } },
     lcart: { t: 'A cart on the road', x: () => 'Carts carry food, timber, stone and iron from the town to the keeps. The other realms fall on them. Walk beside one of yours to its keep and see it safe; one of theirs taken is lost to them.', fight: false },
     lshort: { t: 'Your realm runs short', x: (R) => `${R.name}'s stores are running out: its bands muster thinner and hungrier, its engines fewer, its walls mend slower. What you bring to the quartermaster turns it round, and pays more now.` },
   });

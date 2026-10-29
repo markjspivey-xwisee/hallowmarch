@@ -319,6 +319,11 @@ function guideQuiet() {
   const L = GAME.prog && GAME.prog.lore;
   return !!(L && LORE.fresh && (!L.seen.includes('start') || LORE.noteReplay.has('start') || performance.now() < LORE.noteUntil));
 }
+// Reuse the selected prompt already computed by updateHUD; notes must not rescan interactions.
+function guideNotePrompt() {
+  const pr = $('prompt');
+  return pr && !pr.hidden && pr.classList.contains('on') ? ($('prompt-t')?._t || '') : '';
+}
 // which queued note may show now: the first steps first; in a fight only a note about the fight; a note that means
 // nothing here waits
 function guideNoteIndex() {
