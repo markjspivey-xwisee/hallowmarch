@@ -48,6 +48,8 @@ These apply to every change, not only to the feature that prompted them.
 
 - **Terrain block CPU topology (2026-10-29):** Far terrain blocks lazily reuse only lattice coordinates and triangle order. Each geometry still reads current heights/normals and owns fresh index data and attributes; crater rebuilds are unchanged. Pinned pre-change CPU tests compare all sixteen blocks, geometry bytes, bounds, resource construction order and UUID random draws. An external Node comparison supports less repeated CPU work; no native loading or frame improvement is established.
 
+- **Bounty HUD focus (2026-10-29):** Desktop hides the standalone bounty card only while the expanded tracked bounty already renders its active counter. Folded/auto-compact/hidden path, narrow target, RTS and touch states retain their existing alternatives. The CSS mirrors current visibility rules; unsupported `:has` keeps the duplicate card. No progress, rewards, interactions, saves or ownership rules change.
+
 - **Phone QA viewport witness (2026-10-29):** The ergonomics test retains its exact renderer/aspect condition, 20 ms polling and 15 s deadline. Bounded host/page poll timestamps are diagnostic only; no successful after-state can waive a failed wait. Existing geometry/report reads harvest observations without an added success-path browser await. This records scheduling evidence; the prior CI resize failure is not claimed fixed.
 
 ## Build and run
