@@ -116,6 +116,20 @@ test('a failed native menu save stays private and pending without any local fall
   assert.equal(f.SAVE.lastBody,'');assert.equal(f.timers.size,0);assert.equal(f.c.NATIVE_PLAYER.state,'unavailable');
 });
 
+test('the actual confirmed provisional session reference can save a trusted menu edit without weakening verification',async()=>{
+  const f=fixture({native:true}),native=readFileSync(new URL('../../src/14v_nativeidentity.js',import.meta.url),'utf8');
+  const ast=parse(native,{ecmaVersion:'latest'}).body;
+  const actual=names=>names.map(name=>{const node=ast.find(n=>n.type==='FunctionDeclaration'&&n.id.name===name);assert(node,name);return native.slice(node.start,node.end);}).join('\n');
+  const session={status:()=>({provisional:true}),profile:()=>f.c.NATIVE_PLAYER.profile,set:f.ref.set};
+  Object.assign(f.c.NATIVE_PLAYER,{provisional:session,provisionalContext:{host:'fixture',accountId:'owner'},status:{verified:true,provisional:true,enabled:true}});
+  vm.runInContext(actual(['nativePlayerIsProvisional','nativePlayerProvisionalRef'])+'\nSAVE.ref=nativePlayerProvisionalRef(NATIVE_PLAYER.provisional);',f.c);
+  assert.equal(f.c.nativePlayerIsProvisional(),true);assert.equal(f.SAVE.ref.native,true);
+  await f.edit();await f.drain();
+  assert.equal(f.calls.length,1);assert.equal(f.SAVE.pending,null);assert.equal(f.local.size,0);
+  f.c.NATIVE_PLAYER.status.verified=false;f.c.buildSave=()=>({...freshSave(),settings:{quality:'high'}});
+  await f.edit();assert.equal(f.calls.length,1,'Provisional identity does not bypass the existing verified gate.');
+});
+
 test('an owned native menu edit confirms through the existing single flight without granting later idle bodies',async()=>{
   const f=fixture({native:true});f.hold();const first=f.edit();await f.drain();assert.equal(f.calls.length,1);
   f.c.buildSave=()=>({...freshSave(),settings:{quality:'high'}});const next=f.edit();
