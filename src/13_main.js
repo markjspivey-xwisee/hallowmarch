@@ -565,6 +565,7 @@ async function boot() {
   camera.updateMatrixWorld();
   // Isolation owns every draw and never enters ordinary compilation or the game loop.
   if (await graphicsRunDiagnostic()) return;
+  await loadStep(0.82, 'Preparing the sounds', () => prepareSoundBuffersChunks());
   if (typeof prepareTitleDraft === 'function') prepareTitleDraft(save);
   await loadStep(0.84, 'Drawing the map', () => bootSequence([buildMapImageChunks, buildDungeonMapChunks]));
   await loadStep(0.9, 'Preparing the first view', () => {

@@ -772,10 +772,10 @@ Object.assign(SND_SYNTH, {
 /* loops: a few voices held on the loudest continuous sources nearby    */
 /* ------------------------------------------------------------------ */
 // buffers made once, here, from noise and arithmetic (no samples): seconds of sound that loop without a seam
-function sndBuf(name) {
-  if (SND.bufs[name]) return SND.bufs[name];
+function* sndBufferChunks(name, makeBuffer) {
   const sr = 22050, sec = name === 'murmur' || name === 'battle' ? 4.5 : 3.2, n = Math.floor(sr * sec);
   const d = new Float32Array(n);
+  let work = 0;
   let s = 12345 + name.length * 977;
   const rnd = () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
   const noise = () => rnd() * 2 - 1;
@@ -787,27 +787,28 @@ function sndBuf(name) {
       if (i % 220 === 0) flut += (rnd() - 0.5) * 0.25; flut = clamp(flut, 0.25, 1);
       lp += (noise() - lp) * (big ? 0.035 : 0.06); lp2 += (lp - lp2) * 0.2;
       d[i] = lp2 * (big ? 2.2 : 1.1) * flut + noise() * 0.012;
+      if ((++work & 2047) === 0) yield;
     }
     const pops = Math.floor(sec * (big ? 34 : 22));
     for (let k = 0; k < pops; k++) {
       const at = Math.floor(rnd() * (n - 400)), amp = Math.pow(rnd(), 2.4) * (big ? 0.55 : 0.75), len = 20 + Math.floor(rnd() * 140);
       let hp = 0, prev = 0;
-      for (let j = 0; j < len; j++) { const x = noise(); hp = 0.75 * (hp + x - prev); prev = x; d[at + j] += hp * amp * Math.exp(-j / (len * 0.3)); }
+      for (let j = 0; j < len; j++) { const x = noise(); hp = 0.75 * (hp + x - prev); prev = x; d[at + j] += hp * amp * Math.exp(-j / (len * 0.3)); if ((++work & 2047) === 0) yield; }
     }
   } else if (name === 'lap') {
     // a lake against its shore: slow sloshes and the trickle back
     let lp = 0, ph = 0, nxt = 0;
     const env = new Float32Array(n);
-    while (nxt < n) { const len = Math.floor(sr * (0.5 + rnd() * 0.9)); for (let j = 0; j < len && nxt + j < n; j++) { const x = j / len; env[nxt + j] += Math.sin(Math.PI * x) ** 2 * (0.4 + rnd() * 0.02 + 0.6 * (1 - x) * x * 4 * 0.25); } nxt += Math.floor(len * (0.55 + rnd() * 0.6)); }
-    for (let i = 0; i < n; i++) { lp += (noise() - lp) * 0.09; ph += (noise() * 0.5 - ph) * 0.4; d[i] = lp * env[i] * 1.6 + ph * env[i] * 0.08; }
+    while (nxt < n) { const len = Math.floor(sr * (0.5 + rnd() * 0.9)); for (let j = 0; j < len && nxt + j < n; j++) { const x = j / len; env[nxt + j] += Math.sin(Math.PI * x) ** 2 * (0.4 + rnd() * 0.02 + 0.6 * (1 - x) * x * 4 * 0.25); if ((++work & 2047) === 0) yield; } nxt += Math.floor(len * (0.55 + rnd() * 0.6)); }
+    for (let i = 0; i < n; i++) { lp += (noise() - lp) * 0.09; ph += (noise() * 0.5 - ph) * 0.4; d[i] = lp * env[i] * 1.6 + ph * env[i] * 0.08; if ((++work & 2047) === 0) yield; }
   } else if (name === 'roofrain') {
     // rain drumming on a roof over you: dense small knocks on timber and slate, and their hush
     let lp = 0;
-    for (let i = 0; i < n; i++) { lp += (noise() - lp) * 0.25; d[i] = lp * 0.18; }
+    for (let i = 0; i < n; i++) { lp += (noise() - lp) * 0.25; d[i] = lp * 0.18; if ((++work & 2047) === 0) yield; }
     const drops = sec * 260;
     for (let k = 0; k < drops; k++) {
       const at = Math.floor(rnd() * (n - 200)), f = 300 + rnd() * 900, amp = 0.05 + rnd() * 0.22, len = 40 + Math.floor(rnd() * 120);
-      for (let j = 0; j < len; j++) d[at + j] += Math.sin((2 * Math.PI * f * j) / sr) * amp * Math.exp(-j / (len * 0.25));
+      for (let j = 0; j < len; j++) { d[at + j] += Math.sin((2 * Math.PI * f * j) / sr) * amp * Math.exp(-j / (len * 0.25)); if ((++work & 2047) === 0) yield; }
     }
   } else if (name === 'murmur') {
     // a town's voices, too many and too far to make out: syllables in vowels' formants, overlapping
@@ -828,39 +829,82 @@ function sndBuf(name) {
           const u = B[0] * x + B[1] * x1 + B[2] * x2 - B[3] * u1 - B[4] * u2;
           x2 = x1; x1 = x; y2 = y1; y1 = y; u2 = u1; u1 = u;
           d[tt + j] += (y + 0.5 * u) * e * amp;
+          if ((++work & 2047) === 0) yield;
         }
         tt += syl + Math.floor(sr * (rnd() < 0.25 ? 0.25 + rnd() * 0.6 : 0.02 + rnd() * 0.08));
       }
     }
     let lp = 0;
-    for (let i = 0; i < n; i++) { lp += (d[i] - lp) * 0.35; d[i] = lp; }
+    for (let i = 0; i < n; i++) { lp += (d[i] - lp) * 0.35; d[i] = lp; if ((++work & 2047) === 0) yield; }
   } else if (name === 'battle') {
     // a fight too far off to see: blades clashing, blows, cries, all softened by the distance
     for (let k = 0; k < sec * 26; k++) {
       const at = Math.floor(rnd() * (n - sr)), kind = rnd();
       if (kind < 0.45) { // a clash of blades
         const f = 1300 + rnd() * 1400, amp = 0.05 + rnd() * 0.12, len = Math.floor(sr * (0.1 + rnd() * 0.2));
-        for (let j = 0; j < len; j++) { const tt = j / sr; d[at + j] += (Math.sin(2 * Math.PI * f * tt) + 0.5 * Math.sin(2 * Math.PI * f * 2.76 * tt)) * amp * Math.exp(-j / (len * 0.2)); }
+        for (let j = 0; j < len; j++) { const tt = j / sr; d[at + j] += (Math.sin(2 * Math.PI * f * tt) + 0.5 * Math.sin(2 * Math.PI * f * 2.76 * tt)) * amp * Math.exp(-j / (len * 0.2)); if ((++work & 2047) === 0) yield; }
       } else if (kind < 0.8) { // a blow
         const f = 70 + rnd() * 60, amp = 0.12 + rnd() * 0.15, len = Math.floor(sr * 0.12);
         let lp = 0;
-        for (let j = 0; j < len; j++) { lp += (noise() - lp) * 0.2; d[at + j] += (Math.sin((2 * Math.PI * f * j) / sr) * 0.6 + lp) * amp * Math.exp(-j / (len * 0.25)); }
+        for (let j = 0; j < len; j++) { lp += (noise() - lp) * 0.2; d[at + j] += (Math.sin((2 * Math.PI * f * j) / sr) * 0.6 + lp) * amp * Math.exp(-j / (len * 0.25)); if ((++work & 2047) === 0) yield; }
       } else { // a cry
         const f = 140 + rnd() * 140, len = Math.floor(sr * (0.3 + rnd() * 0.5)), amp = 0.04 + rnd() * 0.05;
         let ph = 0, lp = 0;
-        for (let j = 0; j < len; j++) { const fq = f * (1 + 0.2 * Math.sin((Math.PI * j) / len)); ph += fq / sr; if (ph > 1) ph -= 1; lp += (ph * 2 - 1 - lp) * 0.12; d[at + j] += lp * amp * Math.sin((Math.PI * j) / len); }
+        for (let j = 0; j < len; j++) { const fq = f * (1 + 0.2 * Math.sin((Math.PI * j) / len)); ph += fq / sr; if (ph > 1) ph -= 1; lp += (ph * 2 - 1 - lp) * 0.12; d[at + j] += lp * amp * Math.sin((Math.PI * j) / len); if ((++work & 2047) === 0) yield; }
       }
     }
     let lp = 0;
-    for (let i = 0; i < n; i++) { lp += (d[i] - lp) * 0.3; d[i] = lp * 1.3; }
+    for (let i = 0; i < n; i++) { lp += (d[i] - lp) * 0.3; d[i] = lp * 1.3; if ((++work & 2047) === 0) yield; }
   }
   // no seam: the last fifth of a second fades into the first
   const xf = Math.floor(sr * 0.2);
-  for (let j = 0; j < xf; j++) { const a = j / xf; d[j] = d[j] * a + d[n - xf + j] * (1 - a); }
-  const out = AUDIO.ctx ? AUDIO.ctx.createBuffer(1, n - xf, sr) : new AudioBuffer({ numberOfChannels: 1, length: n - xf, sampleRate: sr });
+  for (let j = 0; j < xf; j++) { const a = j / xf; d[j] = d[j] * a + d[n - xf + j] * (1 - a); if ((++work & 2047) === 0) yield; }
+  const out = makeBuffer(n - xf, sr);
   out.getChannelData(0).set(d.subarray(0, n - xf));
-  SND.bufs[name] = out;
   return out;
+}
+function sndBuf(name) {
+  if (SND.bufs[name]) return SND.bufs[name];
+  const work = sndBufferChunks(name, (length, sr) => AUDIO.ctx ? AUDIO.ctx.createBuffer(1, length, sr)
+    : new AudioBuffer({ numberOfChannels: 1, length, sampleRate: sr }));
+  let step = work.next();
+  while (!step.done) step = work.next();
+  SND.bufs[name] = step.value;
+  return step.value;
+}
+let sndBufferPreparation = 0;
+function* prepareSoundBuffersChunks() {
+  const generation = ++sndBufferPreparation, cache = SND.bufs;
+  const names = ['roofrain', 'lap', 'murmur', 'battle', 'crackle', 'roar'];
+  const current = () => generation === sndBufferPreparation && cache === SND.bufs;
+  if (names.every(name => cache[name])) return true;
+  if (typeof AudioBuffer !== 'function') return false;
+  const Buffer = AudioBuffer, prepared = Object.create(null);
+  let work = null;
+  try {
+    for (const name of names) {
+      if (!current()) return false;
+      if (cache[name]) continue;
+      work = sndBufferChunks(name, (length, sr) => new Buffer({ numberOfChannels: 1, length, sampleRate: sr }));
+      let step = work.next();
+      while (!step.done) {
+        yield;
+        if (!current()) return false;
+        if (cache[name]) break; // A trusted gesture completed this buffer during preparation.
+        step = work.next();
+      }
+      if (!cache[name] && step.done) prepared[name] = step.value;
+      work.return(); work = null;
+      yield; // Keep a completed buffer's allocation/copy separate from the next kernel.
+    }
+    if (!current()) return false;
+    if (names.some(name => !cache[name] && !prepared[name])) return false;
+    // All six are complete. Keep the original cache and any live winner; no
+    // partial PCM, audio graph or AudioContext is exposed during preparation.
+    for (const name of names) if (!cache[name]) cache[name] = prepared[name];
+    return true;
+  } catch (e) { return false; /* Optional: the original trusted-gesture path remains available. */ }
+  finally { work?.return(); }
 }
 const SND_LOOP_N = () => (IS_TOUCH || quality.level === 'low' ? 3 : 5);
 function sndLoopVoice(ctx, dest) {
