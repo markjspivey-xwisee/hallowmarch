@@ -38,7 +38,11 @@
   #loading h1 { margin: 0; font: 400 clamp(38px, 8vw, 72px)/1 var(--display); letter-spacing: 0.04em; color: var(--bronze-hi); }
   #loading .bar { width: min(320px, 70vw); height: 3px; background: rgba(255, 255, 255, 0.08); border-radius: 2px; overflow: hidden; }
   #loading .bar i { display: block; height: 100%; width: 0; background: var(--bronze-hi); transition: width 0.25s ease; }
+  #loading .bar[aria-busy="true"] i { width: 35% !important; transition: none; animation: loading-sweep 1.6s ease-in-out infinite alternate; }
+  @keyframes loading-sweep { from { transform: translateX(0); } to { transform: translateX(200%); } }
+  @media (prefers-reduced-motion: reduce) { #loading .bar[aria-busy="true"] i { animation: none; transform: none; } }
   #loading p { margin: 0; color: var(--ink-dim); font-family: var(--caps); letter-spacing: 0.08em; font-size: 13px; }
+  #loading #loadhint { max-width: min(28rem, 84vw); text-align: center; font-family: var(--ui); letter-spacing: normal; }
 
   /* title & character creation */
   #title { position: fixed; inset: 0; z-index: 20; display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 470px); align-items: stretch; pointer-events: none; }
@@ -1351,7 +1355,7 @@
 
 <canvas id="scene" aria-label="Hallowmarch, a 3D world of three realms at war" role="img"></canvas>
 
-<div id="loading"><div class="inner"><h1>Hallowmarch</h1><div class="bar"><i id="loadbar"></i></div><p id="loadmsg">Raising the hills</p></div></div>
+<div id="loading"><div class="inner"><h1>Hallowmarch</h1><div class="bar" role="progressbar" aria-label="Loading Hallowmarch" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i id="loadbar"></i></div><p id="loadmsg" role="status" aria-live="polite" aria-atomic="true">Raising the hills</p><p id="loadhint" hidden>The first visit may take longer.</p></div></div>
 
 <div id="title" hidden>
   <div class="brand">

@@ -345,7 +345,7 @@ test('nominal completion stays distinct from failure and allows no extra batches
 });
 
 function bootHarness({ diagnostic = true, safe = true } = {}) {
-  const calls = [], nodes = { loading: { style: {} } };
+  const calls = [], nodes = { loading: { style: {} }, loadbar: { style: {} } };
   const ctx = {
     BOOT_SAFE: safe, GAME: { ready: false }, window: { __hm: { ready: false } },
     performance: { now: () => 0 }, tod: { p: 1 }, camera: { updateMatrixWorld() {} },

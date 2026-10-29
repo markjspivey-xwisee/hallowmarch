@@ -142,6 +142,13 @@ function titleAssertActive() {
   if (GRAPHICS_STARTUP.stopped || gl.isContextLost()) throw new Error('Title graphics context is unavailable.');
 }
 function titleGraphicsBusy(active) {
+  const loadingBar = document.getElementById('loadbar')?.parentElement;
+  const hint = document.getElementById('loadhint');
+  if (loadingBar && !GAME.ready) {
+    loadingBar.setAttribute('aria-busy', String(active));
+    if (active) loadingBar.removeAttribute('aria-valuenow');
+  }
+  if (hint) hint.hidden = !active || GAME.ready;
   const title = document.getElementById('title');
   if (!title) return;
   title.setAttribute('aria-busy', String(active));
@@ -416,6 +423,7 @@ async function loadStep(frac, msg, fn) {
   graphicsAssertActive();
   if (msg) graphicsCheckpoint(msg);
   $('loadbar').style.width = Math.round(frac * 100) + '%';
+  $('loadbar').parentElement?.setAttribute('aria-valuenow', String(Math.round(frac * 100)));
   if (msg) $('loadmsg').textContent = msg;
   await nextPaint();
   graphicsAssertActive();
@@ -465,6 +473,8 @@ async function boot() {
   graphicsAssertActive();
   GAME.ready = true;
   window.__hm.ready = true;
+  $('loadbar').style.width = '100%';
+  $('loadbar').parentElement?.setAttribute('aria-valuenow', '100');
   setupTitle(save);
   graphicsRecoveryNotice();
   graphicsCheckpoint('Ready');
