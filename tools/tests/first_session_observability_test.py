@@ -101,6 +101,29 @@ class FirstSessionObservability(unittest.TestCase):
             ('settle_title', 'fresh'), ('start_ui_trace', 'entry'), ('stop_ui_trace', None),
             ('reload', None), ('settle_title', 'reload'), ('start_ui_trace', 'return')])
 
+    def test_title_screenshots_wait_for_the_real_loading_veil_to_be_hidden(self):
+        calls = []
+        async def evaluate(expression):
+            calls.append('snapshot')
+            return {'stopped': False, 'errors': [], 'native': False, 'host': '', 'modal': None}
+        async def wait_for(**kwargs):
+            self.assertEqual(kwargs, {'state': 'hidden', 'timeout': 5000})
+            calls.append('loading-hidden')
+        def locator(selector):
+            self.assertEqual(selector, '#loading')
+            return argparse.Namespace(wait_for=wait_for)
+        async def screenshot(**kwargs):
+            calls.append('screenshot')
+        self.fixture.page = argparse.Namespace(evaluate=evaluate, locator=locator, screenshot=screenshot)
+        for label in ['01-title', '08-returning-title']:
+            calls.clear()
+            asyncio.run(self.fixture.record(label, shot=True))
+            self.assertEqual(calls, ['snapshot', 'loading-hidden', 'screenshot'])
+            self.assertGreaterEqual(self.fixture.report['steps'][-1]['screenshotElapsed'], self.fixture.report['steps'][-1]['elapsed'])
+        calls.clear()
+        asyncio.run(self.fixture.record('02-prologue', shot=True))
+        self.assertEqual(calls, ['snapshot', 'screenshot'])
+
 
 if __name__ == '__main__':
     unittest.main()

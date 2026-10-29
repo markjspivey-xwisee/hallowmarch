@@ -171,7 +171,12 @@ class Journey:
         require(not state['native'] and not state['host'], 'The fixture must remain local and independent of hosted identity')
         require(not self.report['requestsBlocked'], 'Unexpected external/service request at ' + label)
         if shot:
+            if label in ['01-title', '08-returning-title']:
+                self.phase('title-screenshot-wait', label=label, condition='loading veil hidden', timeoutMs=5000)
+                await self.page.locator('#loading').wait_for(state='hidden', timeout=5000)
             await self.page.screenshot(path=str(self.out / (label + '.png')), timeout=10000)
+            state['screenshotElapsed'] = round(time.monotonic() - self.started, 3)
+            self.save()
         print(json.dumps({'step': label, 'elapsed': state['elapsed'], 'modal': state['modal']}), flush=True)
         return state
 
