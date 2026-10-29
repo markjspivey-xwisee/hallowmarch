@@ -131,6 +131,44 @@ test('live cloud-edge precipitation still appears from the box peak and disappea
   c.INDOOR.on = false; c.peak = 0; c.updateWeather(0); assert.equal(f.rain.visible || f.snow.visible, false);
 });
 
+function seasonalLeavesFixture(level) {
+  const scene = new THREE.Scene(), uniform = value => ({ value });
+  const U = { uSeasonA: uniform(new THREE.Vector4()), uSeasonB: uniform(new THREE.Vector4()),
+    uSeasonC: uniform(new THREE.Vector4()), uSeasonD: uniform(new THREE.Vector4()),
+    uSnowK: uniform(new THREE.Vector2()), uSnowCover: uniform(0), uNight: uniform(0),
+    uLightColor: uniform(new THREE.Vector3(1, 1, 1)), uAmbient: uniform(new THREE.Vector3(.3, .3, .3)) };
+  const context = vm.createContext({ THREE, scene, U, quality: { level },
+    SEAS: { inited: true, lieView: 0, dirty: false, tex: null }, SEASON: { k: .125, temp: 12, t: 100, yearSec: 6000 },
+    INDOOR: { on: false }, WEATHER: { raining: 0, overcast: 0, snow: 0 }, GAME: { player: null },
+    camera: { position: new THREE.Vector3() }, composite: { uniforms: { uGrade: uniform(new THREE.Vector4(1, 1, 1, 1)) } },
+    mat: options => new THREE.ShaderMaterial(options), seasonsInit() {}, seasonSnowLieAt: () => 0, wxLive: () => false,
+    GLSL_COMMON: '', GLSL_WORLD: '', GLSL_ATMOS: '',
+  });
+  vm.runInContext(declarations(read('05k_seasons.js'), ['SEASON_LEAVES_MAX', 'seasonParticleGeo', 'buildSeasonFx', 'seasonCurves', 'seasonAirNow', 'seasonsFrame'])
+    + '\n' + declarations(read('00_util.js'), ['mulberry', 'clamp', 'sstep']) + '\nbuildSeasonFx();', context);
+  return { context, scene, leaves: context.SEAS.leaves };
+}
+
+for (const [level, count] of [['high', 900], ['medium', 540], ['low', 315]]) {
+  test('seasonal leaves ' + level + ' begin hidden and track autumn → clear → autumn and indoor counts without advancing time or RNG', () => {
+    const f = seasonalLeavesFixture(level), c = f.context, leaves = f.leaves, geometry = leaves.geometry, material = leaves.material;
+    assert.equal(leaves.geometry.instanceCount, 0); assert.equal(leaves.visible, false); assert.equal(leaves.parent, f.scene);
+    const seeds = Array.from(geometry.attributes.aSeed.array), at = c.SEASON.t;
+    vm.runInContext('Math.random=()=>{throw Error("Drawing seasonal leaves must not consume randomness");};', c);
+    c.SEASON.k = .7; c.seasonsFrame(.016);
+    assert.equal(leaves.geometry.instanceCount, count); assert.equal(leaves.visible, true); assert.equal(material.uniforms.uAmount.value, 1);
+    for (const k of [.1, .4, .95]) {
+      c.SEASON.k = k; c.seasonsFrame(.016);
+      assert.equal(leaves.geometry.instanceCount, 0); assert.equal(leaves.visible, false); assert.equal(material.uniforms.uAmount.value, 0);
+    }
+    c.SEASON.k = .7; c.seasonsFrame(.016); assert.equal(leaves.geometry.instanceCount, count); assert.equal(leaves.visible, true);
+    c.INDOOR.on = true; c.seasonsFrame(.016); assert.equal(leaves.geometry.instanceCount, 0); assert.equal(leaves.visible, false);
+    c.INDOOR.on = false; c.seasonsFrame(.016); assert.equal(leaves.geometry.instanceCount, count); assert.equal(leaves.visible, true);
+    assert.equal(leaves.geometry, geometry); assert.equal(leaves.material, material); assert.equal(c.SEASON.t, at);
+    assert.deepEqual(Array.from(geometry.attributes.aSeed.array), seeds); assert.equal(c.SEAS.hole.visible, false);
+  });
+}
+
 function shadowSubmissionFixture(source) {
   const scene = new THREE.Scene(), parent = new THREE.Group();
   scene.add(parent); parent.add(source); scene.updateMatrixWorld(true);
