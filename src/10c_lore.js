@@ -250,7 +250,7 @@ const LORE = {
   pro: null, chronSec: 'march', begin: null,
   watchT: 0, hudT: 0, placeT: 0, hudKey: '', top: -1, min: null,
   ev: {}, bounty: null, potions: 0, carried: null, doors: new Map(), elites: new Set(), loot: new Set(),
-  queue: [], noteUntil: 0, deathShown: false,
+  queue: [], noteUntil: 0, noteActive: null, noteOwner: null, noteReplay: new Set(), deathShown: false,
 };
 const loreAn = (w) => (/^[aeiou]/i.test(w) ? 'an' : 'a');
 const homeIn = (R) => R.homeName.replace(/^The /, 'the ');
@@ -1233,18 +1233,47 @@ function loreNote(id) {
   if (!LORE.queue.includes(id)) LORE.queue.push(id);
   return true;
 }
+// Presentation may be interrupted without undoing the note already collected
+// in the Chronicle. Only this character's attached note can be deferred.
+function loreFinishNote(note, replay = false) {
+  if (!note || LORE.noteActive !== note) return;
+  clearTimeout(note.timer);
+  note.element.remove();
+  LORE.noteActive = null;
+  if (replay && GAME.prog === note.prog && Object.hasOwn(FIELD_NOTES, note.id)) {
+    LORE.noteReplay.add(note.id);
+    if (!LORE.queue.includes(note.id)) LORE.queue.unshift(note.id);
+    LORE.noteUntil = 0;
+  }
+  HUDL.k = 0;
+}
+function loreUpdateNote() {
+  if (LORE.noteOwner !== GAME.prog) {
+    loreFinishNote(LORE.noteActive);
+    LORE.queue = LORE.queue.filter(id => !LORE.noteReplay.has(id));
+    LORE.noteReplay.clear();
+    LORE.noteOwner = GAME.prog;
+  }
+  const note = LORE.noteActive;
+  if (!note) return;
+  if (note.prog !== GAME.prog || !note.element.isConnected) { loreFinishNote(note); return; }
+  if (GAME.t < GAME.player.combatUntil && !FIELD_NOTES[note.id].fight) loreFinishNote(note, true);
+}
 function showNextNote(announce = !IS_TOUCH) {
   const prog = GAME.prog, P = GAME.player;
+  loreUpdateNote();
   const qi = guideNoteIndex(); // [guide] first steps first, not over a fight, only where it means something
   if (qi < 0) return;
   const id = LORE.queue.splice(qi, 1)[0];
-  GUIDE.stats.notesShown++;
   const N = FIELD_NOTES[id];
-  if (!N || prog.lore.seen.includes(id)) return;
-  prog.lore.seen.push(id);
+  const replay = LORE.noteReplay.delete(id), first = !prog.lore.seen.includes(id);
+  if (!N || (!first && !replay)) return;
+  GUIDE.stats.notesShown++;
+  if (first) prog.lore.seen.push(id);
   // Touch players collect the same notes without interrupting the world.
   // The Notes destination reads the complete, saved text on demand.
-  if (!announce) { saveSoon(); return; }
+  if (!announce) { if (first) saveSoon(); return; }
+  loreFinishNote(LORE.noteActive);
   const R = REALMS[P.faction], text = N.x(R);
   const host = $('banners');
   const d = document.createElement('div');
@@ -1252,14 +1281,22 @@ function showNextNote(announce = !IS_TOUCH) {
   d.setAttribute('role', 'status');
   d.title = 'Click to dismiss';
   d.innerHTML = `<small>Field note</small><b>${N.t}</b><span>${text}</span>`;
-  d.addEventListener('click', () => { const small = $('banners').classList.contains('hl-compact') || $('banners').classList.contains('hl-brief'); /* [look6] its first lines only: a tap reads it whole */ d.remove(); if (small && !UI.modal) { G2.noteFocus = id; openChronicle('notes'); } }); // [guide] shrunk to its title on a small screen: a tap reads it in the Chronicle ([guide2] on the field notes' page, itself first and open)
+  const note = { id, prog, element: d, timer: null };
+  LORE.noteActive = note;
+  d.addEventListener('click', () => {
+    if (LORE.noteActive !== note || note.prog !== GAME.prog || !d.isConnected) return;
+    const small = host.classList.contains('hl-compact') || host.classList.contains('hl-brief');
+    loreFinishNote(note);
+    // A compact note opens its full saved text; the full card only dismisses.
+    if (small && !UI.modal) { G2.noteFocus = id; openChronicle('notes'); }
+  });
   host.appendChild(d);
-  setTimeout(() => d.remove(), 11000);
+  note.timer = setTimeout(() => loreFinishNote(note), 11000);
   while (host.childNodes.length > 3) host.removeChild(host.firstChild);
-  uiLog(`${N.t}: ${text}`, 'sys');
+  if (first) uiLog(`${N.t}: ${text}`, 'sys');
   LORE.noteUntil = performance.now() + 11500;
   HUDL.k = 0; // [guide] laid out this frame: it never lies over a panel, even for a moment
-  saveSoon();
+  if (first) saveSoon();
 }
 // the death sheet carries a word of advice
 function deathNote() {
@@ -1688,12 +1725,13 @@ function loreConsumeBegin(save) {
 // called at the end of startGame with what it was started from
 function loreOnStart(save) {
   const prog = GAME.prog;
+  loreFinishNote(LORE.noteActive);
   const kept = loreSanitize(save.lore);
   const old = !kept && !save.fresh;
   prog.lore = kept || { done: [], seen: [], pro: 0, pv: PATH_VERSION };
   const pv0 = prog.lore.pv || 1; // [guide] the path a character's save knew: steps added since are new to it
   prog.lore.pv = PATH_VERSION;
-  Object.assign(LORE, { ev: {}, bounty: prog.bounty, potions: INV.potions, carried: null, doors: new Map(), elites: new Set(), loot: new Set(LOOT), queue: [], noteUntil: 0, deathShown: false, watchT: 0, hudKey: '', fresh: !!save.fresh, keepRealm: null, dragonHit: 0, dragonLast: -99, campN: null }); // [guide] ([guide2] dragonHit: your share of its harm)
+  Object.assign(LORE, { ev: {}, bounty: prog.bounty, potions: INV.potions, carried: null, doors: new Map(), elites: new Set(), loot: new Set(LOOT), queue: [], noteUntil: 0, noteActive: null, noteOwner: prog, noteReplay: new Set(), deathShown: false, watchT: 0, hudKey: '', fresh: !!save.fresh, keepRealm: null, dragonHit: 0, dragonLast: -99, campN: null }); // [guide] ([guide2] dragonHit: your share of its harm)
   GUIDE.made.length = 0; GUIDE.wallSeen = false; GUIDE.mark = null; GUIDE.markT = 0;
   for (const S of PATH_STEPS) {
     // steps already behind you are marked off quietly: levels you have, and for characters
@@ -1718,6 +1756,7 @@ $('name-input').addEventListener('input', loreCancelBegin);
 function updateLore(dt) {
   const prog = GAME.prog;
   if (!prog || !prog.lore || !GAME.player) return;
+  loreUpdateNote();
   LORE.watchT -= dt;
   if (UI.modal !== 'prologue' && LORE.watchT <= 0) {
     LORE.watchT = 0.25;

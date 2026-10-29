@@ -64,3 +64,27 @@ test('camp summaries use living actors own levels and fresh empty-camp fallback 
   assert.match(vm.runInContext('campSummary(0)', c), /Wolves <span class="num">2–12<\/span>/);
   assert.equal(vm.runInContext('JSON.stringify(CAMPS.map(c=>[c.lmin,c.lmax]))', c), placement);
 });
+
+test('the compact war aim identifies the next rank without changing full goals, progress or routes', () => {
+  const guide = readFileSync(new URL('../../src/10f_guide2.js', import.meta.url), 'utf8');
+  const nodes = parse(guide, { ecmaVersion: 'latest' }).body;
+  const code = nodes.filter(n => n.type === 'FunctionDeclaration' && n.id.name === 'guideWarAimHTML'
+    || n.type === 'VariableDeclaration' && n.declarations.some(d => d.id.name === 'G2_WAR_STEPS'))
+    .map(n => guide.slice(n.start, n.end)).join('\n');
+  const c = vm.createContext({});
+  vm.runInContext(`const GAME={player:{},prog:{lore:{}}}; let step=null;
+    const aims=[{t:'Realm rank 2: Soldier',m:[0,'0 / 100 RP']}];
+    const pathNext=()=>step, guideAims=()=>aims, guideShortWhere=()=>'the keep';
+    const clamp=(n,a,b)=>Math.max(a,Math.min(b,n)),esc=String;` + code, c);
+  const before = vm.runInContext('JSON.stringify(aims)', c);
+  const html = vm.runInContext('guideWarAimHTML()', c);
+  assert.match(html, /Next rank: 2/); assert.match(html, /data-g2="goals"/);
+  assert.match(html, /<span class="d">0%<\/span>/);
+  assert.equal(vm.runInContext('JSON.stringify(aims)', c), before);
+  vm.runInContext(`step={id:'muster',short:'Join a warband'}`, c);
+  const tracked = vm.runInContext('guideWarAimHTML()', c);
+  assert.match(tracked, /data-g2="path"/); assert.match(tracked, /Join a warband/);
+  assert.doesNotMatch(tracked, /Next rank/);
+  vm.runInContext(`step=null;aims[0]={t:'Win campaign 1 for Logres'}`, c);
+  assert.match(vm.runInContext('guideWarAimHTML()', c), /Win campaign 1 for Logres/);
+});

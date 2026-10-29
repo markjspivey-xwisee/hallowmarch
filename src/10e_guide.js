@@ -317,15 +317,15 @@ function guideMade(rec) {
 // a new character's first moments belong to the first-steps note: other hints wait for it (08h_farming.js asks)
 function guideQuiet() {
   const L = GAME.prog && GAME.prog.lore;
-  return !!(L && LORE.fresh && (!L.seen.includes('start') || performance.now() < LORE.noteUntil));
+  return !!(L && LORE.fresh && (!L.seen.includes('start') || LORE.noteReplay.has('start') || performance.now() < LORE.noteUntil));
 }
 // which queued note may show now: the first steps first; in a fight only a note about the fight; a note that means
 // nothing here waits
 function guideNoteIndex() {
   const P = GAME.player, prog = GAME.prog, Q = LORE.queue;
-  if (Q.includes('start')) return Q.indexOf('start');
-  if (LORE.fresh && !prog.lore.seen.includes('start')) return -1;
   const fight = GAME.t < P.combatUntil;
+  if (Q.includes('start') && (!fight || FIELD_NOTES.start.fight)) return Q.indexOf('start');
+  if (!fight && LORE.fresh && !prog.lore.seen.includes('start')) return -1;
   for (let i = 0; i < Q.length; i++) {
     const N = FIELD_NOTES[Q[i]];
     if (!N) return i;
