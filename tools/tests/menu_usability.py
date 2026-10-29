@@ -304,7 +304,7 @@ async def audit(args):
                 if await progress_link.count():
                     await progress_link.click();await page.evaluate('Promise.resolve()');state=await capture('character-to-progress')
                     report['checks'].append({'task':label+'-character-primary-route-focus','passed':state['tab']=='progress' and state['focusInside'] and state['focus']['id']!='menu-close','focus':state['focus']})
-                path_link=page.get_by_role('button',name='Continue your path',exact=True)
+                path_link=page.get_by_role('button',name='View objectives',exact=True)
                 if await path_link.count():
                     await path_link.click();state=await capture('progress-to-path')
                     report['checks'].append({'task':label+'-progress-primary-route-focus','passed':state['tab']=='chronicle' and state['focusInside'] and state['focus']['id']!='menu-close','focus':state['focus']})
@@ -337,7 +337,7 @@ async def audit(args):
                 for kind in ['empty','busy','pending']:
                     await page.evaluate('(kind)=>__menuQA.progress(kind)',kind)
                     await page.evaluate('Promise.resolve()');state=await capture('progress-'+kind)
-                    path=[b for b in state['buttons'] if b['label']=='Continue your path']
+                    path=[b for b in state['buttons'] if b['label']=='View objectives']
                     report['checks'].append({'task':label+'-progress-'+kind+'-local-path-available','passed':bool(path and not path[0]['disabled'] and path[0]['primary']),'path':path})
                 await page.evaluate("__menuQA.progress('empty')")
                 history=page.locator('#march-activity-open')

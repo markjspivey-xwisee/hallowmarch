@@ -356,10 +356,10 @@ async function marchConsultingCompare() {
 function marchConsultingCreate(parent) {
   const box = marchConsultingNode('section'); box.id = 'march-consulting'; box.style.cssText = 'display:grid;gap:14px;overflow-wrap:anywhere';
   box.append(marchConsultingNode('h2', 'Progress'), marchConsultingNode('p',
-    'Follow your path, review what happened, or find help with your next game action.'));
+    'Open your guided objective list in the Chronicle, review what happened, or find help with your next game action.'));
   const navigation = marchConsultingNode('div'); navigation.id = 'march-progress-navigation';
   navigation.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;min-width:0';
-  const path = marchConsultingButton('Continue your path', () => openChronicle('path')); path.id = 'march-progress-path'; path.classList.add('primary');
+  const path = marchConsultingButton('View objectives', () => openChronicle('path')); path.id = 'march-progress-path'; path.classList.add('primary');
   navigation.append(path); box.append(navigation);
   const milestones = marchConsultingNode('div'); milestones.id = 'march-coach-milestones'; box.append(milestones);
   const interventions = marchConsultingNode('section'); interventions.id = 'march-coach-interventions'; box.append(interventions);
@@ -445,7 +445,7 @@ function marchConsultingRender() {
         'Your path is ready. Play a little to build a recent activity history and receive practical tips.'));
       else {
         milestones.append(marchConsultingNode('h3', 'Next practice milestone'),
-          marchConsultingNode('p', 'These milestones track the game actions you practise. Continue your path opens your next guided objective.'),
+          marchConsultingNode('p', 'These milestones track the game actions you practise. View objectives opens your guided objective list in the Chronicle.'),
           marchConsultingNode('h4', snapshot.current?.title || 'Opening your journal…'),
           marchConsultingNode('p', snapshot.current?.desiredResult || ''), marchConsultingNode('p', snapshot.current?.observedResult || ''));
         const all = marchConsultingNode('details'); all.open = !!expanded;

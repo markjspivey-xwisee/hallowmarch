@@ -355,6 +355,7 @@ class Journey:
         earned = await self.page.evaluate(EARNED)
         await self.open_menu()
         await self.action('#menu-tab-progress', "()=>__hm.UI.menuTab==='progress'")
+        require(await self.page.locator('#march-progress-path').inner_text() == 'View objectives', 'Progress does not clearly name its objective-list destination')
         await self.action('#march-progress-path', "()=>__hm.UI.menuTab==='chronicle'&&__hm.LORE.state.chronSec==='path'")
         objective = self.page.locator('[data-lore="track:cook"]')
         require(await objective.count() == 1, 'A first-session player cannot choose the next cooking objective')

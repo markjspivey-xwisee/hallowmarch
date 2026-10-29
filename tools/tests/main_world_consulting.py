@@ -187,7 +187,7 @@ async def main():
             await page.locator('#menu-tabs [data-tab="char"]').click()
             await page.get_by_role('button',name='View progress',exact=True).click()
             await destination('progress')
-            await page.get_by_role('button',name='Continue your path',exact=True).click()
+            await page.get_by_role('button',name='View objectives',exact=True).click()
             await destination('chronicle')
             assert await page.evaluate('__hm.LORE.state.chronSec')=='path'
             assert await page.locator('.chron-nav [data-sec="path"][aria-current="true"]').is_visible()
@@ -216,10 +216,10 @@ async def main():
             assert rendered_aids==[aid['title'] for aid in current['interventions']],rendered_aids
             assert await page.get_by_role('button',name='Find materials nearby',exact=True).count()==1
             assert await page.get_by_role('button',name='Find materials nearby',exact=True).is_visible()
-            assert await page.locator('#march-coach-interventions').get_by_role('button',name='Continue your path',exact=True).count()==0
-            assert 'Follow your path, review what happened' in await page.locator('#march-consulting').inner_text()
+            assert await page.locator('#march-coach-interventions').get_by_role('button',name='View objectives',exact=True).count()==0
+            assert 'Open your guided objective list in the Chronicle, review what happened' in await page.locator('#march-consulting').inner_text()
             assert await page.locator('#march-consulting .btn.primary:visible').count()==1
-            assert await page.locator('#march-consulting .btn.primary:visible').inner_text()=='Continue your path'
+            assert await page.locator('#march-consulting .btn.primary:visible').inner_text()=='View objectives'
             assert await page.locator('#march-progress-path').is_enabled()
             assert await page.get_by_role('button',name='View activity history',exact=True).is_visible()
             assert not await page.locator('#march-progress-optional').evaluate('(e)=>e.open')
