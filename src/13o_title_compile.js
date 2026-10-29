@@ -2,7 +2,7 @@
    fences remain the readiness gate; compilation completion is not a frame. */
 // Fill by new programs, then validate a drained wave before refill.
 // Context loss and completed failed links still stop admission immediately.
-const TITLE_COMPILE_LIMITS = Object.freeze({ pending: 4, perTurn: 4, turnMs: 8, pollMs: 10, programMs: 90000, totalMs: 180000 });
+const TITLE_COMPILE_LIMITS = Object.freeze({ pending: 4, perTurn: 4, turnMs: 8, pollMs: 10, idlePollMaxMs: 100, programMs: 90000, totalMs: 180000 });
 
 function titleCompileEligible(object) {
   if (!liveIn(object) || !object.layers.test(camera.layers)) return false;
@@ -355,6 +355,7 @@ async function prepareTitleProgramJobs(inventory, stages, generation, dependency
     inventoryMs: 0, inventoryObjects: 0, maxInventoryCheckMs: 0, slowestInventory: null,
     dependencyChecks: 0, dependencyCheckMs: 0, maxDependencyCheckMs: 0,
     mainSnapshotChecks: 0, mainSnapshotCheckMs: 0, maxMainSnapshotCheckMs: 0,
+    scheduledPollWaits: 0, requestedPollWaitMs: 0, maxRequestedPollWaitMs: 0, backoffWaits: 0, budgetClippedWaits: 0,
     flushMs: 0, maxFlushMs: 0, pollMs: 0, maxPollMs: 0,
     errorCheckMs: 0, maxErrorCheckMs: 0, elapsedMs: 0, visibleMs: 0, hiddenMs: 0, disposed: 0, families: {},
     waveLatency: [], droppedWaveLatency: 0, queuePolicy: dependencyId === 'initial' ? 'combined-source-size' : 'staged', deduplicatedJobs: 0 };
@@ -368,6 +369,7 @@ async function prepareTitleProgramJobs(inventory, stages, generation, dependency
   if (message && dependencyId !== 'initial' && message.textContent !== 'Preparing the first view') message.textContent = 'Preparing the first view';
   const pending = new Map(), entryInitializers = [], initialTarget = sceneRT;
   let timer = null, wake = null, lost = false, stale = false, avatarJob = null, dependencies = null, mainSnapshots = null;
+  let idlePollMs = TITLE_COMPILE_LIMITS.pollMs, idleWaiting = false;
   const materialJobs = new Map();
   let clockAt = started, visibleMs = 0, wasHidden = !!document.hidden;
   let waveLatency = null, wavePollAt = null;
@@ -402,6 +404,7 @@ async function prepareTitleProgramJobs(inventory, stages, generation, dependency
       firstProgramQueuedMs: null, lastProgramQueuedMs: null, lastPreparedMs: null, sealedMs: null,
       firstObservedReadyMs: null, lastObservedReadyMs: null, polls: 0, maxObservedPollGapMs: 0,
       timerSchedules: 0, timerCallbacks: 0, timerLateMs: 0, maxTimerLateMs: 0, validationMs: 0,
+      requestedPollWaitMs: 0, maxRequestedPollWaitMs: 0, backoffWaits: 0, budgetClippedWaits: 0,
       reflectedPrograms: 0, reflectionMs: 0, outcome: 'preparing', families: {}, programs: [] };
     wavePollAt = null;
     if (receipt.waveLatency.length < 128) receipt.waveLatency.push(waveLatency);
@@ -416,6 +419,7 @@ async function prepareTitleProgramJobs(inventory, stages, generation, dependency
   };
   const invalidate = reason => { stale = true; receipt.reason ||= reason; loadingProgress(0, 0, true); resume(); };
   const resume = () => {
+    idlePollMs = TITLE_COMPILE_LIMITS.pollMs; idleWaiting = false;
     if (timer !== null) clearTimeout(timer);
     timer = null;
     if (wake) { const resolve = wake; wake = null; resolve(); }
@@ -462,9 +466,26 @@ async function prepareTitleProgramJobs(inventory, stages, generation, dependency
     if (waveLatency) waveLatency.validationMs += checked;
     if (found.length) throw new Error('GL errors while preparing title programs: ' + found.join(', '));
   };
-  const pause = () => new Promise(resolve => {
+  const pause = requestedMs => new Promise(resolve => {
     wake = resolve;
-    const expectedAt = performance.now() + TITLE_COMPILE_LIMITS.pollMs, scheduledWave = waveLatency;
+    const visibleNow = visibleElapsed();
+    let remaining = TITLE_COMPILE_LIMITS.totalMs - visibleNow;
+    for (const job of pending.values()) remaining = Math.min(remaining, TITLE_COMPILE_LIMITS.programMs - (visibleNow - job.queuedVisibleMs));
+    // A hidden interval spends no deadline. Listener wakes still cancel this
+    // timer immediately; every resumed turn validates before doing more work.
+    const delay = document.hidden ? requestedMs : Math.max(0, Math.min(requestedMs, remaining));
+    const clipped = delay < requestedMs, backedOff = delay > TITLE_COMPILE_LIMITS.pollMs;
+    receipt.scheduledPollWaits++; receipt.requestedPollWaitMs += delay;
+    receipt.maxRequestedPollWaitMs = Math.max(receipt.maxRequestedPollWaitMs, delay);
+    if (backedOff) receipt.backoffWaits++;
+    if (clipped) receipt.budgetClippedWaits++;
+    const expectedAt = performance.now() + delay, scheduledWave = waveLatency;
+    if (scheduledWave) {
+      scheduledWave.requestedPollWaitMs += delay;
+      scheduledWave.maxRequestedPollWaitMs = Math.max(scheduledWave.maxRequestedPollWaitMs, delay);
+      if (backedOff) scheduledWave.backoffWaits++;
+      if (clipped) scheduledWave.budgetClippedWaits++;
+    }
     if (scheduledWave) scheduledWave.timerSchedules++;
     timer = setTimeout(() => {
       if (scheduledWave) {
@@ -473,7 +494,7 @@ async function prepareTitleProgramJobs(inventory, stages, generation, dependency
         scheduledWave.timerLateMs += late; scheduledWave.maxTimerLateMs = Math.max(scheduledWave.maxTimerLateMs, late);
       }
       timer = null; wake = null; resolve();
-    }, TITLE_COMPILE_LIMITS.pollMs);
+    }, delay);
   });
   document.addEventListener('visibilitychange', hidden);
   window.addEventListener('resize', resized);
@@ -541,7 +562,7 @@ async function prepareTitleProgramJobs(inventory, stages, generation, dependency
     let index = 0, wavePrograms = 0, waveStarted = false, waveSealed = false;
     while (index < jobs.length || pending.size || entryInitializers.length || waveStarted) {
       const turnStarted = performance.now();
-      let shouldPause = false, deferAdmission = false, reflected = 0;
+      let shouldPause = false, deferAdmission = false, reflected = 0, progressed = false, pauseMs = TITLE_COMPILE_LIMITS.pollMs;
       try {
         active(); changed();
         const pollStarted = performance.now();
@@ -556,7 +577,7 @@ async function prepareTitleProgramJobs(inventory, stages, generation, dependency
             if (job.observation) job.observation.outcome = 'disposed';
             if (!stale) throw new Error('A required title program was disposed before completion.');
             receipt.disposed++; if (waveLatency) waveLatency.disposedPrograms++;
-            pending.delete(program); continue;
+            pending.delete(program); progressed = true; continue;
           }
           // Check availability before visible-time deadlines. Context loss
           // reports KHR completion=true, so reject it before accepting a result.
@@ -578,6 +599,7 @@ async function prepareTitleProgramJobs(inventory, stages, generation, dependency
             }
             if (job.entryReflection && !stale) entryInitializers.push({ program, handle: program.program, family: job.family });
             pending.delete(program);
+            progressed = true;
           }
         }
         const polled = performance.now() - pollStarted;
@@ -728,11 +750,18 @@ async function prepareTitleProgramJobs(inventory, stages, generation, dependency
           if (!pending.size) errors();
         }
         shouldPause = index < jobs.length || pending.size || entryInitializers.length;
+        if (!stale && waveSealed && pending.size) {
+          // Only an unchanged, sealed wave can idle. Admission, reflection and
+          // any observed completion reset the next wait to the original 10 ms.
+          idlePollMs = idleWaiting && !progressed && !prepared && !reflected
+            ? Math.min(TITLE_COMPILE_LIMITS.idlePollMaxMs, idlePollMs * 2) : TITLE_COMPILE_LIMITS.pollMs;
+          idleWaiting = true; pauseMs = idlePollMs;
+        } else { idlePollMs = TITLE_COMPILE_LIMITS.pollMs; idleWaiting = false; }
         if (!stale) loadingProgress(index, jobs.length);
       } finally {
         receipt.maxFullTurnMs = Math.max(receipt.maxFullTurnMs, performance.now() - turnStarted);
       }
-      if (shouldPause) await pause();
+      if (shouldPause) await pause(pauseMs);
     }
     active(); changed(); errors();
     if (stale) { receipt.outcome = 'stale'; receipt.stale = true; return receipt; }

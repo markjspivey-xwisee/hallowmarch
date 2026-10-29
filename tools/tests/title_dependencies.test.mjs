@@ -565,6 +565,24 @@ test('one slow original entry initializer yields before another initializer or w
   assert(receipt.reflectionBudgetYields > 0); f.clean();
 });
 
+test('actual entry reflection keeps the base10ms cadence after a backed-off pending wave',async()=>{
+  const f=entryFixture({shadows:7,readyDelay:1000,reflectionMs:10}),promise=f.runEntry();await f.flush();
+  const wait=()=>[...f.timers.values()][0].due-f.ctx.performance.now();
+  assert.equal(wait(),10);for(let i=0;i<10&&wait()<100;i++)await f.timer();assert.equal(wait(),100);
+  for(const program of f.programs)program.readyAt=0;
+  await f.timer();assert.equal(f.reflections.length,1);assert.equal(wait(),10);
+  const receipt=await f.finish(promise);assert.equal(receipt.completed,true);assert.equal(receipt.maxReflectionsPerTurn,1);f.clean();
+});
+
+test('completed entry siblings do not prevent idle backoff while other sealed programs are still pending',async()=>{
+  const f=entryFixture({shadows:7,readyDelay:1000}),promise=f.runEntry();await f.flush();
+  const wait=()=>[...f.timers.values()][0].due-f.ctx.performance.now();
+  for(let i=0;i<10&&wait()<100;i++)await f.timer();assert.equal(wait(),100);
+  f.programs[0].readyAt=0;await f.timer();assert.equal(wait(),10);assert.equal(f.reflections.length,0);
+  for(let i=0;i<10&&wait()<100;i++)await f.timer();assert.equal(wait(),100);assert.equal(f.reflections.length,0);
+  const receipt=await f.finish(promise);assert.equal(receipt.reflectedPrograms,receipt.newPrograms);f.clean();
+});
+
 test('queued GL errors reject before entry reflection or any next wave', async () => {
   const f = entryFixture({ shadows: 7, readyDelay: 50 }), promise = f.runEntry(); await f.flush();
   const submitted = f.compileCalls.length; f.errors.push(['0x0502']);

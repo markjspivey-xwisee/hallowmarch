@@ -8,6 +8,7 @@ import { WebGLPrograms } from '../node_modules/three/src/renderers/webgl/WebGLPr
 const root = new URL('../../', import.meta.url);
 const source = readFileSync(new URL('src/13o_title_compile.js', root), 'utf8');
 const productPending = Number(source.match(/pending:\s*(\d+)/)[1]);
+const productIdlePollMaxMs = Number(source.match(/idlePollMaxMs:\s*(\d+)/)[1]);
 const originalRender = readFileSync(new URL('src/02_render.js', root), 'utf8');
 // Small shader/attribute fixture exercises real r160 cache parameters without
 // compiling GLSL or retaining the large native capture in CI. Native evidence
@@ -30,7 +31,7 @@ function target() {
     emit(name) { for (const fn of [...(listeners.get(name) || [])]) fn({}); },
     listenerCount: () => [...listeners.values()].reduce((n, set) => n + set.size, 0) };
 }
-function fixture({ safe = false, supported = true, count = 20, readyDelay = 25, failure = '', avatar = false, compileMs = 0, flushMs = 0, inventoryCheckMs = 0, pendingLimit = productPending } = {}) {
+function fixture({ safe = false, supported = true, count = 20, readyDelay = 25, failure = '', avatar = false, compileMs = 0, flushMs = 0, inventoryCheckMs = 0, pendingLimit = productPending, idlePollMaxMs = productIdlePollMaxMs } = {}) {
   let now = 0, timerId = 0, currentTarget, lost = false, randomCalls = 0;
   const timers = new Map(), document = { hidden: false, ...target() }, window = target(), canvas = target();
   const scene = new THREE.Scene(), sceneRT = {}, originalTarget = currentTarget = {};
@@ -74,7 +75,7 @@ function fixture({ safe = false, supported = true, count = 20, readyDelay = 25, 
   };
   vm.createContext(ctx);
   // CPU-only configuration coverage; the product has no runtime cap override.
-  const configured = source.replace(/pending:\s*\d+/, 'pending: ' + pendingLimit);
+  const configured = source.replace(/pending:\s*\d+/, 'pending: ' + pendingLimit).replace(/idlePollMaxMs:\s*\d+/, 'idlePollMaxMs: ' + idlePollMaxMs);
   vm.runInContext('function install(){' + compile + '}\ninstall.call(renderer);\n' + actualConstructors + '\n' + configured, ctx);
   const compileCalls = [], actualCompile = renderer.compile; renderer.compile = function(collection, camera, targetScene) { compileCalls.push({ collection, camera, targetScene, target: currentTarget, at: now }); now += compileMs; return actualCompile.call(this, collection, camera, targetScene); };
   const objects = [];
@@ -148,6 +149,7 @@ test('product concurrency is four without changing turn, poll or visible deadlin
   const f = fixture(), limits = vm.runInContext('TITLE_COMPILE_LIMITS', f.ctx);
   assert.equal(productPending, 4); assert.equal(limits.pending, 4); assert.equal(limits.perTurn, 4); assert.equal(limits.turnMs, 8);
   assert.equal(limits.pollMs, 10); assert.equal(limits.programMs, 90000); assert.equal(limits.totalMs, 180000); assert(Object.isFrozen(limits)); f.clean();
+  assert.equal(productIdlePollMaxMs,100);assert.equal(limits.idlePollMaxMs,100);
 });
 
 test('wave latency separates observed completion, poll opportunities and delayed timers without GPU queries', async () => {
@@ -155,10 +157,10 @@ test('wave latency separates observed completion, poll opportunities and delayed
   await f.timer(30); await f.timer(80);
   const receipt = await promise, [wave] = receipt.waveLatency;
   assert.equal(receipt.waves, 1); assert.equal(receipt.waveLatency.length, 1); assert.equal(receipt.droppedWaveLatency, 0);
-  assert.equal(wave.wave, 1); assert.equal(wave.startMs, 0); assert.equal(wave.elapsedMs, 130); assert.equal(wave.visibleMs, 130);
+  assert.equal(wave.wave, 1); assert.equal(wave.startMs, 0); assert.equal(wave.elapsedMs, 140); assert.equal(wave.visibleMs, 140);
   assert.equal(wave.preparedJobs, 1); assert.equal(wave.newPrograms, 2); assert.equal(wave.completedPrograms, 2);
-  assert.equal(wave.firstObservedReadyMs, 130); assert.equal(wave.lastObservedReadyMs, 130);
-  assert.equal(wave.polls, 2); assert.equal(wave.maxObservedPollGapMs, 90);
+  assert.equal(wave.firstObservedReadyMs, 140); assert.equal(wave.lastObservedReadyMs, 140);
+  assert.equal(wave.polls, 2); assert.equal(wave.maxObservedPollGapMs, 100);
   assert.equal(wave.timerSchedules, 2); assert.equal(wave.timerCallbacks, 2); assert.equal(wave.timerLateMs, 110); assert.equal(wave.maxTimerLateMs, 80);
   assert.equal(wave.firstProgramQueuedMs, 0); assert.equal(wave.lastProgramQueuedMs, 0); assert.equal(wave.lastPreparedMs, 0); assert.equal(wave.sealedMs, 0);
   assert.equal(wave.outcome, 'drained'); assert.equal(wave.families.terrain.jobs, 1); assert.equal(wave.families.terrain.programs, 2);
@@ -167,7 +169,7 @@ test('wave latency separates observed completion, poll opportunities and delayed
     assert.equal(row.family, 'terrain'); assert.equal(row.objectId, f.objects[0].id); assert.equal(row.materialId, f.objects[0].material.id);
     assert.equal(row.geometryId, f.objects[0].geometry.id); assert.equal(row.kind, 'mesh'); assert.equal(row.instances, null);
     assert.equal(row.vertexChars, f.objects[0].material.vertexShader.length); assert.equal(row.fragmentChars, f.objects[0].material.fragmentShader.length);
-    assert.equal(row.queuedMs, 0); assert.equal(row.observedReadyMs, 130); assert.equal(row.outcome, 'linked');
+    assert.equal(row.queuedMs, 0); assert.equal(row.observedReadyMs, 140); assert.equal(row.outcome, 'linked');
     assert(Object.values(row).every(value => value === null || typeof value !== 'object'));
   }
   assert.equal(f.queries.length, 2, 'telemetry adds no link-status queries');
@@ -231,6 +233,112 @@ test('program provenance reports exact zero instances without changing the origi
     assert(f.compileCalls.some(call => f.calls.some(value => value.object === object && call.targetScene === value.targetScene)));
   }
   assert.equal(receipt.completed, true); f.clean();
+});
+
+function requestedWait(f){assert.equal(f.timers.size,1);return [...f.timers.values()][0].due-f.ctx.performance.now();}
+async function reachIdle100(f){
+  for(let i=0;i<10&&requestedWait(f)<100;i++)await f.timer();
+  assert.equal(requestedWait(f),100);
+}
+
+test('only a sealed unchanged pending wave backs off through bounded waits and records intentional delay separately',async()=>{
+  const f=fixture({count:1,readyDelay:1000}),promise=f.run();await f.flush();
+  const waits=[requestedWait(f)];for(let i=0;i<5;i++){await f.timer();waits.push(requestedWait(f));}
+  assert.deepEqual(waits,[10,20,40,80,100,100]);assert.equal(f.compileCalls.length,1);
+  const receipt=await f.finish(promise),[wave]=receipt.waveLatency;
+  assert.equal(receipt.maxRequestedPollWaitMs,100);assert.equal(wave.maxRequestedPollWaitMs,100);
+  assert(receipt.backoffWaits>0);assert.equal(wave.backoffWaits,receipt.backoffWaits);
+  assert.equal(wave.timerLateMs,0);assert.equal(wave.requestedPollWaitMs,wave.elapsedMs);
+  assert.equal(f.queries.length,2);assert(f.errorChecks.every(check=>check.pendingPrograms.length===0));f.clean();
+});
+
+test('idle backoff reduces repeated guard turns while preserving work, link checks and bounded completion observation',async()=>{
+  const fixed=fixture({count:1,readyDelay:1000,idlePollMaxMs:10}),control=await fixed.finish(fixed.run());
+  const f=fixture({count:1,readyDelay:1000}),receipt=await f.finish(f.run());
+  assert(receipt.waveLatency[0].polls<control.waveLatency[0].polls/4);
+  assert(receipt.elapsedMs>=control.elapsedMs&&receipt.elapsedMs-control.elapsedMs<=100);
+  assert.equal(receipt.newPrograms,control.newPrograms);assert.equal(receipt.preparedJobs,control.preparedJobs);
+  assert.equal(f.queries.length,fixed.queries.length);assert.equal(f.compileCalls.length,fixed.compileCalls.length);
+  assert.equal(receipt.maxPending,control.maxPending);fixed.clean();f.clean();
+});
+
+test('unsealed admission stays at10ms even while its earlier programs are pending',async()=>{
+  const f=fixture({count:8,readyDelay:1000,compileMs:10}),promise=f.run();await f.flush();
+  assert.equal(requestedWait(f),10);assert.equal(f.compileCalls.length,1);
+  await f.timer();assert.equal(requestedWait(f),10);assert.equal(f.compileCalls.length,2);
+  await f.timer();assert.equal(requestedWait(f),10);assert.equal(f.compileCalls.length,3);
+  const receipt=await f.finish(promise);assert.equal(receipt.completed,true);assert(receipt.maxPreparesPerTurn<=1);f.clean();
+});
+
+test('observing a partial completion resets the next wait without refilling its sealed wave',async()=>{
+  const f=fixture({count:1,readyDelay:1000}),promise=f.run();await f.flush();await reachIdle100(f);
+  f.programs[0].readyAt=f.ctx.performance.now();const submitted=f.compileCalls.length;
+  await f.timer();assert.equal(requestedWait(f),10);assert.equal(f.queries.length,1);assert.equal(f.compileCalls.length,submitted);
+  await f.timer();assert.equal(requestedWait(f),20);
+  await f.finish(promise);f.clean();
+});
+
+test('a new wave resets a previous100ms idle wait before adding any further program work',async()=>{
+  const f=fixture({count:8,readyDelay:1000}),promise=f.run();await f.flush();await reachIdle100(f);
+  const count=f.programs.length;for(const program of f.programs)program.readyAt=0;
+  await f.timer();assert(f.programs.length>count);assert.equal(requestedWait(f),10);
+  const receipt=await f.finish(promise);assert(receipt.maxPending<=productPending);f.clean();
+});
+
+for(const event of ['resize','hidden','visible'])test('a '+event+' listener immediately cancels100ms idle waiting and resets to10ms',async()=>{
+  const f=fixture({count:1,readyDelay:1000}),promise=f.run();await f.flush();await reachIdle100(f);
+  const [oldId]=f.timers.keys(),at=f.ctx.performance.now();
+  if(event==='resize')f.ctx.window.emit('resize');
+  else{f.ctx.document.hidden=event==='hidden';f.ctx.document.emit('visibilitychange');}
+  await f.flush();assert.equal(f.timers.has(oldId),false);assert.equal(f.ctx.performance.now(),at);assert.equal(requestedWait(f),10);
+  const receipt=await f.finish(promise);assert.equal(receipt.stale,event!=='visible');
+  assert.equal(f.compileCalls.length,1);f.clean();
+});
+
+test('context loss cancels100ms idle waiting and rejects before another GL query or admission',async()=>{
+  const f=fixture({count:1,readyDelay:1000}),promise=f.run();await f.flush();await reachIdle100(f);
+  const queries=f.queries.length,checks=f.errorChecks.length,rejected=assert.rejects(promise,/Graphics stopped/);
+  f.lose();await f.flush();await rejected;
+  assert.equal(f.queries.length,queries);assert.equal(f.errorChecks.length,checks);assert.equal(f.compileCalls.length,1);f.clean();
+});
+
+test('a queued GL error still rejects at the first drained boundary after backoff before any next wave',async()=>{
+  const f=fixture({count:8,readyDelay:1000}),promise=f.run();await f.flush();await reachIdle100(f);
+  const submitted=f.compileCalls.length;f.glErrors.push(['0x0502']);for(const program of f.programs)program.readyAt=0;
+  const rejected=assert.rejects(promise,/GL errors/);await f.timer();await rejected;
+  assert.equal(f.compileCalls.length,submitted);assert.equal(f.ctx.GRAPHICS_STARTUP.titlePreparations[0].completed,false);f.clean();
+});
+
+test('a failed completed link is fatal at its next idle poll while its siblings remain pending',async()=>{
+  const f=fixture({count:8,readyDelay:1000,failure:'link'}),promise=f.run();await f.flush();await reachIdle100(f);
+  const submitted=f.compileCalls.length;f.programs[0].readyAt=0;
+  const rejected=assert.rejects(promise,/failed to link/);await f.timer();await rejected;
+  assert.equal(f.queries.length,1);assert.equal(f.compileCalls.length,submitted);f.clean();
+});
+
+for(const ready of [false,true])test('program-deadline clipping retains availability-first behavior, ready='+ready,async()=>{
+  const f=fixture({count:1,readyDelay:100000}),promise=f.run();await f.flush();
+  await f.timer(89965);await f.timer();assert.equal(requestedWait(f),5);
+  if(ready){
+    for(const program of f.programs)program.readyAt=90000;
+    await f.timer(10000);const receipt=await promise;assert.equal(receipt.completed,true);assert(receipt.visibleMs>=100000);
+  }else{const rejected=assert.rejects(promise,/timed out/);await f.timer();await rejected;}
+  const receipt=f.ctx.GRAPHICS_STARTUP.titlePreparations[0];assert.equal(receipt.budgetClippedWaits,1);
+  assert.equal(f.compileCalls.length,1);f.clean();
+});
+
+test('total visible deadline clips idle waiting and forbids the next wave after current handles complete',async()=>{
+  const f=fixture({count:20,readyDelay:60000}),promise=f.run();await f.flush();
+  await f.timer(59990);await f.timer(59990);await f.timer(59985);
+  assert.equal(requestedWait(f),5);const submitted=f.compileCalls.length,rejected=assert.rejects(promise,/exceeded its time budget/);
+  await f.timer();await rejected;assert.equal(f.compileCalls.length,submitted);
+  const receipt=f.ctx.GRAPHICS_STARTUP.titlePreparations[0];assert.equal(receipt.completed,false);assert(receipt.budgetClippedWaits>0);f.clean();
+});
+
+test('an unpreemptible turn crossing a program deadline schedules no extra polling wait',async()=>{
+  const f=fixture({count:1,readyDelay:100000,flushMs:90001}),promise=f.run();await f.flush();
+  assert.equal(requestedWait(f),0);const rejected=assert.rejects(promise,/timed out/);await f.timer();await rejected;
+  const receipt=f.ctx.GRAPHICS_STARTUP.titlePreparations[0];assert.equal(receipt.maxFullTurnMs,90001);assert.equal(receipt.budgetClippedWaits,1);f.clean();
 });
 test('recovery and absent parallel extension retain serial rendering without timers or preparation', async () => {
   for (const options of [{ safe: true }, { supported: false }]) {
