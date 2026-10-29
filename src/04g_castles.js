@@ -1016,16 +1016,17 @@ function castleBreach(W) {
   if (W.kind === 'tower') towerBreachFall(W); // [walls] whoever stood up there falls (04g_breach.js)
   siegeOnBreach(W); // [siege] the garrison runs to hold the gap (04h_siege.js)
 }
-function castleRepairDone(W) {
+function castleRepairDone(W, restoreApplied = false) {
   W.state = 'whole'; W.t = 1; W.fresh = 1; W.hp = W.maxHp = sectionMaxHp() * (W.hpK || 1); W.wear = 0; // [walls] hpK: a tower's
   for (const f of W.floors) f.active = true;
   for (const q of W.colls) q.active = true;
   if (W.coll) { W.coll.active = true; W.coll.h = W.coll.fullH || W.coll.h; }
   W.scaffold.visible = false;
   siegeOnRepair(W); // [siege] (04h_siege.js)
-  if (W.kind === 'tower') { castleCutUpload(W.C); towerBreachMended(W); } // [walls] the rooms, ladders and the archer's post again (04g_breach.js)
+  if (W.kind === 'tower') { castleCutUpload(W.C); towerBreachMended(W, restoreApplied); } // [walls] the rooms, ladders and the archer's post again (04g_breach.js)
   const K = W.C.S.keepRef;
-  if (K) news(W.kind === 'tower' ? `${W.C.S.name} has rebuilt a tower.` : `${W.C.S.name} has rebuilt its wall.`, K.realm, 'normal'); // [walls]
+  // Reasserting an applied image after private hydration is not a new repair.
+  if (K && !restoreApplied) news(W.kind === 'tower' ? `${W.C.S.name} has rebuilt a tower.` : `${W.C.S.name} has rebuilt its wall.`, K.realm, 'normal'); // [walls]
 }
 // a heavy blow lands at (x, z): walls of other realms' castles within reach take it
 function castleSiegeHit(src, x, z, r, mult) {

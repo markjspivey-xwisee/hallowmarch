@@ -154,3 +154,39 @@ test('the actual additive private-land loader and canonical reconciliation remai
     assert.equal(f.H.NETPARTS.received,1);assert.equal(f.calls.learning,0);assert.equal(f.calls.rewards,0);assert.equal(f.out.length,0);
   }
 });
+
+test('actual wall and tower image restoration preserves physics and guard routes without duplicate repair news or diagnostics',()=>{
+  for(const kind of['wall','tower'])for(const damaged of[false,true]){
+    const f=harness(),news=[],HN=8,guard={id:1,alive:true,y:-5,ai:{wall:true,slot:'w0',route:null}},route=[{x:0,z:0,y:5}];
+    const keep={guards:new Set([1]),lord:null,realm:0},site={keepRef:keep,name:'Fixture Keep'},C={S:site};
+    const wall={kind,C,state:'breach',wear:0,t:0,hp:0,maxHp:100,floors:[{active:false}],colls:[{active:false}],
+      coll:{active:false,h:7},rubbleFloors:[{active:true}],wreck:{visible:true},scaffold:{visible:false},T:{S:site,wx:0,wz:0,RO:2}};
+    C.sections=[wall];guard.ai.plug={W:wall};
+    Object.assign(f.context,{HN,W:{H:new Float32Array(HN*HN).fill(10),trees:[]},Float32Array,LAND_CAP:{craters:40},LAND:{},LAND_HOUSE:{},CASTLES:[C],FIRES:[],
+      NATURE:{built:true,speed:1,craters:[],dyn:[],felled:[],growing:[],tileKeys:[],tiles:new Map(),fire:new Map(),fireList:[],piles:[]},
+      TBREACH:{stats:{mended:0}},natTerrainUpdate(){},natTreesNear(){},forNear(){},landMap(){},landTrees(){},landPiles(){},landTree(){},landHouses(){},
+      sectionMaxHp:()=>100,castleCutUpload(){},getEnt:id=>id===1?guard:null,castleRoute:()=>route,
+      dist2:(x,z,a,b)=>(x-a)**2+(z-b)**2,news:(...args)=>news.push(args)});
+    vm.runInContext(pick('12b_worldstate.js',['landApply','landCraters','landSharedApply','landWalls','landInt','landNum'])+'\n'
+      +pick('04g_castles.js',['castleRepairDone'])+'\n'+pick('04g_breach.js',['towerBreachMended'])+'\n'
+      +pick('04h_siege.js',['siegeOnRepair']),f.context);
+    f.H.register('land',{save:()=>null,apply:f.context.landSharedApply});
+    f.context.GAME.built=true;f.H.release();f.H.message(f.authority());
+    const image=damaged?{v:1,ws:[[0,0,1,0,0]]}:{v:1};f.H.message(f.image({land:image}));
+    const originalNews=news.length,originalMends=f.context.TBREACH.stats.mended;
+    assert.equal(originalNews,1,'ordinary canonical repair behavior remains unchanged');
+    for(let n=0;n<3;n++){
+      guard.ai.route=null;guard.ai.plug={W:wall};
+      f.hydrate(f.save({land:{v:1,ws:[[0,0,2,500,0]]}}));
+      assert.equal(wall.state,damaged?'breach':'whole');assert.equal(wall.floors[0].active,!damaged);
+      assert.equal(wall.coll.active,!damaged);assert.equal(wall.scaffold.visible,false);assert.equal(guard.ai.plug,null);
+      if(kind==='tower')assert.equal(guard.ai.route,route,'restorative routing still runs when diagnostics are quiet');
+      assert.equal(news.length,originalNews);assert.equal(f.context.TBREACH.stats.mended,originalMends);
+    }
+    f.H.message(f.image({land:{v:1,ws:[[0,0,1,0,0]]}},2));const beforeRepair=news.length,mended=f.context.TBREACH.stats.mended;
+    f.H.message(f.image({land:{v:1}},3));assert.equal(news.length,beforeRepair+1);
+    assert.equal(f.context.TBREACH.stats.mended,mended+(kind==='tower'?1:0));
+    wall.state='repair';f.context.castleRepairDone(wall);assert.equal(news.length,beforeRepair+2,'interactive repair default still announces');
+    assert.equal(f.calls.learning,0);assert.equal(f.calls.rewards,0);assert.equal(f.out.length,0);
+  }
+});

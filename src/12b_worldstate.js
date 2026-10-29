@@ -411,7 +411,7 @@ function landAxe() {
 
 // Reconcile a canonical land image. The ordinary save loader is deliberately
 // additive at boot; live snapshots must first remove old terrain contributions.
-function landSharedApply(L) {
+function landSharedApply(L, { restoreApplied = false } = {}) {
   if (!NATURE.built) return;
   const value = L && L.v === 1 ? L : { v: 1 };
   for (const K of NATURE.craters) {
@@ -462,8 +462,8 @@ function landSharedApply(L) {
   const walls = new Map((value.ws || []).filter(Array.isArray).map(a => [a[0] + ':' + a[1], a]));
   CASTLES.forEach((C, ci) => (C.sections || []).forEach((wall, wi) => {
     const row = walls.get(ci + ':' + wi);
-    if (!row && (wall.state !== 'whole' || wall.wear > 0)) castleRepairDone(wall);
-    else if (row) { castleRepairDone(wall); landWalls([row], got); }
+    if (!row && (wall.state !== 'whole' || wall.wear > 0)) castleRepairDone(wall, restoreApplied);
+    else if (row) { castleRepairDone(wall, restoreApplied); landWalls([row], got); }
   }));
   LAND.restored = { t: GAME.t, ...got };
 }

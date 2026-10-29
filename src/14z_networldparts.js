@@ -77,7 +77,8 @@ function netWorldPartsApply(frame, { restoreApplied = false } = {}) {
       if (!present && !removed) continue;
       const value = present ? frame.parts[key] : null, serial = JSON.stringify(value);
       if (NETPARTS.keys[key] === serial) continue;
-      adapter.apply(value);
+      if (restoreApplied) adapter.apply(value, { restoreApplied: true });
+      else adapter.apply(value);
       NETPARTS.keys[key] = serial;
     }
     if (Array.isArray(frame.receipts)) {
