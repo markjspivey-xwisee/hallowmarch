@@ -82,6 +82,7 @@ jobs:
               node --test tools/tests/map_build_chunks.test.mjs
               node --test tools/tests/sound_buffer_preparation.test.mjs
               node --test tools/tests/ground_ao_preparation.test.mjs
+              node --test tools/tests/bounty_hud.test.mjs tools/tests/bounty_hud.browser.test.mjs
               python3 -m unittest discover -s tools/tests -p native_journey_browser_test.py
               python3 -m unittest discover -s tools/tests -p first_session_points_test.py
               python3 -m unittest discover -s tools/tests -p first_session_observability_test.py

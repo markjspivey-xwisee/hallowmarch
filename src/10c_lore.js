@@ -92,6 +92,13 @@ const LORE_CSS = `
 #lore-path.min .st { flex: 1; min-width: 0; padding: 0; border: 0; background: none; color: var(--ink); font: 700 13px/1.2 var(--ui); text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
 #lore-path.min .gem { margin: 0 2px 0 1px; }
 #lore-path.ring { animation: lore-ring 1.6s ease; }
+/* One bounty counter while the expanded path already shows the same active job.
+   Unknown :has support keeps the ordinary card. Keep the path's visibility
+   contract in sync: compact/off/folded, touch, RTS, and the narrow target rule. */
+body:not(.touch):not(.throne-rts-open):has(#hud:not([hidden]) > #lore-path[data-bounty-progress]:not([hidden]):not(.min):not(.hl-compact):not(.hl-off) > .step > .meter) #hud > #bounty.on { display: none; }
+@media (max-width: 760px), (pointer: coarse) {
+  body:not(.touch):not(.throne-rts-open):has(#hud:not([hidden]) > #tf:not([hidden]) ~ #lore-path[data-bounty-progress]:not([hidden]):not(.min):not(.hl-compact):not(.hl-off) > .step > .meter) #hud > #bounty.on { display: grid; }
+}
 #lore-path .fin { grid-column: 1 / -1; font: 400 17px/1.25 var(--display); color: #fbf1dc; }
 @media (max-width: 760px), (pointer: coarse) {
   #lore-path { width: 196px; padding: 7px 8px 8px; gap: 5px; }
@@ -1052,9 +1059,10 @@ function buildPathHud() {
 }
 function renderPathHud() {
   const el = $('lore-path'), P = GAME.player, prog = GAME.prog;
-  if (!el || !P || !prog || !prog.lore) return;
+  if (!el) return;
+  if (!P || !prog || !prog.lore) { el.removeAttribute('data-bounty-progress'); return; }
   const R = REALMS[P.faction], S = pathNext(), n = prog.lore.done.length, N = PATH_STEPS.length;
-  let html;
+  let html, bountyProgress = false;
   if (!S) {
     // [guide] the path walked: what to aim for now (the Chronicle's Aims page has the rest)
     const A = guideAims()[0];
@@ -1067,6 +1075,7 @@ function renderPathHud() {
   } else {
     const m = S.level ? [loreLvlFrac(prog, S.level), `Level ${prog.level} of ${S.level}`] : S.meter ? S.meter(prog) : null;
     const rw = rewardLabel(S, prog);
+    bountyProgress = S.id === 'bounty' && !!prog.bounty && !prog.bounty.done && !!m;
     html = `<div class="ph"><span class="lbl">Your path</span><span class="n">${n} / ${N}</span><button type="button" class="tog" data-act="min" aria-label="Fold your path away">${iconSvg('lminus', 12)}</button></div>`
       + `<button type="button" class="step" data-act="open" title="Open your path in the Chronicle${IS_TOUCH ? '' : ' (J)'}"><span class="gem"></span><span class="st">${S.title}</span><span class="hint">${S.hint(R, prog)}</span>`
       + (m ? `<span class="meter"><i><b style="width:${(m[0] * 100).toFixed(1)}%"></b></i>${m[1]}</span>` : '')
@@ -1075,6 +1084,7 @@ function renderPathHud() {
   }
   if (html !== LORE.hudKey) { el.innerHTML = html; LORE.hudKey = html; }
   el.classList.toggle('min', !!LORE.min);
+  el.toggleAttribute('data-bounty-progress', bountyProgress);
 }
 // sit just under the player frame, whatever its height
 function placePathHud() {
