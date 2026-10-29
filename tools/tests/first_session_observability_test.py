@@ -272,6 +272,20 @@ class FirstSessionObservability(unittest.TestCase):
             with self.subTest(invalid=invalid), self.assertRaisesRegex(AssertionError, 'matching trusted canvas'):
                 asyncio.run(self.fixture.clear_target())
 
+    def test_failed_quarry_search_persists_rejections_before_refusing_without_a_mutated_fixture(self):
+        self.fixture.args.touch = True
+        search = {'reach': 3.4, 'maximumDistance': 2.8, 'candidates': [{'distance': 2, 'reasons': ['occupied', 'HUD:tf']}]}
+        async def evaluate(expression, arg=None):
+            self.assertEqual(expression, journey.ARRANGE_QUARRY)
+            return {'available': False, 'search': search}
+        self.fixture.page = argparse.Namespace(evaluate=evaluate)
+        with self.assertRaisesRegex(AssertionError, 'inspect quarrySearch rejection receipts'):
+            asyncio.run(self.fixture.arrange_quarry())
+        saved = json.loads((self.fixture.out / 'journey.json').read_text())
+        self.assertEqual(saved['quarrySearch'], search)
+        self.assertEqual(saved['fixtures'], [])
+        self.assertIsNone(self.fixture.mob_fixture)
+
 
 if __name__ == '__main__':
     unittest.main()

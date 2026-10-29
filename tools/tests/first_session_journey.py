@@ -49,17 +49,34 @@ ARRANGE_QUARRY = """({touch})=>{
   const e=[...c.members].map(H.fn.getEnt).find(e=>e?.alive&&!e.removed&&e.mobType===b.type&&e.level<=P.level+1);
   if(!e)throw Error('No actual suitable living bounty creature for the combat fixture');
 """ + CANVAS_POINT_RULE + """
+  const reach=P.meleeRange+e.radius*(e.scale||1)+.3;
+  if(H.ABILITIES.slash?.range!=='melee'||!Number.isFinite(reach)||typeof H.look5?.look5InColl!=='function')
+    throw Error('Actual Slash range and solid-placement query are required for the combat fixture');
+  const search={reach,maximumDistance:Math.min(2.8,reach-.35),candidates:[]};
   let point,inputPoint;
-  for(const a of [0,.4,-.4,.8,-.8,1.2,-1.2]) {const yaw=H.CAM.yaw+a,x=P.x+Math.sin(yaw)*2,z=P.z+Math.cos(yaw)*2;
-    const occupied=H.ENT.some(other=>other!==P&&other!==e&&other.alive&&!other.removed&&Math.hypot(other.x-x,other.z-z)<(other.radius||.5)+(e.radius||.5)+.35);
-    if(occupied||!H.fn.isWalkable(x,z))continue;
-    const y=H.fn.heightAt(x,z),screen=H.fn.screenOf(x,y+(e.kind==='humanoid'?1:.6)*(e.scale||1),z);
-    if(canSelect(screen)){point={x,y,z};inputPoint=screen;break;}}
-  if(!point)throw Error('No walkable nearby fixture position with an unobstructed selectable canvas point');
+  outer:for(const distance of [2,2.4,1.7,2.8,1.4])for(const a of [0,.4,-.4,.8,-.8,1.2,-1.2,1.6,-1.6,2,-2,2.4,-2.4,Math.PI]){
+    const yaw=H.CAM.yaw+a,x=P.x+Math.sin(yaw)*distance,z=P.z+Math.cos(yaw)*distance;
+    const row={angle:a,distance,x,z,reasons:[]};search.candidates.push(row);
+    if(distance>search.maximumDistance){row.reasons.push('outside-safe-Slash-reach');continue;}
+    if(H.ENT.some(other=>other!==P&&other!==e&&other.alive&&!other.removed&&Math.hypot(other.x-x,other.z-z)<(other.radius||.5)+(e.radius||.5)+.35))row.reasons.push('occupied');
+    if(!H.fn.isWalkable(x,z))row.reasons.push('non-walkable');
+    if(H.look5.look5InColl(x,z,e.radius*(e.scale||1)))row.reasons.push('solid');
+    const y=H.fn.heightAt(x,z);row.y=y;
+    if(!Number.isFinite(y)||Math.abs(y-P.y)>1.5)row.reasons.push('height');
+    const screen=H.fn.screenOf(x,y+(e.kind==='humanoid'?1:.6)*(e.scale||1),z);row.screen=screen;
+    if(!screen)row.reasons.push('not-projected');
+    else if(!(screen.x>0&&screen.x<innerWidth&&screen.y>0&&screen.y<innerHeight))row.reasons.push('off-viewport');
+    else{
+      if(touch&&screen.y>innerHeight*.35&&(H.mobile.prefs.hand==='left'?screen.x>innerWidth*.58:screen.x<innerWidth*.42))row.reasons.push('movement-zone');
+      const hit=document.elementFromPoint(screen.x,screen.y);if(hit?.id!=='scene')row.reasons.push('HUD:'+(hit?.id||hit?.tagName||'none'));
+    }
+    if(!row.reasons.length&&canSelect(screen)){row.accepted=true;point={x,y,z};inputPoint=screen;break outer;}
+  }
+  if(!point)return{available:false,search};
   const original={x:e.x,y:e.y,z:e.z,home:e.home?{...e.home}:null};
   e.x=e.prevX=point.x;e.z=e.prevZ=point.z;e.y=point.y;
   if(e.home)e.home={...e.home,x:point.x,z:point.z};
-  return {id:e.id,name:e.name,level:e.level,hp:e.hp,maxHp:e.maxHp,original,inputPoint,arranged:{x:e.x,y:e.y,z:e.z,home:e.home?{...e.home}:null}};
+  return {available:true,id:e.id,name:e.name,level:e.level,hp:e.hp,maxHp:e.maxHp,original,inputPoint,search,arranged:{x:e.x,y:e.y,z:e.z,home:e.home?{...e.home}:null}};
 }"""
 SELECTABLE_CANVAS_POINT = """({point,touch})=>{const H=__hm;""" + CANVAS_POINT_RULE + """return canSelect(point);}"""
 EMPTY_CANVAS_POINT = """({touch})=>{const H=__hm;""" + CANVAS_POINT_RULE + """
@@ -296,6 +313,9 @@ class Journey:
 
     async def arrange_quarry(self):
         fixture = await self.page.evaluate(ARRANGE_QUARRY, {'touch': self.args.touch})
+        self.report['quarrySearch'] = fixture.pop('search')
+        self.save()
+        require(fixture['available'], 'No walkable nearby fixture position with an unobstructed selectable canvas point; inspect quarrySearch rejection receipts')
         self.mob_fixture = fixture
         self.report['fixtures'].append(fixture)
         self.save()
