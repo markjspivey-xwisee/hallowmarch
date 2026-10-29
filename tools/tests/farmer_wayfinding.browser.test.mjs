@@ -25,7 +25,7 @@ test.before(async () => {
   const channel = process.platform === 'win32' ? 'msedge' : 'chrome';
   server = await chromium.launchServer({channel, headless: true, chromiumSandbox: true,
     ignoreDefaultArgs: [...chromiumSwitches(false, channel), '--hide-scrollbars', '--mute-audio',
-      '--blink-settings=primaryHoverType=2,availableHoverTypes=2,primaryPointerType=4,availablePointerTypes=4'], args: ['--disable-gpu']});
+      '--blink-settings=primaryHoverType=2,availableHoverTypes=2,primaryPointerType=4,availablePointerTypes=4']});
   assert(!server.process().spawnargs.some(arg => /^--(?:no-sandbox|disable-setuid-sandbox|disable-web-security|disable-features|disable-gpu-watchdog|ignore-gpu-blocklist)(?:=|$)/.test(arg)));
   browser = await chromium.connect(server.wsEndpoint());
 });
