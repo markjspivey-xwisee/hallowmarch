@@ -259,8 +259,10 @@ function renderTitleFrame() {
           await waitForTitleVisibility();
           titleAssertActive();
           if (GAME.started) return false;
-          if (id === 'terrain') {
-            const preparation = await prepareTitlePrograms(inventory, stages, TITLE_WARM_GENERATION);
+          if (id === 'post' || id === 'sky' || id === 'terrain') {
+            const preparation = id === 'terrain'
+              ? await prepareTitlePrograms(inventory, stages, TITLE_WARM_GENERATION)
+              : await prepareTitleDependencies(id, inventory, TITLE_WARM_GENERATION);
             captureTitleResizeRequest();
             if (preparation.stale || TITLE_RESIZE_PENDING) { TITLE_FRAME_DIRTY = true; resized = true; break; }
           }
@@ -433,7 +435,7 @@ async function boot() {
   await loadStep(0.03, 'Raising the hills', () => buildWorldChunks(7));
   await loadStep(0.2, 'Shaping the land', () => bootSequence([uploadWorldTextures, buildTerrain, buildWater]));
   await loadStep(0.34, 'Planting the forests', () => bootSequence([buildTrees, buildNearTrees, buildRocks, buildHeroTree, buildCrags])); // [land] buildCrags (03c_land.js)
-  await loadStep(0.48, 'Raising the keeps', () => bootSequence([buildStructures, buildBarrowSurface, buildSurvival, buildBoats])); // [survival] plants, workstations (before the grass reads the cover map); [water2] jetties and boats (07e_boats.js)
+  await loadStep(0.48, 'Raising the keeps', () => bootSequence([buildStructuresChunks, buildBarrowSurface, buildSurvival, buildBoats])); // [survival] plants, workstations (before the grass reads the cover map); [water2] jetties and boats (07e_boats.js)
   await loadStep(0.54, 'Digging the barrow', () => buildDungeon());
   await loadStep(0.58, 'Sowing the meadows', () => bootSequence([buildGrass, buildFlowers, buildNature, buildFarming])); // [farming] beds, town strips, wild herbs (08h_farming.js)
   await loadStep(0.63, 'Raising the mountains', () => mtnHeightsChunks()); // [heights] the whole mountain shaped once everything is placed, hardy trees, the crags (03d_heights.js)

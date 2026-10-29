@@ -378,7 +378,7 @@ function bootHarness({ diagnostic = true, safe = true } = {}) {
     'initAnimals','spawnDragon','initBarrow','groupOutdoors','resize','applyTimeOfDay','updateCamera',
     'spellCompileVisible',
   ]) ctx[name] = () => {};
-  ctx.buildWorldChunks=ctx.mtnHeightsChunks=function*(){yield;};
+  ctx.buildWorldChunks=ctx.mtnHeightsChunks=ctx.buildStructuresChunks=function*(){yield;};
   const start = mainSource.indexOf('async function boot() {');
   const end = mainSource.indexOf('\n}',start);
   assert.ok(start>=0 && end>start);

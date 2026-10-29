@@ -658,6 +658,39 @@ test('pre-draw and post-fence GL errors never become successful warmup or combin
     assert.equal(f.ctx.GRAPHICS_STARTUP.stopped,true);assert.equal(f.ctx.GRAPHICS_STARTUP.titleFailure.stage,'post');f.restored();
   }
 });
+test('early dependencies precede their real draws while all original stage fences remain',async()=>{
+  const f=titleFixture(), original=f.ctx.prepareTitleDependencies, dependencies=[];
+  f.ctx.prepareTitleDependencies=async(id,inventory,generation)=>{
+    dependencies.push([id,generation]);f.events.push('dependency:'+id);
+    return original(id,inventory,generation);
+  };
+  await f.finish(f.run());
+  assert.deepEqual(dependencies,[['post',1],['sky',1]]);
+  for(const id of ['post','sky'])assert(f.events.indexOf('dependency:'+id)<f.events.indexOf('target:'+id));
+  assert.deepEqual(f.fences.map(x=>x.stage),[...titleStages,'combined']);f.restored();
+});
+for(const id of ['post','sky'])test(`a failed ${id} dependency cannot submit that draw or release readiness`,async()=>{
+  const f=titleFixture(),original=f.ctx.prepareTitleDependencies;
+  f.ctx.prepareTitleDependencies=async(stage,inventory,generation)=>{
+    if(stage===id)throw Error('controlled dependency rejection');
+    return original(stage,inventory,generation);
+  };
+  await assert.rejects(f.finish(f.run()),/controlled dependency rejection/);
+  assert.deepEqual(f.fences.map(x=>x.stage),id==='post'?[]:['post']);
+  assert.equal(f.ctx.GRAPHICS_STARTUP.titleCompleted,0);assert.equal(f.ctx.GRAPHICS_STARTUP.stopped,true);
+  assert.equal(f.ctx.GAME.ready,false);assert.equal(f.ctx.GAME.started,false);f.restored();
+});
+test('a stale early dependency replans before drawing and preserves the original real stages',async()=>{
+  const f=titleFixture(),original=f.ctx.prepareTitleDependencies,dependencies=[];let stale=true;
+  f.ctx.prepareTitleDependencies=async(id,inventory,generation)=>{
+    dependencies.push([id,generation]);
+    if(id==='sky'&&stale){stale=false;return {stale:true};}
+    return original(id,inventory,generation);
+  };
+  await f.finish(f.run());
+  assert.deepEqual(dependencies,[['post',1],['sky',1],['post',2],['sky',2]]);
+  assert.deepEqual(f.fences.map(x=>x.stage),['post',...titleStages,'combined']);f.restored();
+});
 test('a rejected final program-queue GL check stops the actual staged title before terrain or readiness',async()=>{
   const f=titleFixture();
   f.ctx.prepareTitlePrograms=async()=>{throw Error('GL errors while preparing title programs: final queue error');};
