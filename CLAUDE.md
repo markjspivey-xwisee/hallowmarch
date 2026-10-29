@@ -46,6 +46,10 @@ These apply to every change, not only to the feature that prompted them.
     - crafting (materials, workstations, recipes) and building (placed structures that burn, weather and are repaired);
     - fire for everyone: a burning brand from any fire sets roofs, trees and grass alight.
 
+- **Terrain block CPU topology (2026-10-29):** Far terrain blocks lazily reuse only lattice coordinates and triangle order. Each geometry still reads current heights/normals and owns fresh index data and attributes; crater rebuilds are unchanged. Pinned pre-change CPU tests compare all sixteen blocks, geometry bytes, bounds, resource construction order and UUID random draws. An external Node comparison supports less repeated CPU work; no native loading or frame improvement is established.
+
+- **Phone QA viewport witness (2026-10-29):** The ergonomics test retains its exact renderer/aspect condition, 20 ms polling and 15 s deadline. Bounded host/page poll timestamps are diagnostic only; no successful after-state can waive a failed wait. Existing geometry/report reads harvest observations without an added success-path browser await. This records scheduling evidence; the prior CI resize failure is not claimed fixed.
+
 ## Build and run
 
 - Run `python3 build.py`. It concatenates `src/page.html` and every `src/NN[a-z]_*.js` module in filename order into one `<script type="module">`, and writes `hallowmarch.html`. three.js 0.160.0 is imported from jsDelivr.

@@ -85,6 +85,7 @@ jobs:
               python3 -m unittest discover -s tools/tests -p native_journey_browser_test.py
               python3 -m unittest discover -s tools/tests -p first_session_points_test.py
               python3 -m unittest discover -s tools/tests -p first_session_observability_test.py
+              python3 -m unittest discover -s tools/tests -p mobile_viewport_observation_test.py
               node --test tools/tests/startup_file_guard.browser.test.mjs
               node --test tools/tests/reduced_effects_layout.browser.test.mjs
               node --test tools/tests/graphics_recovery_ui.browser.test.mjs
@@ -137,7 +138,7 @@ jobs:
               ;;
             companies) check python3 tools/tests/net.py companies ;;
             season) check python3 tools/tests/season2.py ;;
-            performance) echo 'Performance checks run in the following steps.' ;;
+            performance) node --test tools/tests/terrain_block_topology.test.mjs ;;
             visuals)
               check python3 tools/tests/combat_targeting.py
               check python3 tools/tests/objective_tracking.py
