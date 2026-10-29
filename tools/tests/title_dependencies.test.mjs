@@ -128,7 +128,8 @@ test('post preparation uses only exact original leaves, materials, camera and ta
   assert(f.calls.every(call => call.geometry === f.r.fsTriGeo));
   assert.deepEqual(f.state(), before); assert.equal(f.currentTarget(), f.originalTarget); assert.equal(f.randomCalls(), 0);
   assert.equal(f.preflightCalls(), 1); assert.equal(receipt.dependency, 'post'); assert.equal(receipt.completed, true);
-  assert.equal(receipt.newPrograms, 4); assert(receipt.maxPending <= 8); assert.equal(f.ctx.GRAPHICS_STARTUP.titleCompleted, undefined);
+  assert.equal(receipt.newPrograms, 4); assert(receipt.maxPending <= 8); assert.equal(receipt.waves, 1); assert.equal(receipt.maxWavePrograms, 4);
+  assert.equal(f.ctx.GRAPHICS_STARTUP.titleCompleted, undefined);
   assert(f.errorChecks.every(count => count === 0)); f.clean();
 });
 
@@ -138,7 +139,19 @@ test('sky preparation compiles only the owned eligible original sky and leaves n
   const receipt = await f.finish(f.run('sky'));
   assert.equal(f.calls.length, 1); assert.equal(f.calls[0].object, f.r.skyMesh); assert.equal(f.calls[0].target, f.r.sceneRT);
   assert.equal(f.compileCalls[0].object, f.r.skyMesh); assert.equal(f.compileCalls[0].camera, f.camera); assert.equal(f.compileCalls[0].targetScene, f.scene);
-  assert.equal(f.preflightCalls(), 0); assert.equal(receipt.dependency, 'sky'); assert.equal(receipt.newPrograms, 1); f.clean();
+  assert.equal(f.preflightCalls(), 0); assert.equal(receipt.dependency, 'sky'); assert.equal(receipt.newPrograms, 1);
+  assert.equal(receipt.waves, 1); assert.equal(receipt.maxWavePrograms, 1); f.clean();
+});
+
+test('the dependency API reserves all double-sided variants in one eight-program wave across bounded turns', async () => {
+  const f = fixture({ compileMs: 10, readyDelay: 1000 });
+  for (const material of [f.r.bloomDown, f.r.bloomUp, f.r.raysMat, f.r.composite]) {
+    material.transparent = true; material.side = THREE.DoubleSide; material.forceSinglePass = false;
+  }
+  const before = f.state(), receipt = await f.finish(f.run('post'));
+  assert.equal(receipt.waves, 1); assert.equal(receipt.newPrograms, 8); assert.equal(receipt.maxWavePrograms, 8);
+  assert.equal(receipt.maxPending, 8); assert.equal(receipt.maxPreparesPerTurn, 1); assert.equal(f.compileCalls.length, 4);
+  assert(f.errorChecks.every(count => count === 0)); assert.deepEqual(f.state(), before); f.clean();
 });
 
 test('the actual production groupOutdoors path and the direct scene path retain exact sky ownership', async () => {
