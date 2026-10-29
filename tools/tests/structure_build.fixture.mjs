@@ -76,11 +76,3 @@ function graph(value, seen = new Map()) {
   }
   return result;
 }
-
-export function geometryDigest(geometry) {
-  const array = attribute => ({ type: attribute.array.constructor.name, count: attribute.count, itemSize: attribute.itemSize,
-    normalized: attribute.normalized, sha256: createHash('sha256').update(Buffer.from(attribute.array.buffer, attribute.array.byteOffset, attribute.array.byteLength)).digest('hex') });
-  return { attributes: Object.fromEntries(Object.entries(geometry.attributes).map(([name, attribute]) => [name, array(attribute)])),
-    index: geometry.index && array(geometry.index), groups: geometry.groups,
-    box: geometry.boundingBox?.toArray?.() || geometry.boundingBox, sphere: geometry.boundingSphere };
-}

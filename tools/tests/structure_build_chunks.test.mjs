@@ -1,9 +1,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { performance } from 'node:perf_hooks';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { parse } from 'acorn';
-import { structureFixture, structureReference } from './structure_build.fixture.mjs';
+import { canonicalSignature } from './structure_canonical.mjs';
+const structureReference=JSON.parse(readFileSync(new URL('fixtures/structure-build-c6ce-reference.json',import.meta.url),'utf8'));
+
+test('canonical signatures preserve exact primitive values, property order and array holes',()=>{
+  for(const [a,b]of[[{value:undefined},{}],[NaN,null],[NaN,Infinity],[Infinity,-Infinity],[-0,0],
+    [1,1+Number.EPSILON],['\ud800','\ufffd'],[[,],[undefined]],[{a:1,b:2},{b:2,a:1}],[1n,1]])
+    assert.notEqual(canonicalSignature(a),canonicalSignature(b));
+  assert.equal(canonicalSignature({a:[-0,undefined,NaN,Infinity,'é\ud800']}),canonicalSignature({a:[-0,undefined,NaN,Infinity,'é\ud800']}));
+});
 
 function normalized(node) {
   if(Array.isArray(node))return node.map(normalized).filter(value=>value!==null);
@@ -26,21 +35,23 @@ test('the emitted structure/castle generators differ from pinned prior builders 
   }
 });
 
-for(const seed of [7,19,503])test('seed '+seed+': exact structure geometry, materials, scene order, floors, collisions, gates, banners and RNG match pinned prior output',async t=>{
-  const prior=structureFixture({prior:true}),resumed=structureFixture();
-  prior.api.buildWorld(seed);resumed.api.buildWorld(seed);
-  const before=performance.now();assert.equal(prior.api.buildStructures(),undefined);const priorMs=performance.now()-before;
-  const iterator=resumed.api.buildStructuresChunks();let state,steps=0,activeMs=0,maxResumeMs=0;
-  const phases=[];
-  do {const start=performance.now();state=iterator.next();const elapsed=performance.now()-start;activeMs+=elapsed;maxResumeMs=Math.max(maxResumeMs,elapsed);steps++;
-    if(!state.done){phases.push(state.value);assert.equal(resumed.context.GAME.built,false);await new Promise(resolve=>setImmediate(resolve));}
-  }while(!state.done);
-  assert.equal(state.value,undefined);assert(steps>=30,'actual site/castle checkpoints must execute');
-  assert.deepEqual(resumed.errors,[]);assert.deepEqual(prior.errors,[]);
-  assert.equal(resumed.api.CASTLES.length,9);assert(resumed.api.FLOOR.list.length>1000);assert(resumed.scene.children.length>150);
-  assert.deepEqual(resumed.snapshot(),prior.snapshot());
-  if(seed===7){const sync=structureFixture();sync.api.buildWorld(seed);assert.equal(sync.api.buildStructures(),undefined);assert.deepEqual(sync.snapshot(),prior.snapshot());}
-  const after=resumed.snapshot();assert.equal(iterator.next().done,true);assert.deepEqual(resumed.snapshot(),after,'a drained iterator cannot repeat construction effects');
-  t.diagnostic(JSON.stringify({seed,priorMs,activeMs,maxResumeMs,steps,meshes:resumed.scene.children.length,castles:resumed.api.CASTLES.length,
-    floors:resumed.api.FLOOR.list.length,houses:resumed.api.HOUSES.length,seededStreams:resumed.rng.length,unseededCalls:resumed.unseeded.length,phases}));
+function worker(mode,seed,sensitivity=false){
+  const result=spawnSync(process.execPath,[fileURLToPath(new URL('structure_build.worker.mjs',import.meta.url)),mode,String(seed),...(sensitivity?['sensitivity']:[])],
+    {encoding:'utf8',timeout:120000,maxBuffer:1024*1024});
+  assert.equal(result.status,0,result.error?.message||result.stderr||result.stdout);
+  return JSON.parse(result.stdout.trim());
+}
+function sameCanonical(actual,expected,label){
+  const differing=Object.keys(expected.sections).filter(key=>actual.sections[key]!==expected.sections[key]);
+  assert.equal(actual.canonical,expected.canonical,label+'; differing canonical sections: '+JSON.stringify(differing.map(key=>({key,expected:expected.sections[key],actual:actual.sections[key]}))));
+}
+
+for(const seed of [7,19,503])test('seed '+seed+': exact structure geometry, materials, scene order, floors, collisions, gates, banners and RNG match pinned prior output',t=>{
+  const prior=worker('prior',seed),resumed=worker('chunks',seed,seed===7);
+  sameCanonical(resumed,prior,'complete canonical state and full RNG tape');
+  if(seed===7){sameCanonical(worker('sync',seed),prior,'retained synchronous public API');
+    assert.deepEqual(resumed.domains,{geometry:true,material:true,semantic:true,rng:true},'signatures must detect real changes in every protected domain');}
+  t.diagnostic(JSON.stringify({seed,priorMs:prior.activeMs,activeMs:resumed.activeMs,maxResumeMs:resumed.maxResumeMs,steps:resumed.steps,
+    meshes:resumed.meshes,castles:resumed.castles,floors:resumed.floors,houses:resumed.houses,seededStreams:resumed.seededStreams,
+    seededCalls:resumed.seededCalls,unseededCalls:resumed.unseededCalls}));
 });
