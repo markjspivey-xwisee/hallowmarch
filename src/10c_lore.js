@@ -428,12 +428,12 @@ function pathComplete(S, silent = false) {
   const host = $('banners');
   const d = document.createElement('div');
   d.className = 'banner panel lore-step';
-  d.innerHTML = `<small>Your path · ${L.done.length} of ${PATH_STEPS.length}</small><b>${S.title}</b><span${got.col ? ` style="color:${got.col}"` : ''}>${iconSvg(got.ic, 16)}${got.t}</span>`;
+  d.innerHTML = `<small>Completed · ${L.done.length} of ${PATH_STEPS.length}</small><b>${S.title}</b><span${got.col ? ` style="color:${got.col}"` : ''}>${iconSvg(got.ic, 16)}${got.t}</span>`;
   host.appendChild(d);
   setTimeout(() => d.remove(), 6200);
   while (host.childNodes.length > 3) host.removeChild(host.firstChild);
   HUDL.k = 0; // [guide]
-  uiLog(`Your path: ${S.title}. Reward: ${got.t.replace(/<[^>]*>/g, '')}.`, 'rp');
+  uiLog(`Completed path step: ${S.title}. Reward: ${got.t.replace(/<[^>]*>/g, '')}.`, 'rp');
   sfx('fanfare');
   const el = $('lore-path');
   if (el) { el.classList.remove('ring'); void el.offsetWidth; el.classList.add('ring'); }
