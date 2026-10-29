@@ -24,11 +24,28 @@ test('failed module dependency replaces indefinite loading with an alert and exp
   assert.match(b.notice.children[1].textContent,/connection.*saved character is kept/);
   assert.equal(b.state.reloads,0);b.notice.children[2].onclick();assert.equal(b.state.reloads,1);
 });
-test('unrelated asset errors never interrupt startup; late successful engine load clears timeout notice',()=>{
+test('unrelated asset errors never interrupt startup; late successful engine load clears a truthful slow notice',()=>{
   const b=fileBoot();b.listeners.get('error')({target:{tagName:'LINK'}});
   assert.equal(b.notice.hidden,true);b.timers.get(1)();assert.equal(b.notice.hidden,false);
+  assert.equal(b.notice.attributes.role,'status');
+  assert.match(b.notice.children[0].textContent,/taking longer than expected/);
+  assert.match(b.notice.children[1].textContent,/keep waiting/);
+  assert.doesNotMatch(b.notice.children[1].textContent,/could not load/);
   b.context.window.__hmFileBoot.ready();assert.equal(b.notice.hidden,true);assert.equal(b.loading.hidden,false);
   assert.equal(b.timers.size,0);assert.equal(b.listeners.size,0);assert.equal(b.state.reloads,0);
+});
+
+test('a real module error after the slow notice updates its copy and keeps the same single retry',()=>{
+  const b=fileBoot();b.timers.get(1)();
+  const retry=b.notice.children[2], handler=retry.onclick;
+  b.listeners.get('error')({target:{tagName:'SCRIPT',type:'module'}});
+  assert.equal(b.notice.attributes.role,'alert');
+  assert.match(b.notice.children[0].textContent,/could not finish loading/);
+  assert.match(b.notice.children[1].textContent,/required game file could not load/);
+  assert.equal(b.notice.children[2],retry);assert.equal(retry.onclick,handler);
+  b.timers.get(1)();b.listeners.get('error')({target:{tagName:'SCRIPT',type:'module'}});
+  assert.equal(b.notice.children[2],retry);assert.equal(b.notice.children.length,3);
+  assert.equal(b.state.reloads,0);retry.onclick();assert.equal(b.state.reloads,1);
 });
 test('successful dependency load removes the watchdog before slow world generation',()=>{
   const b=fileBoot(), timeout=b.timers.get(1);b.context.window.__hmFileBoot.ready();timeout();

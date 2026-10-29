@@ -1524,25 +1524,30 @@
 <script>
 /* startup-file-guard: runs even when the module's graphics dependency cannot load. */
 (() => {
-  let pending = true, shown = false;
+  let pending = true, shown = '', heading, detail;
   const loading = document.getElementById('loading'), notice = document.getElementById('nogl');
-  function failed() {
-    if (!pending || shown || !notice) return;
-    shown = true;
+  function show(failed) {
+    if (!pending || !notice || shown === 'failed' || shown === (failed ? 'failed' : 'slow')) return;
+    if (!shown) {
+      heading = document.createElement('strong');
+      detail = document.createElement('span');
+      const retry = document.createElement('button'); retry.type = 'button'; retry.className = 'btn primary'; retry.textContent = 'Retry loading';
+      retry.onclick = () => location.reload();
+      notice.replaceChildren(heading, detail, retry);
+    }
+    shown = failed ? 'failed' : 'slow';
     loading.hidden = true;
     notice.hidden = false;
-    notice.setAttribute('role', 'alert');
-    const heading = document.createElement('strong'); heading.textContent = 'The game could not finish loading';
-    const detail = document.createElement('span'); detail.textContent = 'A required game file could not load. Check your connection, then try again. Your saved character is kept.';
-    const retry = document.createElement('button'); retry.type = 'button'; retry.className = 'btn primary'; retry.textContent = 'Retry loading';
-    retry.onclick = () => location.reload();
-    notice.replaceChildren(heading, detail, retry);
+    notice.setAttribute('role', failed ? 'alert' : 'status');
+    heading.textContent = failed ? 'The game could not finish loading' : 'Game files are taking longer than expected';
+    detail.textContent = failed ? 'A required game file could not load. Check your connection, then try again. Your saved character is kept.'
+      : 'You can keep waiting, or check your connection and try again. Your saved character is kept.';
   }
   function onError(event) {
-    if (event.target?.tagName === 'SCRIPT' && event.target.type === 'module') failed();
+    if (event.target?.tagName === 'SCRIPT' && event.target.type === 'module') show(true);
   }
   addEventListener('error', onError, true);
-  const timer = setTimeout(failed, 20000);
+  const timer = setTimeout(() => show(false), 20000);
   window.__hmFileBoot = { ready() {
     if (!pending) return;
     pending = false; clearTimeout(timer); removeEventListener('error', onError, true);
