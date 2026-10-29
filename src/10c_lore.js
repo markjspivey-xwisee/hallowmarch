@@ -971,7 +971,7 @@ function renderPrologue() {
   ov.innerHTML = `<div class="book" role="dialog" aria-modal="true" aria-labelledby="lore-pro-t" aria-describedby="lore-pro-x">
     <div class="art">${loreArt(pg.art, P.faction, P.cls)}</div>
     <div class="leaf">
-      <div class="head"><span class="kicker">${pg.k}</span><button type="button" class="skip" data-pro="skip">${S.replay ? 'Close' : 'Skip the prologue'}</button></div>
+      <div class="head"><span class="kicker">${pg.k}</span>${!last ? `<button type="button" class="skip" data-pro="skip">${S.replay ? 'Close' : 'Skip the prologue'}</button>` : ''}</div>
       <h2 id="lore-pro-t">${pg.t}</h2>
       <div class="text" id="lore-pro-x">${pg.p.map((p) => `<p>${p}</p>`).join('')}</div>
       <div class="foot"><div class="dots">${S.pages.map((q, i) => `<button type="button" data-pro="${i}" aria-label="Page ${i + 1}: ${q.t}" aria-current="${i === S.i}"></button>`).join('')}</div>

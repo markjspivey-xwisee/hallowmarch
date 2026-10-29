@@ -50,6 +50,8 @@ These apply to every change, not only to the feature that prompted them.
 
 - **Bounty HUD focus (2026-10-29):** Desktop hides the standalone bounty card only while the expanded tracked bounty already renders its active counter. Folded/auto-compact/hidden path, narrow target, RTS and touch states retain their existing alternatives. The CSS mirrors current visibility rules; unsupported `:has` keeps the duplicate card. No progress, rewards, interactions, saves or ownership rules change.
 
+- **Prologue final action (2026-10-29):** The final page has one exit: Begin, or Return to the march during replay. Earlier pages retain Skip the prologue/Close; Back restores that option. Only the header markup changes. The existing close, keyboard, focus, prologue-seen save and first-note behavior remain unchanged. Actual-source CPU checks cover the page controls and identical exit effects; native visual verification remains with the coordinating chat.
+
 - **Phone QA viewport witness (2026-10-29):** The ergonomics test retains its exact renderer/aspect condition, 20 ms polling and 15 s deadline. Bounded host/page poll timestamps are diagnostic only; no successful after-state can waive a failed wait. Existing geometry/report reads harvest observations without an added success-path browser await. This records scheduling evidence; the prior CI resize failure is not claimed fixed.
 
 ## Build and run
