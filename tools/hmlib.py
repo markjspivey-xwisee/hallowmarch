@@ -41,7 +41,7 @@ async def setup(p, touch=False, w=800, h=450, init=None):
     async def doc_route(route): await route.fulfill(status=200, content_type='text/html', body=hm.SKELETON.replace('%s', hm.HTML.read_text()))
     await page.route('http://hm.test/', doc_route)
     await page.goto('http://hm.test/', wait_until='commit')
-    await page.wait_for_function('window.__hm && window.__hm.ready', timeout=180000, polling=500)
+    await wait_title_settled(page)
     await page.evaluate("__hm.fn.setQuality('low')")
     await wait_title_settled(page)
     return b, page, logs

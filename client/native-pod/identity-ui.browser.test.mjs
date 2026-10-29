@@ -62,7 +62,9 @@ async function fixturePage(view) {
     .replace('<div id="title" hidden>', '<div id="title">');
   const native = await fs.readFile(path.join(root, 'src/14v_nativeidentity.js'), 'utf8');
   const titleSource = await fs.readFile(path.join(root, 'src/10_ui.js'), 'utf8');
-  const titleFlow = titleSource.slice(titleSource.indexOf('function syncTitle()'), titleSource.indexOf('function bindHUD()'));
+  const titleDraftState = titleSource.match(/^let TITLE_DRAFT = null;[^\n]*$/m)?.[0];
+  assert(titleDraftState, 'The identity fixture must retain the real private title-draft state.');
+  const titleFlow = titleDraftState + '\n' + titleSource.slice(titleSource.indexOf('function titleEntryBlocked()'), titleSource.indexOf('function bindHUD()'));
   const titleRadioFlow = titleSource.slice(titleSource.indexOf('function menuRadioKey('), titleSource.indexOf('function menuReplacementBlocked('));
   const saves = await fs.readFile(path.join(root, 'src/12_save.js'), 'utf8');
   const nativeSaveStart = saves.indexOf('function nativeSavePending(');
