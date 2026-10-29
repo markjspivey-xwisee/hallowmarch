@@ -1302,6 +1302,7 @@ $('menu-body').addEventListener('click', (e) => {
   if (a && a.dataset.lore === 'prologue') openPrologue(true);
   else if (a && a.dataset.lore.startsWith('sec:')) { openChronicle(a.dataset.lore.slice(4)); sfx('click'); } // [guide] a page's link to another (chronLink)
   else if (a && a.dataset.lore.startsWith('track:') && pathTrack(a.dataset.lore.slice(6))) {
+    void saveMenuEdit(e);
     LORE.chronSec = 'path'; renderChronicle($('menu-body'));
     $('menu-body').querySelector('.steps li.cur')?.focus({ preventScroll: true });
     sfx('click');

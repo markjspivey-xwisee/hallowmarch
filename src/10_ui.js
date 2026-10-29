@@ -907,13 +907,13 @@ function renderMenu(tab) {
       ${captureSettingsHTML() /* [capture] the capture build (14_capture.js) */}
       <p class="fineprint">Changes apply immediately.</p>
       <p>${IS_TOUCH ? 'Lower graphics settings help on older phones.' : 'If the frame rate drops, the game lowers its own detail first.'}</p>`;
-    $('set-q').onclick = (e) => { const b = e.target.closest('button'); if (!b) return; setQuality(b.dataset.v); renderMenu('settings'); saveSoon(); };
-    $('set-t').onclick = (e) => { const b = e.target.closest('button'); if (!b) return; setTimeMode(b.dataset.v); renderMenu('settings'); saveSoon(); };
-    $('set-w').onclick = (e) => { const b = e.target.closest('button'); if (!b) return; setWeatherMode(b.dataset.v); renderMenu('settings'); saveSoon(); };
+    $('set-q').onclick = (e) => { const b = e.target.closest('button'); if (!b) return; setQuality(b.dataset.v); void saveMenuEdit(e); renderMenu('settings'); };
+    $('set-t').onclick = (e) => { const b = e.target.closest('button'); if (!b) return; setTimeMode(b.dataset.v); void saveMenuEdit(e); renderMenu('settings'); };
+    $('set-w').onclick = (e) => { const b = e.target.closest('button'); if (!b) return; setWeatherMode(b.dataset.v); void saveMenuEdit(e); renderMenu('settings'); };
     $('set-motion').onclick = (e) => { const b = e.target.closest('button'); if (!b) return; setMotionMode(b.dataset.v); renderMenu('settings'); };
     captureSettingsWire(); // [capture] (14_capture.js)
     soundSettingsWire(); // [audio2] the Volume, Effects and Ambience rows (11c_sound.js)
-    $('set-m').onclick = (e) => { const b = e.target.closest('button'); if (!b) return; const L = MUSIC_LEVELS.find((x) => x[0] === b.dataset.v); if (L) setMusicVolume(L[2]); renderMenu('settings'); saveSoon(); }; // [music] the score's volume (11b_music.js)
+    $('set-m').onclick = (e) => { const b = e.target.closest('button'); if (!b) return; const L = MUSIC_LEVELS.find((x) => x[0] === b.dataset.v); if (L) setMusicVolume(L[2]); void saveMenuEdit(e); renderMenu('settings'); }; // [music] the score's volume (11b_music.js)
     menuSettingsChoices(body);
     if (settingsFocus) {
       const focus = settingsFocus.group ? $(settingsFocus.group)?.querySelector('[aria-checked="true"]') : $(settingsFocus.id);
