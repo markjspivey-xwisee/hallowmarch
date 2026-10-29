@@ -212,7 +212,7 @@ function bindKit() {
     if (b.id === 'kit-close') { closeKit(); return; }
     if (b.id === 'kit-junk') { sellJunk(); renderKit(); return; }
     if (b.id === 'kit-repair') { repairAll(); renderKit(); return; } // feature/weather
-    if (b.dataset.buyp) { buyPotions(+b.dataset.buyp); renderKit(); return; }
+    if (b.dataset.buyp) { buyPotions(+b.dataset.buyp, e); renderKit(); return; }
     if (b.dataset.gooduse) { goodsUse(b.dataset.gooduse); renderKit(); return; } // goods (06d_goods.js)
     if (b.dataset.act) { kitAction(b.dataset.act); return; }
     const s = kitItemFrom(b);

@@ -252,13 +252,15 @@ function buyItem(R, it) {
   saveSoon();
   return true;
 }
-function buyPotions(n) {
+function buyPotions(n, event) {
   const price = potionPrice();
   const can = Math.min(n, POTION.max - INV.potions, Math.floor(INV.gold / price));
   if (INV.potions >= POTION.max) { uiError(`You can carry ${POTION.max} draughts`); return; }
   if (can <= 0) { uiError('You cannot afford that'); return; }
+  const observation = loreObservationScope(event, 'draught');
   INV.gold -= can * price;
   INV.potions += can;
+  loreObserve(observation);
   sfx('coins');
   saveSoon();
 }
