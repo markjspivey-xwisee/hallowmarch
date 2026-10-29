@@ -48,6 +48,7 @@ function titleDraftCurrent(draft) {
   return Object.keys(scope).every(key => scope[key] === draft.scope[key]);
 }
 function titleDraftRestore(draft) {
+  draft.stopLayout?.();
   if (draft.next?.parentNode === draft.parent) draft.parent.insertBefore(draft.loading, draft.next);
   else draft.parent.appendChild(draft.loading);
   document.body.classList.remove('title-preparing');
@@ -74,12 +75,48 @@ function titleDraftEditable() {
   titleDraftSync();
   return !titleEntryBlocked() || !!(TITLE_DRAFT && titleDraftCurrent(TITLE_DRAFT) && !UI.titleSave?.char);
 }
+function titleDraftObserveLayout(draft) {
+  if (!draft || TITLE_DRAFT !== draft || GAME.ready) return;
+  titleDraftSync();
+  if (TITLE_DRAFT !== draft) return;
+  const field = $('name-input'), viewport = window.visualViewport;
+  let frame = null;
+  const reveal = () => {
+    if (TITLE_DRAFT !== draft || GAME.ready || document.activeElement !== field || field.disabled || field.readOnly || UI.titleSave?.char) return;
+    if (frame !== null) return;
+    frame = requestAnimationFrame(() => {
+      frame = null;
+      titleDraftSync();
+      if (TITLE_DRAFT !== draft || GAME.ready || document.activeElement !== field || field.disabled || field.readOnly) return;
+      const panel = document.querySelector('#create .card-body');
+      if (!panel?.contains(field) || !field.getClientRects().length) return;
+      const box = panel.getBoundingClientRect(), input = field.getBoundingClientRect();
+      const offset = Number.isFinite(viewport?.offsetTop) ? viewport.offsetTop : 0;
+      const height = Number.isFinite(viewport?.height) && viewport.height > 0 ? viewport.height : window.innerHeight;
+      const top = Math.max(box.top, offset) + 8, bottom = Math.min(box.bottom, offset + height) - 8;
+      if (bottom <= top) return;
+      const delta = input.top < top || input.height > bottom - top ? input.top - top : input.bottom > bottom ? input.bottom - bottom : 0;
+      if (delta) panel.scrollTop += delta;
+    });
+  };
+  window.addEventListener('resize', reveal, { passive: true });
+  viewport?.addEventListener('resize', reveal, { passive: true });
+  field.addEventListener('focusin', reveal);
+  draft.stopLayout = () => {
+    window.removeEventListener('resize', reveal);
+    viewport?.removeEventListener('resize', reveal);
+    field.removeEventListener('focusin', reveal);
+    if (frame !== null) cancelAnimationFrame(frame);
+    frame = null;
+  };
+}
 function prepareTitleDraft(save) {
   if (GAME.ready || TITLE_DRAFT || !titleDraftEligible(save)) return false;
   if (typeof loreCancelBegin === 'function') loreCancelBegin();
   if (!UI.titleBound) bindTitle();
   const loading = $('loading'), parent = loading.parentNode;
-  TITLE_DRAFT = { scope: titleDraftScope(), loading, parent, next: loading.nextSibling, realm: UI.realm, cls: UI.cls };
+  const draft = { scope: titleDraftScope(), loading, parent, next: loading.nextSibling, realm: UI.realm, cls: UI.cls };
+  TITLE_DRAFT = draft;
   UI.titleSave = save?.char ? save : null; UI.nameTouched = false;
   $('name-input').value = ''; // The original default-name draw stays at Ready.
   if (save?.char) {
@@ -93,8 +130,12 @@ function prepareTitleDraft(save) {
   $('btn-dice').disabled = true;
   document.querySelector('#create .card-foot').prepend(loading);
   document.body.classList.add('title-preparing');
-  nativePlayerRender(); syncTitle(); $('title').hidden = false;
-  return true;
+  nativePlayerRender();
+  titleDraftSync();
+  if (TITLE_DRAFT !== draft) return false;
+  syncTitle(); $('title').hidden = false;
+  titleDraftObserveLayout(draft);
+  return TITLE_DRAFT === draft;
 }
 function finishTitleDraft() {
   const draft = TITLE_DRAFT;

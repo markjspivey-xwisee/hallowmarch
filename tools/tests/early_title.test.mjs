@@ -8,7 +8,7 @@ function actual(file,names){const s=read(file);return parse(s,{ecmaVersion:'late
 const ui=read('10_ui.js').split('/* HUD construction')[0];
 const identity=actual('14v_nativeidentity.js',['nativePlayerRender','nativePlayerBegin','nativePlayerSaveRef','nativePlayerChanged','nativePlayerCanPlayNow']);
 class Node {
-  constructor(tag='div',id=''){this.tagName=tag;this.id=id;this.children=[];this.parentNode=null;this.className='';this.hidden=false;this.disabled=false;this.value='';this.style={};this.dataset={};this.attributes={};this.listeners={};}
+  constructor(tag='div',id=''){this.tagName=tag;this.id=id;this.children=[];this.parentNode=null;this.className='';this.hidden=false;this.disabled=false;this.value='';this.style={};this.dataset={};this.attributes={};this.listeners={};this.scrollTop=0;this.focusCalls=0;}
   get parentElement(){return this.parentNode;} get nextSibling(){return this.parentNode?.children[this.parentNode.children.indexOf(this)+1]||null;}
   get classList(){return{contains:k=>this.className.split(' ').includes(k),add:k=>{if(!this.className.split(' ').includes(k))this.className+=' '+k;},remove:k=>{this.className=this.className.split(' ').filter(v=>v!==k).join(' ');},toggle:(k,on)=>{if(on)this.classList.add(k);else this.classList.remove(k);}};}
   appendChild(n){n.remove();this.children.push(n);n.parentNode=this;return n;} prepend(n){n.remove();this.children.unshift(n);n.parentNode=this;}
@@ -16,21 +16,29 @@ class Node {
   remove(){if(this.parentNode){const p=this.parentNode;this.parentNode=null;p.children.splice(p.children.indexOf(this),1);}}
   replaceChildren(...children){for(const n of [...this.children])n.remove();children.forEach(n=>this.appendChild(n));}
   contains(n){return n===this||this.children.some(child=>child.contains(n));}
-  setAttribute(k,v){this.attributes[k]=String(v);} addEventListener(k,fn){this.listeners[k]=fn;} focus(){}
+  setAttribute(k,v){this.attributes[k]=String(v);} addEventListener(k,fn){this.listeners[k]=fn;} removeEventListener(k,fn){if(this.listeners[k]===fn)delete this.listeners[k];} focus(){this.focusCalls++;}
+  getBoundingClientRect(){return this.box||{top:0,bottom:44,height:44};}
+  getClientRects(){for(let n=this;n;n=n.parentNode)if(n.hidden)return[];return[this.getBoundingClientRect()];}
   querySelectorAll(selector){const [tag,cls]=selector.startsWith('.')?['',selector.slice(1)]:selector.split('.');const out=[];const visit=n=>{for(const child of n.children){if((!tag||child.tagName===tag)&&(!cls||child.classList.contains(cls)))out.push(child);visit(child);}};visit(this);return out;}
   querySelector(s){return this.querySelectorAll(s)[0]||null;} click(){if(!this.disabled)this.onclick?.();}
 }
-function fixture({career=null,native=true}={}){
+function fixture({career=null,native=true,visualViewport=true}={}){
   const ids=['realm-pick','class-pick','realm-blurb','class-blurb','btn-dice','name-input','btn-begin','btn-continue','character-create-fields','continue','continue-desc','season-title','save-note','title','loading'];
   const nodes=Object.fromEntries(ids.map(id=>[id,new Node(id.includes('btn-')?'button':'div',id)]));
   const body=new Node(),cardBody=new Node(),foot=new Node();cardBody.className='card-body';foot.className='card-foot';
   body.appendChild(nodes.loading);body.appendChild(nodes.title);nodes.title.appendChild(cardBody);nodes.title.appendChild(foot);foot.appendChild(nodes['btn-begin']);
+  cardBody.appendChild(nodes['character-create-fields']);nodes['character-create-fields'].appendChild(nodes['name-input']);
+  const eventTarget=extra=>Object.assign({listeners:new Map(),addEventListener(k,fn){if(!this.listeners.has(k))this.listeners.set(k,new Set());this.listeners.get(k).add(fn);},removeEventListener(k,fn){this.listeners.get(k)?.delete(fn);},emit(k){for(const fn of this.listeners.get(k)||[])fn();}},extra);
+  const viewport=visualViewport?eventTarget({height:780,offsetTop:0}):undefined;
+  const window=eventTarget({innerHeight:780,visualViewport:viewport}),frames=new Map();let frameId=0,fieldTop=600;
+  cardBody.box={top:129,bottom:620,height:491};
+  nodes['name-input'].getBoundingClientRect=()=>({top:fieldTop-cardBody.scrollTop,bottom:fieldTop-cardBody.scrollTop+44,height:44});
   const calls={random:0,audio:0,sound:0,tasks:0,actions:0,peek:0,resume:0,bootstrap:0,settings:0,world:0,season:0};
   const state={keyPresent:true,hasRecord:!!career,pending:false},profile={status:()=>state};
   const status={enabled:true,bound:true,verified:true,binding:{subjectDid:'did:fixture:owner',podUrl:'https://pod.example/owner/'},recordLinks:{}};
   const SAVE={ref:{},lsKey:'fixture',native,loaded:career?{v:1,char:career}:null,readConfirmed:true,loading:{settled:true,active:true,owner:'owner',host:'fixture'},pending:null,nativeFlight:null};
   const NATIVE_PLAYER={status,profile,busy:false,switching:false,draftPreview:null};
-  const c=vm.createContext({console,URL,AbortSignal,GAME:{ready:false,started:false},SAVE,NATIVE_PLAYER,NETWS:{host:'fixture',acct:{id:'owner'},reload:false},
+  const c=vm.createContext({console,URL,AbortSignal,window,requestAnimationFrame:fn=>{frames.set(++frameId,fn);return frameId;},cancelAnimationFrame:id=>frames.delete(id),GAME:{ready:false,started:false},SAVE,NATIVE_PLAYER,NETWS:{host:'fixture',acct:{id:'owner'},reload:false},
     GRAPHICS_CONTEXT_LOST:false,GRAPHICS_STARTUP:{stopped:false},document:{body,activeElement:null,getElementById:id=>nodes[id]||null,createElement:tag=>new Node(tag),querySelector:s=>s==='#create .card-body'?cardBody:s==='#create .card-foot'?foot:null},
     REALMS:['Logres','Ériu','Thule'].map((name,id)=>({name,id,color:'#fff'})),CLASSES:Object.fromEntries(['warrior','archer','mage','priest'].map(k=>[k,{name:k,blurb:k,icon:k,role:k}])),
     randomName:()=>{calls.random++;return'Generated name';},audioUnlock:()=>{calls.audio++;},sfx:()=>{calls.sound++;},iconSvg:()=>'',emblemSvg:()=>'',realmRank:()=>1,seasonTitleText:()=>{calls.season++;return'';},
@@ -46,11 +54,15 @@ function fixture({career=null,native=true}={}){
   const session={peek:async()=>{calls.peek++;if(c.peekError)throw Error('private read unavailable');return c.metadata;},resume:async()=>{calls.resume++;return{};},bootstrap:async()=>{calls.bootstrap++;throw Error('UI must not bootstrap');},profile:()=>profile,claimProfile:()=>null,status:()=>({})};
   c.nativePlayerProvisionalSession=async()=>{NATIVE_PLAYER.provisional=session;NATIVE_PLAYER.provisionalContext={host:'fixture',accountId:'owner'};return session;};
   c.nativePlayerProvisionalRef=()=>({native:true});
-  return{c,nodes,body,cardBody,foot,calls,state,session,
+  return{c,nodes,body,cardBody,foot,calls,state,session,window,viewport,frames,
     prepare:()=>c.prepareTitleDraft(SAVE.loaded),finish:()=>{c.GAME.ready=true;return c.finishTitleDraft();},
     realm:id=>nodes['realm-pick'].listeners.click({target:{closest:()=>({dataset:{realm:String(id)}})}}),
     calling:cls=>nodes['class-pick'].listeners.click({target:{closest:()=>({dataset:{cls}})}}),
     type:name=>{nodes['name-input'].value=name;nodes['name-input'].listeners.input();},
+    focus:()=>{c.document.activeElement=nodes['name-input'];nodes['name-input'].listeners.focusin?.();},
+    layout:()=>{for(const[id,fn]of[...frames]){frames.delete(id);fn();}},
+    resize:(height=500)=>{window.innerHeight=height;if(viewport)viewport.height=height;window.emit('resize');viewport?.emit('resize');},
+    fieldTop:value=>{fieldTop=value;},
     async anonymous(...args){c.metadata=args.length?args[0]:null;c.serverStatus={enabled:true,bound:false,verified:false,provisionalPlay:{enabled:true},recordLinks:{}};NATIVE_PLAYER.profile=null;SAVE.readConfirmed=false;SAVE.loaded=null;SAVE.loading.settled=false;SAVE.ref=await c.nativePlayerSaveRef(SAVE.loading);SAVE.loading.settled=true;},
   };
 }
@@ -129,4 +141,52 @@ test('a real accepted Begin keeps its captured intent through the expected provi
   f.nodes['btn-begin'].onclick();await f.c.flight;
   assert.deepEqual(accepted,{name:'Chosen recruit',prologue:true});assert.equal(f.calls.bootstrap,1);
   assert.equal(f.c.draft(),null);assert.equal(f.c.SAVE.readConfirmed,true);
+});
+
+test('draft focus and viewport resize reveal the whole field within the scrolling form without moving focus',()=>{
+  const f=fixture();f.prepare();f.fieldTop(610);f.focus();assert.equal(f.frames.size,1);f.layout();
+  const field=f.nodes['name-input'];assert.equal(field.getBoundingClientRect().bottom,612);
+  assert.equal(f.c.document.activeElement,field);assert.equal(field.focusCalls,0);
+  f.viewport.offsetTop=50;f.viewport.height=450;f.viewport.emit('resize');f.layout();
+  assert.equal(field.getBoundingClientRect().bottom,492);assert.equal(f.window.innerHeight,780);
+  f.viewport.offsetTop=0;
+  f.cardBody.box={top:129,bottom:346,height:217};f.resize();assert.equal(f.frames.size,1);f.layout();
+  const box=field.getBoundingClientRect();assert(box.top>=137&&box.bottom<=338);
+  assert.equal(f.c.document.activeElement,field);assert.equal(field.focusCalls,0);
+  assert.deepEqual([f.calls.random,f.calls.audio,f.calls.sound,f.calls.tasks,f.calls.actions],[0,0,0,0,0]);
+  f.cardBody.scrollTop=550;f.resize();f.layout();assert.equal(field.getBoundingClientRect().top,137);
+});
+test('draft layout uses the layout viewport when visualViewport is absent',()=>{
+  const f=fixture({visualViewport:false});f.prepare();f.cardBody.box={top:129,bottom:700,height:571};
+  f.focus();f.resize(500);f.layout();assert.equal(f.nodes['name-input'].getBoundingClientRect().bottom,492);
+});
+test('no focused editable field means no layout work, and losing focus cancels an already queued reveal',()=>{
+  const f=fixture();f.prepare();f.resize();assert.equal(f.frames.size,0);
+  for(const key of['disabled','readOnly']){f.nodes['name-input'][key]=true;f.focus();f.resize();assert.equal(f.frames.size,0);f.nodes['name-input'][key]=false;}
+  f.focus();assert.equal(f.frames.size,1);f.c.document.activeElement=null;f.layout();assert.equal(f.cardBody.scrollTop,0);
+  f.focus();f.nodes['character-create-fields'].hidden=true;f.layout();assert.equal(f.cardBody.scrollTop,0);
+});
+test('the queued layout callback itself rejects an owner change before any identity rerender',()=>{
+  const f=fixture();f.prepare();f.focus();f.c.NETWS.acct={id:'replacement'};f.layout();
+  assert.equal(f.c.draft(),null);assert.equal(f.cardBody.scrollTop,0);assert.equal(f.nodes.title.hidden,true);
+  assert.equal(f.window.listeners.get('resize').size,0);assert.equal(f.viewport.listeners.get('resize').size,0);
+});
+test('cancellation by the actual identity render during preparation cannot re-show a draft or leak layout listeners',()=>{
+  const f=fixture();let reads=0;f.c.nativePlayerGuestExpired=()=>++reads>1;
+  assert.equal(f.prepare(),false);assert.equal(f.c.draft(),null);assert.equal(f.nodes.title.hidden,true);
+  assert.equal(f.nodes.loading.parentNode,f.body);assert.equal(f.frames.size,0);
+  assert.equal(f.window.listeners.get('resize')?.size||0,0);assert.equal(f.viewport.listeners.get('resize')?.size||0,0);
+  assert.equal(f.nodes['name-input'].listeners.focusin,undefined);assert.equal(f.calls.random,0);
+  assert.doesNotThrow(()=>f.c.titleDraftObserveLayout(null));
+});
+for(const ending of['cancel','owner','ready','failure'])test('draft '+ending+' releases layout listeners and rejects a stale reveal callback',()=>{
+  const f=fixture();f.prepare();f.focus();const stale=[...f.frames.values()][0];
+  if(ending==='cancel')f.c.titleDraftCancel();
+  if(ending==='owner'){f.c.NETWS.acct={id:'replacement'};f.c.nativePlayerRender();}
+  if(ending==='ready')f.finish();
+  if(ending==='failure'){f.c.GRAPHICS_STARTUP.stopped=true;f.c.nativePlayerRender();}
+  assert.equal(f.frames.size,0);assert.equal(f.window.listeners.get('resize').size,0);
+  assert.equal(f.viewport.listeners.get('resize').size,0);assert.equal(f.nodes['name-input'].listeners.focusin,undefined);
+  if(ending==='owner'){f.c.SAVE.loading.owner='replacement';f.c.SAVE.ref={};assert.equal(f.prepare(),true);}
+  stale();assert.equal(f.cardBody.scrollTop,0);assert.equal(f.nodes['name-input'].focusCalls,0);
 });
