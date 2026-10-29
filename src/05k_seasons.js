@@ -195,7 +195,29 @@ function seasonIceSettle() {
   if (!SICE.ks) return;
   SICE.thick.fill(0);
   const Y = SEASON.yearSec, step = 40;
-  for (let t = SEASON.t - Y; t < SEASON.t; t += step) seasonIceStep(step, (((t / Y) % 1) + 1) % 1);
+  const bases = [];
+  for (let t = SEASON.t - Y; t < SEASON.t; t += step) bases.push(seasonTempBase((((t / Y) % 1) + 1) % 1));
+  if (bases.length) {
+    const temperatures = Float64Array.from(bases), ks = SICE.ks, t0 = SICE.t0, sh = SICE.shallow, th = SICE.thick, G = SICE.grid;
+    let walk = 0;
+    // Each cell is independent. Keep the exact yearly sample sequence and
+    // every Float32 store/load, while publishing its sparse grid value once.
+    for (let q = 0; q < ks.length; q++) {
+      let v = th[q];
+      for (let n = 0; n < temperatures.length; n++) {
+        const T = temperatures[n] + t0[q];
+        v = th[q];
+        if (T < -1) v += step * (-1 - T) * 6e-4 * (1 + 0.6 * sh[q]);
+        else if (T > 0.5) v -= step * (T - 0.5) * 7e-4 * (1 + 1.5 * sh[q]);
+        v = v < 0 ? 0 : v > 1 ? 1 : v;
+        th[q] = v;
+      }
+      G[ks[q]] = v;
+      if (v >= 0.3) walk++;
+    }
+    SICE.on = walk > 0;
+    SEAS.frozenN = walk;
+  }
   seasonIceVisual(true);
 }
 // the ice on the water mesh (aW.w)
