@@ -9,6 +9,7 @@ export function installReadinessResponsivenessProbe() {
       binsMs: [20, 50, 100, 250, 1000, null], histogram: [0, 0, 0, 0, 0, 0], worst: [] },
     observations: [], inputs: [], syntheticInputsIgnored: 0, excessInputs: 0,
     longTasks: { supported: false, count: 0, totalMs: 0, maxMs: 0, worst: [] },
+    longAnimationFrames: { supported: false, unavailableReason: null, count: 0, maxMs: 0, worst: [] },
     eventTiming: { supported: false, count: 0, worst: [] } };
   const pendingFrames = new Set(), observers = [];
   let stopped = false, previous = null, lastObservation = '', activeInput = null, acknowledgment = null, hiddenSinceFrame = !!document.hidden;
@@ -76,7 +77,9 @@ export function installReadinessResponsivenessProbe() {
   document.addEventListener('visibilitychange', visibility);
   document.addEventListener('DOMContentLoaded', ensureAcknowledgment, { once: true });
   const observer = (type, receive, options) => {
-    try { const value = new PerformanceObserver(list => { if (!stopped) for (const entry of list.getEntries()) receive(entry); });
+    try {
+      if (Array.isArray(PerformanceObserver.supportedEntryTypes) && !PerformanceObserver.supportedEntryTypes.includes(type)) return false;
+      const value = new PerformanceObserver(list => { if (!stopped) for (const entry of list.getEntries()) receive(entry); });
       value.observe({ type, buffered: true, ...options }); observers.push(value); return true;
     } catch { return false; }
   };
@@ -85,6 +88,21 @@ export function installReadinessResponsivenessProbe() {
     worst(state.longTasks.worst, { start: entry.startTime, ms: entry.duration, deliveryAt: performance.now(),
       deliveryPhase: observe().phase, name: entry.name }, 'ms');
   });
+  state.longAnimationFrames.supported = observer('long-animation-frame', entry => {
+    state.longAnimationFrames.count++; state.longAnimationFrames.maxMs = Math.max(state.longAnimationFrames.maxMs, entry.duration);
+    const scripts = entry.scripts || [], number = value => Number.isFinite(value) ? value : null;
+    const selected = Array.prototype.slice.call(scripts, 0, 32).sort((a, b) => b.duration - a.duration).slice(0, 8);
+    worst(state.longAnimationFrames.worst, { start: entry.startTime, ms: entry.duration,
+      blockingMs: number(entry.blockingDuration), renderStart: number(entry.renderStart), styleAndLayoutStart: number(entry.styleAndLayoutStart),
+      styleMs: number(entry.styleDuration), layoutMs: number(entry.layoutDuration), firstUIEventAt: number(entry.firstUIEventTimestamp),
+      deliveryAt: performance.now(), deliveryPhase: observe().phase, scriptCount: scripts.length, scriptsTruncated: scripts.length > selected.length,
+      scripts: selected.map(script => ({ start: number(script.startTime), ms: number(script.duration), executionStart: number(script.executionStart),
+        forcedStyleAndLayoutMs: number(script.forcedStyleAndLayoutDuration), pauseMs: number(script.pauseDuration),
+        invoker: String(script.invoker || '').slice(0, 150), invokerType: String(script.invokerType || '').slice(0, 80),
+        sourceURL: String(script.sourceURL || '').slice(0, 500), sourceFunctionName: String(script.sourceFunctionName || '').slice(0, 100),
+        sourceCharPosition: number(script.sourceCharPosition) })) }, 'ms', 16);
+  });
+  if (!state.longAnimationFrames.supported) state.longAnimationFrames.unavailableReason = 'unsupported-or-observer-registration-failed';
   state.eventTiming.supported = observer('event', entry => {
     state.eventTiming.count++;
     worst(state.eventTiming.worst, { name: entry.name, start: entry.startTime, durationMs: entry.duration,

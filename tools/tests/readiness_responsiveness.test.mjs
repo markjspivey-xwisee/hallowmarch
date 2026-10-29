@@ -6,7 +6,7 @@ import { installReadinessResponsivenessProbe, sampleTrustedReadinessInputs } fro
 
 // CPU fixtures test bounded accounting/cleanup only. Mock trust and visibility
 // values here are not browser responsiveness or native-input evidence.
-function fixture() {
+function fixture({ supportedEntries = ['longtask', 'event', 'long-animation-frame'] } = {}) {
   let now = 0, nextFrame = 0, focused = true;
   const frames = new Map(), windowListeners = new Map(), documentListeners = new Map(), nodes = [], observers = [];
   const events = map => ({ addEventListener(name, fn) { if (!map.has(name)) map.set(name, new Set()); map.get(name).add(fn); },
@@ -17,7 +17,8 @@ function fixture() {
   const window = { ...events(windowListeners), __hmStartup: { phase: 'world' } };
   const ctx = { window, document, performance: { now: () => now, timeOrigin: 100000 },
     requestAnimationFrame(callback) { const id = ++nextFrame; frames.set(id, callback); return id; }, cancelAnimationFrame: id => frames.delete(id),
-    PerformanceObserver: class { constructor(callback) { this.callback = callback; this.disconnected = false; observers.push(this); }
+    PerformanceObserver: class { static supportedEntryTypes = supportedEntries;
+      constructor(callback) { this.callback = callback; this.disconnected = false; observers.push(this); }
       observe(options) { this.options = options; } disconnect() { this.disconnected = true; } } };
   vm.createContext(ctx); vm.runInContext('(' + installReadinessResponsivenessProbe.toString() + ')();', ctx);
   return { ctx, window, document, frames, nodes, observers,
@@ -100,6 +101,27 @@ test('stop is idempotent and captured late callbacks cannot restart monitoring',
   for (const callback of callbacks) callback(50); assert.deepEqual(f.stop(), first); assert.equal(f.frames.size, 0); assert.equal(f.listenerCount(), 0);
   for (const value of f.observers) value.callback({ getEntries: () => [{ startTime: 0, duration: 999 }] });
   assert.equal(f.snapshot().longTasks.count, 0);
+});
+
+test('long animation frame attribution bounds entries/scripts/text and retains no window references', () => {
+  const f = fixture();
+  for (let i = 0; i < 60; i++) f.entry('long-animation-frame', { startTime: i * 100, duration: 60 + i,
+    blockingDuration: i, renderStart: i * 100 + 50, styleAndLayoutStart: i * 100 + 55,
+    scripts: Array.from({ length: 100 }, (_, index) => ({ startTime: index, duration: index + 1, sourceURL: 'a'.repeat(1000),
+      sourceFunctionName: 'b'.repeat(200), invoker: 'c'.repeat(300), window: f.window })) });
+  const s = f.stop().longAnimationFrames; assert.equal(s.supported, true); assert.equal(s.unavailableReason, null);
+  assert.equal(s.count, 60); assert.equal(s.worst.length, 16); assert.equal(s.maxMs, 119);
+  assert.equal(s.worst[0].scriptCount, 100); assert.equal(s.worst[0].scripts.length, 8); assert.equal(s.worst[0].scriptsTruncated, true);
+  for (const script of s.worst[0].scripts) {
+    assert.equal(script.sourceURL.length, 500); assert.equal(script.sourceFunctionName.length, 100); assert.equal(script.invoker.length, 150);
+    assert.equal(script.forcedStyleAndLayoutMs, null); assert(!('window' in script));
+  }
+});
+
+test('unsupported long animation frame timing is explicit and never mistaken for zero-duration success', () => {
+  const f = fixture({ supportedEntries: ['longtask', 'event'] }), s = f.stop();
+  assert.equal(s.longAnimationFrames.supported, false); assert.equal(s.longAnimationFrames.unavailableReason, 'unsupported-or-observer-registration-failed');
+  assert(!f.observers.some(observer => observer.options.type === 'long-animation-frame'));
 });
 
 test('host sampler sends only bounded real keyboard commands in order', async () => {
