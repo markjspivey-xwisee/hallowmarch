@@ -669,6 +669,7 @@ function wxPrepareCloudResources() {
   if (BOOT_SAFE || !WXR.on || !sceneRT) return [];
   wxAllocateClouds();
   wxAllocateCloudScreen();
+  if (!WXR.shafts) wxBuildShafts();
   return [
     { id: 'weather-field', material: WXR.fieldMat, target: WXR.field },
     { id: 'weather-dome', material: WXR.domeMat, target: WXR.dome },
@@ -713,7 +714,7 @@ function wxBuildShafts() {
         gl_FragColor = vec4(safeColor(applyFog(col, vW)), a);
       }`,
   }));
-  m.frustumCulled = false; m.renderOrder = 6;
+  m.frustumCulled = false; m.renderOrder = 6; m.visible = false;
   scene.add(m);
   WXR.shafts = m;
 }

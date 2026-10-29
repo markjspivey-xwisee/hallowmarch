@@ -185,18 +185,26 @@ const rippleSimMat = new THREE.ShaderMaterial({
 });
 const rippleClearMat = new THREE.ShaderMaterial({ vertexShader: FS_VERT, fragmentShader: 'void main(){ gl_FragColor = vec4(0.0); }', depthTest: false, depthWrite: false });
 // make or drop the targets for the current quality (high 256, medium 128, low none)
-function rippleSetup() {
+function rippleAllocate() {
   const want = BOOT_SAFE || !FLOAT_RT || REDUCE_MOTION ? 0 : quality.level === 'high' ? 256 : quality.level === 'medium' ? 128 : 0;
   if (want === RIPPLE.res) return;
   if (RIPPLE.rtA) { RIPPLE.rtA.dispose(); RIPPLE.rtB.dispose(); RIPPLE.rtA = RIPPLE.rtB = null; }
   RIPPLE.res = want;
   RIPPLE.on = want > 0;
-  if (!want) { U.uRipple.value = ZERO_TEX; U.uRippleB.value.w = 0; return; }
+  RIPPLE.needsClear = false;
+  if (!want) return;
   const o = { type: THREE.HalfFloatType, format: THREE.RGBAFormat, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, depthBuffer: false, stencilBuffer: false };
   RIPPLE.rtA = new THREE.WebGLRenderTarget(want, want, o);
   RIPPLE.rtB = new THREE.WebGLRenderTarget(want, want, o);
+  RIPPLE.needsClear = true;
+}
+function rippleSetup() {
+  rippleAllocate();
+  if (!RIPPLE.on) { U.uRipple.value = ZERO_TEX; U.uRippleB.value.w = 0; return; }
+  if (!RIPPLE.needsClear) return;
   pass(rippleClearMat, RIPPLE.rtA); pass(rippleClearMat, RIPPLE.rtB);
   renderer.setRenderTarget(null);
+  RIPPLE.needsClear = false;
 }
 // a disturbance: a dip of the given depth (m) over a disc of radius r; drops past the cap this step are dropped
 function rippleDrop(x, z, r, depth) {

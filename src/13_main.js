@@ -263,6 +263,7 @@ function renderTitleFrame() {
             : [[id, members]]);
         const stages = [['post', new Set()], ...families];
         let resized = false;
+        rippleAllocate();
         const entryPreparation = await prepareTitleEntryPrograms(inventory, TITLE_WARM_GENERATION, wxPrepareCloudResources());
         captureTitleResizeRequest();
         if (entryPreparation.stale || TITLE_RESIZE_PENDING) { TITLE_FRAME_DIRTY = true; continue; }

@@ -420,6 +420,7 @@ function titleFixture({autoPaint=false}={}) {
     },
     gpuDiagFamilies(){events.push('inventory');return inventory;},
     wxPrepareCloudResources(){events.push('entry-resources');return [];},
+    rippleAllocate(){events.push('ripple-resources');},
     gpuDiagCaptureRenderer(){return {...postState};},
     gpuDiagRestoreRenderer(saved,restoreGl){assert.equal(restoreGl,false);Object.assign(postState,saved);events.push('restore:'+ctx.GRAPHICS_STARTUP.titleStage);},
     gpuDiagGlErrors(){return glErrors.shift() || [];},

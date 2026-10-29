@@ -7,7 +7,7 @@ import * as THREE from 'three';
 
 const source = readFileSync(new URL('../../src/12c_weather2.js', import.meta.url), 'utf8');
 const ast = parse(source, { ecmaVersion: 'latest', sourceType: 'module' });
-const names = ['wxAllocateClouds', 'wxBuildClouds', 'wxAllocateCloudScreen', 'wxPrepareCloudResources'];
+const names = ['wxAllocateClouds', 'wxBuildClouds', 'wxAllocateCloudScreen', 'wxPrepareCloudResources', 'wxBuildShafts'];
 const functions = ast.body.filter(n => n.type === 'FunctionDeclaration' && names.includes(n.id.name))
   .map(n => source.slice(n.start, n.end)).join('\n');
 assert.equal(functions.match(/function wx/g).length, names.length);
@@ -25,7 +25,7 @@ function fixture(level = 'medium', safe = false) {
   const ctx = { THREE: { ...THREE, WebGLRenderTarget: Target }, BOOT_SAFE: safe,
     WX_Q: { high: { field: 256, dome: 256, steps: 14, veil: 1, scr: 2 }, medium: { field: 192, dome: 192, steps: 10, veil: 1, scr: 3 }, low: { field: 128, dome: 160, steps: 7, veil: 0, scr: 4 } },
     WXR: { field: null, dome: null, fieldMat: null, domeMat: null, q: null, n: 0, on: !safe },
-    quality: { level }, WX_N: 12, RT_TYPE: THREE.HalfFloatType, U,
+    quality: { level }, WX_N: 12, WX_SHAFT_N: 8, RT_TYPE: THREE.HalfFloatType, U, scene: new THREE.Scene(),
     skyU: { uCloudLit: uniform(new THREE.Color()), uCloudShade: uniform(new THREE.Color()), uSunVis: uniform(.7) },
     sceneRT: { width: 1280, height: 801 }, FS_VERT: '', GLSL_COMMON: '', GLSL_WXFIELD: '', GLSL_ATMOS: '', GLSL_WXMARCH: '',
     mat: opts => new THREE.ShaderMaterial({ ...opts, uniforms: { ...U, ...opts.uniforms } }),
@@ -44,6 +44,7 @@ for (const level of ['low', 'medium', 'high']) test('preparation owns exact orig
   assert.equal(r[2].material, w.scrMat); assert.equal(r[2].target, w.scr);
   assert.deepEqual(f.bindings(), before); assert.equal(w.n, 0); assert.equal(w.scrOn, undefined);
   assert.deepEqual(f.stats, { random: 0, simulation: 0, draws: 0 });
+  assert.equal(w.shafts.parent, f.ctx.scene); assert.equal(w.shafts.visible, false); assert.equal(w.shafts.geometry.instanceCount, 0);
   assert.equal(f.targets.length, 3);
   const again = f.ctx.wxPrepareCloudResources();
   assert.equal(again[0].target, r[0].target); assert.equal(again[2].target, r[2].target); assert.equal(f.targets.length, 3);
