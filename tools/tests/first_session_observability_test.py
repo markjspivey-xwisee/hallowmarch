@@ -176,6 +176,7 @@ class FirstSessionObservability(unittest.TestCase):
     def test_touch_target_clear_keeps_one_native_tap_and_the_original_assertion(self):
         calls = []
         self.fixture.args.touch = True
+        self.fixture.args.pointer_receipts = True
         async def evaluate(expression, arg=None):
             calls.append(expression)
             if expression == journey.EMPTY_CANVAS_POINT:
@@ -184,7 +185,9 @@ class FirstSessionObservability(unittest.TestCase):
                 self.assertEqual(arg, {'x': 195, 'y': 156})
                 return {'hit': {'id': 'scene'}}
             self.assertEqual(expression, journey.STOP_POINTER_RECEIPTS)
-            return {'rows': [{'type': 'pointerup', 'isTrusted': True}]}
+            return {'rows': [
+                {'phase': 'capture', 'type': 'pointerdown', 'pointerType': 'touch', 'isTrusted': True, 'target': {'id': 'scene'}, 'pointerId': 1, 'x': 195, 'y': 156},
+                {'phase': 'bubble', 'type': 'pointerup', 'pointerType': 'touch', 'isTrusted': True, 'target': {'id': 'scene'}, 'pointerId': 1, 'x': 195, 'y': 156, 'state': {'target': None}}]}
         async def tap(x, y):
             calls.append(('native-tap', x, y))
         async def wait(expression):
@@ -199,6 +202,7 @@ class FirstSessionObservability(unittest.TestCase):
 
     def test_pointer_receipt_cleanup_failure_cannot_replace_the_target_clear_failure(self):
         self.fixture.args.touch = True
+        self.fixture.args.pointer_receipts = True
         taps = []
         async def evaluate(expression, arg=None):
             if expression == journey.EMPTY_CANVAS_POINT:
@@ -216,6 +220,57 @@ class FirstSessionObservability(unittest.TestCase):
             asyncio.run(self.fixture.clear_target())
         self.assertEqual(taps, [(195, 156)])
         self.assertEqual(self.fixture.report['diagnosticErrors'][0]['operation'], 'pointer-receipt.stop')
+
+    def test_clean_touch_clear_has_no_pointer_observer_or_retry(self):
+        self.fixture.args.touch = True
+        calls = []
+        async def evaluate(expression, arg=None):
+            self.assertEqual(expression, journey.EMPTY_CANVAS_POINT)
+            calls.append('empty-point')
+            return {'x': 265.2, 'y': 156}
+        async def tap(x, y):
+            calls.append(('native-tap', x, y))
+        async def wait(expression):
+            self.assertEqual(expression, '()=>__hm.GAME.player.target===null')
+            calls.append('target-null-assertion')
+        self.fixture.page = argparse.Namespace(evaluate=evaluate, touchscreen=argparse.Namespace(tap=tap))
+        self.fixture.wait = wait
+        asyncio.run(self.fixture.clear_target())
+        self.assertEqual(calls, ['empty-point', ('native-tap', 265.2, 156), 'target-null-assertion'])
+        self.assertNotIn('targetClearReceipt', self.fixture.report)
+        self.assertEqual(self.fixture.report['targetClearPolicy'], {'minimumHudClearancePx': 32, 'pointerReceipts': False})
+
+    def test_diagnostic_mode_rejects_non_canvas_untrusted_or_mismatched_native_receipts(self):
+        self.fixture.args.touch = True
+        self.fixture.args.pointer_receipts = True
+        async def tap(x, y):
+            pass
+        async def wait(expression):
+            self.assertEqual(expression, '()=>__hm.GAME.player.target===null')
+        for invalid in ['intercepted', 'untrusted', 'mismatched', 'wrong-pointer-type', 'not-cleared']:
+            rows = [
+                {'phase': 'capture', 'type': 'pointerdown', 'pointerType': 'touch', 'isTrusted': True, 'target': {'id': 'scene'}, 'pointerId': 1, 'x': 195, 'y': 156},
+                {'phase': 'bubble', 'type': 'pointerup', 'pointerType': 'touch', 'isTrusted': True, 'target': {'id': 'scene'}, 'pointerId': 1, 'x': 195, 'y': 156, 'state': {'target': None}}]
+            if invalid == 'intercepted':
+                rows[0]['target']['id'] = rows[1]['target']['id'] = 'tf'
+            if invalid == 'untrusted':
+                rows[0]['isTrusted'] = rows[1]['isTrusted'] = False
+            if invalid == 'mismatched':
+                rows[1]['pointerId'] = 2
+            if invalid == 'wrong-pointer-type':
+                rows[0]['pointerType'] = rows[1]['pointerType'] = 'mouse'
+            if invalid == 'not-cleared':
+                rows[1]['state']['target'] = 5
+            async def evaluate(expression, arg=None):
+                if expression == journey.EMPTY_CANVAS_POINT:
+                    return {'x': 195, 'y': 156}
+                if expression == journey.INSTALL_POINTER_RECEIPTS:
+                    return {'hit': {'id': 'scene'}}
+                return {'rows': rows}
+            self.fixture.page = argparse.Namespace(evaluate=evaluate, touchscreen=argparse.Namespace(tap=tap))
+            self.fixture.wait = wait
+            with self.subTest(invalid=invalid), self.assertRaisesRegex(AssertionError, 'matching trusted canvas'):
+                asyncio.run(self.fixture.clear_target())
 
 
 if __name__ == '__main__':

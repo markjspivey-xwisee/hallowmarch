@@ -63,6 +63,14 @@ ARRANGE_QUARRY = """({touch})=>{
 }"""
 SELECTABLE_CANVAS_POINT = """({point,touch})=>{const H=__hm;""" + CANVAS_POINT_RULE + """return canSelect(point);}"""
 EMPTY_CANVAS_POINT = """({touch})=>{const H=__hm;""" + CANVAS_POINT_RULE + """
+  // A geometric hit-test alone permits taps directly beside a growing target
+  // panel. Keep a finger-sized margin from every rendered HUD panel/control.
+  const clearance=touch?32:0;
+  const hud=Array.from(document.querySelectorAll('#hud .panel,#hud button,#hud [role="button"],#hud input,#hud select,#hud summary,#hud a[href]'))
+    .filter(node=>{const r=node.getBoundingClientRect(),s=getComputedStyle(node);return !node.hidden
+      &&!node.closest('[hidden],[inert]')&&r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden'&&s.visibility!=='collapse';})
+    .map(node=>node.getBoundingClientRect());
+  const interior=p=>hud.every(r=>p.x<r.left-clearance||p.x>r.right+clearance||p.y<r.top-clearance||p.y>r.bottom+clearance);
   // Exclude every projected body in pickAt's envelope, even an occluded one.
   // This is conservative: no visibility guess can make an occupied point empty.
   const occupied=(sx,sy)=>H.ENT.some(e=>{
@@ -74,7 +82,7 @@ EMPTY_CANVAS_POINT = """({touch})=>{const H=__hm;""" + CANVAS_POINT_RULE + """
     return Math.hypot(s.x-sx,(s.y-sy)*.8)<rad;
   });
   for(const y of [.2,.28,.4,.55,.7,.82])for(const x of [.5,.58,.68,.8,.9,.42,.32,.2,.1]){
-    const p={x:innerWidth*x,y:innerHeight*y};if(canSelect(p)&&!occupied(p.x,p.y))return p;}
+    const p={x:innerWidth*x,y:innerHeight*y};if(canSelect(p)&&interior(p)&&!occupied(p.x,p.y))return p;}
   return null;
 }"""
 
@@ -311,6 +319,13 @@ class Journey:
         empty = await self.page.evaluate(EMPTY_CANVAS_POINT, {'touch': True})
         require(empty, 'No verified empty canvas point outside the touch movement area')
         self.report['targetClearPoint'] = empty
+        observe = bool(getattr(self.args, 'pointer_receipts', False))
+        self.report['targetClearPolicy'] = {'minimumHudClearancePx': 32, 'pointerReceipts': observe}
+        self.save()
+        if not observe:
+            await self.page.touchscreen.tap(empty['x'], empty['y'])
+            await self.wait('()=>__hm.GAME.player.target===null')
+            return
         self.report['targetClearBeforeTap'] = await self.page.evaluate(INSTALL_POINTER_RECEIPTS, empty)
         self.save()
         try:
@@ -323,6 +338,14 @@ class Journey:
                 self.report.setdefault('diagnosticErrors', []).append({'operation': 'pointer-receipt.stop',
                     'type': type(error).__name__, 'error': str(error) or repr(error)})
             self.save()
+        rows = (self.report.get('targetClearReceipt') or {}).get('rows', [])
+        down = next((row for row in rows if row['phase'] == 'capture' and row['type'] == 'pointerdown'
+                     and row['isTrusted'] is True and row['pointerType'] == 'touch' and row['target'].get('id') == 'scene'), None)
+        up = next((row for row in rows if row['phase'] == 'bubble' and row['type'] == 'pointerup'
+                   and row['isTrusted'] is True and row['pointerType'] == 'touch' and row['target'].get('id') == 'scene'
+                   and down and row['pointerId'] == down['pointerId']), None)
+        require(down and up and all(abs(row[axis] - empty[axis]) < 1 for row in [down, up] for axis in ['x', 'y'])
+                and up['state']['target'] is None, 'The native clear tap did not produce matching trusted canvas down/up and a cleared target')
 
     async def play(self):
         self.phase('navigation-start', entry='fresh')
@@ -546,6 +569,7 @@ def arguments():
     parser.add_argument('--executable', help='Optional browser executable; always launches headless with a fresh context')
     parser.add_argument('--edge-native', action='store_true', help='Installed headless Edge with native GPU/security defaults and hardware identity verification')
     parser.add_argument('--touch', action='store_true', help='Use real touch input and the compact phone controls')
+    parser.add_argument('--pointer-receipts', action='store_true', help='Opt-in passive dispatch/HUD diagnostics around the single touch target-clear action')
     parser.add_argument('--width', type=int)
     parser.add_argument('--height', type=int)
     parser.add_argument('--timeout', type=int, default=720, help='Whole-journey deadline in seconds; no automatic retry')

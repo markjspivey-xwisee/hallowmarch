@@ -23,7 +23,7 @@ const player=readFileSync(join(root,'src/09_player.js'),'utf8');
 const zoneSource=mobile.slice(mobile.indexOf('function mobileMovementZone('),mobile.indexOf('\nfunction mobileApplyPrefs('));
 const pickSource=player.slice(player.indexOf('function pickAt('),player.indexOf('\nfunction setPlayerTarget('));
 const done=[];
-function fixture({hand='right',hud=false,walkable=true}={}){
+function fixture({hand='right',hud=false,walkable=true,hudRects=[]}={}){
   const width=390,height=780,pitch=.36,distance=8.5,focusY=1.55;
   const camera=new THREE.PerspectiveCamera(55,width/height,.1,900);
   camera.position.set(0,focusY+Math.sin(pitch)*distance,-Math.cos(pitch)*distance);
@@ -36,7 +36,9 @@ function fixture({hand='right',hud=false,walkable=true}={}){
   H.fn={getEnt:id=>H.ENT.find(e=>e.id===id),isWalkable:()=>walkable,heightAt:()=>0,
     screenOf(x,y,z){const p=new THREE.Vector3(x,y,z).project(camera);return p.z>1||p.z< -1?null:{x:(p.x*.5+.5)*width,y:(-p.y*.5+.5)*height,z:p.z};}};
   const context=vm.createContext({__hm:H,innerWidth:width,innerHeight:height,view:{w:width,h:height},MOBILE_PREFS:H.mobile.prefs,
-    document:{elementFromPoint:x=>({id:(hud===true||hud==='left'&&x<width*.5)?'hud':'scene'})},Math,Error,GAME:H.GAME,ENT:H.ENT,camera,
+    document:{elementFromPoint:x=>({id:(hud===true||hud==='left'&&x<width*.5)?'hud':'scene'}),
+      querySelectorAll:()=>hudRects.map(rect=>({hidden:false,closest:()=>null,getBoundingClientRect:()=>rect}))},
+    getComputedStyle:()=>({display:'grid',visibility:'visible'}),Math,Error,GAME:H.GAME,ENT:H.ENT,camera,
     clamp:(n,a,b)=>Math.max(a,Math.min(b,n)),dist:(x,z,a,b)=>Math.hypot(x-a,z-b),screenOf:H.fn.screenOf,
     playerTargetVisible:()=>true,setPlayerTarget:e=>{P.target=e?e.id:null;}});
   const zone=vm.runInContext('('+zoneSource+')',context),pick=vm.runInContext('('+pickSource+')',context);
@@ -74,6 +76,18 @@ for(const hand of ['right','left']){
 {
   const f=fixture({hud:true});assert.equal(f.run(input.empty,{touch:true}),null);done.push('no false empty point beneath HUD');
 }
+for(const [name,right,bottom] of [['failed b expanded target',201,149],['passed c compact target',202,124.890625]]){
+  const target={left:8,top:80,right,bottom,width:right-8,height:bottom-80};
+  const f=fixture({hudRects:[target]}),point=f.run(input.empty,{touch:true});
+  assert(point);assert.notDeepEqual(JSON.parse(JSON.stringify(point)),{x:195,y:156},'near-edge point must be refused even when geometric hit-test is canvas');
+  assert(point.x<target.left-32||point.x>target.right+32||point.y<target.top-32||point.y>target.bottom+32);
+  assert.equal(f.zone(point.x,point.y),false);f.pick(point.x,point.y);assert.equal(f.P.target,null);
+  done.push('safe touch clearance '+name);
+}
+{
+  const f=fixture({hudRects:[{left:0,top:0,right:390,bottom:780,width:390,height:780}]});
+  assert.equal(f.run(input.empty,{touch:true}),null,'an occupied viewport cannot manufacture a safe point');done.push('no safe interior beneath full HUD');
+}
 console.log(JSON.stringify(done));
 """
 
@@ -87,7 +101,7 @@ class FirstSessionPoints(unittest.TestCase):
                                                   'empty': journey.EMPTY_CANVAS_POINT}),
                                 capture_output=True, text=True, encoding='utf-8', timeout=20, **process_options())
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(len(json.loads(result.stdout)), 9)
+        self.assertEqual(len(json.loads(result.stdout)), 12)
 
 
 if __name__ == '__main__':
