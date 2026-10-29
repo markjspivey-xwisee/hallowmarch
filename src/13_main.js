@@ -11,8 +11,54 @@ function reportError(err) {
   const msg = String(err && (err.stack || err.message) || err);
   if (HM_ERRORS.length < 20 && !HM_ERRORS.includes(msg)) { HM_ERRORS.push(msg); console.error(err); }
 }
-window.addEventListener('error', (e) => reportError(e.error || e.message));
-window.addEventListener('unhandledrejection', (e) => reportError(e.reason));
+// Browser extensions can inject their own scripts into this window. Keep their
+// proven ambient failures out of game diagnostics without hiding browser errors.
+// Directly caught game/boot/render failures always use reportError unchanged.
+const HM_AMBIENT_ERRORS = GRAPHICS_STARTUP.ambientErrors = { extensionError: 0, extensionRejection: 0 };
+function extensionScriptURL(value) {
+  if (typeof value !== 'string' || value.length > 4096 || !/^chrome-extension:\/\/[a-p]{32}\/[^\\\u0000-\u0020\u007f]+$/.test(value)) return false;
+  try {
+    const url = new URL(value);
+    return url.href === value && url.protocol === 'chrome-extension:' && /^[a-p]{32}$/.test(url.hostname)
+      && !url.username && !url.password && !url.port && url.pathname.length > 1;
+  } catch { return false; }
+}
+function extensionOnlyStack(stack) {
+  if (typeof stack !== 'string' || !stack || stack.length > 8192) return false;
+  const lines = stack.split(/\r?\n/);
+  if (lines.length < 2 || lines.length > 33 || !lines[0].trim() || /^\s*at\s/.test(lines[0])) return false;
+  let frames = 0;
+  for (const line of lines.slice(1)) {
+    if (!line.trim()) continue;
+    const frame = /^at (?:async )?(?:([^():/\\]+) \(([^()\s]+)\)|([^()\s]+))$/.exec(line.trim());
+    if (!frame || /\beval\b/.test(frame[1] || '')) return false;
+    const location = /^(.+):([1-9]\d*):([1-9]\d*)$/.exec(frame[2] || frame[3]);
+    if (!location || !extensionScriptURL(location[1])) return false;
+    frames++;
+  }
+  return frames > 0;
+}
+function extensionAmbientWindowError(event, type) {
+  try {
+    if (event.isTrusted !== true || event.target !== window || event.currentTarget !== window) return false;
+    const filename = event.filename;
+    if (filename !== undefined && filename !== null && filename !== '' && !extensionScriptURL(filename)) return false;
+    const reason = type === 'error' ? event.error : event.reason;
+    // A nested cause/aggregate is not covered by the one observed stack.
+    if (reason && (reason.cause !== undefined || reason.errors !== undefined)) return false;
+    return !!reason && extensionOnlyStack(reason.stack);
+  } catch { return false; } // unreadable/ambiguous provenance remains a game error
+}
+function reportAmbientWindowError(event, type) {
+  if (extensionAmbientWindowError(event, type)) {
+    const key = type === 'error' ? 'extensionError' : 'extensionRejection';
+    HM_AMBIENT_ERRORS[key] = Math.min(255, HM_AMBIENT_ERRORS[key] + 1);
+    return;
+  }
+  reportError(type === 'error' ? event.error || event.message : event.reason);
+}
+window.addEventListener('error', (event) => reportAmbientWindowError(event, 'error'));
+window.addEventListener('unhandledrejection', (event) => reportAmbientWindowError(event, 'unhandledrejection'));
 
 /* ------------------------------------------------------------------ */
 /* sizing and quality                                                  */
