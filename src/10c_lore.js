@@ -133,6 +133,8 @@ const LORE_CSS = `
 .chron-grps, .chron-secs { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
 .chron-grps { gap: 2px 14px; border-bottom: 1px solid var(--line); }
 .chron-nav button { flex: none; border: 1px solid var(--line); background: rgba(255, 255, 255, 0.03); color: var(--ink-dim); border-radius: 999px; padding: 5px 11px; font: 500 13.5px var(--ui); cursor: pointer; white-space: nowrap; }
+body.touch .chron-nav button { min-height: var(--mobile-target, 44px); }
+body.touch .chron-grps { column-gap: 10px; }
 .chron-nav button:hover { color: var(--ink); border-color: var(--line-strong); }
 .chron-nav button[aria-current="true"] { background: var(--bronze-hi); border-color: var(--bronze-hi); color: #1b140b; }
 .chron-nav button[hidden] { display: none; }
@@ -1295,7 +1297,7 @@ function renderChronicle(body, fromNav = false) {
   // Progress has its own persistent menu tab. Keep old coach links routable,
   // without repeating the same destination in the Chronicle's page controls.
   const secs = CHRON_GROUPS.flatMap(([gk, , ks]) => ks.filter((k) => label[k] && k !== 'coach').map((k) => `<button type="button" data-sec="${k}" aria-current="${k === sec}"${gk === G[0] ? '' : ' hidden'}>${label[k]}</button>`)).join('');
-  body.innerHTML = `<div class="chron"><nav class="chron-nav" aria-label="Chronicle"><div class="chron-grps">${grps}</div><div class="chron-secs">${secs}</div></nav><div class="chron-body">${fn()}</div></div>`;
+  body.innerHTML = `<div class="chron"><nav class="chron-nav" aria-label="Chronicle"><div class="chron-grps" role="group" aria-label="Guide sections">${grps}</div><div class="chron-secs" role="group" aria-label="Pages in this section">${secs}</div></nav><div class="chron-body">${fn()}</div></div>`;
   chronFold(sec); // [guide2] a long page folds into its summaries on a phone (10f_guide2.js)
   const nav = body.querySelector('.chron-nav'), row = nav.querySelector('.chron-secs'), cur = row.querySelector('[aria-current="true"]');
   if (!fromNav) body.scrollTop = 0;
@@ -1315,10 +1317,10 @@ function renderChronicle(body, fromNav = false) {
 }
 // the Chronicle's four parts; a page no part names falls under the first
 const CHRON_GROUPS = [
-  ['land', 'The March', ['march', 'realms', 'water', 'wilds', 'dragon', 'barrow']],
-  ['you', 'Your path', ['path', 'callings']],
-  ['war', 'The war', ['war', 'orders', 'halls', 'gifts']],
-  ['life', 'Living', ['living', 'fields', 'herbal', 'animals', 'building']],
+  ['land', 'World', ['march', 'realms', 'water', 'wilds', 'dragon', 'barrow']],
+  ['you', 'Your guide', ['path', 'callings']],
+  ['war', 'Warfare', ['war', 'orders', 'halls', 'gifts']],
+  ['life', 'Life skills', ['living', 'fields', 'herbal', 'animals', 'building']],
 ];
 for (const [k] of CHRON_SECTIONS) if (!CHRON_GROUPS.some((g) => g[2].includes(k))) CHRON_GROUPS[0][2].push(k);
 // [guide] a page from any module: its key, its label, the part it belongs to ('land', 'you', 'war', 'life'), the function
