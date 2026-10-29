@@ -165,6 +165,56 @@ class FirstSessionObservability(unittest.TestCase):
         self.assertEqual(self.fixture.trace_state, 'off')
         self.assertEqual(len(self.trace.calls), 4)
 
+    def test_ui_trace_keeps_dom_actions_and_sources_without_continuous_screencast(self):
+        asyncio.run(self.fixture.start_ui_trace('entry'))
+        self.assertEqual(self.trace.calls, [('start', {'screenshots': False, 'snapshots': True, 'sources': True})])
+        policy = self.fixture.report['tracePolicy']
+        self.assertFalse(policy['screenshots'])
+        self.assertTrue(policy['snapshots'] and policy['sources'] and policy['uiOnly'])
+        self.assertFalse(policy['coldStartup'] or policy['reloadWarmup'])
+        self.assertIn('Explicit step PNGs', policy['visualEvidence'])
+        asyncio.run(self.fixture.stop_ui_trace())
+
+    def test_trace_export_timeout_remains_fatal_without_an_earlier_game_failure(self):
+        async def timeout(awaitable, timeout):
+            self.assertEqual(timeout, 20)
+            awaitable.close()
+            raise asyncio.TimeoutError()
+        self.fixture.trace_state = 'recording'
+        self.fixture.trace_label = 'entry'
+        with patch.object(journey.asyncio, 'wait_for', side_effect=timeout):
+            with self.assertRaises(asyncio.TimeoutError):
+                asyncio.run(self.fixture.stop_ui_trace())
+        self.assertEqual(self.fixture.report['outcome'], 'FAIL')
+        self.assertEqual(self.fixture.report['failurePhase']['name'], 'ui-trace-stop')
+        self.assertEqual(self.fixture.report['failureType'], 'TimeoutError')
+        self.assertEqual(self.fixture.trace_state, 'uncertain')
+        asyncio.run(self.fixture.stop_ui_trace())
+        self.assertEqual(len(self.fixture.report['cleanupErrors']), 1, 'failed export is not retried or ignored')
+
+    def test_trace_start_keeps_its_fatal_twenty_second_bound(self):
+        async def timeout(awaitable, timeout):
+            self.assertEqual(timeout, 20)
+            awaitable.close()
+            raise asyncio.TimeoutError()
+        with patch.object(journey.asyncio, 'wait_for', side_effect=timeout):
+            with self.assertRaises(asyncio.TimeoutError):
+                asyncio.run(self.fixture.start_ui_trace('entry'))
+        self.assertEqual(self.fixture.report['outcome'], 'FAIL')
+        self.assertEqual(self.fixture.report['failurePhase']['name'], 'ui-trace-start')
+        self.assertEqual(self.fixture.report['failureType'], 'TimeoutError')
+
+    def test_all_nine_explicit_visual_checkpoints_remain_required(self):
+        tree = ast.parse(pathlib.Path(journey.__file__).read_text(encoding='utf-8'))
+        play = next(node for node in ast.walk(tree) if isinstance(node, ast.AsyncFunctionDef) and node.name == 'play')
+        shots = sorted((node.lineno, node.args[0].value) for node in ast.walk(play)
+                       if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == 'record'
+                       and node.args and isinstance(node.args[0], ast.Constant)
+                       and any(keyword.arg == 'shot' and isinstance(keyword.value, ast.Constant) and keyword.value.value is True
+                               for keyword in node.keywords))
+        self.assertEqual([label for _, label in shots], ['01-title', '02-prologue', '03-first-objective', '04-herald',
+            '05-map', '06-combat-feedback', '07-selected-objective', '08-returning-title', '09-continued-world'])
+
     def test_title_timeout_retains_a_bounded_readonly_receipt(self):
         async def title(*args, **kwargs):
             raise TimeoutError('title fence did not settle')
