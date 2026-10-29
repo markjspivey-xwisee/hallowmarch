@@ -237,7 +237,8 @@ async function prepareTitleProgramJobs(inventory, stages, generation, dependency
     prepareMs: 0, maxSinglePrepareMs: 0, slowestPrepare: null, maxFullTurnMs: 0, budgetYields: 0, waves: 0, maxWavePrograms: 0,
     inventoryMs: 0, inventoryObjects: 0, maxInventoryCheckMs: 0, slowestInventory: null,
     flushMs: 0, maxFlushMs: 0, pollMs: 0, maxPollMs: 0,
-    errorCheckMs: 0, maxErrorCheckMs: 0, elapsedMs: 0, visibleMs: 0, hiddenMs: 0, disposed: 0, families: {} };
+    errorCheckMs: 0, maxErrorCheckMs: 0, elapsedMs: 0, visibleMs: 0, hiddenMs: 0, disposed: 0, families: {},
+    waveLatency: [], droppedWaveLatency: 0 };
   const history = GRAPHICS_STARTUP.titlePreparations ||= [];
   history.push(receipt);
   if (history.length > 8) history.shift();
@@ -249,6 +250,7 @@ async function prepareTitleProgramJobs(inventory, stages, generation, dependency
   const pending = new Map(), initialTarget = sceneRT;
   let timer = null, wake = null, lost = false, stale = false, avatarJob = null, dependencies = null;
   let clockAt = started, visibleMs = 0, wasHidden = !!document.hidden;
+  let waveLatency = null, wavePollAt = null;
   // Driver work may be throttled in a background tab. Spend deadlines only
   // while visible; context loss and genuine GL/link failures remain fatal.
   const visibleElapsed = () => {
@@ -258,6 +260,28 @@ async function prepareTitleProgramJobs(inventory, stages, generation, dependency
     if (!wasHidden && !hiddenNow) visibleMs += Math.max(0, now - clockAt);
     clockAt = now; wasHidden = hiddenNow;
     return visibleMs;
+  };
+  // Diagnostic timestamps are observations, not driver completion times. Keep
+  // them free of GPU objects and bounded independently of the finite job list.
+  // Reading this clock must not change visibility accounting or any deadline.
+  const observedVisible = () => visibleMs + (!wasHidden && !document.hidden ? Math.max(0, performance.now() - clockAt) : 0);
+  const startWaveLatency = () => {
+    if (waveLatency) return;
+    waveLatency = { wave: receipt.waves + 1, startMs: performance.now() - started, visibleStartMs: observedVisible(),
+      elapsedMs: 0, visibleMs: 0, preparedJobs: 0, newPrograms: 0, completedPrograms: 0, disposedPrograms: 0,
+      firstProgramQueuedMs: null, lastProgramQueuedMs: null, lastPreparedMs: null, sealedMs: null,
+      firstObservedReadyMs: null, lastObservedReadyMs: null, polls: 0, maxObservedPollGapMs: 0,
+      timerSchedules: 0, timerCallbacks: 0, timerLateMs: 0, maxTimerLateMs: 0, validationMs: 0, outcome: 'preparing', families: {} };
+    wavePollAt = null;
+    if (receipt.waveLatency.length < 128) receipt.waveLatency.push(waveLatency);
+    else receipt.droppedWaveLatency++;
+  };
+  const finishWaveLatency = outcome => {
+    if (!waveLatency) return;
+    waveLatency.elapsedMs = Math.max(0, performance.now() - started - waveLatency.startMs);
+    waveLatency.visibleMs = Math.max(0, observedVisible() - waveLatency.visibleStartMs);
+    waveLatency.outcome = outcome;
+    waveLatency = null; wavePollAt = null;
   };
   const invalidate = reason => { stale = true; receipt.reason ||= reason; resume(); };
   const resume = () => {
@@ -287,11 +311,21 @@ async function prepareTitleProgramJobs(inventory, stages, generation, dependency
     active();
     const checked = performance.now() - checkStarted;
     receipt.errorCheckMs += checked; receipt.maxErrorCheckMs = Math.max(receipt.maxErrorCheckMs, checked);
+    if (waveLatency) waveLatency.validationMs += checked;
     if (found.length) throw new Error('GL errors while preparing title programs: ' + found.join(', '));
   };
   const pause = () => new Promise(resolve => {
     wake = resolve;
-    timer = setTimeout(() => { timer = null; wake = null; resolve(); }, TITLE_COMPILE_LIMITS.pollMs);
+    const expectedAt = performance.now() + TITLE_COMPILE_LIMITS.pollMs, scheduledWave = waveLatency;
+    if (scheduledWave) scheduledWave.timerSchedules++;
+    timer = setTimeout(() => {
+      if (scheduledWave) {
+        const late = Math.max(0, performance.now() - expectedAt);
+        scheduledWave.timerCallbacks++;
+        scheduledWave.timerLateMs += late; scheduledWave.maxTimerLateMs = Math.max(scheduledWave.maxTimerLateMs, late);
+      }
+      timer = null; wake = null; resolve();
+    }, TITLE_COMPILE_LIMITS.pollMs);
   });
   document.addEventListener('visibilitychange', hidden);
   window.addEventListener('resize', resized);
@@ -351,11 +385,17 @@ async function prepareTitleProgramJobs(inventory, stages, generation, dependency
       try {
         active(); changed();
         const pollStarted = performance.now();
+        if (pending.size && waveLatency) {
+          waveLatency.polls++;
+          if (wavePollAt !== null) waveLatency.maxObservedPollGapMs = Math.max(waveLatency.maxObservedPollGapMs, pollStarted - wavePollAt);
+          wavePollAt = pollStarted;
+        }
         for (const [program, job] of pending) {
           active();
           if (!program.program) {
             if (!stale) throw new Error('A required title program was disposed before completion.');
-            receipt.disposed++; pending.delete(program); continue;
+            receipt.disposed++; if (waveLatency) waveLatency.disposedPrograms++;
+            pending.delete(program); continue;
           }
           // Check availability before visible-time deadlines. Context loss
           // reports KHR completion=true, so reject it before accepting a result.
@@ -366,6 +406,12 @@ async function prepareTitleProgramJobs(inventory, stages, generation, dependency
             if (linked !== true) {
               receipt.failedProgram = { id: program.id, family: job.family, linked };
               throw new Error('A required title program failed to link.');
+            }
+            if (waveLatency) {
+              const observedAt = performance.now() - started - waveLatency.startMs;
+              waveLatency.firstObservedReadyMs ??= observedAt;
+              waveLatency.lastObservedReadyMs = observedAt;
+              waveLatency.completedPrograms++;
             }
             pending.delete(program);
           }
@@ -379,6 +425,7 @@ async function prepareTitleProgramJobs(inventory, stages, generation, dependency
         if (!pending.size && (!waveStarted || waveSealed)) {
           // Observe queued GL errors before another wave adds driver work.
           errors();
+          finishWaveLatency(stale ? 'stale' : 'drained');
           if (stale) { receipt.outcome = 'stale'; receipt.stale = true; return receipt; }
           if (index === jobs.length) break;
           wavePrograms = 0; waveStarted = false; waveSealed = false;
@@ -397,6 +444,7 @@ async function prepareTitleProgramJobs(inventory, stages, generation, dependency
             && job.material.visible !== false && job.material.version === job.version
             : job.avatarShadow ? SHADOW.rt === job.target && !INDOOR.on && job.object.parent === job.targetScene && job.object.userData.src === crowdHuman.mesh : titleCompileEligible(job.object);
           if (!eligible || job.object.geometry !== job.geometry || (!job.postDependency && job.object.material !== job.material)) { invalidate('inventory'); break; }
+          startWaveLatency();
           const before = new Set(renderer.info.programs), saved = gpuDiagCaptureRenderer(), side = job.material.side, originalMaterial = job.object.material;
           const queuedAt = performance.now(), queuedVisibleMs = visibleElapsed();
           // Flat original leaves preserve the renderer's real flags and cache keys.
@@ -429,6 +477,14 @@ async function prepareTitleProgramJobs(inventory, stages, generation, dependency
           if (added.length > job.cost) throw new Error('Title compilation exceeded its reserved program window.');
           for (const program of added) pending.set(program, { queuedVisibleMs, family: job.family });
           wavePrograms += added.length;
+          waveLatency.preparedJobs++; waveLatency.newPrograms += added.length;
+          waveLatency.lastPreparedMs = performance.now() - started - waveLatency.startMs;
+          if (added.length) {
+            waveLatency.firstProgramQueuedMs ??= waveLatency.lastPreparedMs;
+            waveLatency.lastProgramQueuedMs = waveLatency.lastPreparedMs;
+          }
+          const latencyFamily = waveLatency.families[job.family] ||= { jobs: 0, programs: 0 };
+          latencyFamily.jobs++; latencyFamily.programs += added.length;
           receipt.maxWavePrograms = Math.max(receipt.maxWavePrograms, wavePrograms);
           receipt.newPrograms += added.length;
           receipt.families[job.family].prepared++;
@@ -441,6 +497,7 @@ async function prepareTitleProgramJobs(inventory, stages, generation, dependency
           if (performance.now() - turnStarted >= TITLE_COMPILE_LIMITS.turnMs) { receipt.budgetYields++; break; }
         }
         receipt.maxPreparesPerTurn = Math.max(receipt.maxPreparesPerTurn, prepared);
+        if (waveSealed && waveLatency) waveLatency.sealedMs ??= performance.now() - started - waveLatency.startMs;
         if (prepared) {
           if (!waveStarted) { receipt.waves++; waveStarted = true; }
           active(); const flushStarted = performance.now(); gl.flush();
@@ -467,6 +524,7 @@ async function prepareTitleProgramJobs(inventory, stages, generation, dependency
     };
     throw error;
   } finally {
+    finishWaveLatency(receipt.outcome === 'failed' ? 'failed' : receipt.stale ? 'stale' : 'drained');
     if (timer !== null) clearTimeout(timer);
     timer = null; wake = null;
     document.removeEventListener('visibilitychange', hidden);

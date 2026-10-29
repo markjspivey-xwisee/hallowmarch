@@ -149,6 +149,65 @@ test('product concurrency is four without changing turn, poll or visible deadlin
   assert.equal(productPending, 4); assert.equal(limits.pending, 4); assert.equal(limits.perTurn, 4); assert.equal(limits.turnMs, 8);
   assert.equal(limits.pollMs, 10); assert.equal(limits.programMs, 90000); assert.equal(limits.totalMs, 180000); assert(Object.isFrozen(limits)); f.clean();
 });
+
+test('wave latency separates observed completion, poll opportunities and delayed timers without GPU queries', async () => {
+  const f = fixture({ count: 1, readyDelay: 100 }), promise = f.run(); await f.flush();
+  await f.timer(30); await f.timer(80);
+  const receipt = await promise, [wave] = receipt.waveLatency;
+  assert.equal(receipt.waves, 1); assert.equal(receipt.waveLatency.length, 1); assert.equal(receipt.droppedWaveLatency, 0);
+  assert.equal(wave.wave, 1); assert.equal(wave.startMs, 0); assert.equal(wave.elapsedMs, 130); assert.equal(wave.visibleMs, 130);
+  assert.equal(wave.preparedJobs, 1); assert.equal(wave.newPrograms, 2); assert.equal(wave.completedPrograms, 2);
+  assert.equal(wave.firstObservedReadyMs, 130); assert.equal(wave.lastObservedReadyMs, 130);
+  assert.equal(wave.polls, 2); assert.equal(wave.maxObservedPollGapMs, 90);
+  assert.equal(wave.timerSchedules, 2); assert.equal(wave.timerCallbacks, 2); assert.equal(wave.timerLateMs, 110); assert.equal(wave.maxTimerLateMs, 80);
+  assert.equal(wave.firstProgramQueuedMs, 0); assert.equal(wave.lastProgramQueuedMs, 0); assert.equal(wave.lastPreparedMs, 0); assert.equal(wave.sealedMs, 0);
+  assert.equal(wave.outcome, 'drained'); assert.equal(wave.families.terrain.jobs, 1); assert.equal(wave.families.terrain.programs, 2);
+  assert.equal(f.queries.length, 2, 'telemetry adds no link-status queries');
+  assert(f.errorChecks.every(check => check.pendingPrograms.length === 0)); f.clean();
+});
+
+test('wave observations retain partial completion without admitting work through the barrier', async () => {
+  const f = fixture({ count: 4, readyDelay: 100 }), promise = f.run(); await f.flush();
+  const submitted = f.compileCalls.length; f.programs[0].readyAt = 10;
+  await f.timer(); assert.equal(f.compileCalls.length, submitted);
+  await f.timer(90);
+  const receipt = await f.finish(promise), wave = receipt.waveLatency[0];
+  assert.equal(wave.newPrograms, 4); assert.equal(wave.completedPrograms, 4);
+  assert.equal(wave.firstObservedReadyMs, 10); assert.equal(wave.lastObservedReadyMs, 110);
+  assert.equal(wave.elapsedMs, 110); assert.equal(wave.outcome, 'drained'); f.clean();
+});
+
+test('a hidden delayed poll is visible as wall wait without spending the wave visible-time budget', async () => {
+  const f = fixture({ count: 1, readyDelay: 100000 }), promise = f.run(); await f.flush();
+  f.ctx.document.hidden = true; f.ctx.document.emit('visibilitychange'); await f.flush();
+  await f.timer(120000);
+  const receipt = await promise, [wave] = receipt.waveLatency;
+  assert.equal(receipt.stale, true); assert.equal(wave.outcome, 'stale');
+  assert.equal(wave.visibleMs, 0); assert.equal(wave.elapsedMs, 120010);
+  assert.equal(wave.maxTimerLateMs, 120000); assert.equal(wave.completedPrograms, 2); f.clean();
+});
+
+test('wave diagnostics remain bounded and contain no renderer resource references', async () => {
+  const f = fixture({ count: 440, readyDelay: 0 }), receipt = await f.finish(f.run());
+  assert(receipt.waves > 128); assert.equal(receipt.waveLatency.length, 128);
+  assert.equal(receipt.droppedWaveLatency, receipt.waves - 128);
+  for (const wave of receipt.waveLatency) {
+    assert.equal(wave.outcome, 'drained'); assert.equal(wave.completedPrograms, wave.newPrograms);
+    assert(Object.values(wave).every(value => value === null || typeof value !== 'object' || value === wave.families));
+    assert(!('program' in wave)); assert(!('material' in wave));
+  }
+  assert.doesNotThrow(() => JSON.stringify(receipt)); f.clean();
+});
+
+test('a failed drained validation leaves a failed wave receipt and never starts the next wave', async () => {
+  const f = fixture({ readyDelay: 100 }), promise = f.run(); await f.flush();
+  f.glErrors.push(['0x0502']); const submitted = f.compileCalls.length;
+  const rejected = assert.rejects(promise, /GL errors/); await f.timer(100); await rejected;
+  const receipt = f.ctx.GRAPHICS_STARTUP.titlePreparations[0], [wave] = receipt.waveLatency;
+  assert.equal(f.compileCalls.length, submitted); assert.equal(receipt.completed, false);
+  assert.equal(wave.outcome, 'failed'); assert.equal(wave.completedPrograms, wave.newPrograms);
+  assert.equal(receipt.waveLatency.length, 1); f.clean();
+});
 test('recovery and absent parallel extension retain serial rendering without timers or preparation', async () => {
   for (const options of [{ safe: true }, { supported: false }]) {
     const f = fixture(options), receipt = await f.run(); assert.equal(receipt.supported, false); assert.equal(f.calls.length, 0); f.clean();
