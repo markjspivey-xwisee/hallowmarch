@@ -382,6 +382,8 @@ function bootHarness({ diagnostic = true, safe = true } = {}) {
     'spellCompileVisible',
   ]) ctx[name] = () => {};
   ctx.buildWorldChunks=ctx.mtnHeightsChunks=ctx.buildStructuresChunks=function*(){yield;};
+  ctx.buildMapImageChunks=function*(){ctx.buildMapImage();yield;};
+  ctx.buildDungeonMapChunks=function*(){ctx.buildDungeonMap();yield;};
   const start = mainSource.indexOf('async function boot() {');
   const end = mainSource.indexOf('\n}',start);
   assert.ok(start>=0 && end>start);

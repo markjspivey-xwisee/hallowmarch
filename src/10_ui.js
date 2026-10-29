@@ -413,61 +413,116 @@ function updateWarPanel() {
 /* map image (rendered once from the world data)                       */
 /* ------------------------------------------------------------------ */
 function buildMapImage() {
+  const work = buildMapImageChunks();
+  while (!work.next().done) { /* synchronous callers drain the same pixel/draw order */ }
+}
+function* buildMapImageChunks() {
   const S = 512;
   const c = document.createElement('canvas');
   c.width = S; c.height = S;
   const ctx = c.getContext('2d');
   const img = ctx.createImageData(S, S);
   const rcols = REALMS.map((R) => hex3(R.color));
+  // Pin the original call's terrain/tree state across paint/input yields.
+  // Masks and water grids are immutable after world construction; capture their references.
+  const H = W.H.slice(), rock = W.rock, road = W.road, field = W.field;
+  const trees = new Float64Array(W.trees.length * 2), bearings = REALMS.map(R => R.bearing);
+  for (let i = 0; i < W.trees.length; i++) { trees[i * 2] = W.trees[i].x; trees[i * 2 + 1] = W.trees[i].z; }
+  // All map samples, including the +/-2 slope offsets, are inside the overworld.
+  const height = (x, z) => sampleGrid(H, x, z);
+  const realm = (x, z) => {
+    const b = bearingOf(x, z), r = Math.hypot(x, z);
+    const w = bearings.map(bearing => Math.pow(Math.max(0, Math.cos(angDiff(b, bearing) * 0.75)), 6));
+    const blend = sstep(10, 60, r);
+    let s = 0;
+    for (let k = 0; k < 3; k++) { w[k] = lerp(1 / 3, w[k], blend); s += w[k]; }
+    for (let k = 0; k < 3; k++) w[k] /= s || 1;
+    return w;
+  };
+  const surface = WATERGRID.surf, flowX = WATERGRID.fx, flowZ = WATERGRID.fz, out = { y: 0, depth: 0, fx: 0, fz: 0 };
+  const water = (x, z) => {
+    if (!surface || Math.abs(x) > HALF - 2 || Math.abs(z) > HALF - 2) return null;
+    const gx = (x + HALF) / HS, gz = (z + HALF) / HS, i = Math.floor(gx), j = Math.floor(gz), u = gx - i, v = gz - j;
+    let y = 0, w = 0, fx = 0, fz = 0;
+    for (let q = 0; q < 4; q++) {
+      const ii = i + (q & 1), jj = j + (q >> 1), k = jj * HN + ii, s = surface[k];
+      if (isNaN(s)) continue;
+      const ww = ((q & 1) ? u : 1 - u) * ((q >> 1) ? v : 1 - v) + 1e-4;
+      y += s * ww; fx += flowX[k] * ww; fz += flowZ[k] * ww; w += ww;
+    }
+    if (!w) return null;
+    y /= w;
+    const g = height(x, z);
+    if (y <= g + 0.01) return null;
+    out.y = y; out.depth = y - g; out.fx = fx / w; out.fz = fz / w;
+    return out;
+  };
   for (let py = 0; py < S; py++) {
     for (let px = 0; px < S; px++) {
       const x = -HALF + (px + 0.5) * (WSIZE / S), z = -HALF + (py + 0.5) * (WSIZE / S);
-      const h = heightAt(x, z);
-      const hx = heightAt(x + 2, z) - heightAt(x - 2, z), hz = heightAt(x, z + 2) - heightAt(x, z - 2);
+      const h = height(x, z);
+      const hx = height(x + 2, z) - height(x - 2, z), hz = height(x, z + 2) - height(x, z - 2);
       const shade = clamp(0.78 + (-hx * 0.55 - hz * 0.55) * 0.12, 0.45, 1.2);
-      const rw = realmWeightsAt(x, z);
+      const rw = realm(x, z);
       // [perf2] the same sums channel by channel (six arrays a pixel were made and thrown away: a phone spent seconds here)
       let c0 = 0.34, c1 = 0.42, c2 = 0.24;
       for (let k = 0; k < 3; k++) { const rc = rcols[k], w = rw[k]; c0 = c0 + (rc[0] - 0.35) * w * 0.18; c1 = c1 + (rc[1] - 0.35) * w * 0.18; c2 = c2 + (rc[2] - 0.35) * w * 0.18; }
-      const rk = sampleGrid(W.rock, x, z), rd = sampleGrid(W.road, x, z), fl = sampleGrid(W.field, x, z);
+      const rk = sampleGrid(rock, x, z), rd = sampleGrid(road, x, z), fl = sampleGrid(field, x, z);
       c0 = lerp(c0, 0.5, rk); c1 = lerp(c1, 0.48, rk); c2 = lerp(c2, 0.45, rk);
       if (h > 24) { const sk = clamp((h - 24) / 16, 0, 0.8); c0 = lerp(c0, 0.88, sk); c1 = lerp(c1, 0.88, sk); c2 = lerp(c2, 0.88, sk); }
       c0 = lerp(c0, 0.72, fl * 0.8); c1 = lerp(c1, 0.6, fl * 0.8); c2 = lerp(c2, 0.3, fl * 0.8);
       c0 = lerp(c0, 0.6, rd * 0.9); c1 = lerp(c1, 0.5, rd * 0.9); c2 = lerp(c2, 0.36, rd * 0.9);
-      { const wa = waterAt(x, z); if (wa && wa.depth > 0.05) { if (wa.fx || wa.fz) { c0 = 0.16; c1 = 0.3; c2 = 0.38; } else { c0 = 0.12; c1 = 0.24; c2 = 0.32; } } } // [water] lakes, ponds and rivers
+      { const wa = water(x, z); if (wa && wa.depth > 0.05) { if (wa.fx || wa.fz) { c0 = 0.16; c1 = 0.3; c2 = 0.38; } else { c0 = 0.12; c1 = 0.24; c2 = 0.32; } } } // [water] lakes, ponds and rivers
       const k = (py * S + px) * 4;
       img.data[k] = clamp(c0 * shade, 0, 1) * 255; img.data[k + 1] = clamp(c1 * shade, 0, 1) * 255; img.data[k + 2] = clamp(c2 * shade, 0, 1) * 255; img.data[k + 3] = 255;
     }
+    if ((py & 3) === 3) yield;
   }
   ctx.putImageData(img, 0, 0);
   ctx.fillStyle = 'rgba(16, 40, 20, 0.5)';
-  for (const t of W.trees) { const px = (t.x + HALF) / 2, py = (t.z + HALF) / 2; ctx.fillRect(px - 0.8, py - 0.8, 1.6, 1.6); }
+  for (let i = 0; i < trees.length / 2; i++) {
+    const px = (trees[i * 2] + HALF) / 2, py = (trees[i * 2 + 1] + HALF) / 2;
+    ctx.fillRect(px - 0.8, py - 0.8, 1.6, 1.6);
+    if ((i & 255) === 255) yield;
+  }
   UI.mapImg = c;
 }
 const w2m = (x, z, S) => [((x + HALF) / WSIZE) * S, ((z + HALF) / WSIZE) * S];
 /* the barrow's own map: 4 px to the metre */
 const DMAP_PX = 4;
 function buildDungeonMap() {
+  const work = buildDungeonMapChunks();
+  while (!work.next().done) { /* synchronous callers retain complete-only publication */ }
+}
+function* buildDungeonMapChunks() {
   const GW = DUN.GW, GH = DUN.GH, k = DMAP_PX;
+  const cells = DUN.cell.slice(), floors = DUN.fy.slice();
+  const index = (i, j) => i < 0 || j < 0 || i >= GW || j >= GH ? -1 : j * GW + i;
   const c = document.createElement('canvas');
   c.width = GW * k; c.height = GH * k;
   const ctx = c.getContext('2d');
   ctx.fillStyle = '#0b0c0e'; ctx.fillRect(0, 0, c.width, c.height);
-  for (let j = 0; j < GH; j++) for (let i = 0; i < GW; i++) {
-    const t = DUN.cell[j * GW + i];
-    if (!t) continue;
-    const f = DUN.fy[j * GW + i];
-    const g = Math.round(clamp(118 + f * 6, 60, 140));
-    ctx.fillStyle = t === 3 ? '#cfd9e2' : `rgb(${g + 14},${g + 6},${g - 8})`;
-    ctx.fillRect(i * k, j * k, k, k);
+  for (let j = 0; j < GH; j++) {
+    for (let i = 0; i < GW; i++) {
+      const t = cells[j * GW + i];
+      if (!t) continue;
+      const f = floors[j * GW + i];
+      const g = Math.round(clamp(118 + f * 6, 60, 140));
+      ctx.fillStyle = t === 3 ? '#cfd9e2' : `rgb(${g + 14},${g + 6},${g - 8})`;
+      ctx.fillRect(i * k, j * k, k, k);
+    }
+    if ((j & 3) === 3 || j === GH - 1) yield;
   }
   // walls drawn as a darker rim
   ctx.fillStyle = 'rgba(30,26,22,0.95)';
-  for (let j = 0; j < GH; j++) for (let i = 0; i < GW; i++) {
-    if (DUN.cell[j * GW + i]) continue;
-    let near = false;
-    for (const [a, b] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const q = dunIdx(i + a, j + b); if (q >= 0 && DUN.cell[q]) near = true; }
-    if (near) ctx.fillRect(i * k, j * k, k, k);
+  for (let j = 0; j < GH; j++) {
+    for (let i = 0; i < GW; i++) {
+      if (cells[j * GW + i]) continue;
+      let near = false;
+      for (const [a, b] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const q = index(i + a, j + b); if (q >= 0 && cells[q]) near = true; }
+      if (near) ctx.fillRect(i * k, j * k, k, k);
+    }
+    if ((j & 3) === 3 || j === GH - 1) yield;
   }
   UI.dunImg = c;
 }
