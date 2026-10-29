@@ -1051,6 +1051,7 @@ function animalOffers(P, offer) {
     // [v9] the beast you face comes first: a companion at your heel does not stand in for the wolf in front of you
     const face = d > 0.3 ? Math.abs(angDiff(P.yaw, Math.atan2(e.x - P.x, e.z - P.z))) / Math.PI * 0.5 : 0;
     if (k) {
+      if (!anPlayerCalm(P)) return; // Feeding already requires calm; do not advertise it during a fight or sprint.
       const T = anTrust(e), food = anFoodFor(k);
       const what = food ? goodName(food).toLowerCase() : AKIND[k].likes[0].replace('_', ' ');
       offer(d, 4.2, `Offer ${what} to the ${anWildName(e)} (trust ${T.n}/${T.need}${T.settle < 1 ? ', wary' : ''})`, () => anOffer(e), 0.1 - face);
