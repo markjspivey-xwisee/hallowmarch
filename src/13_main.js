@@ -263,6 +263,9 @@ function renderTitleFrame() {
             : [[id, members]]);
         const stages = [['post', new Set()], ...families];
         let resized = false;
+        const entryPreparation = await prepareTitleEntryPrograms(inventory, TITLE_WARM_GENERATION, wxPrepareCloudResources());
+        captureTitleResizeRequest();
+        if (entryPreparation.stale || TITLE_RESIZE_PENDING) { TITLE_FRAME_DIRTY = true; continue; }
         for (const [id, members] of stages) {
           await waitForTitleVisibility();
           titleAssertActive();
