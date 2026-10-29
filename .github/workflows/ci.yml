@@ -137,7 +137,7 @@ jobs:
               ;;
             companies) check python3 tools/tests/net.py companies ;;
             season) check python3 tools/tests/season2.py ;;
-            performance) echo 'Performance checks run in the following steps.' ;;
+            performance) node --test tools/tests/terrain_block_topology.test.mjs ;;
             visuals)
               check python3 tools/tests/combat_targeting.py
               check python3 tools/tests/objective_tracking.py

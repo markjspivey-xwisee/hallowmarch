@@ -53,14 +53,30 @@ function terrainLodGeo(g0, s) {
 }
 // far away, four chunks are drawn as one: a block of 2 x 2 chunks at 8 m cells (full detail round its rim), with its
 // own few vertices; craters rebuild it (natTerrainUpdate is followed)
-function terrainBlockGeo(bi, bj) {
-  const N = 128, i0 = bi * N, j0 = bj * N, map = new Map(), pos = [], nrm = [], idx = [], H = W.H;
-  let minY = 1e9, maxY = -1e9;
-  const v = (p) => {
-    const gi = i0 + p[0], gj = j0 + p[1], k = gj * HN + gi;
-    let id = map.get(k);
+// The sixteen far blocks share only CPU lattice coordinates and triangle order.
+// Each geometry still owns its height/normal data, Uint32Array and attributes.
+let TERRAIN_BLOCK_TOPOLOGY = null;
+function terrainBlockTopology() {
+  if (TERRAIN_BLOCK_TOPOLOGY) return TERRAIN_BLOCK_TOPOLOGY;
+  const map = new Map(), coords = [], indices = [];
+  const vertex = (p) => {
+    const key = p[1] * 129 + p[0];
+    let id = map.get(key);
     if (id === undefined) {
-      id = pos.length / 3; map.set(k, id);
+      id = coords.length / 2; map.set(key, id); coords.push(p[0], p[1]);
+    }
+    return id;
+  };
+  lodTris(128, 4, (a, b, c) => indices.push(vertex(a), vertex(b), vertex(c)));
+  TERRAIN_BLOCK_TOPOLOGY = { coords: new Uint16Array(coords), indices: new Uint32Array(indices) };
+  return TERRAIN_BLOCK_TOPOLOGY;
+}
+function terrainBlockGeo(bi, bj) {
+  const topology = terrainBlockTopology();
+  const N = 128, i0 = bi * N, j0 = bj * N, pos = [], nrm = [], idx = topology.indices, H = W.H;
+  let minY = 1e9, maxY = -1e9;
+  for (let v = 0; v < topology.coords.length; v += 2) {
+    const gi = i0 + topology.coords[v], gj = j0 + topology.coords[v + 1], k = gj * HN + gi;
       const y = H[k];
       pos.push(-HALF + gi * HS, y, -HALF + gj * HS);
       const hl = H[gj * HN + Math.max(0, gi - 1)], hr = H[gj * HN + Math.min(HN - 1, gi + 1)];
@@ -68,10 +84,7 @@ function terrainBlockGeo(bi, bj) {
       const nx = (hl - hr) / (2 * HS), nz = (hd - hu) / (2 * HS), l = Math.hypot(nx, 1, nz);
       nrm.push(nx / l, 1 / l, nz / l);
       if (y < minY) minY = y; if (y > maxY) maxY = y;
-    }
-    return id;
-  };
-  lodTris(N, 4, (a, b, c) => idx.push(v(a), v(b), v(c)));
+  }
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   g.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3));
