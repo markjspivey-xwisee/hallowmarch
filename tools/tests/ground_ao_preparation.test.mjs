@@ -10,9 +10,9 @@ const prior=JSON.parse(read('tools/tests/fixtures/ground_ao_7201708.json'));
 assert.equal(prior.revision,'720170869cd8469f8841a6bbc714c5e9fcdd673d');
 assert.equal(createHash('sha256').update(prior.buildGroundAO).digest('hex'),'eb980085051ee84cb728f482c32de84b79577497065c71a6c99cbdea6d5e9e60');
 const terrain=read('src/03_terrain.js');
-const names=new Set(['GROUND_AO_WORK','GROUND_AO_BOX_FIELDS','GROUND_AO_CIRCLE_FIELDS','GROUND_AO_PATH_FIELDS',
+const names=new Set(['GROUND_AO_WORK','GROUND_AO_APPEND_PROPS','GROUND_AO_APPEND_WORK','GROUND_AO_BOX_FIELDS','GROUND_AO_CIRCLE_FIELDS','GROUND_AO_PATH_FIELDS',
   'groundAOPathFns','groundAOPrepared','groundAOPreparation','groundAONote','groundAOList','groundAOListCurrent','groundAOInputs',
-  'groundAOInputsCurrent','groundAOBytesChunks','prepareGroundAOChunks','buildGroundAO']);
+  'groundAOInputsCurrent','groundAOBoxBytesChunks','groundAOAppendedProps','groundAOExtendPrepared','groundAOBytesChunks','prepareGroundAOChunks','buildGroundAO']);
 const actual=parse(terrain,{ecmaVersion:'latest',sourceType:'module'}).body.filter(n=>
   n.type==='FunctionDeclaration'&&names.has(n.id.name)||n.type==='VariableDeclaration'&&n.declarations.some(d=>names.has(d.id.name)))
   .map(n=>terrain.slice(n.start,n.end)).join('\n');
@@ -36,20 +36,21 @@ test('retained synchronous kernel is token-identical to the independent original
   const body=original.body.body.map(n=>prior.buildGroundAO.slice(n.start,n.end)).join('\n');
   assert.deepEqual(tokens(fallback),tokens(body));
 });
-function fixture({oracle=false,countWrites=false,failAllocation=0}={}){
+function fixture({oracle=false,countWrites=false,failAllocation=0,canopy=false}={}){
   const effects={allocations:0,textures:[],bindings:[],pathCalls:0,planCalls:0,writes:0,random:0};
   class Texture{constructor(data,w,h,format,type){Object.assign(this,{data,w,h,format,type});effects.textures.push(this);}}
   const array=new Proxy(Uint8Array,{construct(Target,args){effects.allocations++;if(effects.allocations===failAllocation)throw Error('optional bytes unavailable');
-    const value=new Target(...args);return countWrites?new Proxy(value,{get:(t,k)=>Reflect.get(t,k,t),set(t,k,v){if(/^\d+$/.test(String(k)))effects.writes++;return Reflect.set(t,k,v,t);}}):value;}});
+    const value=new Target(...args);return countWrites?new Proxy(value,{get:(t,k)=>Reflect.get(t,k,t),set(t,k,v){if(/^\d+$/.test(String(k))){effects.writes++;effects.onWrite?.(t,k,v);}return Reflect.set(t,k,v,t);}}):value;}});
   const u={};let bound={neutral:true};Object.defineProperty(u,'value',{get:()=>bound,set:v=>{bound=v;effects.bindings.push(v);}});
   const site={x:0,z:0},house={S:site,big:false,door:{c:{x:8,z:3},out:{x:9,z:3}}};
-  const ctx={WSIZE:1024,HALF:512,GRAPHICS_STARTUP:{},CANOPY:{ao:null,tex:null},U:{uGroundAO:u},
+  const ctx={WSIZE:1024,HALF:512,GRAPHICS_STARTUP:{},CANOPY:{ao:null,tex:null,res:32,next:0},U:{uGroundAO:u,uCanopy:{value:null}},
     COLL:{boxes:[{tag:'wall',x:1.3,z:-2.7,h:6,hx:2.5,hz:0.8,cos:Math.cos(.7),sin:Math.sin(.7)},
       {tag:'prop',x:-511.4,z:510.2,h:0,hx:1.2,hz:1.3,cos:1,sin:0},{tag:'ignored',x:13,z:7,h:3,hx:1,hz:1,cos:1,sin:0}],
       circles:[{tag:'stone',x:5.7,z:3.8,h:2,r:1.25},{tag:'tree',x:20,z:30,h:6,r:3}]},
     LOOK:{towns:[{paths:[{ax:-12.2,az:5.5,bx:20.1,bz:-7.7,w:1.5},{ax:0,az:0,bx:0,bz:0,w:1.9}]}]},
     LOOK3:{halls:[{ax:-512.3,az:507.2,bx:-500.7,bz:515.5,w:1.9}]},HOUSES:[house],REALMS:[{id:0,town:site}],HALL:{list:[]},
-    THREE:{DataTexture:Texture,RGFormat:'RG',UnsignedByteType:'byte',LinearFilter:'linear'},effects};
+    THREE:{DataTexture:Texture,RGFormat:'RG',RGBAFormat:'RGBA',UnsignedByteType:'byte',LinearFilter:'linear'},effects,
+    W:{trees:[]},window:{},renderTime:73};
   const math=Object.create(Math);math.random=()=>{effects.random++;throw Error('No RNG permitted');};
   vm.createContext(ctx);
   const util=prior.util;
@@ -57,9 +58,11 @@ function fixture({oracle=false,countWrites=false,failAllocation=0}={}){
   const counted=`const savedMaps=[look2PathMap,look3PathMap],savedPlans=[lookTownPlan,look3HallPlan];
     look2PathMap=(...a)=>{effects.pathCalls++;return savedMaps[0](...a);};look3PathMap=(...a)=>{effects.pathCalls++;return savedMaps[1](...a);};
     lookTownPlan=(...a)=>{effects.planCalls++;return savedPlans[0](...a);};look3HallPlan=(...a)=>{effects.planCalls++;return savedPlans[1](...a);};`;
-  vm.runInContext('(function(Math,Uint8Array){\n'+util+'\n'+helpers+'\n'+counted+'\n'+(oracle?prior.buildGroundAO:actual)
+  const canopySource=canopy?declarations(read('src/00_util.js'),['hash2','vnoise'])+'\n'
+    +declarations(terrain,['meadowRGB','bakeMeadowChunks','bakeMeadow','canopyOf','stampCanopy','updateCanopy']):'';
+  vm.runInContext('(function(Math,Uint8Array){\n'+util+'\n'+helpers+'\n'+counted+'\n'+(oracle?prior.buildGroundAO:actual)+'\n'+canopySource
     +'\nglobalThis.api={buildGroundAO'+(oracle?'':',prepareGroundAOChunks,prepared:()=>groundAOPrepared')
-    +',replaceMap:fn=>{look2PathMap=fn;}};})(TEST_MATH,TEST_ARRAY);',Object.assign(ctx,{TEST_MATH:math,TEST_ARRAY:array}));
+    +(canopy?',updateCanopy':'')+',replaceMap:fn=>{look2PathMap=fn;}};})(TEST_MATH,TEST_ARRAY);',Object.assign(ctx,{TEST_MATH:math,TEST_ARRAY:array}));
   return {ctx,api:ctx.api,effects,texture:()=>ctx.U.uGroundAO.value};
 }
 function drain(work,onYield=()=>{}){let n=0,step;do{step=work.next();if(!step.done)onYield(++n);}while(!step.done);return {value:step.value,yields:n};}
@@ -134,4 +137,103 @@ test('optional byte allocation failure preserves the live synchronous API',()=>{
 test('changed path helper rejects the cache and still executes the current live helper',()=>{
   const h=fixture(),o=fixture({oracle:true});assert.equal(drain(h.api.prepareGroundAOChunks()).value,true);
   h.api.replaceMap(rg=>{rg[1]=17;});o.api.replaceMap(rg=>{rg[1]=17;});h.api.buildGroundAO();o.api.buildGroundAO();compare(h,o);
+});
+
+const prop=(x,z,yaw=0,hx=3.4,hz=2.65,h=1.6)=>({tag:'prop',x,z,h,hx,hz,cos:Math.cos(yaw),sin:Math.sin(yaw)});
+const append=(ctx,rows)=>ctx.COLL.boxes.push(...rows.map(row=>({...row})));
+const green=rg=>{const b=Buffer.alloc(rg.length/2);for(let q=0;q<b.length;q++)b[q]=rg[q*2+1];return b;};
+function extendedPair(rows,{mutate,canopy=false}={}){
+  const h=fixture({canopy}),o=fixture({oracle:true,canopy});assert.equal(drain(h.api.prepareGroundAOChunks()).value,true);
+  const prepared=h.api.prepared(),beforeGreen=green(prepared.rg),allocations=h.effects.allocations;
+  append(h.ctx,rows);append(o.ctx,rows);mutate?.(h.ctx);mutate?.(o.ctx);
+  if(canopy){h.api.updateCanopy();o.api.updateCanopy();}else{h.api.buildGroundAO();o.api.buildGroundAO();}
+  compare(h,o);return {h,o,prepared,beforeGreen,allocations};
+}
+for(const [name,rows]of [
+  ['the three ordinary stores-yard-shaped props',[prop(9,3),prop(-11,5,.74),prop(20,-7,-1.28)]],
+  ['rotated overlapping props and the map edge',[prop(2,-2,.31,2.1,.8,4),prop(511.8,-511.4,-.67,.5,1.4,0)]],
+  ['near the admitted raster limit',[prop(0,0,.3,30,0,.1)]],
+])test('bounded appended props reuse exact original full AO/path bytes: '+name,()=>{
+  const {h,prepared,beforeGreen,allocations}=extendedPair(rows);
+  assert.equal(h.ctx.GRAPHICS_STARTUP.groundAO.consumed,true);assert.equal(h.ctx.GRAPHICS_STARTUP.groundAO.appendedProps,rows.length);
+  assert.equal(h.ctx.GRAPHICS_STARTUP.groundAO.fallbacks,0);assert.equal(h.effects.pathCalls,0);
+  assert.equal(h.effects.allocations,allocations,'reuse adds no byte buffers');assert.equal(h.ctx.CANOPY.ao,prepared.b);
+  assert.equal(h.texture().data,prepared.rg);assert.deepEqual(green(h.texture().data),beforeGreen);
+  assert.equal(h.effects.textures.length,1);assert.equal(h.effects.bindings.length,1);assert.equal(h.api.prepared(),null);
+});
+
+for(const [name,rows]of [
+  ['a new wall',[{...prop(12,4),tag:'wall'}]],
+  ['a mixed prop and non-prop tail',[prop(12,4),{...prop(14,4),tag:'tree'}]],
+  ['four appended props',[prop(1,1),prop(3,3),prop(5,5),prop(7,7)]],
+  ['an oversized raster after a small valid prop',[prop(1,1),prop(0,0,0,34,34)]],
+  ['a nonfinite prop scalar',[{...prop(4,4),x:NaN}]],
+  ['a negative prop extent',[prop(4,4,0,-1,1)]],
+])test('unapproved appended tail takes unchanged exact synchronous fallback: '+name,()=>{
+  const {h}=extendedPair(rows);assert.equal(h.ctx.GRAPHICS_STARTUP.groundAO.consumed,false);
+  assert.equal(h.ctx.GRAPHICS_STARTUP.groundAO.fallbacks,1);assert.equal(h.effects.pathCalls,2);
+  assert.equal(h.ctx.GRAPHICS_STARTUP.groundAO.appendedProps,0);
+});
+
+for(const [name,mutate]of Object.entries(mutations))test('an appended prop cannot bless an old snapshot mutation: '+name,()=>{
+  const {h}=extendedPair([prop(15,8)],{mutate});
+  assert.equal(h.ctx.GRAPHICS_STARTUP.groundAO.consumed,false);assert.equal(h.effects.pathCalls,2);
+});
+test('box removal with an appended prop cannot reuse an altered prefix',()=>{
+  const {h}=extendedPair([prop(15,8)],{mutate:c=>c.COLL.boxes.splice(0,1)});
+  assert.equal(h.ctx.GRAPHICS_STARTUP.groundAO.consumed,false);assert.equal(h.effects.pathCalls,2);
+});
+test('an appended prop cannot bless a changed live helper',()=>{
+  const h=fixture(),o=fixture({oracle:true});drain(h.api.prepareGroundAOChunks());append(h.ctx,[prop(5,5)]);append(o.ctx,[prop(5,5)]);
+  h.api.replaceMap(rg=>{rg[1]=17;});o.api.replaceMap(rg=>{rg[1]=17;});h.api.buildGroundAO();o.api.buildGroundAO();compare(h,o);
+  assert.equal(h.ctx.GRAPHICS_STARTUP.groundAO.consumed,false);assert.equal(h.effects.pathCalls,1,'The replaced town map executes directly; the retained hall map is still counted');
+});
+test('appended props during preparation still fail the unchanged strict predicate',()=>{
+  const h=fixture(),o=fixture({oracle:true}),work=h.api.prepareGroundAOChunks();work.next();append(h.ctx,[prop(5,5)]);append(o.ctx,[prop(5,5)]);
+  assert.equal(drain(work).value,false);assert.equal(h.api.prepared(),null);
+  h.api.buildGroundAO();o.api.buildGroundAO();compare(h,o);assert.equal(h.ctx.GRAPHICS_STARTUP.groundAO.consumed,false);
+});
+test('cancelled preparation plus an appended prop retains the exact normal fallback',()=>{
+  const h=fixture(),o=fixture({oracle:true}),work=h.api.prepareGroundAOChunks();work.next();work.return();
+  append(h.ctx,[prop(5,5)]);append(o.ctx,[prop(5,5)]);h.api.buildGroundAO();o.api.buildGroundAO();compare(h,o);
+  assert.equal(h.ctx.GRAPHICS_STARTUP.groundAO.canceled,1);assert.equal(h.ctx.GRAPHICS_STARTUP.groundAO.consumed,false);
+});
+test('a mutation during private appended stamping is rejected by the final strict guard',()=>{
+  const h=fixture({countWrites:true}),o=fixture({oracle:true});drain(h.api.prepareGroundAOChunks());
+  append(h.ctx,[prop(5,5)]);append(o.ctx,[prop(5,5)]);
+  h.effects.onWrite=()=>{h.effects.onWrite=null;h.ctx.COLL.circles[0].r+=.5;o.ctx.COLL.circles[0].r+=.5;};
+  h.api.buildGroundAO();o.api.buildGroundAO();compare(h,o);assert.equal(h.ctx.GRAPHICS_STARTUP.groundAO.consumed,false);
+  assert.equal(h.effects.pathCalls,2);assert.equal(h.effects.textures.length,1);
+});
+test('a newer generation during appended stamping cannot be published by the old consumer',()=>{
+  const h=fixture({countWrites:true}),o=fixture({oracle:true});drain(h.api.prepareGroundAOChunks());
+  append(h.ctx,[prop(5,5)]);append(o.ctx,[prop(5,5)]);let newer;
+  h.effects.onWrite=()=>{h.effects.onWrite=null;newer=h.api.prepareGroundAOChunks();newer.next();};
+  h.api.buildGroundAO();o.api.buildGroundAO();compare(h,o);const winner=h.texture();
+  assert.equal(h.ctx.GRAPHICS_STARTUP.groundAO.consumed,false);assert.equal(drain(newer).value,false);
+  assert.equal(h.texture(),winner);assert.equal(h.effects.textures.length,1);
+});
+test('actual updateCanopy consumes appended props before its ordinary canopy texture publication',()=>{
+  const rows=[prop(9,3),prop(-11,5,.74),prop(20,-7,-1.28)],{h,o,prepared,beforeGreen}=extendedPair(rows,{canopy:true});
+  assert.equal(h.ctx.GRAPHICS_STARTUP.groundAO.consumed,true);assert.equal(h.ctx.GRAPHICS_STARTUP.groundAO.appendedProps,3);
+  assert.equal(h.ctx.CANOPY.ao,prepared.b);assert.equal(h.effects.textures.length,2);assert.equal(h.effects.textures[0].format,'RG');
+  assert.equal(h.effects.textures[1].format,'RGBA');assert.deepEqual(bytes(h.ctx.CANOPY.bytes),bytes(o.ctx.CANOPY.bytes));
+  assert.deepEqual(green(h.texture().data),beforeGreen);assert.equal(h.ctx.U.uCanopy.value,h.ctx.CANOPY.tex);
+  const first=h.ctx.CANOPY.tex;h.api.updateCanopy();assert.equal(h.ctx.CANOPY.tex,first);assert.equal(h.effects.textures.length,2);
+});
+for(const [name,mutate]of [
+  ['uniform reference',c=>{c.U.uGroundAO={value:c.U.uGroundAO.value};}],
+  ['uniform value',c=>{c.U.uGroundAO.value={neutral:'changed'};}],
+  ['AO publication',c=>{c.CANOPY.ao=new Uint8Array(1024*1024);}],
+  ['canopy publication',c=>{c.CANOPY.tex={live:true};}],
+])test('an appended prop cannot bless changed publication ownership: '+name,()=>{
+  const {h}=extendedPair([prop(15,8)],{mutate});assert.equal(h.ctx.GRAPHICS_STARTUP.groundAO.consumed,false);
+  assert.equal(h.effects.pathCalls,2);
+});
+test('actual updateCanopy preserves a live winner instead of consuming an older appended cache',()=>{
+  const h=fixture({canopy:true});drain(h.api.prepareGroundAOChunks());append(h.ctx,[prop(15,8)]);
+  const live={winner:true},ao=new Uint8Array(1024*1024),ground={ground:true};
+  Object.assign(h.ctx.CANOPY,{tex:live,ao,cache:new Float32Array(0),next:100});h.ctx.U.uGroundAO.value=ground;
+  h.api.updateCanopy();assert.equal(h.ctx.CANOPY.tex,live);assert.equal(h.ctx.CANOPY.ao,ao);assert.equal(h.texture(),ground);
+  assert.equal(h.ctx.GRAPHICS_STARTUP.groundAO.consumed,false);assert.equal(h.effects.textures.length,0);
 });

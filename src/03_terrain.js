@@ -543,6 +543,7 @@ function stampCanopy(i0, t, k) {
 // Private byte preparation only. Ordinary buildGroundAO still owns allocation
 // and publication of its texture; a changed world uses the synchronous path.
 const GROUND_AO_WORK = 1024;
+const GROUND_AO_APPEND_PROPS = 3, GROUND_AO_APPEND_WORK = 4096;
 const GROUND_AO_BOX_FIELDS = ['tag', 'x', 'z', 'h', 'hx', 'hz', 'cos', 'sin'];
 const GROUND_AO_CIRCLE_FIELDS = ['tag', 'x', 'z', 'h', 'r'];
 const GROUND_AO_PATH_FIELDS = ['ax', 'az', 'bx', 'bz', 'w'];
@@ -551,13 +552,13 @@ const groundAOPathFns = [typeof look2PathMap === 'function' ? look2PathMap : nul
   typeof lookTownPlan === 'function' ? lookTownPlan : null,
   typeof look3HallPlan === 'function' ? look3HallPlan : null];
 let groundAOPrepared = null, groundAOPreparation = 0;
-function groundAONote(outcome, reason = null, generation = groundAOPreparation) {
+function groundAONote(outcome, reason = null, generation = groundAOPreparation, appendedProps = 0) {
   if (generation !== groundAOPreparation || typeof GRAPHICS_STARTUP !== 'object') return;
   const note = GRAPHICS_STARTUP.groundAO ||= { preparations: 0, stale: 0, canceled: 0, fallbacks: 0, completed: false, consumed: false };
   note.generation = generation; note.outcome = outcome; note.reason = reason;
-  if (outcome === 'preparing') { note.preparations = Math.min(255, note.preparations + 1); note.completed = false; note.consumed = false; }
+  if (outcome === 'preparing') { note.preparations = Math.min(255, note.preparations + 1); note.completed = false; note.consumed = false; note.appendedProps = 0; }
   if (outcome === 'completed') { note.completed = true; note.bytes = 3 * 1024 * 1024; }
-  if (outcome === 'consumed') note.consumed = true;
+  if (outcome === 'consumed') { note.consumed = true; note.appendedProps = appendedProps; }
   if (outcome === 'stale') note.stale = Math.min(255, note.stale + 1);
   if (outcome === 'canceled') note.canceled = Math.min(255, note.canceled + 1);
   if (outcome === 'fallback') note.fallbacks = Math.min(255, note.fallbacks + 1);
@@ -605,29 +606,76 @@ function groundAOInputsCurrent(input) {
   }
   return true;
 }
+// The same ordered max-compositing kernel serves private preparation and the
+// small prop tail created by the first ordinary stores-yard simulation step.
+function* groundAOBoxBytesChunks(input, b, rows, limit = Infinity, progress = { work: 0 }) {
+  const R = 1024, cell = input.size / R, half = input.half;
+  let footprint = 0;
+  for (const row of rows) {
+    const [tag, x0, z0, h, hx, hz, cos, sin] = row.values;
+    if (!['wall', 'house', 'gate', 'stone', 'fence', 'prop'].includes(tag)) continue;
+    const reach = clamp((h || 3) * 0.32, 0.7, 2.6), k = clamp((h || 3) / 3, 0.35, 1);
+    const rr = Math.hypot(hx, hz) + reach;
+    const i0 = Math.max(0, Math.floor((x0 - rr + half) / cell)), i1 = Math.min(R - 1, Math.ceil((x0 + rr + half) / cell));
+    const j0 = Math.max(0, Math.floor((z0 - rr + half) / cell)), j1 = Math.min(R - 1, Math.ceil((z0 + rr + half) / cell));
+    footprint += Math.max(0, i1 - i0 + 1) * Math.max(0, j1 - j0 + 1);
+    if (footprint > limit) return false;
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+      const x = -half + (i + 0.5) * cell, z = -half + (j + 0.5) * cell;
+      const dx = x - x0, dz = z - z0;
+      const lx = Math.abs(dx * cos - dz * sin) - hx, lz = Math.abs(dx * sin + dz * cos) - hz;
+      const d = Math.hypot(Math.max(lx, 0), Math.max(lz, 0)), f = 1 - d / reach;
+      const v = f > 0 ? k * f * f : 0;
+      if (v > 0) { const q = j * R + i; b[q] = Math.max(b[q], Math.round(clamp(v, 0, 1) * 255)); }
+      if (++progress.work % GROUND_AO_WORK === 0) yield;
+    }
+  }
+  return true;
+}
+function groundAOAppendedProps(input) {
+  const list = COLL.boxes;
+  if (!Array.isArray(list) || list !== input.boxes.list) return null;
+  const end = list.length, count = end - input.boxes.rows.length;
+  if (count < 1 || count > GROUND_AO_APPEND_PROPS) return null;
+  const rows = [];
+  for (let i = input.boxes.rows.length; i < end; i++) {
+    const object = list[i];
+    if (!object || object.tag !== 'prop') return null;
+    const values = GROUND_AO_BOX_FIELDS.map(key => object[key]);
+    if (values[0] !== 'prop' || !values.slice(1).every(Number.isFinite) || values[4] < 0 || values[5] < 0) return null;
+    rows.push({ object, values });
+  }
+  // The original strict predicate still validates every ordered prefix scalar,
+  // circle, plan, helper, owner and publication reference before any reuse.
+  const extended = { ...input, boxes: { list, rows: input.boxes.rows.concat(rows) } };
+  return groundAOInputsCurrent(extended) ? { input: extended, rows } : null;
+}
+function groundAOExtendPrepared(prepared) {
+  const appended = groundAOAppendedProps(prepared.input);
+  if (!appended) return 0;
+  const work = groundAOBoxBytesChunks(appended.input, prepared.b, appended.rows, GROUND_AO_APPEND_WORK);
+  let step;
+  do { step = work.next(); } while (!step.done);
+  if (!step.value) return 0;
+  // AO uses a byte-wise maximum, so applying verified appended boxes after the
+  // unchanged circles is identical. The guarded path channel is kept intact.
+  for (let q = 0; q < prepared.b.length; q++) prepared.rg[q * 2] = prepared.b[q];
+  if (prepared.generation !== groundAOPreparation || !groundAOInputsCurrent(appended.input)) return 0;
+  return appended.rows.length;
+}
 function* groundAOBytesChunks(input) {
   const R = 1024, cell = input.size / R, half = input.half, b = new Uint8Array(R * R);
-  let work = 0;
+  const progress = { work: 0 };
   function* put(x0, z0, rr, fn) {
     const i0 = Math.max(0, Math.floor((x0 - rr + half) / cell)), i1 = Math.min(R - 1, Math.ceil((x0 + rr + half) / cell));
     const j0 = Math.max(0, Math.floor((z0 - rr + half) / cell)), j1 = Math.min(R - 1, Math.ceil((z0 + rr + half) / cell));
     for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
       const v = fn(-half + (i + 0.5) * cell, -half + (j + 0.5) * cell);
       if (v > 0) { const q = j * R + i; b[q] = Math.max(b[q], Math.round(clamp(v, 0, 1) * 255)); }
-      if (++work % GROUND_AO_WORK === 0) yield;
+      if (++progress.work % GROUND_AO_WORK === 0) yield;
     }
   }
-  for (const row of input.boxes.rows) {
-    const [tag, x0, z0, h, hx, hz, cos, sin] = row.values;
-    if (!['wall', 'house', 'gate', 'stone', 'fence', 'prop'].includes(tag)) continue;
-    const reach = clamp((h || 3) * 0.32, 0.7, 2.6), k = clamp((h || 3) / 3, 0.35, 1);
-    yield* put(x0, z0, Math.hypot(hx, hz) + reach, (x, z) => {
-      const dx = x - x0, dz = z - z0;
-      const lx = Math.abs(dx * cos - dz * sin) - hx, lz = Math.abs(dx * sin + dz * cos) - hz;
-      const d = Math.hypot(Math.max(lx, 0), Math.max(lz, 0)), f = 1 - d / reach;
-      return f > 0 ? k * f * f : 0;
-    });
-  }
+  yield* groundAOBoxBytesChunks(input, b, input.boxes.rows, Infinity, progress);
   for (const row of input.circles.rows) {
     const [tag, x0, z0, h, r] = row.values;
     if (tag === 'tree') continue;
@@ -635,7 +683,7 @@ function* groundAOBytesChunks(input) {
     yield* put(x0, z0, r + reach, (x, z) => { const f = 1 - Math.max(0, Math.hypot(x - x0, z - z0) - r) / reach; return f > 0 ? k * f * f : 0; });
   }
   const rg = new Uint8Array(R * R * 2);
-  for (let q = 0; q < R * R; q++) { rg[q * 2] = b[q]; if (++work % GROUND_AO_WORK === 0) yield; }
+  for (let q = 0; q < R * R; q++) { rg[q * 2] = b[q]; if (++progress.work % GROUND_AO_WORK === 0) yield; }
   const pathRows = [];
   if (input.houseCount) for (const town of input.townPaths) pathRows.push(...town.paths.rows);
   pathRows.push(...input.halls.rows);
@@ -648,7 +696,7 @@ function* groundAOBytesChunks(input) {
         const pd = input.segmentDistance(x, z, path);
         const v = Math.round(255 * sstep(hw + 0.9, hw - 0.35, pd)), q = (j * R + i) * 2 + 1;
         if (v > rg[q]) rg[q] = v;
-        if (++work % GROUND_AO_WORK === 0) yield;
+        if (++progress.work % GROUND_AO_WORK === 0) yield;
       }
     }
   }
@@ -686,14 +734,16 @@ function* prepareGroundAOChunks() {
 function buildGroundAO() {
   const prepared = groundAOPrepared;
   groundAOPrepared = null;
-  if (prepared && prepared.generation === groundAOPreparation && groundAOInputsCurrent(prepared.input)) {
+  let appendedProps = 0;
+  if (prepared && prepared.generation === groundAOPreparation
+    && (groundAOInputsCurrent(prepared.input) || (appendedProps = groundAOExtendPrepared(prepared)))) {
     const { b, rg } = prepared, R = 1024;
     const tex = new THREE.DataTexture(rg, R, R, THREE.RGFormat, THREE.UnsignedByteType);
     tex.minFilter = THREE.LinearFilter; tex.magFilter = THREE.LinearFilter; tex.generateMipmaps = false;
     tex.needsUpdate = true;
     U.uGroundAO.value = tex;
     CANOPY.ao = b;
-    groundAONote('consumed', null, prepared.generation);
+    groundAONote('consumed', null, prepared.generation, appendedProps);
     return;
   }
   const R = 1024, cell = WSIZE / R, b = new Uint8Array(R * R);
