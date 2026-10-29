@@ -76,6 +76,7 @@ jobs:
             headless)
               node --test tools/tests/presentation_accessibility.test.mjs tools/tests/objective_guidance.test.mjs tools/tests/combat_targeting.test.mjs
               node --test tools/tests/menu_edit_save.test.mjs tools/tests/menu_edit_save.browser.test.mjs
+              node --test tools/tests/readiness_responsiveness.test.mjs
               node --test tools/tests/startup_file_guard.browser.test.mjs
               node --test tools/tests/reduced_effects_layout.browser.test.mjs
               node --test tools/tests/graphics_recovery_ui.browser.test.mjs
