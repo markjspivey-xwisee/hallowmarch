@@ -3,6 +3,7 @@ const NETPARTS = { authority: '', peer: '', admission: null, ready: false, seq: 
   key: '', sentAt: -Infinity, assembly: null, keys: {}, pending: new Map(), commands: new Map(),
   receipts: [], confirmedReceipts: new Set(), resultQueue: new Map(), notes: [], skills: [], lootSeq: 0, outbox: null, awaiting: null, paused: '', outAt: -Infinity, sentKeys: {}, receiptsKey: '', replay: false, applying: false, next: 0, received: 0, sent: 0, refused: 0, settled: new Map(), privateFlight: null, privateScope: null, privateError: '', privateAttempt: 0, journalLoaded: false, settleAt: -Infinity };
 const NETPART_ADAPTERS = new Map(), NETPART_COMMANDS = new Map(), NETPART_RESULTS = new Map(), NETPART_FAILURES = new Map();
+NETPARTS.appliedImageScope = null;
 const netWorldPartsActive = () => typeof NETWS !== 'undefined' && !!NETWS.url;
 const netWorldPartsConnected = () => netWorldPartsActive() && NETWS.state === 'on' && netOn()
   && netHumanLive() && netSharedWorldReady() && !!NETPARTS.authority && !NETPARTS.paused;
@@ -21,6 +22,7 @@ function netWorldPartsBindOwner(row) {
   return { ...row, profileRef: SAVE.ref, playerRef: GAME.player };
 }
 function netWorldPartsReset() {
+  NETPARTS.appliedImageScope = null;
   NETPARTS.authority = ''; NETPARTS.peer = ''; NETPARTS.ready = false; NETPARTS.readSeq = -1;
   NETPARTS.assembly = null; NETPARTS.outbox = null; NETPARTS.awaiting = null; NETPARTS.paused = ''; NETPARTS.resultQueue.clear(); NETPARTS.confirmedReceipts.clear(); NETPARTS.keys = {}; NETPARTS.sentKeys = {}; NETPARTS.key = ''; NETPARTS.sentAt = -Infinity;
 }
@@ -35,7 +37,38 @@ function netWorldPartsCapture() {
   }
   return { v: 1, full: true, parts, remove: [], receipts: NETPARTS.receipts.slice(-32) };
 }
-function netWorldPartsApply(frame) {
+function netWorldPartsAppliedScope() {
+  if (!NETPARTS.authority || typeof netCurrentWorldAdmission !== 'function' || !netPartsEqualAdmission(netCurrentWorldAdmission())
+    || NETWS.state !== 'on' || NETWS.ws?.readyState !== 1 || NETWS.closed || NETWS.reload || !NETWS.acct?.id) return null;
+  return Object.freeze({ ws: NETWS.ws, generation: NETWS.generation, host: NETWS.host, account: NETWS.acct.id,
+    authority: NETPARTS.authority, origin: NETPARTS.admission.origin, epoch: NETPARTS.admission.epoch });
+}
+function netWorldPartsAppliedCurrent(scope) {
+  const current = netWorldPartsAppliedScope();
+  return !!scope && !!current && scope.ws === current.ws && scope.generation === current.generation
+    && scope.host === current.host && scope.account === current.account && scope.authority === current.authority
+    && scope.origin === current.origin && scope.epoch === current.epoch;
+}
+function netWorldPartsProtectPrivateRestore() {
+  const scope = NETPARTS.appliedImageScope, keys = NETPARTS.keys;
+  if (NETPARTS.applying || !netWorldPartsAppliedCurrent(scope)) return null;
+  // This cache contains only values already applied by validated canonical
+  // frames. A fresh keeper's ready flag alone never proves such an image.
+  const parts = Object.create(null);
+  for (const key of scope.keys) if (NETPART_ADAPTERS.has(key) && Object.hasOwn(keys, key)) parts[key] = JSON.parse(keys[key]);
+  if (!Object.keys(parts).length) return null;
+  let used = false;
+  return () => {
+    if (used) return false;
+    used = true;
+    if (NETPARTS.appliedImageScope !== scope || NETPARTS.keys !== keys || !netWorldPartsAppliedCurrent(scope)) return false;
+    // Private hydration keeps its own domains/history. Restore just the known
+    // canonical adapters afterward, without receipts, publication or new facts.
+    for (const key of Object.keys(parts)) delete keys[key];
+    return netWorldPartsApply({ v: 1, full: false, parts }, { restoreApplied: true });
+  };
+}
+function netWorldPartsApply(frame, { restoreApplied = false } = {}) {
   if (!frame || frame.v !== 1 || !frame.parts || typeof frame.parts !== 'object' || Array.isArray(frame.parts)) return false;
   NETPARTS.applying = true;
   try {
@@ -56,7 +89,7 @@ function netWorldPartsApply(frame) {
         if (pending && pending.ownerAccount === receipt.ownerAccount) netWorldPartsResult(receipt);
       }
     }
-    NETPARTS.ready = true; NETPARTS.received++;
+    NETPARTS.ready = true; if (!restoreApplied) NETPARTS.received++;
     return true;
   } finally { NETPARTS.applying = false; }
 }
@@ -241,6 +274,7 @@ function netWorldPartsMessage(m) {
     const admission = netWorldAdmissionRead(m.worldAdmission);
     if (!admission || typeof m.authority !== 'string' || typeof m.peer !== 'string') return;
     const changed = NETPARTS.authority !== m.authority;
+    if (changed || !netPartsEqualAdmission(admission)) NETPARTS.appliedImageScope = null;
     NETPARTS.authority = m.authority; NETPARTS.peer = m.peer; NETPARTS.admission = admission;
     if (changed) { for (const row of NETPARTS.settled.values()) { row.acknowledged = false; row.lastSent = -Infinity; } NETPARTS.seq = 0; NETPARTS.readSeq = -1; NETPARTS.assembly = null; NETPARTS.outbox = null; NETPARTS.awaiting = null; NETPARTS.paused = ''; NETPARTS.sentKeys = {}; NETPARTS.key = ''; }
     // A new authority must take the canonical cache before publishing. A fresh
@@ -298,7 +332,15 @@ function netWorldPartsMessage(m) {
     }
     NETPARTS.readSeq = m.seq; return;
   }
-  if (netWorldPartsApply(frame)) { NETPARTS.readSeq = m.seq; NETPARTS.key = serial; }
+  if (netWorldPartsApply(frame)) {
+    const previous = NETPARTS.appliedImageScope;
+    const keys = netWorldPartsAppliedCurrent(previous) ? new Set(previous.keys) : new Set();
+    for (const key of NETPART_ADAPTERS.keys())
+      if (Object.hasOwn(frame.parts, key) || frame.full || (frame.remove || []).includes(key)) keys.add(key);
+    const scope = netWorldPartsAppliedScope();
+    NETPARTS.appliedImageScope = scope ? Object.freeze({ ...scope, keys }) : null;
+    NETPARTS.readSeq = m.seq; NETPARTS.key = serial;
+  }
 }
 function netWorldPartsPump(now) {
   if (!netWorldPartsConnected()) return;

@@ -356,35 +356,38 @@ function applyWorldSave(w) {
     const admission = netCurrentWorldAdmission();
     if (NETWS.worldInitialized || !netSameWorldAdmission(netWorldAdmissionRead(w.sharedWorld), admission)) return;
   }
-  WAR.keeps.forEach((K, i) => {
-    const r = w.keeps[i];
-    if (!(r >= 0 && r <= 2) || r === K.realm) return;
-    for (const id of K.guards) { const g = getEnt(id); if (g) removeEnt(g); }
-    K.guards.clear();
-    const L = getEnt(K.lord);
-    if (L) removeEnt(L);
-    K.lord = null;
-    K.realm = r;
-    setDoorState(K.door, true, 1);
-    setSiteBanners(K.site, r);
-    fillGarrison(K, true);
-  });
-  if (Array.isArray(w.relics)) {
-    const used = new Set();
-    WAR.relics.forEach((rel, i) => {
-      const s = w.relics[i];
-      if (!s || !(s.at >= 0 && s.at <= 2)) return;
-      const slot = s.at === rel.realm ? 'home' : (s.slot === 't0' || s.slot === 't1' ? s.slot : 't0');
-      const key = s.at + ':' + slot;
-      if (used.has(key)) return;
-      used.add(key);
-      rel.state = 'temple'; rel.at = s.at; rel.from = s.at; rel.slot = slot; rel.carrier = null;
+  const restoreCanonical = typeof netWorldPartsProtectPrivateRestore === 'function' ? netWorldPartsProtectPrivateRestore() : null;
+  try {
+    WAR.keeps.forEach((K, i) => {
+      const r = w.keeps[i];
+      if (!(r >= 0 && r <= 2) || r === K.realm) return;
+      for (const id of K.guards) { const g = getEnt(id); if (g) removeEnt(g); }
+      K.guards.clear();
+      const L = getEnt(K.lord);
+      if (L) removeEnt(L);
+      K.lord = null;
+      K.realm = r;
+      setDoorState(K.door, true, 1);
+      setSiteBanners(K.site, r);
+      fillGarrison(K, true);
     });
-  }
-  updateRelicBonuses();
-  applyCampaignSave(w.campaign); // [campaign] older saves have none: the first campaign starts fresh
-  landApply(w.land); // [worldstate] older saves have none: the land starts untouched (12b_worldstate.js)
-  savePartsLoad('world', w.x); // other systems' records of the world (06d_goods.js)
+    if (Array.isArray(w.relics)) {
+      const used = new Set();
+      WAR.relics.forEach((rel, i) => {
+        const s = w.relics[i];
+        if (!s || !(s.at >= 0 && s.at <= 2)) return;
+        const slot = s.at === rel.realm ? 'home' : (s.slot === 't0' || s.slot === 't1' ? s.slot : 't0');
+        const key = s.at + ':' + slot;
+        if (used.has(key)) return;
+        used.add(key);
+        rel.state = 'temple'; rel.at = s.at; rel.from = s.at; rel.slot = slot; rel.carrier = null;
+      });
+    }
+    updateRelicBonuses();
+    applyCampaignSave(w.campaign); // [campaign] older saves have none: the first campaign starts fresh
+    landApply(w.land); // [worldstate] older saves have none: the land starts untouched (12b_worldstate.js)
+    savePartsLoad('world', w.x); // other systems' records of the world (06d_goods.js)
+  } finally { if (restoreCanonical) restoreCanonical(); }
 }
 function applySettings(st) {
   if (!st) return;
