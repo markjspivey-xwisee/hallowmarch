@@ -271,7 +271,7 @@ async function prepareTitleProgramJobs(inventory, stages, generation, dependency
       elapsedMs: 0, visibleMs: 0, preparedJobs: 0, newPrograms: 0, completedPrograms: 0, disposedPrograms: 0,
       firstProgramQueuedMs: null, lastProgramQueuedMs: null, lastPreparedMs: null, sealedMs: null,
       firstObservedReadyMs: null, lastObservedReadyMs: null, polls: 0, maxObservedPollGapMs: 0,
-      timerSchedules: 0, timerCallbacks: 0, timerLateMs: 0, maxTimerLateMs: 0, validationMs: 0, outcome: 'preparing', families: {} };
+      timerSchedules: 0, timerCallbacks: 0, timerLateMs: 0, maxTimerLateMs: 0, validationMs: 0, outcome: 'preparing', families: {}, programs: [] };
     wavePollAt = null;
     if (receipt.waveLatency.length < 128) receipt.waveLatency.push(waveLatency);
     else receipt.droppedWaveLatency++;
@@ -393,6 +393,7 @@ async function prepareTitleProgramJobs(inventory, stages, generation, dependency
         for (const [program, job] of pending) {
           active();
           if (!program.program) {
+            if (job.observation) job.observation.outcome = 'disposed';
             if (!stale) throw new Error('A required title program was disposed before completion.');
             receipt.disposed++; if (waveLatency) waveLatency.disposedPrograms++;
             pending.delete(program); continue;
@@ -404,6 +405,7 @@ async function prepareTitleProgramJobs(inventory, stages, generation, dependency
             const linked = gl.getProgramParameter(program.program, gl.LINK_STATUS);
             active();
             if (linked !== true) {
+              if (job.observation) job.observation.outcome = 'failed-link';
               receipt.failedProgram = { id: program.id, family: job.family, linked };
               throw new Error('A required title program failed to link.');
             }
@@ -412,6 +414,7 @@ async function prepareTitleProgramJobs(inventory, stages, generation, dependency
               waveLatency.firstObservedReadyMs ??= observedAt;
               waveLatency.lastObservedReadyMs = observedAt;
               waveLatency.completedPrograms++;
+              if (job.observation) { job.observation.observedReadyMs = observedAt; job.observation.outcome = 'linked'; }
             }
             pending.delete(program);
           }
@@ -475,7 +478,17 @@ async function prepareTitleProgramJobs(inventory, stages, generation, dependency
           active();
           const added = renderer.info.programs.filter(program => !before.has(program));
           if (added.length > job.cost) throw new Error('Title compilation exceeded its reserved program window.');
-          for (const program of added) pending.set(program, { queuedVisibleMs, family: job.family });
+          for (const program of added) {
+            // The cap bounds these numeric signatures too. Original shader text
+            // and renderer resources stay out of retained diagnostic history.
+            const observation = { programId: program.id, family: job.family, objectId: job.object.id, materialId: job.material.id,
+              geometryId: job.geometry.id, kind: job.object.isInstancedMesh ? 'instanced-mesh' : job.geometry.isInstancedBufferGeometry ? 'instanced-buffer' : 'mesh',
+              instances: job.object.isInstancedMesh ? job.object.count : Number.isFinite(job.geometry.instanceCount) ? job.geometry.instanceCount : null,
+              vertexChars: job.material.vertexShader?.length || 0, fragmentChars: job.material.fragmentShader?.length || 0,
+              queuedMs: performance.now() - started - waveLatency.startMs, observedReadyMs: null, outcome: 'pending' };
+            waveLatency.programs.push(observation);
+            pending.set(program, { queuedVisibleMs, family: job.family, observation });
+          }
           wavePrograms += added.length;
           waveLatency.preparedJobs++; waveLatency.newPrograms += added.length;
           waveLatency.lastPreparedMs = performance.now() - started - waveLatency.startMs;

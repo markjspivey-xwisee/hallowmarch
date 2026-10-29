@@ -162,6 +162,14 @@ test('wave latency separates observed completion, poll opportunities and delayed
   assert.equal(wave.timerSchedules, 2); assert.equal(wave.timerCallbacks, 2); assert.equal(wave.timerLateMs, 110); assert.equal(wave.maxTimerLateMs, 80);
   assert.equal(wave.firstProgramQueuedMs, 0); assert.equal(wave.lastProgramQueuedMs, 0); assert.equal(wave.lastPreparedMs, 0); assert.equal(wave.sealedMs, 0);
   assert.equal(wave.outcome, 'drained'); assert.equal(wave.families.terrain.jobs, 1); assert.equal(wave.families.terrain.programs, 2);
+  assert.equal(wave.programs.length, 2);
+  for (const row of wave.programs) {
+    assert.equal(row.family, 'terrain'); assert.equal(row.objectId, f.objects[0].id); assert.equal(row.materialId, f.objects[0].material.id);
+    assert.equal(row.geometryId, f.objects[0].geometry.id); assert.equal(row.kind, 'mesh'); assert.equal(row.instances, null);
+    assert.equal(row.vertexChars, f.objects[0].material.vertexShader.length); assert.equal(row.fragmentChars, f.objects[0].material.fragmentShader.length);
+    assert.equal(row.queuedMs, 0); assert.equal(row.observedReadyMs, 130); assert.equal(row.outcome, 'linked');
+    assert(Object.values(row).every(value => value === null || typeof value !== 'object'));
+  }
   assert.equal(f.queries.length, 2, 'telemetry adds no link-status queries');
   assert(f.errorChecks.every(check => check.pendingPrograms.length === 0)); f.clean();
 });
@@ -174,6 +182,8 @@ test('wave observations retain partial completion without admitting work through
   const receipt = await f.finish(promise), wave = receipt.waveLatency[0];
   assert.equal(wave.newPrograms, 4); assert.equal(wave.completedPrograms, 4);
   assert.equal(wave.firstObservedReadyMs, 10); assert.equal(wave.lastObservedReadyMs, 110);
+  assert.equal(wave.programs[0].observedReadyMs, 10);
+  assert(wave.programs.slice(1).every(row => row.observedReadyMs === 110));
   assert.equal(wave.elapsedMs, 110); assert.equal(wave.outcome, 'drained'); f.clean();
 });
 
@@ -193,7 +203,8 @@ test('wave diagnostics remain bounded and contain no renderer resource reference
   assert.equal(receipt.droppedWaveLatency, receipt.waves - 128);
   for (const wave of receipt.waveLatency) {
     assert.equal(wave.outcome, 'drained'); assert.equal(wave.completedPrograms, wave.newPrograms);
-    assert(Object.values(wave).every(value => value === null || typeof value !== 'object' || value === wave.families));
+    assert(Object.values(wave).every(value => value === null || typeof value !== 'object' || value === wave.families || value === wave.programs));
+    assert(wave.programs.length <= productPending);
     assert(!('program' in wave)); assert(!('material' in wave));
   }
   assert.doesNotThrow(() => JSON.stringify(receipt)); f.clean();
@@ -207,6 +218,19 @@ test('a failed drained validation leaves a failed wave receipt and never starts 
   assert.equal(f.compileCalls.length, submitted); assert.equal(receipt.completed, false);
   assert.equal(wave.outcome, 'failed'); assert.equal(wave.completedPrograms, wave.newPrograms);
   assert.equal(receipt.waveLatency.length, 1); f.clean();
+});
+
+test('program provenance reports exact zero instances without changing the original job inventory', async () => {
+  const f = fixture({ count: 4, readyDelay: 0 });
+  f.objects[0].geometry = new THREE.InstancedBufferGeometry(); f.objects[0].geometry.instanceCount = 0;
+  f.objects[3].count = 0;
+  const receipt = await f.finish(f.run()), rows = receipt.waveLatency.flatMap(wave => wave.programs);
+  for (const [object, kind] of [[f.objects[0], 'instanced-buffer'], [f.objects[3], 'instanced-mesh']]) {
+    const row = rows.find(value => value.objectId === object.id); assert(row);
+    assert.equal(row.kind, kind); assert.equal(row.instances, 0); assert.equal(row.geometryId, object.geometry.id);
+    assert(f.compileCalls.some(call => f.calls.some(value => value.object === object && call.targetScene === value.targetScene)));
+  }
+  assert.equal(receipt.completed, true); f.clean();
 });
 test('recovery and absent parallel extension retain serial rendering without timers or preparation', async () => {
   for (const options of [{ safe: true }, { supported: false }]) {
