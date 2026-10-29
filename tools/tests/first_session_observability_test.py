@@ -55,6 +55,17 @@ assert.equal([...listeners.values()].flat().length,0);assert.equal(window.__jour
 console.log('bounded passive receipts preserve native flags, dispatch targets, input state, and cleanup');
 """
 
+STACK_PARITY_PROGRAM = r"""
+import assert from 'node:assert/strict';import vm from 'node:vm';import{readFileSync}from'node:fs';import{join}from'node:path';
+const source=readFileSync(join(process.argv[1],'src/13_main.js'),'utf8'),cases=JSON.parse(readFileSync(0,'utf8'));
+const functions=['extensionScriptURL','extensionOnlyStack'].map(name=>{
+  const start=source.indexOf('function '+name+'(');assert(start>=0,'actual product '+name+' must be installed');
+  return source.slice(start,source.indexOf('\n}',start)+2);
+}).join('\n');
+const scope=vm.createContext({URL});vm.runInContext(functions,scope);
+console.log(JSON.stringify({stacks:cases.stacks.map(value=>scope.extensionOnlyStack(value)),urls:cases.urls.map(value=>scope.extensionScriptURL(value))}));
+"""
+
 
 class TraceFixture:
     def __init__(self):
@@ -286,31 +297,60 @@ class FirstSessionObservability(unittest.TestCase):
         self.assertEqual(saved['fixtures'], [])
         self.assertIsNone(self.fixture.mob_fixture)
 
-    def test_extension_import_classification_is_anchored_and_keeps_every_raw_error(self):
+    def test_extension_stack_classification_is_proven_and_keeps_every_raw_error(self):
         resource = 'chrome-extension://fnjhmkhhmkbjkkabndcnnogagogbneec/assets/js/index.DRTaNfek.js'
         message = 'Failed to fetch dynamically imported module: ' + resource
-        self.assertEqual(journey.extension_import_resource(message), resource)
-        self.assertEqual(journey.extension_import_resource('TypeError: ' + message), resource)
-        for invalid in [
-                'App error: ' + message, message + '\nApplication stack or another error', message + ' extra',
-                'Failed to fetch dynamically imported module: https://app.test/module.js',
-                'Failed to fetch dynamically imported module: http://journey.test/qa/app.mjs',
-                message.replace('chrome-extension://', 'file:///'),
-                message.replace('fnjhmkhhmkbjkkabndcnnogagogbneec', 'invalid-id'),
-                message.replace('/assets', ':443/assets'), message.replace('/assets', '@other/assets')]:
-            with self.subTest(invalid=invalid):
-                self.assertIsNone(journey.extension_import_resource(invalid))
         class BrowserError(RuntimeError):
-            name = 'TypeError'
-            stack = 'complete raw browser stack\n  at extension entry'
+            name = 'i'
+            stack = 'i: Any extension message\n    at Object.connect (' + resource + ':7:84292)'
+        raw_message = 'Any extension message'
+        self.fixture.record_page_error(BrowserError(raw_message))
+        BrowserError.stack += '\n    at http://journey.test/app.mjs:1:9'
+        self.fixture.record_page_error(BrowserError('Mixed application error'))
+        BrowserError.stack = None
         self.fixture.record_page_error(BrowserError(message))
-        self.fixture.record_page_error(BrowserError('Game module failed'))
-        self.assertEqual(self.fixture.report['pageErrors'], ['Game module failed'])
-        self.assertEqual(len(self.fixture.report['rawPageErrors']), 2)
+        self.assertEqual(self.fixture.report['pageErrors'], ['Mixed application error', message])
+        self.assertEqual(len(self.fixture.report['rawPageErrors']), 3)
         self.assertEqual(self.fixture.report['rawPageErrors'][0], {
-            'message': message, 'name': 'TypeError', 'stack': BrowserError.stack})
-        self.assertEqual(self.fixture.report['extensionPageErrors'][0]['resource'], resource)
-        self.assertEqual(self.fixture.report['extensionPageErrors'][0]['stack'], BrowserError.stack)
+            'message': raw_message, 'name': 'i', 'stack': 'i: Any extension message\n    at Object.connect (' + resource + ':7:84292)'})
+        self.assertEqual(len(self.fixture.report['extensionPageErrors']), 1)
+        self.assertEqual(self.fixture.report['extensionPageErrors'][0]['classification'], 'verified-extension-only-stack')
+
+    def test_python_stack_policy_matches_actual_product_helpers_and_fails_closed_on_mixed_unknown_frames(self):
+        resource = 'chrome-extension://ejbalbakoplchlghecdalmeeeajnimhm/scripts/inpage.js'
+        frame = '    at Object.connect (' + resource + ':7:84292)'
+        positive = 'i: Failed to connect to MetaMask\n' + frame
+        accepted = [positive, positive.replace('Failed to connect to MetaMask', 'Different message'),
+            positive.replace('\n', '\r\n') + '\r\n    at async ' + resource + ':8:1', positive + '\n\n',
+            'Error\n    at ' + resource + ':1:1']
+        rejected = [None, '', 'Error: unknown origin', 'Error\n', frame,
+            positive + '\n    at http://journey.test/app.mjs:1:1',
+            positive + '\n    at https://other.test/app.js:1:1',
+            positive + '\n    at unknownFunction (unknown:1:1)', positive + '\n    at native',
+            positive.replace('Object.connect', 'eval'), positive.replace(':7:84292', ':0:1'),
+            positive.replace(':7:84292', ':7:0'), positive.replace(':7:84292', ':7:1\u0661'),
+            positive.replace('ejbalbakoplchlghecdalmeeeajnimhm', 'invalid-id'),
+            positive.replace('/scripts/', '/a/../scripts/'), positive.replace('/scripts/', '/%2e/scripts/'),
+            positive.replace('/scripts/', '/script with space/'), positive.replace('/scripts/', '/script\\path/'),
+            positive.replace('/scripts/', '/\u00e9/'), positive.replace('/scripts/', '/{folder}/'),
+            positive + '\n' * 33, 'Error: ' + '\U0001f600' * 4100 + '\n' + frame]
+        urls = [resource, resource + '?module=1#entry', resource + '?q={ok}', resource + '#part?more',
+                resource.replace('/scripts/', '/a/../scripts/'), resource.replace('/scripts/', '/%2e%2e/scripts/'),
+                resource.replace('/scripts/', '/{folder}/'), resource.replace('/scripts/', '/\u00e9/'),
+                resource.replace('/scripts/', '/script\\path/'), resource + '?bad="', resource + '#bad=`',
+                resource.replace('chrome-extension://', 'https://'), resource.replace('/scripts', ':443/scripts')]
+        for stack in accepted:
+            self.assertTrue(journey.extension_only_stack(stack), stack)
+        for stack in rejected:
+            self.assertFalse(journey.extension_only_stack(stack), stack)
+        node, _ = installed_driver()
+        result = subprocess.run([str(node), '--input-type=module', '-e', STACK_PARITY_PROGRAM, str(journey.ROOT)],
+            input=json.dumps({'stacks': accepted + rejected, 'urls': urls}), capture_output=True, text=True,
+            encoding='utf-8', timeout=10, **process_options())
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        actual = json.loads(result.stdout)
+        self.assertEqual(actual['stacks'], [journey.extension_only_stack(value) for value in accepted + rejected])
+        self.assertEqual(actual['urls'], [journey.extension_script_url(value) for value in urls])
 
     def test_actual_route_allows_only_valid_browser_local_resource_gets_and_keeps_external_requests_blocked(self):
         tree = ast.parse(pathlib.Path(journey.__file__).read_text(encoding='utf-8'))

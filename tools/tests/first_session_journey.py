@@ -148,20 +148,50 @@ INSTALL_POINTER_RECEIPTS = """point=>{
 STOP_POINTER_RECEIPTS = "() => window.__journeyPointerReceipt?.stop() ?? null"
 
 
-def browser_local_extension_resource(method, resource):
+def extension_script_url(resource):
+    if not isinstance(resource, str) or len(resource) > 4096 or not re.fullmatch(r'chrome-extension://[a-p]{32}/[^\\\x00-\x20\x7f]+', resource):
+        return False
     try:
         url = urlparse(resource)
     except ValueError:
         return False
-    return bool(method == 'GET' and url.scheme == 'chrome-extension'
-                and re.fullmatch(r'[a-p]{32}', url.netloc) and url.path.startswith('/')
-                and re.fullmatch(r'\S+', resource))
+    # Match the product's URL.href===input canonicality requirement. WHATWG
+    # serializes these raw characters and dot segments differently; refuse them.
+    if any(ord(char) > 126 for char in resource) or len(url.path) <= 1:
+        return False
+    if any(char in url.path for char in '"<>`{}') or any(char in url.query for char in '"<>') or any(char in url.fragment for char in '"<>`'):
+        return False
+    return not any(re.sub('%2e', '.', part, flags=re.IGNORECASE) in ('.', '..') for part in url.path.split('/'))
 
 
-def extension_import_resource(message):
-    match = re.fullmatch(r'(?:TypeError: )?Failed to fetch dynamically imported module: (chrome-extension://\S+)', message)
-    resource = match.group(1) if match else None
-    return resource if resource and browser_local_extension_resource('GET', resource) else None
+def browser_local_extension_resource(method, resource):
+    return method == 'GET' and extension_script_url(resource)
+
+
+JS_SPACE = '\t\n\v\f\r \u00a0\u1680\u2028\u2029\u202f\u205f\u3000\ufeff' + ''.join(chr(value) for value in range(0x2000, 0x200b))
+
+
+def extension_only_stack(stack):
+    # PageError supplies no trusted ErrorEvent.filename. A message alone never
+    # proves ownership; require the same bounded all-extension V8 frame policy.
+    if not isinstance(stack, str) or not stack or len(stack) > 8192 or len(stack.encode('utf-16-le', errors='surrogatepass')) // 2 > 8192:
+        return False
+    lines = re.split(r'\r?\n', stack)
+    if not 2 <= len(lines) <= 33 or not lines[0].strip(JS_SPACE) or re.match('^[' + re.escape(JS_SPACE) + ']*at[' + re.escape(JS_SPACE) + ']', lines[0]):
+        return False
+    frames = 0
+    for line in lines[1:]:
+        line = line.strip(JS_SPACE)
+        if not line:
+            continue
+        frame = re.fullmatch(r'at (?:async )?(?:([^():/\\]+) \(([^()\s]+)\)|([^()\s]+))', line)
+        if not frame or re.search(r'\beval\b', frame.group(1) or '', re.ASCII):
+            return False
+        location = re.fullmatch(r'(.+):([1-9][0-9]*):([1-9][0-9]*)', frame.group(2) or frame.group(3))
+        if not location or not extension_script_url(location.group(1)):
+            return False
+        frames += 1
+    return frames > 0
 
 
 def require(condition, message):
@@ -193,9 +223,8 @@ class Journey:
         raw = {'message': str(error), 'name': getattr(error, 'name', type(error).__name__),
                'stack': getattr(error, 'stack', None)}
         self.report['rawPageErrors'].append(raw)
-        resource = extension_import_resource(raw['message'])
-        if resource:
-            self.report['extensionPageErrors'].append({**raw, 'resource': resource})
+        if extension_only_stack(raw['stack']):
+            self.report['extensionPageErrors'].append({**raw, 'classification': 'verified-extension-only-stack'})
         else:
             self.report['pageErrors'].append(raw['message'])
         self.save()
