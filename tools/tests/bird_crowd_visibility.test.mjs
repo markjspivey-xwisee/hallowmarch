@@ -15,6 +15,101 @@ function extract(source, name) {
 const crowd = actors.slice(actors.indexOf('class Crowd {'), actors.indexOf('\nconst HUMAN_ATTRS'));
 const birdClass = depth.match(/class GameBirdCrowd extends Crowd \{[\s\S]*?\n\}/)?.[0] || '';
 const lod = main.match(/const HUMAN_LOD = [^;]+;/)[0];
+const declarations = (source, names) => parse(source, { ecmaVersion: 'latest', sourceType: 'module' }).body
+  .filter(node => node.type === 'FunctionDeclaration' && names.includes(node.id.name)
+    || node.type === 'VariableDeclaration' && node.declarations.some(decl => names.includes(decl.id.name)))
+  .map(node => source.slice(node.start, node.end)).join('\n');
+
+function nestFixture() {
+  const scene = new THREE.Scene(), context = vm.createContext({ THREE, scene,
+    DEPTH: { ready: true, nests: [], fx: null }, INDOOR: { on: false }, camera: { position: new THREE.Vector3() },
+    mat: options => new THREE.ShaderMaterial(options),
+    GLSL_COMMON: '', GLSL_ATMOS: '', GLSL_SHADOW: '', GLSL_PLIGHT: '', GLSL_LIGHT: '',
+  });
+  vm.runInContext(declarations(depth, ['DP_EGG_FS', 'dpBuildNestFX', 'drawDepth']) + '\n'
+    + declarations(read('00_util.js'), ['dist2']) + '\n' + declarations(read('05c_beasts.js'), ['fhash']), context);
+  const visible = () => { const found = []; scene.traverseVisible(object => { if (object.isMesh) found.push(object); }); return found; };
+  return { context, scene, visible };
+}
+
+test('nest marker meshes begin empty and invisible, then follow nearby populated counts without replacing resources', () => {
+  const f = nestFixture(), c = f.context; c.dpBuildNestFX();
+  const { eggs, rings } = c.DEPTH.fx, geometry = eggs.geometry, material = eggs.material;
+  assert.equal(eggs.count, 0); assert.equal(rings.count, 0); assert.deepEqual(f.visible(), []);
+  assert.equal(eggs.parent, f.scene); assert.equal(rings.parent, f.scene);
+  c.drawDepth(0); assert.deepEqual(f.visible(), []);
+  c.DEPTH.nests = [{ x: 10, y: 2, z: 20, eggs: 2, seed: .3 }];
+  c.drawDepth(0); assert.equal(eggs.count, 2); assert.equal(rings.count, 1); assert.deepEqual(f.visible(), [eggs, rings]);
+  const matrices = Array.from(eggs.instanceMatrix.array), colors = Array.from(eggs.instanceColor.array);
+  c.camera.position.set(1000, 0, 1000); c.drawDepth(0);
+  assert.equal(eggs.count, 0); assert.equal(rings.count, 0); assert.deepEqual(f.visible(), []);
+  c.camera.position.set(0, 0, 0); c.drawDepth(0);
+  assert.deepEqual(f.visible(), [eggs, rings]); assert.deepEqual(Array.from(eggs.instanceMatrix.array), matrices);
+  assert.deepEqual(Array.from(eggs.instanceColor.array), colors); assert.equal(eggs.geometry, geometry); assert.equal(eggs.material, material);
+  c.INDOOR.on = true; c.drawDepth(0); assert.deepEqual(f.visible(), []);
+  c.INDOOR.on = false; c.drawDepth(0); assert.deepEqual(f.visible(), [eggs, rings]);
+  c.DEPTH.nests[0].eggs = 0; c.drawDepth(0);
+  assert.equal(eggs.count, 0); assert.equal(rings.count, 1); assert.deepEqual(f.visible(), [rings]);
+  c.DEPTH.nests = []; c.drawDepth(0); assert.deepEqual(f.visible(), []);
+});
+
+test('nest readiness and original twelve-ring/sixty-egg limits remain intact', () => {
+  const f = nestFixture(), c = f.context; c.DEPTH.ready = false; c.drawDepth(0);
+  assert.equal(c.DEPTH.fx, null); assert.equal(f.scene.children.length, 0);
+  c.DEPTH.ready = true;
+  c.DEPTH.nests = Array.from({ length: 20 }, (_, seed) => ({ x: 1, y: 2, z: 3, eggs: 10, seed }));
+  c.drawDepth(0); assert.equal(c.DEPTH.fx.eggs.count, 60); assert.equal(c.DEPTH.fx.rings.count, 12);
+  assert.deepEqual(f.visible(), [c.DEPTH.fx.eggs, c.DEPTH.fx.rings]);
+});
+
+function precipitationFixture(level) {
+  const scene = new THREE.Scene(), context = vm.createContext({ THREE, scene, quality: { level },
+    camera: { position: new THREE.Vector3() }, INDOOR: { on: false }, GAME: { player: null }, WX: { coldK: 0 },
+    U: { uWet: { value: 0 }, uSnowCover: { value: 0 }, uRain: { value: 0 } },
+    mat: options => new THREE.ShaderMaterial(options),
+    GLSL_COMMON: '', GLSL_WORLD: '', GLSL_ROOFS: '', GLSL_SHELTER: '', GLSL_ATMOS: '',
+    live: false, peak: 0, _wxCamW: {}, _wxCamLook: [],
+    weatherAt: () => ({ kind: 'rain', overcast: 1, fog: 1, raining: 0, storm: 0, mist: 0 }),
+    wxGridAt: () => 0, weatherDryRate: () => 1, weatherMeltRate: () => 1,
+  });
+  context.wxLive = () => context.live; context.wxPrecipBox = () => context.peak;
+  vm.runInContext(declarations(read('05e_weather.js'), ['WEATHER', 'WEATHER_LOOK', 'rainMesh', 'RAIN_MAX', 'precipGeometry', 'PRECIP_COMMON', 'buildWeather', 'updateWeather'])
+    + '\n' + declarations(read('00_util.js'), ['mulberry', 'clamp'])
+    + '\n' + declarations(read('12c_weather2.js'), ['wxLabelOf'])
+    + '\nbuildWeather(); globalThis.precipitation={rain:rainMesh,snow:snowMesh,weather:WEATHER};', context);
+  const { rain, snow, weather } = context.precipitation;
+  Object.assign(weather, { mode: 'auto', kind: 'rain', next: 1e9, raining: 1 });
+  return { context, scene, rain, snow };
+}
+
+for (const [level, rainCount, snowCount] of [['high', 9000, 6500], ['medium', 5400, 3900], ['low', 2880, 2275]]) {
+  test('ordinary ' + level + ' precipitation updates hide zero groups and restore rain/snow without changing title visibility or counts', () => {
+    const f = precipitationFixture(level), c = f.context, rainGeometry = f.rain.geometry, snowGeometry = f.snow.geometry;
+    // The frozen title inventory still encounters both original materials.
+    assert.equal(f.rain.geometry.instanceCount, 0); assert.equal(f.snow.geometry.instanceCount, 0);
+    assert.equal(f.rain.visible, true); assert.equal(f.snow.visible, true);
+    c.updateWeather(0); assert.equal(f.rain.geometry.instanceCount, rainCount); assert.equal(f.rain.visible, true);
+    assert.equal(f.snow.geometry.instanceCount, 0); assert.equal(f.snow.visible, false);
+    c.WX.coldK = 1; c.updateWeather(0);
+    assert.equal(f.rain.geometry.instanceCount, 0); assert.equal(f.rain.visible, false);
+    assert.equal(f.snow.geometry.instanceCount, snowCount); assert.equal(f.snow.visible, true);
+    c.INDOOR.on = true; c.updateWeather(0);
+    assert.equal(f.rain.geometry.instanceCount, 0); assert.equal(f.snow.geometry.instanceCount, 0);
+    assert.equal(f.rain.visible || f.snow.visible, false);
+    c.INDOOR.on = false; c.updateWeather(0); assert.equal(f.snow.visible, true);
+    c.precipitation.weather.raining = 0; c.updateWeather(0); assert.equal(f.rain.visible || f.snow.visible, false);
+    assert.equal(f.rain.geometry, rainGeometry); assert.equal(f.snow.geometry, snowGeometry);
+  });
+}
+
+test('live cloud-edge precipitation still appears from the box peak and disappears indoors or at zero density', () => {
+  const f = precipitationFixture('medium'), c = f.context;
+  c.live = true; c.peak = .4; c.precipitation.weather.raining = 0;
+  c.updateWeather(0); assert.equal(f.rain.geometry.instanceCount, Math.round(9000 * .6 * .4 * 1.2)); assert.equal(f.rain.visible, true);
+  c.WX.coldK = 1; c.updateWeather(0); assert.equal(f.snow.geometry.instanceCount, Math.round(6500 * .6 * .4 * 1.2)); assert.equal(f.snow.visible, true);
+  c.INDOOR.on = true; c.updateWeather(0); assert.equal(f.rain.visible || f.snow.visible, false);
+  c.INDOOR.on = false; c.peak = 0; c.updateWeather(0); assert.equal(f.rain.visible || f.snow.visible, false);
+});
 
 function shadowSubmissionFixture(source) {
   const scene = new THREE.Scene(), parent = new THREE.Group();

@@ -1230,7 +1230,7 @@ function dpBuildNestFX() {
   const m = mat({ vertexShader: VS, fragmentShader: DP_EGG_FS });
   const egg = new THREE.SphereGeometry(1, 10, 7); egg.scale(0.022, 0.03, 0.022);
   const ring = new THREE.TorusGeometry(0.16, 0.055, 5, 12); ring.rotateX(Math.PI / 2);
-  const mk = (g, n) => { const M = new THREE.InstancedMesh(g, m, n); M.instanceMatrix.setUsage(THREE.DynamicDrawUsage); M.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(n * 3), 3); M.frustumCulled = false; M.count = 0; scene.add(M); return M; };
+  const mk = (g, n) => { const M = new THREE.InstancedMesh(g, m, n); M.instanceMatrix.setUsage(THREE.DynamicDrawUsage); M.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(n * 3), 3); M.frustumCulled = false; M.count = 0; M.visible = false; scene.add(M); return M; };
   DEPTH.fx = { eggs: mk(egg, 60), rings: mk(ring, 12), m4: new THREE.Matrix4(), q: new THREE.Quaternion(), v: new THREE.Vector3(), s: new THREE.Vector3() };
 }
 function drawDepth(dt) {
@@ -1249,6 +1249,7 @@ function drawDepth(dt) {
     }
   }
   F.eggs.count = ne; F.rings.count = nr;
+  F.eggs.visible = ne > 0; F.rings.visible = nr > 0;
   F.eggs.instanceMatrix.needsUpdate = true; F.rings.instanceMatrix.needsUpdate = true;
   F.eggs.instanceColor.needsUpdate = true; F.rings.instanceColor.needsUpdate = true;
 }
