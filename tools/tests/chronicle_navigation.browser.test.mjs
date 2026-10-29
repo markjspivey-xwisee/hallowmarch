@@ -28,6 +28,10 @@ const [audit,ui]=await Promise.all([read('tools/tests/menu_usability.py'),read('
 const panelScroll=audit.match(/\nPANEL_SCROLL_QA=r"""([\s\S]*?)"""/)[1];
 const renderMenuNode=parse(ui,{ecmaVersion:'latest'}).body.find(node=>node.type==='FunctionDeclaration'&&node.id.name==='renderMenu');
 const renderMenuCode=ui.slice(renderMenuNode.start,renderMenuNode.end);
+const tabClick=parse(ui,{ecmaVersion:'latest'}).body.find(node=>node.type==='ExpressionStatement'&&node.expression.callee?.property?.name==='addEventListener'
+  &&node.expression.callee.object?.callee?.name==='$'&&node.expression.callee.object.arguments[0]?.value==='menu-tabs'&&node.expression.arguments[0]?.value==='click');
+assert(tabClick,'Use the actual delegated menu tab click handler');
+const tabClickCode=ui.slice(tabClick.start,tabClick.end);
 let server,browser;
 const bounded=(promise,ms)=>{let timer;return Promise.race([promise,new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('DOM browser close timed out')),ms);})]).finally(()=>clearTimeout(timer));};
 // Ubuntu's AppArmor profile covers vendor Chrome at /opt/google/chrome/chrome,
@@ -135,11 +139,20 @@ async function scrollFixture(t){
     window.late2CharStats=()=>'';window.gsCharHTML=()=>'';window.gsCharWire=()=>{};
     window.guideHelpHTML=()=>Array.from({length:80},(_,i)=>'<p>Reading paragraph '+i+': movement, equipment and the March.</p>').join('')+'<p id="reading-end">End of the reading page</p>';
     ${renderMenuCode}
+    ${tabClickCode}
     ${panelScroll}
     $('menu').hidden=false;renderMenu('help');$('menu-body').focus();
   `});
   t.after(()=>{assert.deepEqual(errors,[]);assert.deepEqual(requests,[]);});
   return page;
+}
+async function recordPanelFailure(page,kind,method,extra={}){
+  try{
+    const report={kind,browserVersion:browser.version(),receipt:await page.evaluate(method=>__menuPanelScrollQA[method](),method),...extra};
+    console.log(JSON.stringify(report));
+    const out=resolve('tools/out/menu-scroll');await mkdir(out,{recursive:true});
+    await writeFile(resolve(out,kind+'.json'),JSON.stringify(report,null,2));
+  }catch(error){console.log(JSON.stringify({kind:'scroll-diagnostic-write-failed',message:error.message}));}
 }
 async function resetPanel(page){
   await page.evaluate(()=>__menuPanelScrollQA.reset());
@@ -147,6 +160,8 @@ async function resetPanel(page){
     await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
     await page.waitForFunction(()=>__menuPanelScrollQA.settled(),undefined,{timeout:5000,polling:50});
     return await page.evaluate(()=>__menuPanelScrollQA.fixtureReceipt());
+  }catch(error){
+    await recordPanelFailure(page,'panel-fixture-failure','fixtureReceipt');throw error;
   }finally{await page.evaluate(()=>__menuPanelScrollQA.finish('fixture'));}
 }
 async function nativePanelKey(page,key,condition,moves=true){
@@ -156,8 +171,42 @@ async function nativePanelKey(page,key,condition,moves=true){
     await page.waitForFunction(condition,undefined,{timeout:5000,polling:50});
     await page.waitForFunction(moves=>__menuPanelScrollQA.keyComplete(moves),moves,{timeout:5000,polling:50});
     return await page.evaluate(()=>__menuPanelScrollQA.keyReceipt());
+  }catch(error){
+    await recordPanelFailure(page,'native-panel-key-failure','keyReceipt');throw error;
   }finally{await page.evaluate(()=>__menuPanelScrollQA.finish('key'));}
 }
+
+// Deterministic CPU proof of the actual observer using the captured CI facts.
+// These stub records test event ordering, not browser isTrusted provenance.
+function verifyNativeKeyFactOrdering(){
+  const fixture=()=>{
+    const surface=()=>{const handlers=new Map();return {handlers,
+      addEventListener(type,fn){if(!handlers.has(type))handlers.set(type,new Set());handlers.get(type).add(fn);},
+      removeEventListener(type,fn){handlers.get(type)?.delete(fn);}};};
+    const node=Object.assign(surface(),{scrollTop:0,clientHeight:500,scrollHeight:3000,isConnected:true});
+    const document=Object.assign(surface(),{activeElement:node,getElementById:()=>node,querySelector:()=>null});
+    const window={},microtasks=[];let clock=0;
+    new Function('window','document','performance','queueMicrotask',panelScroll)(window,document,{now:()=>clock},fn=>microtasks.push(fn));
+    const emit=(target,type,stamp)=>{clock+=1;for(const fn of target.handlers.get(type)||[])fn({type,timeStamp:stamp,
+      isTrusted:true,key:'PageDown',target:node,defaultPrevented:false});while(microtasks.length)microtasks.shift()();};
+    const api=window.__menuPanelScrollQA;api.startKey('PageDown');emit(document,'keydown',105869.1000000001);
+    return {node,api,emit:(type,stamp)=>emit(node,type,stamp)};
+  };
+  for(const order of [['scrollend','scroll'],['scroll','scrollend']]){
+    const h=fixture();h.node.scrollTop=534;
+    h.emit(order[0],106103.30000000005);assert.equal(h.api.keyComplete(true),false,'both actual movement and end facts are required');
+    h.emit(order[1],106103.30000000005);assert.equal(h.api.keyComplete(true),true,'equal native timestamps are independent of delivery order');
+    assert.equal(h.api.keyReceipt().lastMovementStamp,106103.30000000005);
+    h.node.scrollTop=600;h.emit('scroll',106104.30000000005);
+    assert.equal(h.api.keyComplete(true),false,'newer movement invalidates the earlier end');
+    h.emit('scrollend',106103.30000000005);
+    assert.equal(h.api.keyComplete(true),false,'an older end cannot credit newer movement');
+    h.emit('scrollend',106104.30000000005);assert.equal(h.api.keyComplete(true),true);
+    h.api.finish('key');
+  }
+}
+test('native keyboard scroll facts accept equal timestamps independently of delivery order',verifyNativeKeyFactOrdering);
+
 test('fixture reset accepts a true no-op without inventing a scrollend',async t=>{
   const page=await scrollFixture(t),receipt=await resetPanel(page);
   assert.equal(receipt.initial,0);assert.equal(receipt.top,0);assert.equal(receipt.ends,0);
@@ -173,19 +222,38 @@ test('fixture reset settles one instant movement and layout-clamped content',asy
   });
   const clamped=await resetPanel(page);assert.equal(clamped.top,0);assert(clamped.total<=clamped.height);
 });
-test('actual Help-to-Character rendering survives a pending touch scroll then reset',async t=>{
+test('released, settled Help touch precedes the audit mouse tab click and independent keyboard tasks',async t=>{
   const page=await scrollFixture(t),body=page.locator('#menu-body'),box=await body.boundingBox();
   const cdp=await page.context().newCDPSession(page);
+  await page.evaluate(()=>__menuPanelScrollQA.startTouch());
+  let settledTouch=null;
   try{
     const x=box.x+box.width-20,y=box.y+box.height*.8;
     await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x,y,id:1}]});
     for(let step=1;step<=6;step++)await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x,y:y-20*step,id:1}]});
     await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
-    await page.waitForFunction(()=>$('menu-body').scrollTop>0,undefined,{timeout:5000,polling:50});
-    await page.evaluate(()=>{renderMenu('char');$('menu-body').focus();});
+    await page.waitForFunction(()=>$('menu-body').scrollTop>0&&__menuPanelScrollQA.touchSettled(),undefined,{timeout:5000,polling:50});
+    const touch=await page.evaluate(()=>__menuPanelScrollQA.finish('touch'));
+    settledTouch=touch;
+    assert(touch.down&&touch.released!==null&&touch.moved&&!touch.invalid);assert(touch.top>0);
+    assert(touch.released>=touch.down.stamp,'the matching trusted release is retained even when the bounded event sample fills');
+    if(touch.ended)assert(touch.endStamp>=touch.released,'optional native end belongs after the release even when the bounded event list fills');
+    // Match the full audit's independent keyboard scenario: one native mouse
+    // tab click after the completed touch-scroll setup, never a retry tap.
+    await page.locator('#menu-tab-char').click();
+    assert.equal(await page.evaluate(()=>UI.menuTab),'char','the one audit tab activation must precede fixture reset');
+    await body.focus();
     const receipt=await resetPanel(page);assert.equal(receipt.tab,'char');assert.equal(receipt.focus,'menu-body');assert.equal(receipt.top,0);
     assert.equal(await body.getAttribute('aria-labelledby'),'menu-tab-char');
-  }finally{await cdp.detach();}
+    const size=await body.evaluate(e=>({height:e.clientHeight,total:e.scrollHeight})),moves=size.total>size.height+5;
+    await nativePanelKey(page,'PageDown',()=>{const e=$('menu-body');return e.scrollHeight<=e.clientHeight+5||e.scrollTop>0;},moves);
+    await resetPanel(page);
+    const end=await nativePanelKey(page,'End',()=>{const e=$('menu-body');return e.scrollTop+e.clientHeight>=e.scrollHeight-2;},moves);
+    assert.equal(end.focus,'menu-body');
+    const home=await nativePanelKey(page,'Home',()=>$('menu-body').scrollTop<=2,moves);assert.equal(home.focus,'menu-body');
+  }catch(error){
+    await recordPanelFailure(page,'native-touch-transaction-failure','touchReceipt',{settledTouch});throw error;
+  }finally{await page.evaluate(()=>__menuPanelScrollQA.finish('touch'));await cdp.detach();}
 });
 test('native PageDown, End and Home keep trusted key, movement and end receipts',async t=>{
   const page=await scrollFixture(t);await resetPanel(page);
