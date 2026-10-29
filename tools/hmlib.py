@@ -3,13 +3,14 @@ with three.js served locally and web fonts stubbed, then waits for window.__hm.r
 import json, asyncio, sys, pathlib
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import hm
-from playwright.async_api import async_playwright
+from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeoutError
 OUT = str(hm.OUT) + '/'
 
 
 async def wait_title_settled(page, timeout=180000):
     """Wait for the real staged title boundary; report a stopped pipeline immediately."""
-    handle = await page.wait_for_function("""() => {
+    try:
+        handle = await page.wait_for_function("""() => {
       const H=window.__hm, S=window.__hmStartup, title=document.getElementById('title');
       if(!H || !S)return false;
       if(S.stopped || S.titleError || H.errors.length) {
@@ -20,7 +21,23 @@ async def wait_title_settled(page, timeout=180000):
       if(!(S.titleCompleted>0) || S.titleCompleted!==S.titleSubmitted ||
          !S.titleFinal || !S.titleFinal.completed || !S.titleFinal.fenceComplete)return false;
       return {error:null};
-    }""", timeout=timeout, polling=100)
+        }""", timeout=timeout, polling=100)
+    except PlaywrightTimeoutError as error:
+        try:
+            state = await asyncio.wait_for(page.evaluate("""() => {
+              const H=window.__hm,S=window.__hmStartup;
+              return {ready:H?.ready,gameReady:H?.GAME.ready,hidden:document.hidden,
+                stopped:S?.stopped,phase:S?.phase,stage:S?.titleStage,preparing:S?.titlePreparing,
+                error:S?.titleError,errors:H?.errors.slice(0,5),failure:S?.titleFailure,
+                submitted:S?.titleSubmitted,completed:S?.titleCompleted,
+                preparations:S?.titlePreparations?.slice(-3).map(p=>({dependency:p.dependency,
+                  outcome:p.outcome,eligibleJobs:p.eligibleJobs,preparedJobs:p.preparedJobs,
+                  newPrograms:p.newPrograms,maxPending:p.maxPending,visibleMs:p.visibleMs,
+                  waves:p.waves,tail:p.waveLatency?.slice(-2)}))};
+            }"""), timeout=5)
+        except Exception as diagnostic_error:
+            state = {'unavailable': type(diagnostic_error).__name__}
+        raise RuntimeError('Title did not settle within its unchanged deadline: '+json.dumps(state)) from error
     state = await handle.json_value()
     await handle.dispose()
     if state['error']:

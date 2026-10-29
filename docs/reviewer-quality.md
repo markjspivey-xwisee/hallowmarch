@@ -117,6 +117,14 @@ preview requires the existing successful null metadata read and grants no privat
 absence, identity admission or save authority. Late private reads still defer
 their normal title hydration until Ready.
 
+Focused name editing keeps the field within the form's visible area when the
+phone viewport shrinks. Its draft-local listeners and pending frame are removed
+on Ready, cancellation, failure or ownership changes. The original near/far
+mountain crag resources also enter the bounded outdoor entry queue: a low-detail
+phone test exposed a 2.507-second first-use compilation when a previously empty
+title-camera list gained real instances. Preparation changes no instance count,
+visibility, camera or shader; unsupported resources retain the normal draw path.
+
 Pooled scene/material guards and backoff on unchanged sealed waves reduce polling
 work. In sequential native Edge / GTX 980 Ti local fixtures, pooled fixed polling
 used 17.326 seconds of guard CPU, while bounded 10–100 ms idle backoff used
