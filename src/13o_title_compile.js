@@ -71,14 +71,15 @@ function titleEntryJobs(inventory, receipt, weatherResources) {
       add('entry-shadow', object, material, shadowTarget, shadowCamera, shadowScene);
     }
   }
+  const originalMaterial = fsMesh.material, geometry = fsMesh.geometry;
+  const fsOwned = () => fsMesh.parent === fsScene && fsScene.children.length === 1 && fsScene.children[0] === fsMesh
+    && fsMesh.children.length === 0 && fsMesh.geometry === geometry && geometry === fsTriGeo
+    && fsMesh.material === originalMaterial && fsMesh.visible && fsScene.visible && !fsMesh.frustumCulled
+    && fsMesh.layers.test(fsCam.layers) && sceneSupported(fsScene);
   if (!Array.isArray(weatherResources)) throw new Error('First-view preparation requires owned weather resources.');
   if (weatherResources.length) {
-    const originalMaterial = fsMesh.material, geometry = fsMesh.geometry, weatherQuality = quality.level, q = WXR.q;
+    const weatherQuality = quality.level, q = WXR.q;
     const bindings = { 'weather-field': ['fieldMat', 'field'], 'weather-dome': ['domeMat', 'dome'], 'weather-screen': ['scrMat', 'scr'] };
-    const fsOwned = () => fsMesh.parent === fsScene && fsScene.children.length === 1 && fsScene.children[0] === fsMesh
-      && fsMesh.children.length === 0 && fsMesh.geometry === geometry && geometry === fsTriGeo
-      && fsMesh.material === originalMaterial && fsMesh.visible && fsScene.visible && !fsMesh.frustumCulled
-      && fsMesh.layers.test(fsCam.layers) && sceneSupported(fsScene);
     const ids = new Set();
     for (const { id, material, target } of weatherResources) {
       receipt.inventoryObjects++;
@@ -92,6 +93,55 @@ function titleEntryJobs(inventory, receipt, weatherResources) {
         && WXR[binding[0]] === material && WXR[binding[1]] === target);
       add(id, fsMesh, material, target, fsCam, fsScene, true);
     }
+  }
+  // Only the observed ordinary first-frame effects are admitted here. Their
+  // original allocators run before this API; no pass, counters or uniforms run.
+  const addPass = (id, material, target, current) => {
+    if (!material || !target) return;
+    receipt.inventoryObjects++;
+    if (!fsOwned() || !material.isShaderMaterial || !target.isWebGLRenderTarget
+      || !titleCompileSupported(fsMesh, material) || material.visible === false) { receipt.skipped++; return; }
+    checks.push(() => fsOwned() && current());
+    add(id, fsMesh, material, target, fsCam, fsScene, true);
+  };
+  const rippleA = RIPPLE.rtA, rippleB = RIPPLE.rtB, rippleRes = RIPPLE.res;
+  const rippleCurrent = () => RIPPLE.rtA === rippleA && RIPPLE.rtB === rippleB && RIPPLE.res === rippleRes;
+  if (rippleA && rippleB && !INDOOR.on) {
+    addPass('entry-ripple-clear', rippleClearMat, rippleA, () => rippleCurrent() && !INDOOR.on);
+    addPass('entry-ripple-sim', rippleSimMat, rippleB, () => rippleCurrent() && !INDOOR.on);
+  }
+  const trailTarget = trailB;
+  addPass('entry-trail', trailMat, trailTarget, () => trailB === trailTarget);
+  if (decalMesh && decalRT && decalMesh.parent === decalScene && decalScene.children.length === 1
+    && decalScene.children[0] === decalMesh && decalMesh.children.length === 0 && sceneSupported(decalScene)
+    && decalMesh.geometry === decalGeo && decalMesh.material === decalMat && decalMesh.visible
+    && !decalMesh.frustumCulled && decalMesh.layers.test(fsCam.layers) && titleCompileSupported(decalMesh)) {
+    receipt.inventoryObjects++;
+    checks.push(() => decalMesh.parent === decalScene && decalScene.children.length === 1 && decalScene.children[0] === decalMesh
+      && decalMesh.children.length === 0 && decalMesh.geometry === decalGeo && decalMesh.material === decalMat
+      && decalMesh.visible && !decalMesh.frustumCulled && decalMesh.layers.test(fsCam.layers) && sceneSupported(decalScene));
+    add('entry-decal', decalMesh, decalMat, decalRT, fsCam, decalScene);
+  }
+  const addWorld = (id, object, owned, allocatedInvisible = false) => {
+    if (!object) return;
+    receipt.inventoryObjects++;
+    const material = object.material, geometry = object.geometry, ancestry = [], target = sceneRT, visible = object.visible;
+    if (!owned() || !(allocatedInvisible ? object.parent && liveIn(object.parent) : liveIn(object)) || object.children.length || !titleCompileSupported(object) || material.visible === false
+      || !object.layers.test(camera.layers) || !sceneSupported(scene)) { receipt.skipped++; return; }
+    for (let node = object; node !== scene; node = node.parent) ancestry.push([node, node.parent]);
+    checks.push(() => owned() && sceneRT === target && object.material === material && object.geometry === geometry
+      && object.children.length === 0 && object.layers.test(camera.layers) && sceneSupported(scene)
+      && ancestry.every(([node, parent]) => node.parent === parent && (allocatedInvisible && node === object ? node.visible === visible : node.visible)));
+    add(id, object, material, target, camera, scene);
+  };
+  const shaft = WXR.shafts;
+  if (WXR.on && !INDOOR.on && shaft) addWorld('entry-weather-shafts', shaft, () => WXR.on && !INDOOR.on && WXR.shafts === shaft, true);
+  if (houseGlassMat) for (const owner of new Set(HOUSES.map(house => house.S.houseSet).filter(Boolean))) {
+    const object = owner.mGl, material = object?.material;
+    const owned = () => allowed.has(object) && HOUSES.some(house => house.S.houseSet === owner) && owner.mGl === object
+      && object.material === material && !Array.isArray(material) && material.vertexShader === houseGlassMat.vertexShader
+      && material.fragmentShader === houseGlassMat.fragmentShader && material.uniforms.uHA === owner.TU.uHA && material.uniforms.uHL === owner.TU.uHL;
+    if (material && owned()) addWorld('entry-house-glass', object, owned);
   }
   return { jobs, current: () => checks.every(check => check()) && jobs.every(job => titleCompileSupported(job.object, job.material)
     && job.material.visible !== false && job.material.version === job.version

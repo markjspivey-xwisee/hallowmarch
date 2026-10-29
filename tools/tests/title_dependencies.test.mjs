@@ -313,6 +313,10 @@ test('double-sided preparation restores the original side and material between b
 function entryFixture(options = {}) {
   const f = fixture(options), weatherSource = read('src/12c_weather2.js');
   f.ctx.WX_N = 12; f.ctx.WX_WETK = [0.62, 1.1, 0.85];
+  // The pass-only fixture leaves the separately tested shaft allocation absent.
+  f.ctx.wxBuildShafts = () => {};
+  Object.assign(f.ctx, { RIPPLE: { rtA: null, rtB: null }, rippleClearMat: null, rippleSimMat: null, trailMat: null, trailB: null,
+    decalMesh: null, decalRT: null, decalScene: null, decalGeo: null, decalMat: null, houseGlassMat: null, HOUSES: [] });
   f.eval(section(weatherSource, 'const WX_Q =', '// rain hanging under its cloud')
     + '\nthis.entryResources=wxPrepareCloudResources(); this.weather=WXR;\n');
   const weather = f.ctx.weather;
@@ -442,4 +446,76 @@ test('entry queued GL failure prevents the next wave and completion even when re
   assert.equal(f.compileCalls.length, productPending); f.errors.push(['0x0502']); f.weather.on = false;
   await assert.rejects(f.finish(promise), /GL errors/); assert.equal(f.compileCalls.length, productPending);
   assert.equal(f.ctx.GRAPHICS_STARTUP.titlePreparations.at(-1).completed, false); assert(f.errorChecks.every(count => count === 0)); f.clean();
+});
+
+function effectFixture(options = {}) {
+  const f = entryFixture({ shadows: 0, ...options }), terrain = read('src/03_terrain.js'), water = read('src/02c_water_map.js');
+  f.ctx.HOUSE_MAXH = 8; f.ctx.WX_SHAFT_N = 8;
+  f.ctx.houseMat = { uniforms: { uHA: { value: [] }, uHL: { value: [] } } };
+  f.eval(section(water, 'const RIPPLE =', '// make or drop the targets')
+    + section(terrain, 'const TRAIL =', '// The opt-in diagnostic')
+    + section(terrain, 'const DECAL =', 'let decalCount =')
+    + section(read('src/04e_houses.js'), 'const houseGlassMat =', '/* the meshes for one town')
+    + section(read('src/12c_weather2.js'), 'function wxBuildShafts()', 'function wxShaftsFrame()')
+    + '\nwxBuildShafts(); WXR.shafts.visible=false; RIPPLE.res=128; RIPPLE.rtA=new THREE.WebGLRenderTarget(128,128,{type:THREE.HalfFloatType}); RIPPLE.rtB=RIPPLE.rtA.clone();'
+    + '\nthis.effects={RIPPLE,rippleClearMat,rippleSimMat,trailMat,trailB,decalMesh,decalScene,decalGeo,decalMat,decalRT,houseGlassMat};');
+  const e = f.ctx.effects, owner = { TU: { uHA: { value: [] }, uHL: { value: [] } } };
+  const material = e.houseGlassMat.clone(); material.uniforms.uHA = owner.TU.uHA; material.uniforms.uHL = owner.TU.uHL;
+  owner.mGl = new THREE.Mesh(new THREE.BufferGeometry(), material); f.scene.add(owner.mGl);
+  f.inventory.renderables.push(owner.mGl); f.ctx.HOUSES.push({ S: { houseSet: owner } });
+  return Object.assign(f, { e, owner });
+}
+
+test('observed first-entry effects prepare only exact original passes, shaft and owned house glass without effects or instance changes', async () => {
+  const f = effectFixture(), before = f.state(), shaft = f.weather.shafts, shaftCount = shaft.geometry.instanceCount;
+  const receipt = await f.finish(f.runEntry());
+  for (const id of ['entry-ripple-clear', 'entry-ripple-sim', 'entry-trail', 'entry-decal', 'entry-weather-shafts', 'entry-house-glass']) assert.equal(receipt.families[id].prepared, 1, id);
+  assert.equal(receipt.eligibleJobs, 9); assert(receipt.maxPending <= 4); assert(f.errorChecks.every(count => count === 0));
+  assert.deepEqual(f.state(), before); assert.equal(shaft.visible, false); assert.equal(shaft.geometry.instanceCount, shaftCount);
+  assert.equal(f.e.RIPPLE.steps, 0); assert.equal(f.e.RIPPLE.acc, 0); assert.equal(f.e.RIPPLE.drops.length, 0);
+  assert.equal(f.e.decalGeo.instanceCount, 0); assert.equal(f.preflightCalls(), 0); assert.equal(f.randomCalls(), 0);
+  for (const [material, target] of [[f.e.rippleClearMat,f.e.RIPPLE.rtA],[f.e.rippleSimMat,f.e.RIPPLE.rtB],[f.e.trailMat,f.e.trailB]])
+    assert(f.calls.some(call => call.object === f.r.fsMesh && call.target === target && call.material === material));
+  assert(f.compileCalls.some(call => call.object === f.e.decalMesh && call.target === f.e.decalRT && call.targetScene === f.e.decalScene && call.camera === f.r.fsCam));
+  assert(f.calls.some(call => call.object === shaft && call.target === f.r.sceneRT)); f.clean();
+});
+
+test('real r160 keys and identities survive the later original first-entry effect draws', async () => {
+  const f = effectFixture(); await f.finish(f.runEntry()); const count = f.programs.length, known = new Map(f.known);
+  f.weather.shafts.visible = true; f.weather.shafts.geometry.instanceCount = 1; f.e.decalGeo.instanceCount = 14;
+  f.eval('pass(rippleClearMat,RIPPLE.rtA);pass(rippleSimMat,RIPPLE.rtB);pass(trailMat,trailB);renderer.setRenderTarget(decalRT);renderer.render(decalScene,fsCam);renderer.setRenderTarget(sceneRT);');
+  // These original ShaderMaterials retain r160's forceSinglePass=true.
+  assert.equal(f.owner.mGl.material.forceSinglePass, true); assert.equal(f.weather.shafts.material.forceSinglePass, true);
+  f.eval('renderer.render(scene,camera);');
+  assert.equal(f.programs.length, count + 1, 'only the untouched sky is first-used by the main-scene test draw');
+  for (const [key, program] of known) assert.equal(f.known.get(key), program); f.clean();
+});
+
+for (const change of ['ripple A', 'ripple B', 'ripple res', 'trail', 'decal child', 'decal geometry', 'decal parent', 'decal hook', 'shaft owner', 'shaft parent', 'shaft visible', 'house owner', 'house uniforms', 'house parent'])
+test('observed effect resource changes drain and stop admission: ' + change, async () => {
+  const f = effectFixture({ readyDelay: 50, compileMs: 10 }), promise = f.runEntry(); await f.flush(); assert.equal(f.compileCalls.length, 1);
+  if (change === 'ripple A') f.e.RIPPLE.rtA = new THREE.WebGLRenderTarget();
+  if (change === 'ripple B') f.e.RIPPLE.rtB = new THREE.WebGLRenderTarget();
+  if (change === 'ripple res') f.e.RIPPLE.res++;
+  if (change === 'trail') f.eval('trailB=new THREE.WebGLRenderTarget();');
+  if (change === 'decal child') f.e.decalMesh.add(new THREE.Mesh());
+  if (change === 'decal geometry') f.e.decalMesh.geometry = new THREE.BufferGeometry();
+  if (change === 'decal parent') f.scene.add(f.e.decalMesh);
+  if (change === 'decal hook') f.e.decalScene.onBeforeRender = () => {};
+  if (change === 'shaft owner') f.weather.shafts = new THREE.Mesh();
+  if (change === 'shaft parent') f.scene.remove(f.weather.shafts);
+  if (change === 'shaft visible') f.weather.shafts.visible = true;
+  if (change === 'house owner') f.ctx.HOUSES[0].S.houseSet = {};
+  if (change === 'house uniforms') f.owner.TU.uHA = { value: [] };
+  if (change === 'house parent') f.scene.remove(f.owner.mGl);
+  const receipt = await f.finish(promise); assert.equal(receipt.stale, true); assert.equal(f.compileCalls.length, 1);
+  assert(f.errorChecks.every(count => count === 0)); assert.equal(f.currentTarget(), f.originalTarget); f.clean();
+});
+
+test('shader similarity alone cannot admit foreign glass, and unavailable ripple targets remain serial', async () => {
+  const f = effectFixture(), foreign = f.owner.mGl.clone(); f.scene.add(foreign); f.inventory.renderables.push(foreign);
+  f.e.RIPPLE.rtA = f.e.RIPPLE.rtB = null;
+  const receipt = await f.finish(f.runEntry()); assert.equal(receipt.families['entry-ripple-clear'], undefined);
+  assert.equal(receipt.families['entry-ripple-sim'], undefined); assert.equal(receipt.families['entry-house-glass'].jobs, 1);
+  assert(!f.calls.some(call => call.object === foreign)); f.clean();
 });
