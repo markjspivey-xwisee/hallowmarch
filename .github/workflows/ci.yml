@@ -76,7 +76,7 @@ jobs:
             headless)
               node --test tools/tests/presentation_accessibility.test.mjs tools/tests/objective_guidance.test.mjs tools/tests/combat_targeting.test.mjs tools/tests/lore_observation.test.mjs tools/tests/potion_purchase_receipt.test.mjs
               node --test tools/tests/menu_edit_save.test.mjs tools/tests/menu_edit_save.browser.test.mjs
-              node --test tools/tests/readiness_responsiveness.test.mjs
+              node --test tools/tests/readiness_responsiveness.test.mjs tools/tests/weather_entry_resources.test.mjs
               python3 -m unittest discover -s tools/tests -p native_journey_browser_test.py
               python3 -m unittest discover -s tools/tests -p first_session_points_test.py
               python3 -m unittest discover -s tools/tests -p first_session_observability_test.py
