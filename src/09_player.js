@@ -283,11 +283,23 @@ function teleportPlayer(S, kind) {
 }
 
 /* bounties from the herald */
+function bountyCampInfo(c, P = GAME.player, prog = GAME.prog) {
+  if (!P || !prog || c.realm !== P.faction || c.elite || !MOBS[c.type]) return null;
+  const residents = guideCampResidents(c);
+  if (!residents.length) return null;
+  const levels = residents.map((e) => e.level), high = Math.max(...levels);
+  if (!(high <= prog.level + 1)) return null;
+  return { c, residents, low: Math.min(...levels), high };
+}
+function bountyAvailable(P = GAME.player, prog = GAME.prog) {
+  if (!P || !prog || prog.bounty) return false;
+  // The veteran offer precedes ordinary quarry in the herald's real dialog.
+  if (prog.level >= LATE2_RISE_AT && CAMPS.some((c) => c.realm === P.faction && late2Risen(c))) return true;
+  return prog.level < LEVEL_CAP && CAMPS.some((c) => bountyCampInfo(c, P, prog));
+}
 function chooseBounty() {
   const P = GAME.player, prog = GAME.prog;
-  const camps = CAMPS.filter((c) => c.realm === P.faction && !c.elite && MOBS[c.type])
-    .map((c) => { const residents = guideCampResidents(c), levels = residents.map((e) => e.level); return { c, residents, low: Math.min(...levels), high: Math.max(...levels) }; })
-    .filter((q) => q.residents.length && q.high <= prog.level + 1);
+  const camps = CAMPS.map((c) => bountyCampInfo(c, P, prog)).filter(Boolean);
   camps.sort((a, b) => Math.abs(a.high - prog.level - 0.5) - Math.abs(b.high - prog.level - 0.5)
     || dist2(P.x, P.z, a.c.x, a.c.z) - dist2(P.x, P.z, b.c.x, b.c.z));
   if (!camps.length) return null;

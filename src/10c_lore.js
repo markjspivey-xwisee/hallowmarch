@@ -284,7 +284,9 @@ const PATH_STEPS = [
     hint: (R) => `The ${R.name} Herald stands in the square of ${R.townName}, by the portal stones. Walk up to him and ${LK().use}.`,
     reward: { potions: 2 } },
   { id: 'bounty', lv: 1, old: 8, title: 'Finish a bounty', short: 'A bounty',
-    hint: (R, prog) => prog.bounty ? (prog.bounty.done ? `Done. Go back to the ${R.name} Herald for your pay.` : `Slay ${prog.bounty.need} ${pluralName(prog.bounty.name)} at the place circled on your map (${LK().map}), then go back to the herald.`) : `Take a bounty from the ${R.name} Herald in ${R.townName}, slay the creatures he names, then return to him.`,
+    hint: (R, prog) => prog.bounty ? (prog.bounty.done ? `Done. Go back to the ${R.name} Herald for your pay.` : `Slay ${prog.bounty.need} ${pluralName(prog.bounty.name)} at the place circled on your map (${LK().map}), then go back to the herald.`)
+      : bountyAvailable(GAME.player, prog) ? `Take a bounty from the ${R.name} Herald in ${R.townName}, slay the creatures he names, then return to him.`
+        : 'No suitable bounty is available right now. Gather or explore, or open Your path to track another objective. Check the herald again later.',
     meter: (prog) => (prog.bounty && !prog.bounty.done ? [prog.bounty.have / prog.bounty.need, `${prog.bounty.have} / ${prog.bounty.need} slain`] : null),
     reward: { item: { slot: 'weapon', q: 2 } } },
   { id: 'lv5', lv: 5, level: 5, title: 'Reach level 5', short: 'Level 5',

@@ -127,10 +127,10 @@ function bounties() {
   const f = guidance(); fullGuidance(f);
   Object.assign(f.c, {
     MOBS: { wolf: { names: ['young wolf', 'wolf-lord'] } },
-    xpToNext: () => 100, Math: Object.create(Math),
+    xpToNext: () => 100, Math: Object.create(Math), LEVEL_CAP: 50, LATE2_RISE_AT: 40, late2Risen: c => c.risen === true,
   });
   f.c.Math.random = () => 0;
-  vm.runInContext(declarations('09_player.js', ['chooseBounty']) + '\n' + declarations('10e_guide.js', ['pluralName']), f.c);
+  vm.runInContext(declarations('09_player.js', ['bountyCampInfo', 'bountyAvailable', 'chooseBounty']) + '\n' + declarations('10e_guide.js', ['pluralName']), f.c);
   return f;
 }
 
@@ -179,6 +179,65 @@ test('the real herald dialog explains unavailable quarry and cannot accept a non
   assert.match(node('dlg-body').innerHTML, /no suitable bounty/);
   assert.deepEqual(node('dlg-actions').children.map(b => b.textContent), ['Farewell']);
   assert.equal(f.c.GAME.prog.bounty, undefined);
+});
+
+function bountyGuidance() {
+  const f=bounties();
+  Object.assign(f.c.GAME.player,{x:800,z:0});
+  Object.assign(f.c.REALMS[0],{name:'Logres',herald:{x:805,z:2}});
+  Object.assign(f.c.GAME.prog,{xp:7,rp:3,lore:{done:['herald']}});
+  f.c.LK=()=>({map:'M'});
+  vm.runInContext(declarations('10c_lore.js',['PATH_STEPS'])+'\nglobalThis.bountyStep=PATH_STEPS.find(step=>step.id===\'bounty\');',f.c);
+  f.hint=()=>f.c.bountyStep.hint(f.c.REALMS[0],f.c.GAME.prog);
+  f.mark=()=>f.c.guideMarkOf({id:'bounty'});
+  return f;
+}
+
+test('unavailable bounty guidance offers another activity and never loops a recruit back to a herald with no offer',()=>{
+  const f=bountyGuidance(),before=JSON.stringify(f.c.GAME.prog);
+  f.c.Math.random=()=>{throw Error('Reading objective availability must not generate an offer or consume randomness');};
+  assert.equal(f.c.bountyAvailable(),false);assert.equal(f.c.chooseBounty(),null);
+  assert.match(f.hint(),/No suitable bounty.*Gather or explore.*track another objective/);
+  assert.equal(f.mark(),null);
+  f.camp('foreign',5,[1],{realm:1});f.camp('elite',6,[1],{elite:true});
+  f.camp('unknown',7,[1],{type:'unknown'});f.camp('veterans',8,[12]);f.camp('mixed',9,[1,9]);
+  const dead=f.camp('dead',10,[1]);f.c.entities.get([...dead.members][0]).alive=false;
+  assert.equal(f.c.bountyAvailable(),false);assert.equal(f.mark(),null);
+  assert.equal(JSON.stringify(f.c.GAME.prog),before,'Guidance cannot complete a step or award progress.');
+  assert.equal(f.c.entities.get('veterans:0').level,12);
+});
+
+test('the same pure eligibility rule restores normal herald guidance when living suitable quarry returns',()=>{
+  const f=bountyGuidance();
+  const safe=f.camp(0,20,[1,2],{lmin:40,lmax:50});
+  f.c.Math.random=()=>{throw Error('Availability and navigation must not roll a bounty');};
+  assert.equal(f.c.bountyAvailable(),true);assert.match(f.hint(),/^Take a bounty from the Logres Herald/);
+  assert.equal(f.mark().x,805);assert.equal(f.mark().z,2);
+  f.c.Math.random=()=>0;const offer=f.c.chooseBounty();
+  assert.equal(offer.camp,safe.id);assert.equal(offer.minLevel,1);assert.equal(offer.maxLevel,2);
+  f.c.entities.get('0:1').level=12;
+  assert.equal(f.c.bountyAvailable(),false);assert.equal(f.mark(),null);assert.match(f.hint(),/No suitable bounty/);
+  f.c.entities.get('0:1').removed=true;
+  assert.equal(f.c.bountyAvailable(),true,'Removing the dangerous resident exposes the actual suitable survivor.');
+});
+
+test('accepted and completed bounty guidance keeps its existing destination and rewards without reevaluating new offers',()=>{
+  const f=bountyGuidance();f.camp(0,55,[]);
+  const bounty={camp:0,name:'young wolf',need:6,have:2,reward:35};f.c.GAME.prog.bounty=bounty;
+  const before=JSON.stringify(f.c.GAME.prog);
+  assert.match(f.hint(),/Slay 6.*circled on your map/);assert.equal(f.mark().x,55);
+  assert.equal(JSON.stringify(f.c.GAME.prog),before);
+  bounty.done=true;const completed=JSON.stringify(f.c.GAME.prog);
+  assert.match(f.hint(),/Done.*Herald for your pay/);assert.equal(f.mark().x,805);
+  assert.equal(JSON.stringify(f.c.GAME.prog),completed);
+});
+
+test('veteran risen offers retain their normal herald route without advertising capped ordinary quarry',()=>{
+  const f=bountyGuidance();f.c.GAME.prog.level=50;f.camp(0,10,[1]);
+  assert.equal(f.c.bountyAvailable(),false);
+  f.camp(1,20,[],{risen:true});
+  assert.equal(f.c.bountyAvailable(),true);assert.match(f.hint(),/^Take a bounty/);assert.equal(f.mark().x,805);
+  f.c.CAMPS[1].realm=1;assert.equal(f.c.bountyAvailable(),false);
 });
 
 function objectives() {

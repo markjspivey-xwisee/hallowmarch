@@ -71,6 +71,7 @@ function guideMarkOf(S) {
     case 'herald': return R.herald ? guideTown(P, R, R.herald.x, R.herald.z, `the ${R.name} Herald`) : null;
     case 'bounty':
       if (b && !b.done && CAMPS[b.camp]) return { x: CAMPS[b.camp].x, z: CAMPS[b.camp].z, what: `the ${pluralName(b.name)}` };
+      if (!b && !bountyAvailable(P, prog)) return null;
       return R.herald ? guideTown(P, R, R.herald.x, R.herald.z, `the ${R.name} Herald`) : null;
     case 'lv5': case 'lv20':
       if (b && !b.done && CAMPS[b.camp]) return { x: CAMPS[b.camp].x, z: CAMPS[b.camp].z, what: `the ${pluralName(b.name)}` };
