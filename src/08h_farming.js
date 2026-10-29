@@ -634,6 +634,12 @@ function farmStepTown(dt) {
     }
   }
 }
+// A display-only service role, tied to the current farmer assignment rather than an old AI flag.
+function farmSeedSeller(e) {
+  return !!(FARM.built && e && e.role === 'villager' && e.alive && !e.removed && !e.netNpcMissing && e.ai?.seedSeller
+    && Number.isFinite(e.x) && Number.isFinite(e.z) && FARM.farmers.includes(e.id) && getEnt(e.id) === e);
+}
+function farmServiceName(e) { return farmSeedSeller(e) ? `${e.name} · Seeds & tools` : e.name; }
 // townsfolk who farm: the first two of Brackenford's, one in each other town who sells seed (08f_townlife.js asks)
 function farmAssignFarmers() {
   FARM.farmers = [];

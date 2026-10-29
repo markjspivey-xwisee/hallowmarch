@@ -56,6 +56,8 @@ These apply to every change, not only to the feature that prompted them.
 
 - **Phone QA viewport witness (2026-10-29):** The ergonomics test retains its exact renderer/aspect condition, 20 ms polling and 15 s deadline. Bounded host/page poll timestamps are diagnostic only; no successful after-state can waive a failed wait. Existing geometry/report reads harvest observations without an added success-path browser await. This records scheduling evidence; the prior CI resize failure is not claimed fixed.
 
+- **Seed seller wayfinding (2026-10-29):** Existing assigned seed sellers show a Seeds & tools service label and a vector leaf marker at their live map location. The minimap uses its existing nearby-entity pass and paints the symbol above crop plots. The world-map sidebar names only the player's realm seller and gives the current distance/direction. Names, actor identity, wandering, original E offer, saves and progression are unchanged; no new objective or tracking state is created. Focused source/CPU and DOM-only layout checks are separate from the coordinating chat's required native player-route verification.
+
 ## Build and run
 
 - Run `python3 build.py`. It concatenates `src/page.html` and every `src/NN[a-z]_*.js` module in filename order into one `<script type="module">`, and writes `hallowmarch.html`. three.js 0.160.0 is imported from jsDelivr.
