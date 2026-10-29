@@ -1782,7 +1782,6 @@ function updateLore(dt) {
   if (!inner) return;
   const el = document.createElement('div');
   el.className = 'lore-ltip';
-  el.setAttribute('aria-live', 'polite');
   inner.appendChild(el);
   const order = shuffle(Math.random, LOADING_TIPS.slice());
   let i = 0;
