@@ -94,15 +94,61 @@ window.ME = {
 """
 
 
+VIEWPORT_WAITS = []
+VIEWPORT_STATE = r"""() => {
+  const H=window.__hm,S=window.__hmStartup,R=H?.dbg?.renderer,C=H?.camera;
+  const size=R?.getSize({set(x,y){this.x=x;this.y=y;return this;}});
+  const vv=window.visualViewport,canvas=document.getElementById('scene');
+  const rect=canvas?.getBoundingClientRect(),title=document.getElementById('title');
+  const notice=document.getElementById('nogl'),root=document.documentElement;
+  return {at:performance.now(),window:{w:innerWidth,h:innerHeight,dpr:devicePixelRatio,
+      outerW:outerWidth,outerH:outerHeight},document:{clientW:root.clientWidth,
+      clientH:root.clientHeight,scrollW:root.scrollWidth,scrollH:root.scrollHeight,
+      hidden:document.hidden,visibility:document.visibilityState,focused:document.hasFocus()},
+    visualViewport:vv?{w:vv.width,h:vv.height,scale:vv.scale,left:vv.offsetLeft,top:vv.offsetTop}:null,
+    renderer:size?{w:size.x,h:size.y}:null,
+    canvas:canvas?{w:canvas.width,h:canvas.height,rect:rect?{x:rect.x,y:rect.y,w:rect.width,h:rect.height}:null}:null,
+    camera:C?{aspect:C.aspect,fov:C.fov}:null,
+    quality:H?.quality?{level:H.quality.level,scale:H.quality.scale,dpr:H.quality.dpr,dprActual:H.quality.dprActual}:null,
+    game:H?{built:H.GAME.built,ready:H.GAME.ready,started:H.GAME.started,debugReady:H.ready,modal:H.UI.modal}:null,
+    rafHeld:window.__mobileRafHold===true,
+    graphics:S?{phase:S.phase,stopped:S.stopped,lost:S.lost,restored:S.restored,
+      titleError:S.titleError?String(S.titleError).slice(0,1500):null,
+      titleFailure:S.titleFailure?{stage:S.titleFailure.stage,contextLost:S.titleFailure.contextLost,
+        error:String(S.titleFailure.error||'').slice(0,1500)}:null,titlePreparing:S.titlePreparing,
+      titleStage:S.titleStage,submitted:S.titleSubmitted,completed:S.titleCompleted}:null,
+    title:title?{hidden:title.hidden,busy:title.getAttribute('aria-busy')}:null,
+    recovery:notice?{hidden:notice.hidden,text:notice.textContent.slice(0,300)}:null,
+    errors:H?.errors.slice(0,5).map(error=>String(error).slice(0,1500))};
+}"""
+
+
+async def viewport_state(page):
+    try:
+        return await asyncio.wait_for(page.evaluate(VIEWPORT_STATE), timeout=5)
+    except Exception as error:
+        return {'unavailable': type(error).__name__}
+
+
 async def wait_for_viewport(page):
     # The game's resize handler is debounced. Simulated frames do not advance
     # that browser timer, so wait for its renderer/projection update explicitly.
     # RAF polling cannot run while this suite holds the game's animation loop.
-    await page.wait_for_function(r"""()=>{
-      const size=__hm.dbg.renderer.getSize({set(x,y){this.x=x;this.y=y;return this;}});
-      return size.x===innerWidth&&size.y===innerHeight&&
-        Math.abs(__hm.camera.aspect-innerWidth/innerHeight)<1e-9;
-    }""",polling=20,timeout=15000)
+    receipt = {'requested': page.viewport_size, 'timeoutMs': 15000, 'pollingMs': 20}
+    VIEWPORT_WAITS.append(receipt)
+    del VIEWPORT_WAITS[:-16]
+    try:
+        await page.wait_for_function(r"""()=>{
+          const size=__hm.dbg.renderer.getSize({set(x,y){this.x=x;this.y=y;return this;}});
+          return size.x===innerWidth&&size.y===innerHeight&&
+            Math.abs(__hm.camera.aspect-innerWidth/innerHeight)<1e-9;
+        }""",polling=20,timeout=15000)
+    except Exception as error:
+        receipt.update({'outcome':'failed','error':f'{type(error).__name__}: {error}'[:2000],
+                        'after':await viewport_state(page)})
+        print('VIEWPORT WAIT '+json.dumps(receipt),flush=True)
+        raise
+    receipt['outcome'] = 'matched'
 
 
 async def tap(page, selector, tag=''):
@@ -374,7 +420,7 @@ async def main():
             raise
         finally:
             await b.close()
-            pathlib.Path(OUT,'mobile_ergonomics.json').write_text(json.dumps({'results':RESULTS,'notch_results':NOTCH_RESULTS,'failures':FAILS},indent=2))
+            pathlib.Path(OUT,'mobile_ergonomics.json').write_text(json.dumps({'results':RESULTS,'notch_results':NOTCH_RESULTS,'failures':FAILS,'viewport_waits':VIEWPORT_WAITS,'browser_errors':[str(error)[:2000] for error in logs[-20:]]},indent=2))
     print(f'{len(FAILS)} failures',flush=True)
     if FAILS:
         sys.exit(1)
