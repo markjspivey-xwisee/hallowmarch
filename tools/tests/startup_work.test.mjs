@@ -103,6 +103,19 @@ test('load steps retain real progress, bounded work receipts and the established
   assert(h.ctx.GRAPHICS_STARTUP.bootWork.every(r=>r.completed&&r.workMs===2));
   assert.equal(h.events.filter(x=>x==='paint').length,20);
 });
+test('the actual profiling wrapper preserves resumable generation through its last chunk',async()=>{
+  const h=harness(),seen=[];
+  const perf=readFileSync(new URL('../../src/13p_perf.js',import.meta.url),'utf8');
+  const start=perf.indexOf('{\n  const ls0 = loadStep;'),end=perf.indexOf('\n}',start);
+  assert(start>=0&&end>start);h.ctx.PERFX={boot:[]};
+  vm.runInContext(perf.slice(start,end+2),h.ctx);
+  function* chunks(){for(let i=0;i<10;i++){seen.push(i);h.advance(2);yield;}}
+  await h.ctx.loadStep(.5,'Measured terrain',chunks);
+  assert.deepEqual(seen,Array.from({length:10},(_,i)=>i));
+  assert.equal(h.ctx.GRAPHICS_STARTUP.bootWork[0].chunked,true);
+  assert.equal(h.ctx.PERFX.boot.length,1);
+  assert.deepEqual(Array.from(h.ctx.PERFX.boot[0]),Array.from(h.ctx.BOOT_STEPS[0].slice(0,2)));
+});
 test('failed loading takes input ownership and offers one deliberate retry without resetting progress',()=>{
   const h=harness(),player=h.ctx.GAME.player;
   h.ctx.bootStartFailure(Error('world fixture failed'));
