@@ -550,7 +550,10 @@ function renderShadowPass(cx, cy, cz) {
   updateShadowCamera(cx, cy, cz);
   for (const m of SHADOW.proxies) {
     const s = m.userData.src;
-    m.visible = liveIn(s);
+    // Empty instance sources have no shadow to draw. Recheck each pass so a
+    // populated pool resumes without changing source or ancestor visibility.
+    m.visible = liveIn(s) && !(s.isInstancedMesh && s.count === 0)
+      && !(s.geometry?.isInstancedBufferGeometry && s.geometry.instanceCount === 0);
     if (m.visible) m.matrixWorld.copy(s.matrixWorld);
   }
   renderer.setRenderTarget(SHADOW.rt);

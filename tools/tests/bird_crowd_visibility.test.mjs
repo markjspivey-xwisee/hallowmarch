@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import * as THREE from 'three';
+import { parse } from 'acorn';
 
 const read = name => readFileSync(new URL('../../src/' + name, import.meta.url), 'utf8');
 const actors = read('05b_actors.js'), depth = read('09u_depth.js'), main = read('13_main.js'), render = read('02_render.js');
@@ -14,6 +15,82 @@ function extract(source, name) {
 const crowd = actors.slice(actors.indexOf('class Crowd {'), actors.indexOf('\nconst HUMAN_ATTRS'));
 const birdClass = depth.match(/class GameBirdCrowd extends Crowd \{[\s\S]*?\n\}/)?.[0] || '';
 const lod = main.match(/const HUMAN_LOD = [^;]+;/)[0];
+
+function shadowSubmissionFixture(source) {
+  const scene = new THREE.Scene(), parent = new THREE.Group();
+  scene.add(parent); parent.add(source); scene.updateMatrixWorld(true);
+  const proxy = new THREE.Mesh(source.geometry, new THREE.MeshBasicMaterial());
+  proxy.userData.src = source;
+  const shadow = { rt: {}, scene: new THREE.Scene(), cam: new THREE.PerspectiveCamera(), proxies: [proxy] };
+  shadow.scene.add(proxy);
+  const draws = [], calls = [];
+  const context = vm.createContext({ scene, SHADOW: shadow,
+    updateShadowCamera(...args) { calls.push(['camera', ...args]); },
+    renderer: {
+      setRenderTarget(target) { calls.push(['target', target]); },
+      clear(...args) { calls.push(['clear', ...args]); },
+      render(target, camera) {
+        assert.equal(target, shadow.scene); assert.equal(camera, shadow.cam);
+        const visible = []; target.traverseVisible(object => { if (object.isMesh) visible.push(object); });
+        draws.push(visible); calls.push(['render']);
+      },
+    },
+  });
+  const code = parse(render, { ecmaVersion: 'latest', sourceType: 'module' }).body
+    .filter(node => node.type === 'FunctionDeclaration' && ['liveIn', 'renderShadowPass'].includes(node.id.name))
+    .map(node => render.slice(node.start, node.end)).join('\n');
+  vm.runInContext(code, context);
+  return { parent, scene, proxy, shadow, calls,
+    pass() { context.renderShadowPass(1, 2, 3); return draws.at(-1); },
+  };
+}
+
+test('zero-count InstancedMesh shadow sources skip submission and resume after population', () => {
+  const source = new THREE.InstancedMesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial(), 3);
+  source.position.set(3, 4, 5); source.count = 0;
+  const f = shadowSubmissionFixture(source);
+  assert.deepEqual(f.pass(), []); assert.equal(f.proxy.visible, false);
+  assert.equal(source.visible, true); assert.equal(f.parent.visible, true);
+  source.count = 2;
+  assert.deepEqual(f.pass(), [f.proxy]); assert.equal(f.proxy.visible, true);
+  assert.deepEqual(f.proxy.matrixWorld.elements, source.matrixWorld.elements);
+  source.count = 0;
+  assert.deepEqual(f.pass(), []);
+});
+
+test('zero-count InstancedBufferGeometry shadow sources skip submission but positive and default Infinity counts draw', () => {
+  const geometry = new THREE.InstancedBufferGeometry();
+  assert.equal(geometry.instanceCount, Infinity);
+  const source = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial()), f = shadowSubmissionFixture(source);
+  assert.deepEqual(f.pass(), [f.proxy]);
+  geometry.instanceCount = 0; assert.deepEqual(f.pass(), []);
+  geometry.instanceCount = 1; assert.deepEqual(f.pass(), [f.proxy]);
+  geometry.instanceCount = Infinity; assert.deepEqual(f.pass(), [f.proxy]);
+  geometry.instanceCount = 0; assert.deepEqual(f.pass(), []);
+  assert.equal(source.visible, true); assert.equal(geometry.instanceCount, 0);
+});
+
+test('static shadow casters ignore count-like fields and keep the original ancestry and render lifecycle', () => {
+  const geometry = new THREE.BufferGeometry(); geometry.instanceCount = 0;
+  const source = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial()); source.count = 0;
+  const f = shadowSubmissionFixture(source);
+  assert.deepEqual(f.pass(), [f.proxy]);
+  assert.deepEqual(f.calls, [['camera', 1, 2, 3], ['target', f.shadow.rt], ['clear', false, true, false], ['render']]);
+  f.parent.visible = false; assert.deepEqual(f.pass(), []);
+  f.parent.visible = true; source.visible = false; assert.deepEqual(f.pass(), []);
+  source.visible = true; f.parent.remove(source); assert.deepEqual(f.pass(), []);
+  f.parent.add(source); assert.deepEqual(f.pass(), [f.proxy]);
+});
+
+test('either empty instancing layer excludes a source and a disabled shadow pass remains untouched', () => {
+  const geometry = new THREE.InstancedBufferGeometry(); geometry.instanceCount = 0;
+  const source = new THREE.InstancedMesh(geometry, new THREE.MeshBasicMaterial(), 2), f = shadowSubmissionFixture(source);
+  assert.deepEqual(f.pass(), []);
+  geometry.instanceCount = 2; assert.deepEqual(f.pass(), [f.proxy]);
+  source.count = 0; assert.deepEqual(f.pass(), []);
+  f.shadow.rt = null; const count = f.calls.length;
+  f.pass(); assert.equal(f.calls.length, count);
+});
 
 function fixture() {
   const scene = new THREE.Scene(), shadowScene = new THREE.Scene(), pools = {}, builds = [], draws = [];
