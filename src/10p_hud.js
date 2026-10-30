@@ -132,7 +132,8 @@ function hudLayout(dt) {
   const pfR = $('pf') && hudShown($('pf')) ? hudRect($('pf')) : { x: S.l + 12, y: top, w: 0, h: 0 };
   const rightCol = hudUnion(['#mmwrap', '#topright > .iconbtns'].map((s) => document.querySelector(s)).filter((e) => e && hudShown(e)).map(hudRect)) || { x: W - S.r - 12, y: top, w: 0, h: 0 };
   const inside = (r) => r.x >= S.l + 2 && r.y >= S.t + 2 && r.x + r.w <= W - S.r - 2 && r.y + r.h <= H - S.b - 2;
-  const free = (r) => inside(r) && !placed.some((p) => hudHit(p, r));
+  // Touch panels contain tap targets: keep their eight-pixel gap when placing them.
+  const free = (r) => inside(r) && !placed.some((p) => hudHit(p, r, touch ? 8 : 4));
   // the log on a desk keeps its corner, else stops short of what it would cover (the hotbar, the class panel, the
   // builder's bar), else rises over them (shorter: there is less room up there); with no room at all it waits
   // [v9] the class panel and the builder's bar are in the way too

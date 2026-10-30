@@ -98,6 +98,7 @@ function graphicsFailureTakeover(notice) {
   }
   for (const surface of document.body.children) if (surface !== notice) surface.inert = true;
   const state = window.__hm;
+  if (state && typeof entryFeedbackCancel === 'function') entryFeedbackCancel();
   if (state && state.UI) state.UI.modal = null;
   notice.inert = false;
   notice.hidden = false;

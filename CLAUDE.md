@@ -62,6 +62,10 @@ These apply to every change, not only to the feature that prompted them.
 
 - **Reading-panel Home and End (2026-10-29):** When the menu reading panel itself owns focus, unmodified Home and End explicitly go to its first or last line. Settings, descendant controls, modifiers, composition and other keys retain their existing behavior. QA distinguishes that intentional cancellation from native PageDown while still requiring trusted input, real movement, native scroll end, focus and the original deadlines. A fresh Windows diagnostic passed the old native sequence; the earlier Linux no-movement cause remains unknown.
 
+- **Entry feedback (2026-10-29):** An owned, nonmodal Entering Hallowmarch status gets one ordinary paint opportunity before the first live frame. Returning entry and fresh prologue completion use the original start/ownership checks; the live-input lease and its five-second bridge stay unchanged. Visibility, owner, menu and graphics changes cancel presentation. The HUD starts its minimap size observer before the first draw, using only delivered current-viewport measurements and retaining the live-width fallback. The first real frame still performs all its original work: this provides feedback, not a CPU reduction or proof of physical display timing.
+
+- **Touch HUD spacing (2026-10-30):** The existing measured-panel placement pass reserves eight pixels between touch panels, matching the control-spacing requirement; desktop keeps its four-pixel margin. The same safe rectangle, search, observers and fallback/hiding rules remain. A pinned pre-change predicate and actual-source search regression cover the accepted seven-pixel gap and its rejection. DOM and full phone-matrix verification remain separate from CPU geometry checks.
+
 ## Build and run
 
 - Run `python3 build.py`. It concatenates `src/page.html` and every `src/NN[a-z]_*.js` module in filename order into one `<script type="module">`, and writes `hallowmarch.html`. three.js 0.160.0 is imported from jsDelivr.
@@ -2796,6 +2800,8 @@ The retained native startup scheduler has a four-program/four-prepare window wit
 
 
 ## Loading and entry follow-up (2026-10-29)
+
+Experimental music impulse preparation keeps only exact time-only envelope/damping doubles in private bounded storage after the original AudioContext exists. Existing frame opportunities on the title/prologue prepare at most 512 samples; live callbacks never start or advance it. Original AudioBuffer/graph creation, random draw order, LP recurrence and float writes retain their original boundary, with the literal synchronous fallback whenever preparation is incomplete or mismatched. PCM/RNG equivalence tests and native component benefit are separate gates; source authoring alone establishes no performance improvement or adoption.
 
 Branch `fix/reviewer-loading-20261029` continues from deployed PR64 merge `22ae16be31df6f2903d4f7a28601940eb686ea67` against release branch `fix/native-transport-recovery-20261019`; do not retarget this lane onto obsolete main. The owner authorized autonomous testing/deployment and background-only browser control. Root owns one protected headless native GPU job at a time. Preserve all native identity/private-save/admission/consent and earned-world gates. See `docs/reviewer-quality.md` for combined bounded preparation, pooled guards, sealed-wave polling backoff, exact meadow/snow/ice preparation and rejected experiments. Cold loading and first entry remain measured quality limits; do not describe agent engineering checks as reviewer approval or AAA certification.
 

@@ -44,6 +44,13 @@
   #loading p { margin: 0; max-width: min(28rem, 84vw); text-align: center; overflow-wrap: anywhere; color: var(--ink-dim); font-family: var(--caps); letter-spacing: 0.08em; font-size: 13px; }
   #loading #load-detail, #loading #load-hint { font-family: var(--ui); letter-spacing: normal; line-height: 1.45; }
   #loading #load-detail { font-variant-numeric: tabular-nums; }
+  /* A nonmodal entry status; its transform-only sweep is decorative, not progress. */
+  #entry-feedback { position: fixed; inset: 0; height: auto; z-index: 40; display: grid; place-items: center; padding: 20px; pointer-events: none; background: rgba(11, 13, 16, 0.94); }
+  #entry-feedback .entry-inner { display: grid; justify-items: center; gap: 16px; max-width: 100%; color: var(--ink); font: 400 clamp(24px, 6vw, 34px)/1.2 var(--display); text-align: center; }
+  #entry-feedback .entry-track { display: block; width: min(240px, 70vw); height: 3px; overflow: hidden; background: rgba(239, 230, 211, 0.15); }
+  #entry-feedback .entry-track i { display: block; width: 35%; height: 100%; background: var(--bronze-hi); animation: loading-sweep 1.4s ease-in-out infinite alternate; }
+  :root[data-reduced-motion="true"] #entry-feedback i { animation: none !important; transform: none; }
+  @media (prefers-reduced-motion: reduce) { #entry-feedback i { animation: none; transform: none; } }
   /* The early form is a draft over an opaque background, never an unfinished 3D view. */
   body.title-preparing #title { background: var(--void); }
   body.title-preparing #create { backdrop-filter: none; -webkit-backdrop-filter: none; }
@@ -1365,6 +1372,7 @@
 <canvas id="scene" aria-label="Hallowmarch, a 3D world of three realms at war" role="img"></canvas>
 
 <div id="loading"><div class="inner"><h1>Hallowmarch</h1><div class="bar" role="progressbar" aria-label="Loading Hallowmarch" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i id="loadbar"></i></div><p id="loadmsg" role="status" aria-live="polite" aria-atomic="true">Raising the hills</p><p id="load-detail" hidden></p><p id="load-hint" hidden>Keep this tab open while the view is prepared.</p></div></div>
+<div id="entry-feedback" class="overlay" role="status" aria-live="polite" aria-atomic="true" hidden><div class="entry-inner"><span>Entering Hallowmarch…</span><span class="entry-track" aria-hidden="true"><i></i></span></div></div>
 
 <div id="title" hidden>
   <div class="brand">

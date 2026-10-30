@@ -171,10 +171,11 @@ test('direct owned boot failure remains stopped and unready with a foreign-shape
 });
 
 test('owned render catches and real graphics context loss do not use ambient filtering', () => {
-  const f = fixture(), start = main.indexOf('function frame(now)');
-  Object.assign(f.ctx, { lastNow: 0, requestAnimationFrame() {}, tick() { throw { stack: observed }; } });
+  const f = fixture(), start = main.indexOf('function frame(now)'), error = { stack: observed };
+  Object.assign(f.ctx, { lastNow: 0, requestAnimationFrame() {}, musicImpulsePrepareFrame() {}, tick() { throw error; } });
   vm.runInContext(main.slice(start, main.indexOf('/* ------------------------------------------------------------------ */', start)), f.ctx);
   f.ctx.frame(16); assert.equal(f.api.HM_ERRORS.length, 1); assert.equal(f.api.HM_AMBIENT_ERRORS.extensionError, 0);
+  assert.equal(f.logged[0], error, 'The original owned tick error reaches the existing render catch');
   const position = render.indexOf('function graphicsAssertActive()');
   vm.runInContext(render.slice(position, render.indexOf('\n}', position) + 2), f.ctx);
   f.ctx.GRAPHICS_CONTEXT_LOST = true;

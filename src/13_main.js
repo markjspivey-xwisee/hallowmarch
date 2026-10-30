@@ -656,8 +656,10 @@ function startGame(save, mayStart = () => true) {
   buildOnStart(save); // [building] the build button and the bed (06k_build.js)
   survivalOnStart(save); // [survival] the needs on the HUD, food in the bags, deer as game (09s_survival.js)
   depthOnStart(); // [depth] game birds (09u_depth.js)
+  if (typeof entryFeedbackPrepare === 'function') entryFeedbackPrepare();
 }
 function newCharacter() {
+  if (typeof entryFeedbackCancel === 'function') entryFeedbackCancel();
   wipeSave();
   const P = GAME.player;
   if (P) { if (P.carrying != null) dropRelic(P); removeEnt(P); }
@@ -911,9 +913,14 @@ function simStep(dt) {
 }
 function tick(dt) {
   if (typeof throneRtsGuard === 'function') throneRtsGuard();
-  if (GRAPHICS_CONTEXT_LOST || GRAPHICS_STARTUP.stopped) return;
+  if (GRAPHICS_CONTEXT_LOST || GRAPHICS_STARTUP.stopped) {
+    if (typeof entryFeedbackCancel === 'function') entryFeedbackCancel();
+    return;
+  }
   if (typeof netHumanSync === 'function') netHumanSync();
-  if (typeof netHumanLive === 'function' && !netHumanLive()) return;
+  const humanLive = typeof netHumanLive !== 'function' || netHumanLive();
+  if (typeof entryFeedbackBeforeFrame === 'function' && entryFeedbackBeforeFrame(humanLive)) return;
+  if (!humanLive) return;
   dt = captureDt(dt); // [capture] the capture build's clock: the world frozen or slowed, a shot's own step (14_capture.js)
   renderer.info.reset();
   renderTime += dt;
@@ -1022,15 +1029,23 @@ function tick(dt) {
   if (typeof realmLogisticsOwnerFrame === 'function') realmLogisticsOwnerFrame();
   updateAudio(dt);
   adaptQuality(dt);
+  if (typeof entryFeedbackComplete === 'function') entryFeedbackComplete();
 }
 function frame(now) {
-  if (GRAPHICS_CONTEXT_LOST || GRAPHICS_STARTUP.stopped) return;
+  if (GRAPHICS_CONTEXT_LOST || GRAPHICS_STARTUP.stopped) {
+    if (typeof entryFeedbackCancel === 'function') entryFeedbackCancel();
+    musicImpulsePrepareCancel();
+    return;
+  }
   requestAnimationFrame(frame);
   let dt = (now - lastNow) / 1000;
   lastNow = now;
   if (!(dt > 0)) dt = 1 / 60;
   dt = Math.min(dt, 0.1);
-  try { tick(dt); } catch (err) { reportError(err); }
+  try { musicImpulsePrepareFrame(); tick(dt); } catch (err) {
+    if (typeof entryFeedbackCancel === 'function') entryFeedbackCancel();
+    reportError(err);
+  }
 }
 
 /* ------------------------------------------------------------------ */
