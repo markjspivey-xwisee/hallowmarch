@@ -1012,6 +1012,12 @@ window.addEventListener('keydown', (e) => {
   if (UI.modal !== 'prologue' || !LORE.pro) return;
   if (typeof netHumanInput === 'function') netHumanInput(e); // window capture stops the document's trusted-input listener
   const k = e.code;
+  // Holding a page key must not run through the book or dismiss its last page.
+  if (e.repeat === true && (k === 'ArrowRight' || k === 'PageDown' || k === 'ArrowLeft' || k === 'PageUp')) {
+    e.preventDefault();
+    e.stopPropagation();
+    return;
+  }
   const onBtn = !!(document.activeElement && document.activeElement.closest && document.activeElement.closest('#lore-pro button'));
   if (k === 'Escape') { e.preventDefault(); closePrologue(); }
   else if (k === 'ArrowRight' || k === 'PageDown') { e.preventDefault(); prologueGo(1); }

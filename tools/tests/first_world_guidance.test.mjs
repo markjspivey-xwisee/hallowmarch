@@ -30,6 +30,13 @@ function actual(file, name) {
 }
 function original(file) {
   let result = files[file];
+  if (file === '10c_lore.js') {
+    const guard = "  // Holding a page key must not run through the book or dismiss its last page.\n"
+      + "  if (e.repeat === true && (k === 'ArrowRight' || k === 'PageDown' || k === 'ArrowLeft' || k === 'PageUp')) {\n"
+      + "    e.preventDefault();\n    e.stopPropagation();\n    return;\n  }\n";
+    assert.equal(result.split(guard).length, 2, 'Unique approved prologue repeat guard inverse');
+    result = result.replace(guard, '');
+  }
   for (const edit of oracle.approvedEdits[file].slice().reverse()) {
     assert.equal(result.split(edit.after).length, 2, 'Unique approved inverse: ' + file);
     result = result.replace(edit.after, () => edit.before);
