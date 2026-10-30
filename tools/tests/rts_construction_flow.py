@@ -23,7 +23,7 @@ from playwright.async_api import async_playwright
 HOOK = r"""
 window.__rtsConstructionQA = (() => {
   let state, realm = 0;
-  const sent = [], answers = [], nonces = new Map(), input = [];
+  const sent = [], answers = [], nonces = new Map(), input = [], poses = {slow:0,fast:0};
   for (const type of ['pointerup','keydown','change']) window.addEventListener(type, e => {
     if (input.length < 200) input.push({type,trusted:e.isTrusted,name:e.target?.name || '',pointer:e.pointerType || ''});
   }, true);
@@ -40,6 +40,10 @@ window.__rtsConstructionQA = (() => {
     }
     NETWS.url = ''; NETWS.state = 'on'; NET.self = 'offline-rts-construction-qa';
     netWsSend = message => {
+      if (message.t === 'slow' || message.t === 'fast') {
+        poses[message.t]=Math.min(1000,poses[message.t]+1);
+        return true;
+      }
       if (message.t !== 'order' || message.o?.kind !== 'manage') return false;
       const request = JSON.parse(JSON.stringify(message.o));
       sent.push(request);
@@ -61,6 +65,14 @@ window.__rtsConstructionQA = (() => {
       });
       return true;
     };
+    // Match the real WS adapter's lower ports. Keep netSendSlow/netSendFast,
+    // their serializers and the actual management command untouched.
+    const link = {
+      kind:'ws',setSlow:o=>netWsSend({t:'slow',d:o}),setFast:o=>netWsSend({t:'fast',d:o}),
+      connected:()=>NETWS.link===link && NETWS.state==='on',
+      close:()=>{if(NETWS.link===link){NETWS.link=null;NETWS.state='off';NET.link=null;NET.state='alone';}}
+    };
+    NETWS.link=NET.link=link;NET.state='on';NET.linkedAt=performance.now();
     window.requestAnimationFrame = () => 0; // explicit normal frame hooks below
     if (!LOD.built) lodBuild();
     sync();
@@ -104,7 +116,13 @@ window.__rtsConstructionQA = (() => {
       markerPressed:marker?.getAttribute('aria-pressed'),preview:!!document.querySelector('.rts-plot-preview'),
       stock:Object.fromEntries((v?.stocks || []).map(s=>[s.id,s.n])),building:b || null,
       support:realmManageDefenseSupport(state,keep),sent:sent.length,answers:answers.length,
-      result:NETR_MANAGE.result,pending:!!NETR_MANAGE.pending,input:input.slice()};
+      result:NETR_MANAGE.result,pending:!!NETR_MANAGE.pending,input:input.slice(),poses:{...poses}};
+  }
+  function diagnostic() {
+    return {active:THRONE_RTS.active,modal:UI.modal,focused:document.hasFocus(),hidden:document.hidden,
+      live:netHumanLive(),grant:!!hallThroneGrant(),hasLink:!!NET.link,linkState:NET.state,websocketState:NETWS.state,
+      status:$('rts-status')?.textContent || '',pending:NETR_MANAGE.pending?.request || null,
+      sent:sent.slice(-3),answers:answers.slice(-3),poses:{...poses},input:input.slice(-30),errors:HM_ERRORS.slice()};
   }
   function advance(seconds) {
     state.t+=seconds; realmManageStep(state,seconds); sync();
@@ -128,7 +146,8 @@ window.__rtsConstructionQA = (() => {
       body:REALM_RTS_MODELS.pools.get('watchpost')?.count || 0};
   }
   function walk(plotId) {
-    closeThroneRTS(false); HALL.sit=null; UI.modal=null;
+    closeThroneRTS(true); UI.modal=null;
+    if(HALL.sit || GAME.player.seat)throw Error('Actual Leave throne did not release the seated player');
     realmRtsModelsFrame(.3);
     const b=NETS.s.management.buildings.find(b=>b.plotId===plotId),P=GAME.player;
     const owned=REALM_RTS_MODELS.solids.get(b.id);
@@ -158,7 +177,7 @@ window.__rtsConstructionQA = (() => {
     result.solidRetained=REALM_RTS_MODELS.solids.has(b.id);
     return result;
   }
-  return {install,enter,snapshot,advance,refresh,draw,walk};
+  return {install,enter,snapshot,diagnostic,advance,refresh,draw,walk};
 })();
 """
 
@@ -170,7 +189,7 @@ async def run():
     assert cut >= 0
     source = source[:cut] + "\n" + HOOK + "\n" + source[cut:]
     report = {"kind": "fictional-transport-real-game-rts-construction",
-              "htmlSha256": hashlib.sha256(built).hexdigest(), "realms": [],
+              "htmlSha256": hashlib.sha256(built).hexdigest(), "realms": [], "completed": False,
               "limits": ["Socket boundary uses actual canonical functions on fictional state.",
                          "No production account, native persistence or server-authentication proof.",
                          "Phone kind selection is automated select_option; footprint and commission use trusted touch.",
@@ -195,85 +214,107 @@ async def run():
                     await route.abort()
 
             await page.route("**/*", route_local)
-            await page.goto("https://hm.test/", wait_until="commit")
-            await page.wait_for_function("window.__hm?.ready && window.__rtsConstructionQA", timeout=180000, polling=500)
-            secure = await page.evaluate("({secure:isSecureContext,nonce:typeof crypto.randomUUID})")
-            assert secure == {"secure": True, "nonce": "function"}, secure
-            await wait_title_settled(page)
-            await page.evaluate("__hm.fn.setQuality('low')")
-            await page.evaluate("(async()=>{await __hm.start({realm:0,cls:'warrior',level:1,name:'Offline construction QA'});__hm.UI.modal=null;return true})()")
-            await human_play(page)
-            await page.evaluate("__rtsConstructionQA.install()")
-            for ordinal, realm in enumerate(realms):
-                phone = touch
-                await page.set_viewport_size({"width": 390, "height": 780} if phone else {"width": 1100, "height": 760})
+            try:
+                await page.goto("https://hm.test/", wait_until="commit")
+                await page.wait_for_function("window.__hm?.ready && window.__rtsConstructionQA", timeout=180000, polling=500)
+                secure = await page.evaluate("({secure:isSecureContext,nonce:typeof crypto.randomUUID})")
+                assert secure == {"secure": True, "nonce": "function"}, secure
+                await wait_title_settled(page)
+                await page.evaluate("__hm.fn.setQuality('low')")
+                await page.evaluate("(async()=>{await __hm.start({realm:0,cls:'warrior',level:1,name:'Offline construction QA'});__hm.UI.modal=null;return true})()")
                 await human_play(page)
-                target = await page.evaluate("r=>__rtsConstructionQA.enter(r)", realm)
-                point, plot = target["point"], target["plotId"]
-                assert target["initial"] != plot
-                if phone:
-                    await page.touchscreen.tap(point["x"], point["y"])
-                else:
-                    await page.mouse.click(point["x"], point["y"])
-                await page.wait_for_function("id=>__rtsConstructionQA.snapshot(id).selected===id", arg=plot, timeout=3000)
-                await page.evaluate("__rtsConstructionQA.refresh()")
-                selected = await page.evaluate("id=>__rtsConstructionQA.snapshot(id)", plot)
-                assert selected["plot"] == plot and selected["markerPressed"] == "true" and selected["preview"], selected
-                selector = page.locator('[name="buildKind"]')
-                if phone:
-                    await selector.select_option("watchpost")
-                else:
-                    options = await selector.locator("option").evaluate_all("nodes=>nodes.map(n=>n.value)")
-                    await selector.focus()
-                    await selector.press("Home")
-                    for _ in range(options.index("watchpost")):
-                        await selector.press("ArrowDown")
-                    await selector.press("Enter")
-                quote = await page.evaluate("id=>__rtsConstructionQA.snapshot(id)", plot)
-                assert quote["kind"] == "watchpost" and quote["quote"]["buildKind"] == "watchpost", quote
-                assert "Watchpost" in quote["detail"] and "90" in quote["detail"] and "10%" in quote["detail"], quote
-                if not phone:
-                    assert quote["focusName"] == "buildKind", quote
-                button = page.locator('[data-action="build"]')
-                if phone:
-                    await button.tap()
-                else:
-                    await button.click()
-                await page.wait_for_function("id=>{const s=__rtsConstructionQA.snapshot(id);return !s.pending&&s.building?.kind==='watchpost'}", arg=plot, timeout=3000)
-                commissioned = await page.evaluate("id=>__rtsConstructionQA.snapshot(id)", plot)
-                assert commissioned["sent"] == ordinal + 1 and commissioned["answers"] == ordinal + 1
-                assert commissioned["result"]["ok"] and commissioned["support"] == 0, commissioned
-                for good, amount in {"timber": 60, "stone": 40, "iron": 8, "tools": 2}.items():
-                    assert abs(quote["stock"][good] - commissioned["stock"][good] - amount) < .001
-                await page.evaluate("__rtsConstructionQA.advance(89)")
-                partial = await page.evaluate("id=>__rtsConstructionQA.snapshot(id)", plot)
-                assert partial["building"]["status"] == "building" and partial["support"] == 0, partial
-                await page.evaluate("__rtsConstructionQA.advance(1)")
-                await page.evaluate("__rtsConstructionQA.advance(1)")
-                finished = await page.evaluate("id=>__rtsConstructionQA.snapshot(id)", plot)
-                assert finished["building"]["status"] == "built" and finished["building"]["assigned"] == 2 and finished["support"] == .1, finished
-                draws = []
-                for quality in ["high", "medium", "low"]:
-                    for night in [False, True]:
-                        await human_play(page)
-                        draw = await page.evaluate("a=>__rtsConstructionQA.draw(...a)", [quality, night, plot])
-                        assert draw["body"] > 0 and not draw["errors"] and draw["glError"] == 0, draw
-                        assert {v["instanced"] for v in draw["programs"]} == {False, True} and all(v["linked"] for v in draw["programs"]), draw
-                        draws.append(draw)
-                        if quality == "low" and not night:
-                            await page.screenshot(path=str(OUT / ("realm-" + str(realm) + "-watchpost.png")), timeout=300000)
-                walk = await page.evaluate("id=>__rtsConstructionQA.walk(id)", plot)
-                assert abs(walk["rise"] - 2) < .03 and walk["endError"] < .025 and walk["steps"] == 160, walk
-                assert not walk["outlines"] and not walk["solidRetained"] and walk["remainingColliders"] == walk["remainingFloors"] == walk["retainedFloorGridEntries"] == 0, walk
-                assert any(e["type"] == "pointerup" and e["trusted"] for e in commissioned["input"])
-                report["realms"].append({"target": target, "selected": selected, "quote": quote, "commissioned": commissioned,
-                                         "partial": partial, "finished": finished, "draws": draws, "walk": walk})
+                await page.evaluate("__rtsConstructionQA.install()")
+                for ordinal, realm in enumerate(realms):
+                    phone = touch
+                    await page.set_viewport_size({"width": 390, "height": 780} if phone else {"width": 1100, "height": 760})
+                    await human_play(page)
+                    target = await page.evaluate("r=>__rtsConstructionQA.enter(r)", realm)
+                    point, plot = target["point"], target["plotId"]
+                    assert target["initial"] != plot
+                    if phone:
+                        await page.touchscreen.tap(point["x"], point["y"])
+                    else:
+                        await page.mouse.click(point["x"], point["y"])
+                    await page.wait_for_function("id=>__rtsConstructionQA.snapshot(id).selected===id", arg=plot, timeout=3000, polling=100)
+                    await page.evaluate("__rtsConstructionQA.refresh()")
+                    selected = await page.evaluate("id=>__rtsConstructionQA.snapshot(id)", plot)
+                    assert selected["plot"] == plot and selected["markerPressed"] == "true" and selected["preview"], selected
+                    selector = page.locator('[name="buildKind"]')
+                    if phone:
+                        await selector.select_option("watchpost")
+                    else:
+                        options = await selector.locator("option").evaluate_all("nodes=>nodes.map(n=>n.value)")
+                        await selector.focus()
+                        await selector.press("Home")
+                        for _ in range(options.index("watchpost")):
+                            await selector.press("ArrowDown")
+                        await selector.press("Enter")
+                    quote = await page.evaluate("id=>__rtsConstructionQA.snapshot(id)", plot)
+                    assert quote["kind"] == "watchpost" and quote["quote"]["buildKind"] == "watchpost", quote
+                    assert "Watchpost" in quote["detail"] and "90" in quote["detail"] and "10%" in quote["detail"], quote
+                    if not phone:
+                        assert quote["focusName"] == "buildKind", quote
+                    button = page.locator('[data-action="build"]')
+                    if phone:
+                        await button.tap()
+                    else:
+                        await button.click()
+                    await page.wait_for_function("id=>{const s=__rtsConstructionQA.snapshot(id);return !s.pending&&s.building?.kind==='watchpost'}", arg=plot, timeout=3000, polling=100)
+                    commissioned = await page.evaluate("id=>__rtsConstructionQA.snapshot(id)", plot)
+                    assert commissioned["sent"] == ordinal + 1 and commissioned["answers"] == ordinal + 1
+                    assert commissioned["result"]["ok"] and commissioned["support"] == 0, commissioned
+                    assert commissioned["poses"]["slow"] > 0 and commissioned["poses"]["fast"] > 0, commissioned
+                    for good, amount in {"timber": 60, "stone": 40, "iron": 8, "tools": 2}.items():
+                        assert abs(quote["stock"][good] - commissioned["stock"][good] - amount) < .001
+                    await page.evaluate("__rtsConstructionQA.advance(89)")
+                    partial = await page.evaluate("id=>__rtsConstructionQA.snapshot(id)", plot)
+                    assert partial["building"]["status"] == "building" and partial["support"] == 0, partial
+                    await page.evaluate("__rtsConstructionQA.advance(1)")
+                    await page.evaluate("__rtsConstructionQA.advance(1)")
+                    finished = await page.evaluate("id=>__rtsConstructionQA.snapshot(id)", plot)
+                    assert finished["building"]["status"] == "built" and finished["building"]["assigned"] == 2 and finished["support"] == .1, finished
+                    draws = []
+                    for quality in ["high", "medium", "low"]:
+                        for night in [False, True]:
+                            await human_play(page)
+                            draw = await page.evaluate("a=>__rtsConstructionQA.draw(...a)", [quality, night, plot])
+                            assert draw["body"] > 0 and not draw["errors"] and draw["glError"] == 0, draw
+                            assert {v["instanced"] for v in draw["programs"]} == {False, True} and all(v["linked"] for v in draw["programs"]), draw
+                            draws.append(draw)
+                            if quality == "low" and not night:
+                                await page.screenshot(path=str(OUT / ("realm-" + str(realm) + "-watchpost.png")), timeout=300000)
+                    walk = await page.evaluate("id=>__rtsConstructionQA.walk(id)", plot)
+                    assert abs(walk["rise"] - 2) < .03 and walk["endError"] < .025 and walk["steps"] == 160, walk
+                    assert not walk["outlines"] and not walk["solidRetained"] and walk["remainingColliders"] == walk["remainingFloors"] == walk["retainedFloorGridEntries"] == 0, walk
+                    assert any(e["type"] == "pointerup" and e["trusted"] for e in commissioned["input"])
+                    report["realms"].append({"target": target, "selected": selected, "quote": quote, "commissioned": commissioned,
+                                             "partial": partial, "finished": finished, "draws": draws, "walk": walk})
+                    (OUT / "flow.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
+                    print(json.dumps({"realm": realm, "commissioned": True, "support": finished["support"], "draws": len(draws), "walk": walk}), flush=True)
+                assert not errors, errors
+                report["pageErrors"] = errors
                 (OUT / "flow.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
-                print(json.dumps({"realm": realm, "commissioned": True, "support": finished["support"], "draws": len(draws), "walk": walk}), flush=True)
-            assert not errors, errors
-            report["pageErrors"] = errors
-            (OUT / "flow.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
-            await context.close()
+                await context.close()
+            except Exception as error:
+                failure = {"accepted": False, "exception": str(error), "htmlSha256": report["htmlSha256"], "completedRealms": len(report["realms"]), "pageErrors": errors}
+                (OUT / "failure.json").write_text(json.dumps(failure, indent=2), encoding="utf-8")
+                try:
+                    failure["afterFailureDiagnostic"] = await asyncio.wait_for(page.evaluate("window.__rtsConstructionQA?.diagnostic() || null"), timeout=10)
+                except Exception as diagnostic_error:
+                    failure["diagnosticError"] = str(diagnostic_error)
+                (OUT / "failure.json").write_text(json.dumps(failure, indent=2), encoding="utf-8")
+                try:
+                    await page.screenshot(path=str(OUT / "failure.png"), timeout=10000)
+                except Exception as screenshot_error:
+                    failure["screenshotError"] = str(screenshot_error)
+                try:
+                    await asyncio.wait_for(context.close(), timeout=10)
+                except Exception as close_error:
+                    failure["cleanupError"] = str(close_error)
+                (OUT / "failure.json").write_text(json.dumps(failure, indent=2), encoding="utf-8")
+                raise
+    report["completed"] = True
+    (OUT / "flow.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
     print("PASS: desktop/phone footprint selection, immediate quotes, real canonical commission, staffing, rendering and watchpost access", flush=True)
 
 

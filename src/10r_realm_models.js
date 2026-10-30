@@ -4,7 +4,7 @@ const REALM_RTS_MODEL_LIMIT = 72;
 const REALM_RTS_MODEL_HEIGHT = {
   farm: 4.2, mill: 7.4, bakery: 5.8, woodcutter: 4.1, sawmill: 5.5, sheepfold: 3.8,
   weaver: 5.5, mine: 4.5, toolmaker: 6.2, quarry: 5.4, hunter: 4.2, stables: 5.1, house: 5.7, market: 3.7,
-  watchpost: 5.5,
+  watchpost: 6.1,
 };
 const REALM_RTS_MODELS = {
   group: null, material: null, pools: new Map(), signature: '', view: null, check: 0,
@@ -87,11 +87,14 @@ function realmRtsModelParts(kind) {
       box(0,i*.125,4.5-(i-.5)*.5625,1.8,i*.25,.5625,wood);
       parts[parts.length-1].walkable=true;
     }
-    for(const x of [-2.25,2.25]) for(const z of [-3.45,-.2]) box(x,3.55,z,.22,3.1,.22,dark);
+    for(const x of [-2.25,2.25]) for(const z of [-3.45,-.2]) {
+      box(x,.85,z,.22,1.7,.22,dark); // stilts meet the deck underside
+      box(x,3.55,z,.22,3.1,.22,dark);
+    }
     for(const x of [-2.3,2.3]) box(x,2.8,-1.8,.14,.16,3.6,wood);
     box(0,2.8,-3.5,4.6,.16,.14,wood);
     for(const x of [-1.65,1.65]) box(x,2.8,-.08,1.35,.16,.14,wood);
-    roof(0,5,-1.8,5.25,1,4.05,'#66735d');
+    roof(0,5.6,-1.8,5.25,1,4.05,'#66735d');
   } else if (kind === 'woodcutter') {
     hut(2.9, 2.2, 3, '#9d8060', '#617157'); logs(0, 2.2, 5);
     add('cyl', -2.8, 0.75, -1.8, 0.75, 0.9, 0.75, '#a48153');

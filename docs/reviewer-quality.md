@@ -255,7 +255,9 @@ independently, and it adds no building-damage or repair system. Captured posts
 need the new holder's workforce and supplies. The current post has one level.
 
 The low raised platform has registered stair/deck floors and an entrance ramp;
-its visual structure and collision access must agree. New regressions cover
+its visual structure and collision access must agree. Emitted geometry checks
+require contact between the foundation, supporting frame, deck and canopy, plus
+clearance for the engine's normal unmounted jump envelope. New regressions cover
 canonical spending, siting, staffing, supply, ownership, save/summary/live
 damage behavior and mouse/touch construction selection. The full-world
 journey uses real client commands and canonical state behind an explicitly

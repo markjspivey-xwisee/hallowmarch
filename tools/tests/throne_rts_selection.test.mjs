@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import {createHash} from 'node:crypto';
-import {THREE,extract,uiSource,modelSource,oracle,selectionFixture,walkFixture} from './throne_rts_selection_fixture.mjs';
+import {THREE,read,extract,uiSource,modelSource,oracle,selectionFixture,walkFixture} from './throne_rts_selection_fixture.mjs';
 
 const sha=value=>createHash('sha256').update(value).digest('hex');
 test('the original d5 sources are exact controls, including the stale focused selector witness',()=>{
@@ -134,4 +134,43 @@ test('Watchpost production card names support and food requirements without impl
   const ordinary={catalog:[{id:'mill',label:'Mill'}],buildings:[{...building,id:'mill',kind:'mill',label:'Mill',paused:false,inputs:{grain:3},outputs:{flour:3}}]};
   assert.equal(f.scope.throneRtsProduction(ordinary),f.scope.originalProduction(ordinary),'ordinary goods production remains unchanged');
   ordinary.buildings[0].blocked='inputs:food';assert.equal(f.scope.throneRtsProduction(ordinary),f.scope.originalProduction(ordinary),'other kinds retain canonical status text');
+});
+test('emitted Watchpost uprights meet deck and canopy underside without protrusion, rejecting the old low roof',()=>{
+  const scope=vm.createContext({THREE});
+  vm.runInContext(['realmRtsModelParts','realmRtsModelGeometry','realmRtsModelRoofGeometry'].map(name=>extract(modelSource,name)).join('\n'),scope);
+  const bases={box:new THREE.BoxGeometry(1,1,1).toNonIndexed(),roof:scope.realmRtsModelRoofGeometry()};
+  const bounds=part=>{const geometry=scope.realmRtsModelGeometry([part],bases);geometry.computeBoundingBox();const result={box:geometry.boundingBox.clone(),positions:Array.from(geometry.attributes.position.array)};geometry.dispose();return result;};
+  const parts=scope.realmRtsModelParts('watchpost'),deck=parts.find(p=>p.walkable&&p.sx>4),canopy=parts.find(p=>p.shape==='roof');
+  assert(deck&&canopy);const deckTop=bounds(deck).box.max.y,roof=bounds(canopy).box;
+  const upright=parts.filter(p=>p.shape==='box'&&p.sx<.3&&p.sz<.3&&p.sy>2);
+  assert.equal(upright.length,4);
+  const fits=(part,cover=roof)=>{const emitted=bounds(part);return Math.abs(emitted.box.min.y-deckTop)<1e-6&&Math.abs(emitted.box.max.y-cover.min.y)<1e-6
+    &&emitted.positions.every((value,index)=>index%3===0?value>=cover.min.x&&value<=cover.max.x:index%3===2?value>=cover.min.z&&value<=cover.max.z:value<=cover.min.y+1e-6);};
+  for(const part of upright)assert(fits(part),'actual emitted support starts on deck and ends at canopy underside inside its footprint');
+  const lowRoof=bounds({...canopy,y:5}).box;
+  for(const part of upright)assert.equal(fits(part,lowRoof),false,'the old emitted roof underside must fail the same support-contact invariant');
+  for(const base of Object.values(bases))base.dispose();
+});
+test('emitted stilts support the deck and the canopy clears the actual normal unmounted jump envelope',()=>{
+  const f=walkFixture({height:()=>0}),scope=f.context,parts=scope.realmRtsModelParts('watchpost');
+  const bodyMatrix=new THREE.Matrix4(),baseMatrix=new THREE.Matrix4();
+  f.state.pools.get('watchpost').getMatrixAt(0,bodyMatrix);const base=f.state.pools.get('watchpost-base');base.getMatrixAt(0,baseMatrix);
+  base.geometry.computeBoundingBox();const foundation=base.geometry.boundingBox.clone().applyMatrix4(baseMatrix);
+  const bases={box:new THREE.BoxGeometry(1,1,1).toNonIndexed(),roof:scope.realmRtsModelRoofGeometry()};
+  const bounds=part=>{const g=scope.realmRtsModelGeometry([part],bases);g.computeBoundingBox();const b=g.boundingBox.clone().applyMatrix4(bodyMatrix);g.dispose();return b;};
+  const deck=parts.find(p=>p.walkable&&p.sx>4),canopy=parts.find(p=>p.shape==='roof'),deckBox=bounds(deck),roof=bounds(canopy);
+  const stilts=parts.filter(p=>p.shape==='box'&&p.sx<.3&&p.sz<.3&&p.sy>1&&p.sy<2);
+  assert.equal(stilts.length,4);assert.equal(new Set(stilts.map(p=>p.x+':'+p.z)).size,4);
+  for(const stilt of stilts){const b=bounds(stilt);assert(Math.abs(b.min.y-foundation.max.y)<1e-6,'stilt starts at actual emitted foundation top');assert(Math.abs(b.max.y-deckBox.min.y)<1e-6,'stilt meets actual emitted deck underside');}
+  const player=extract(read('09_player.js'),'updatePlayer');
+  const launch=[...player.matchAll(/P\.vy = P\.mount \? ([0-9.]+) : ([0-9.]+); P\.onGround = false;/g)];
+  const gravity=[...player.matchAll(/P\.vy -= ([0-9.]+) \* dt;\s*P\.y \+= P\.vy \* dt;/g)];
+  const body=[...read('04g_castles.js').matchAll(/const FLOOR_STEP = [0-9.]+, FLOOR_BODY = ([0-9.]+);/g)];
+  assert.equal(launch.length,1);assert.equal(gravity.length,1);assert.equal(body.length,1);
+  const speed=Number(launch[0][2]),g=Number(gravity[0][1]),bodyHeight=Number(body[0][1]);
+  assert(speed>0&&g>0&&bodyHeight>0);const required=speed*speed/(2*g)+bodyHeight;
+  assert(roof.min.y-deckBox.max.y>required,'continuous-rise bound is conservative for the actual gravity-before-position integrator');
+  assert(bounds({...canopy,y:5}).min.y-deckBox.max.y<required,'the previous low canopy fails the same normal-jump clearance bound');
+  // This is the normal unmounted envelope only; mounted movement is not validated.
+  for(const geometry of Object.values(bases))geometry.dispose();f.clear();
 });
