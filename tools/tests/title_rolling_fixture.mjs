@@ -40,7 +40,7 @@ export function basicFixture(options = {}, { baseline = false } = {}) {
 export function entryFixture(options = {}, { baseline = false } = {}) {
   const context = vm.createContext({ assert, vm, THREE, WebGLPrograms, read,
     original: originalRender, dive: read('src/07d_dive.js'), diagnostic: read('src/13y_gpu_diagnostic.js'), rendererSource,
-    controller: baseline ? originalController : currentController, productPending: 4 });
+    controller: baseline ? originalController : currentController, productPending: 4, regressionPending: 4 });
   vm.runInContext(selected(dependencyTests, ['section', 'constructors', 'grouping', 'compile', 'capture', 'events', 'fixture', 'entryFixture'])
     + '\nglobalThis.createFixture=entryFixture;', context, { timeout: 1000 });
   return context.createFixture(options);
