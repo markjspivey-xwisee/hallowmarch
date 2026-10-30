@@ -444,6 +444,9 @@ function titleFixture({autoPaint=false}={}) {
     netHumanSync(){throw Error('stopped title must not activate a human');},netHumanLive(){return false;},
     createPlayer(){throw Error('stopped graphics must not create a character');},
     requestAnimationFrame(){throw Error('stopped graphics must not schedule a frame');},
+    privatePreparationCancels:0,
+    musicImpulsePrepareCancel(){ctx.privatePreparationCancels++;},
+    musicImpulsePrepareFrame(){throw Error('stopped graphics must not prepare music');},
     setTimeout(fn,delay){const id=nextResizeTimer++;resizeTimers.set(id,{fn,delay});return id;},
     clearTimeout(id){resizeTimers.delete(id);},
     reportError(error){throw error;},
@@ -688,6 +691,7 @@ test('title fence failure permanently stops stages play tick resizing and RAF wi
   assert.equal(f.ctx.GRAPHICS_STARTUP.titleFailure.stage,'post');assert.equal(f.ctx.GRAPHICS_STARTUP.stopped,true);
   assert.equal(f.ctx.GRAPHICS_STARTUP.titleCompleted,0);assert.equal(f.ctx.GAME.ready,false);assert.equal(f.ctx.window.__hm.ready,false);
   const before=[...f.events];assert.equal(await f.run(),false);vm.runInContext('startGame({});tick(0.1);frame(1000);resize();',f.ctx);
+  assert.equal(f.ctx.privatePreparationCancels,1);
   assert.deepEqual(f.events,before);assert.equal(f.sizeCalls.length,0);f.restored();
 });
 test('context loss during a stage fence issues no later stage or resize commands',async()=>{
