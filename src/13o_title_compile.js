@@ -4,6 +4,80 @@
 // Context loss and completed failed links still stop admission immediately.
 const TITLE_COMPILE_LIMITS = Object.freeze({ pending: 4, perTurn: 4, turnMs: 8, pollMs: 10, idlePollMaxMs: 100, programMs: 90000, totalMs: 180000 });
 
+// Failure-only observations. Never initialize reflection or query stored shader handles:
+// r160's first-use initializer can already have marked those shaders for deletion.
+function titleFailedProgramDiagnostics(program) {
+  const result = { programLog: null, vertexLog: null, fragmentLog: null,
+    programLogSource: null, vertexLogSource: null, fragmentLogSource: null,
+    diagnosticUnavailable: { programLog: null, vertexLog: null, fragmentLog: null },
+    diagnosticTruncated: { programLog: false, vertexLog: false, fragmentLog: false }, diagnosticError: null };
+  const logs = ['programLog', 'vertexLog', 'fragmentLog'];
+  const retain = (key, value, source) => {
+    if (typeof value !== 'string') { result.diagnosticUnavailable[key] = value == null ? 'No retained log.' : 'Log was not a string.'; return; }
+    result[key] = value.slice(0, 600); result[key + 'Source'] = source;
+    result.diagnosticTruncated[key] = value.length > 600;
+    if (!value) result.diagnosticUnavailable[key] = 'Log was empty.';
+  };
+  try {
+    const handle = program?.program;
+    const owned = () => !!handle && program.program === handle && renderer.info.programs.includes(program);
+    if (!owned()) {
+      for (const key of logs) result.diagnosticUnavailable[key] = 'Failed program owner unavailable.';
+    } else {
+      const cached = program.diagnostics;
+      retain('programLog', cached?.programLog, 'cached-r160-diagnostics');
+      retain('vertexLog', cached?.vertexShader?.log, 'cached-r160-diagnostics');
+      retain('fragmentLog', cached?.fragmentShader?.log, 'cached-r160-diagnostics');
+      // Missing shader logs stay missing: no isShader/DELETE_STATUS/info query,
+      // debug hook, initializer, compile or draw is an eligible fallback.
+      if (result.programLog === null && (cached == null || cached.programLog == null)) {
+        const live = () => owned() && !GRAPHICS_CONTEXT_LOST && gl.isContextLost() === false;
+        if (typeof gl.isContextLost !== 'function' || typeof gl.isProgram !== 'function' || typeof gl.getProgramInfoLog !== 'function') {
+          result.diagnosticUnavailable.programLog = 'Program diagnostic API unavailable.';
+        } else if (!live() || gl.isProgram(handle) !== true || !live()) {
+          result.diagnosticUnavailable.programLog = 'Failed program is not currently live and owned.';
+        } else {
+          const value = gl.getProgramInfoLog(handle);
+          if (!live() || gl.isProgram(handle) !== true || !live()) result.diagnosticUnavailable.programLog = 'Program owner or context changed during log read.';
+          else { result.diagnosticUnavailable.programLog = null; retain('programLog', value, 'live-failed-program'); }
+        }
+      }
+      if (!owned()) {
+        for (const key of logs) { result[key] = null; result[key + 'Source'] = null; result.diagnosticUnavailable[key] = 'Program owner changed during diagnostic read.'; }
+      }
+    }
+  } catch (error) {
+    let message = 'Program diagnostic read threw.';
+    try { if (typeof error?.message === 'string') message = error.message.slice(0, 256); } catch { /* unreadable errors retain the fixed fallback */ }
+    result.diagnosticError = message;
+    for (const key of logs) { result[key] = null; result[key + 'Source'] = null; result.diagnosticUnavailable[key] = 'Diagnostic read threw; no fallback.'; }
+  }
+  // Character bounds alone do not bound Unicode/JSON-escape bytes. Prefer the
+  // program log when the complete flat diagnostic selection reaches 4 KiB.
+  try {
+    const encoder = new TextEncoder(), bytes = () => encoder.encode(JSON.stringify(result)).byteLength;
+    for (const key of ['fragmentLog', 'vertexLog', 'programLog']) {
+      if (bytes() <= 4096 || typeof result[key] !== 'string') continue;
+      const text = result[key]; result.diagnosticTruncated[key] = true;
+      let lo = 0, hi = text.length; result[key] = '';
+      if (bytes() > 4096) continue;
+      while (lo < hi) {
+        const mid = Math.ceil((lo + hi) / 2); result[key] = text.slice(0, mid);
+        if (bytes() <= 4096) lo = mid; else hi = mid - 1;
+      }
+      result[key] = text.slice(0, lo);
+    }
+    if (bytes() > 4096) throw new Error('Diagnostic metadata exceeded its byte cap.');
+  } catch {
+    for (const key of logs) {
+      if (typeof result[key] === 'string' && result[key]) result.diagnosticTruncated[key] = true;
+      result[key] = null; result[key + 'Source'] = null; result.diagnosticUnavailable[key] = 'Diagnostic byte accounting unavailable.';
+    }
+    result.diagnosticError = 'Diagnostic byte accounting unavailable.';
+  }
+  return result;
+}
+
 function titleCompileEligible(object) {
   if (!liveIn(object) || !object.layers.test(camera.layers)) return false;
   if (object.frustumCulled && !(object.isSprite ? frustum.intersectsSprite(object) : frustum.intersectsObject(object))) return false;
@@ -613,6 +687,7 @@ async function prepareTitleProgramJobs(inventory, stages, generation, dependency
             if (linked !== true) {
               if (job.observation) job.observation.outcome = 'failed-link';
               receipt.failedProgram = { id: program.id, family: job.family, linked };
+              Object.assign(receipt.failedProgram, titleFailedProgramDiagnostics(program));
               throw new Error('A required title program failed to link.');
             }
             if (waveLatency) {

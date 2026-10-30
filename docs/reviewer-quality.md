@@ -150,6 +150,17 @@ program reuse. These are single sequential runs, not input latency, displayed
 FPS or statistically isolated benchmark results. They precede the final ice and
 character-draft changes; final frozen-build evidence must be recorded separately.
 
+An already-failed title link retains a bounded diagnostic selection: cached
+program/vertex/fragment logs, plus at most one info-log read from the exact live,
+renderer-owned program when its program log is absent. Each log is limited to
+600 characters and the complete selection to 4096 UTF8 bytes, with explicit
+unavailable and truncation facts. This collector never queries shader handles,
+initializes reflection, drains the GL error queue, recompiles or draws. Successful
+preparation performs no diagnostic work, and the original failed-link throw is
+unchanged. A synchronous driver query can still block; finite API and text bounds
+are not a wall-time guarantee. This makes an error easier to inspect without
+establishing its cause, fixing a shader or demonstrating a loading improvement.
+
 An eight-program experiment reached Ready sooner but produced a 2.991-second
 preparation task, so the four-program limit remains. An audio impulse cache passed
 byte/RNG equivalence but regressed cold lite cases and added temporary memory;

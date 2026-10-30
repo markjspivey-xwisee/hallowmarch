@@ -23,6 +23,8 @@ test('only the scheduler body/diagnostics change; every other inventory/dependen
   const functions = source => new Map(parse(source, { ecmaVersion: 'latest' }).body
     .filter(node => node.type === 'FunctionDeclaration').map(node => [node.id.name, source.slice(node.start, node.end)]));
   const before = functions(old), after = functions(candidate);
+  // The independently pinned diagnostics test proves its exact helper/call inverse.
+  assert(after.has('titleFailedProgramDiagnostics')); after.delete('titleFailedProgramDiagnostics');
   assert.deepEqual([...after.keys()], [...before.keys()]);
   for (const [name, body] of before) if (name !== 'prepareTitleProgramJobs') assert.equal(after.get(name), body, name);
   const region = source => source.slice(source.indexOf('const jobs = [], inventoryStarted'), source.indexOf('let index = 0, wavePrograms'));
