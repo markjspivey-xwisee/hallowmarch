@@ -29,18 +29,30 @@ const bounded = (promise, ms, label) => {
     .finally(() => clearTimeout(timer));
 };
 
-test('normal-motion prologue settles and suppresses only held arrow/page navigation', { timeout: 30000 }, async () => {
+const layouts = [
+  { name: 'desktop', viewport: { width: 1280, height: 800 }, touch: false },
+  { name: 'phone', viewport: { width: 390, height: 780 }, touch: true },
+];
+const motionModes = [
+  { name: 'normal', reducedMotion: 'no-preference', appReduced: false },
+  { name: 'OS reduced', reducedMotion: 'reduce', appReduced: false },
+  { name: 'app reduced', reducedMotion: 'no-preference', appReduced: true },
+];
+
+for (const layout of layouts) for (const mode of motionModes) test(layout.name + ' / ' + mode.name + ' prologue is immediately readable and retains navigation', { timeout: 30000 }, async () => {
   const channel = process.env.HM_BROWSER_CHANNEL;
   const browser = await chromium.launch({ headless: true, chromiumSandbox: true, timeout: 10000, ...(channel ? { channel } : {}) });
   try {
-    const page = await browser.newPage({ viewport: { width: 1280, height: 800 }, reducedMotion: 'no-preference' });
+    const page = await browser.newPage({ viewport: layout.viewport, hasTouch: layout.touch, reducedMotion: mode.reducedMotion });
     page.setDefaultTimeout(3000);
     const errors = [], requests = [];
     page.on('pageerror', error => errors.push(error.message));
     await page.route('**/*', route => { requests.push(route.request().url()); return route.abort(); });
-    await page.setContent('<!doctype html><meta charset="utf-8"><style>' + style + '</style><body></body>');
+    await page.setContent('<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>' + style + '</style><body></body>');
     await page.addScriptTag({ content: `
-      const UI = {modal:null}, LORE = {pro:null}, INPUT = {keys:new Set(),joy:null}, IS_TOUCH = false;
+      const UI = {modal:null}, LORE = {pro:null}, INPUT = {keys:new Set(),joy:null}, IS_TOUCH = ${layout.touch};
+      if (IS_TOUCH) document.body.classList.add('touch');
+      if (${mode.appReduced}) document.documentElement.dataset.reducedMotion='true';
       const GAME = {player:{faction:0,cls:'warrior'},prog:{lore:{pro:0}}};
       const effects = {input:0,saves:0,notes:[],sounds:[],leaked:0};
       const $ = id => document.getElementById(id);
@@ -55,13 +67,55 @@ test('normal-motion prologue settles and suppresses only held arrow/page navigat
       const st=document.createElement('style');st.textContent=LORE_CSS;document.head.appendChild(st);
       window.prologueFixture={
         state(){return {index:LORE.pro?.i??null,modal:UI.modal,effects:structuredClone(effects)};},
-        view(index){LORE.pro.i=index;renderPrologue();},
+        view(index){LORE.pro.i=index;renderPrologue();return this.immediate();},
+        immediate(){
+          const describe=element=>{
+            const rect=element.getBoundingClientRect(),ancestry=[];
+            for(let owner=element;owner;owner=owner.parentElement){const css=getComputedStyle(owner);
+              ancestry.push({opacity:css.opacity,display:css.display,visibility:css.visibility,hidden:owner.hidden===true});}
+            return {opacity:getComputedStyle(element).opacity,animations:element.getAnimations().map(animation=>animation.animationName),
+              disabled:element.disabled===true,rect:{left:rect.left,top:rect.top,right:rect.right,bottom:rect.bottom,width:rect.width,height:rect.height},ancestry};
+          };
+          const art=document.querySelector('#lore-pro .art svg');
+          return {state:this.state(),width:innerWidth,height:innerHeight,
+            essential:['.head','h2','.text'].map(selector=>describe(document.querySelector('#lore-pro '+selector))),
+            footer:describe(document.querySelector('#lore-pro .foot')),
+            controls:[...document.querySelectorAll('#lore-pro .skip,#lore-pro [data-pro="back"],#lore-pro [data-pro="next"]')].map(describe),
+            art:art.getAnimations().map(animation=>{const timing=animation.effect.getTiming(),first=animation.effect.getKeyframes()[0];
+              return {name:animation.animationName,duration:timing.duration,delay:timing.delay,firstOpacity:first.opacity,firstTransform:first.transform};})};
+        },
         key(code,repeat){const e=new KeyboardEvent('keydown',{code,repeat,bubbles:true,cancelable:true});
           document.querySelector('#lore-pro [data-pro="next"]').dispatchEvent(e);
           return {defaultPrevented:e.defaultPrevented,...this.state()};}
       };
       if(!openPrologue(false))throw Error('Fixture prologue did not open');
+      prologueFixture.initialImmediate=prologueFixture.immediate();
     ` });
+
+    const expectedArt = mode.reducedMotion === 'reduce' ? [] : [{ name: 'lore-art', duration: mode.appReduced ? 0.01 : 700, delay: 0 }];
+    const assertImmediate = (snapshot, index) => {
+      assert.equal(snapshot.state.index, index); assert.equal(snapshot.state.modal, 'prologue');
+      assert.equal(snapshot.width, layout.viewport.width); assert.equal(snapshot.height, layout.viewport.height);
+      assert.equal(snapshot.essential.length, 3); assert(snapshot.controls.length >= 1);
+      for (const element of [...snapshot.essential, snapshot.footer, ...snapshot.controls]) {
+        assert.equal(element.opacity, '1'); assert.deepEqual(element.animations, []);
+        assert(element.rect.width > 0 && element.rect.height > 0);
+        assert(element.rect.left >= 0 && element.rect.top >= 0 && element.rect.right <= snapshot.width && element.rect.bottom <= snapshot.height);
+        for (const ancestor of element.ancestry) {
+          assert.equal(ancestor.opacity, '1'); assert.notEqual(ancestor.display, 'none');
+          assert.equal(ancestor.visibility, 'visible'); assert.equal(ancestor.hidden, false);
+        }
+      }
+      assert(snapshot.controls.every(element => !element.disabled));
+      assert.deepEqual(snapshot.art.map(({name,duration,delay}) => ({name,duration,delay})), expectedArt);
+      for (const animation of snapshot.art) {
+        assert.equal(animation.firstOpacity, '0'); assert.match(animation.firstTransform, /1\.03/);
+      }
+    };
+    // The snapshot is created in the same task as actual open/render, before any
+    // animation.finished, requestAnimationFrame, screenshot or artificial sleep.
+    assertImmediate(await page.evaluate(() => prologueFixture.initialImmediate), 0);
+    for (const index of [2, 4, 0]) assertImmediate(await page.evaluate(index => prologueFixture.view(index), index), index);
 
     const settle = () => bounded(page.evaluate(async () => {
       const selectors = ['#lore-pro .art svg', '#lore-pro .head', '#lore-pro h2', '#lore-pro .text'];
@@ -75,10 +129,10 @@ test('normal-motion prologue settles and suppresses only held arrow/page navigat
         timings, opacity: elements.map(element => getComputedStyle(element).opacity),
         footerOpacity: getComputedStyle(next.closest('.foot')).opacity, enabled: !next.disabled, state: prologueFixture.state() };
     }), 3000, 'Finite prologue entrance');
-    const expectedTimings = [[{ name: 'lore-art', duration: 700, delay: 0 }], [{ name: 'lore-in', duration: 450, delay: 0 }],
-      [{ name: 'lore-in', duration: 500, delay: 50 }], [{ name: 'lore-in', duration: 550, delay: 100 }]];
+    const expectedTimings = [expectedArt, [], [], []];
     const first = await settle();
-    assert.equal(first.reduced, false); assert.notEqual(first.dataReduced, 'true');
+    assert.equal(first.reduced, mode.reducedMotion === 'reduce');
+    if (mode.appReduced) assert.equal(first.dataReduced, 'true'); else assert.notEqual(first.dataReduced, 'true');
     assert.deepEqual(first.timings, expectedTimings); assert.deepEqual(first.opacity, ['1', '1', '1', '1']);
     assert.equal(first.footerOpacity, '1'); assert.equal(first.enabled, true); assert.equal(first.state.index, 0);
 

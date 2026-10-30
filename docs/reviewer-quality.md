@@ -214,3 +214,22 @@ also be followed by native full-game startup and weather/day/night checks.
 
 These are engineering and agent playability checks. They are not a human player
 study, independent reviewer approval, or AAA certification.
+
+## Prologue text and HUD observation
+
+Essential prologue headings, text and the header controls appear immediately
+when a page changes. The illustration retains its existing animation, and the
+Chronicle and reduced-motion rules keep their existing behavior. Navigation,
+focus, prose, saves and the final Begin action are unchanged.
+
+The HUD observer ignores only its five exact layout-owned class tokens,
+including `hl-brief1`. Other class tokens, hidden changes and child-list changes
+still request layout. This prevents a compact banner's own reset/reapply batch
+from requesting another pass; panel placement and the existing observer,
+resize, hold and quiet-period rules are unchanged.
+
+Focused regressions check the actual observer callback and native DOM mutation
+delivery, plus immediate prologue readability on desktop and phone under normal,
+device-reduced and app-reduced motion. These behavior checks do not establish a
+loading, entry-latency or frame-rate improvement. Cold loading and first entry
+remain open review limits.

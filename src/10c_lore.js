@@ -40,12 +40,12 @@ const LORE_CSS = `
 #lore-pro .art svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; animation: lore-art 0.7s ease both; }
 #lore-pro .art::after { content: ''; position: absolute; inset: 0; pointer-events: none; box-shadow: inset 0 0 70px rgba(0, 0, 0, 0.55), inset -1px 0 0 var(--line); }
 #lore-pro .leaf { display: flex; flex-direction: column; min-height: 0; padding: 22px 26px 18px; gap: 8px; background: linear-gradient(180deg, rgba(223, 193, 136, 0.05), transparent 45%); }
-#lore-pro .head { display: flex; align-items: center; gap: 12px; animation: lore-in 0.45s ease both; }
+#lore-pro .head { display: flex; align-items: center; gap: 12px; }
 #lore-pro .kicker { flex: 1; font: 500 12.5px/1.2 var(--caps); letter-spacing: 0.18em; text-transform: uppercase; color: var(--bronze-hi); }
 #lore-pro .skip { border: 0; background: none; padding: 6px 2px; cursor: pointer; color: var(--ink-faint); font: 500 13px var(--caps); letter-spacing: 0.08em; }
 #lore-pro .skip:hover, #lore-pro .skip:focus-visible { color: var(--ink); }
-#lore-pro h2 { margin: 2px 0 6px; font: 400 clamp(30px, 3.3vw, 42px)/1.04 var(--display); color: #fbf1dc; animation: lore-in 0.5s ease 0.05s both; }
-#lore-pro .text { flex: 1; min-height: 0; overflow-y: auto; padding-right: 6px; font-size: 16px; line-height: 1.58; color: rgba(239, 230, 211, 0.84); animation: lore-in 0.55s ease 0.1s both; }
+#lore-pro h2 { margin: 2px 0 6px; font: 400 clamp(30px, 3.3vw, 42px)/1.04 var(--display); color: #fbf1dc; }
+#lore-pro .text { flex: 1; min-height: 0; overflow-y: auto; padding-right: 6px; font-size: 16px; line-height: 1.58; color: rgba(239, 230, 211, 0.84); }
 #lore-pro .text p { margin: 0 0 0.8em; }
 #lore-pro .text p:first-child::first-letter { float: left; font: 400 3.1em/0.82 var(--display); margin: 0.06em 0.1em 0 0; color: var(--bronze-hi); }
 #lore-pro .text b { color: var(--ink); font-weight: 700; }

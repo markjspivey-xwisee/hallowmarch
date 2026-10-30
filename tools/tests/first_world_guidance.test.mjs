@@ -31,6 +31,16 @@ function actual(file, name) {
 function original(file) {
   let result = files[file];
   if (file === '10c_lore.js') {
+    const essentialCss = [
+      ['#lore-pro .head { display: flex; align-items: center; gap: 12px; }', '#lore-pro .head { display: flex; align-items: center; gap: 12px; animation: lore-in 0.45s ease both; }'],
+      ['#lore-pro h2 { margin: 2px 0 6px; font: 400 clamp(30px, 3.3vw, 42px)/1.04 var(--display); color: #fbf1dc; }', '#lore-pro h2 { margin: 2px 0 6px; font: 400 clamp(30px, 3.3vw, 42px)/1.04 var(--display); color: #fbf1dc; animation: lore-in 0.5s ease 0.05s both; }'],
+      ['#lore-pro .text { flex: 1; min-height: 0; overflow-y: auto; padding-right: 6px; font-size: 16px; line-height: 1.58; color: rgba(239, 230, 211, 0.84); }', '#lore-pro .text { flex: 1; min-height: 0; overflow-y: auto; padding-right: 6px; font-size: 16px; line-height: 1.58; color: rgba(239, 230, 211, 0.84); animation: lore-in 0.55s ease 0.1s both; }'],
+    ];
+    for (const [current, original] of essentialCss) {
+      assert.equal(result.split(current).length, 2, 'Unique essential-only CSS inverse');
+      result = result.replace(current, original);
+    }
+    assert.equal(sha(result), 'c4422bc0c9bfeabeead157c035c6d8dac92db8a80bc81e565cdef3fb3dc0b0d6');
     const guard = "  // Holding a page key must not run through the book or dismiss its last page.\n"
       + "  if (e.repeat === true && (k === 'ArrowRight' || k === 'PageDown' || k === 'ArrowLeft' || k === 'PageUp')) {\n"
       + "    e.preventDefault();\n    e.stopPropagation();\n    return;\n  }\n";
