@@ -3,12 +3,32 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import vm from 'node:vm';
+import { parse } from 'acorn';
 
 const shell = await readFile(new URL('../../src/page.html', import.meta.url), 'utf8');
 const style = [...shell.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/g)].map(match => match[1]).join('\n');
 const menu = shell.slice(shell.indexOf('<div class="overlay" id="menu"'), shell.indexOf('<div class="overlay" id="kit"'));
 const nav = shell.match(/<nav id="mobile-nav"[\s\S]*?<\/nav>/)?.[0];
 assert(style && menu && nav, 'Use the actual shell styles and complete menu/navigation markup.');
+const [guideSource, uiSource] = await Promise.all(['10e_guide.js', '10_ui.js'].map(name => readFile(new URL('../../src/' + name, import.meta.url), 'utf8')));
+function actualDeclaration(source, name) {
+  const matches = parse(source, {ecmaVersion: 'latest', sourceType: 'script'}).body.filter(node =>
+    node.type === 'FunctionDeclaration' && node.id.name === name || node.type === 'VariableDeclaration' && node.declarations.some(row => row.id.name === name));
+  assert.equal(matches.length, 1, 'One actual declaration: ' + name);
+  return source.slice(matches[0].start, matches[0].end);
+}
+const guideDeclaration = actualDeclaration(guideSource, 'guideKeysHTML'), capFirstDeclaration = actualDeclaration(uiSource, 'capFirst');
+function firstTouchGuidance(hand) {
+  // Execute the actual function/helper. Class-only suffix rows are outside this
+  // three-row fixture; none of the handed wording is replaced or stubbed.
+  const html = vm.runInNewContext(capFirstDeclaration + '\n' + guideDeclaration + '\nguideKeysHTML();', {
+    IS_TOUCH: true, MOBILE_PREFS: Object.freeze({hand}), classHelpKeys: () => ''
+  }, {timeout: 1000});
+  const rows = html.match(/<kbd>[\s\S]*?<\/kbd><span>[\s\S]*?<\/span>/g) || [];
+  assert(rows.length >= 3, 'Actual first three touch rows exist');
+  return '<div class="keys" data-guidance-fixture>' + rows.slice(0, 3).join('') + '</div>';
+}
 const playwrightPath = process.env.HM_PLAYWRIGHT_MODULE || fileURLToPath(new URL('../node_modules/playwright/index.mjs', import.meta.url));
 const { chromium } = await import(pathToFileURL(playwrightPath));
 let browser;
@@ -92,5 +112,65 @@ for (const [width, height] of [[320, 740], [390, 780], [844, 390]]) {
     assert([...menuFit.fonts, ...navFit.fonts].every(font => /monospace/i.test(font)), 'The wide local fallback must actually reach every control.');
     assert.deepEqual(errors, []); assert.deepEqual(requests, []);
     assert.deepEqual([...menuFit.failures, ...navFit.failures], [], `${width}x${height} ${name}: full readable text, complete captions and 48px targets must fit.`);
+  });
+}
+
+// DOM layout only: these cases do not boot WebGL or prove world movement, the
+// live menu event route, note timing, or a physical touch device. The full game
+// and interaction checks remain separate. Keep the twelve original cases above.
+for (const [width, height] of [[320, 740], [390, 780], [844, 390]]) for (const hand of ['right', 'left']) {
+  for (const large of [false, true]) test(`actual touch help first rows fit ${width}x${height}, ${hand} action hand, ${large ? 'large' : 'normal'} text`, async t => {
+    const page = await browser.newPage({viewport: {width, height}, hasTouch: true, isMobile: true});
+    t.after(() => page.close());
+    const requests = [], errors = [];
+    page.on('pageerror', error => errors.push(error.message));
+    await page.route('**/*', route => {requests.push(route.request().url()); return route.abort();});
+    const classes = ['touch', hand === 'left' ? 'mobile-left-handed' : '', large ? 'mobile-large-text' : ''].join(' ');
+    await page.setContent(`<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><style>${style}</style><body class="${classes}">${menu}</body>`);
+    await page.evaluate(async html => {
+      document.body.style.setProperty('--ui', '"Courier New", monospace');
+      document.getElementById('menu').hidden = false;
+      for (const tab of document.querySelectorAll('#menu-tabs [data-tab]')) {
+        const selected = tab.dataset.tab === 'help';tab.setAttribute('aria-selected', String(selected));tab.tabIndex = selected ? 0 : -1;
+      }
+      const body = document.getElementById('menu-body');body.setAttribute('aria-labelledby', 'menu-tab-help');body.innerHTML = html;
+      await document.fonts.ready;
+    }, firstTouchGuidance(hand));
+    const result = await page.evaluate(() => {
+      const body = document.getElementById('menu-body'), keys = body.querySelector('[data-guidance-fixture]');
+      const r = body.getBoundingClientRect(), cs = getComputedStyle(body), left = r.left + parseFloat(cs.paddingLeft), right = r.right - parseFloat(cs.paddingRight);
+      const failures = [], values = [], fonts = [];
+      if (r.width <= 0 || r.height <= 0 || r.left < -1 || r.right > innerWidth + 1 || r.top < -1 || r.bottom > innerHeight + 1) failures.push('scroll container outside viewport');
+      if (body.scrollWidth > body.clientWidth + 1 || document.documentElement.scrollWidth > innerWidth + 1) failures.push('horizontal overflow');
+      for (const node of keys.children) {
+        const style = getComputedStyle(node);values.push(node.textContent.trim());fonts.push(style.fontFamily);
+        if (style.display === 'none' || style.visibility !== 'visible' || style.opacity === '0' || style.textOverflow === 'ellipsis' || !['none', '0', ''].includes(style.webkitLineClamp)) failures.push('hidden or truncated text');
+        if (parseFloat(style.fontSize) < (node.tagName === 'KBD' ? 12 : 14) - .1) failures.push('source text font was reduced');
+        const range = document.createRange();range.selectNodeContents(node);
+        const lines = [...range.getClientRects()].filter(line => line.width > 0 && line.height > 0);
+        if (!lines.length) failures.push('text is not rendered');
+        if (lines.some(line => line.left < left - 1 || line.right > right + 1)) failures.push('text exceeds horizontal content bounds');
+      }
+      const last = keys.lastElementChild.getBoundingClientRect();
+      return {values, fonts, failures, lastInside: last.top >= r.top - 1 && last.bottom <= r.bottom + 1, menuLabel: document.getElementById('menu-tab-help').textContent.trim(),
+        scrollHeight: body.scrollHeight, clientHeight: body.clientHeight, box: {x: r.left, y: r.top, width: r.width, height: r.height}};
+    });
+    const walk = hand === 'left' ? 'right' : 'left', look = hand === 'left' ? 'left' : 'right', cap = value => value[0].toUpperCase() + value.slice(1);
+    assert.deepEqual(result.values, [cap(walk) + ' thumb', `Drag on the lower ${walk} to walk; to the edge to run.`,
+      cap(look) + ' thumb', `Drag on the ${look} to look around. Tap a creature, soldier or gate to target it.`,
+      'Ability buttons', `Learned abilities stay on the ${look}. Tap Skills to read all eight, including what you unlock next.`]);
+    assert.equal(result.menuLabel, 'How to play');
+    assert(result.fonts.every(font => /monospace/i.test(font)), 'Wide local fallback reaches every guidance row');
+    assert.deepEqual(result.failures, [], 'All three source rows remain complete and horizontally readable');
+    if (result.scrollHeight > result.clientHeight + 1) {
+      // Ordinary wheel input within the real scroll container, not a scrollTop
+      // write or scrollIntoView that could mask an unreachable scroll region.
+      const box = result.box;await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);await page.mouse.wheel(0, result.scrollHeight);
+      await page.waitForFunction(() => {
+        const body = document.getElementById('menu-body'), last = body.querySelector('[data-guidance-fixture] > span:last-child');
+        const b = body.getBoundingClientRect(), r = last.getBoundingClientRect();return body.scrollTop > 0 && r.bottom <= b.bottom + 1 && r.top >= b.top - 1;
+      }, undefined, {timeout: 5000});
+    } else assert.equal(result.lastInside, true, 'A fitting body shows its final row without a forced scroll');
+    assert.deepEqual(errors, []);assert.deepEqual(requests, []);
   });
 }

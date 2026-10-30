@@ -356,7 +356,7 @@ function mobileHUD(dt) {
   }
   const alert = $('mobile-needs-alert');
   if (alert) {
-    const text = SURV.thirst < 0.4 ? 'Thirsty · More to drink' : SURV.hunger < 0.4 ? 'Hungry · More to eat' : '';
+    const text = SURV.thirst < 0.4 ? 'Thirsty · Menu → Explore' : SURV.hunger < 0.4 ? 'Hungry · Menu → Explore' : '';
     alert.hidden = !text; setT(alert, text);
   }
   const notice = $('mobile-notice'), net = $('btn-net');
