@@ -4,20 +4,23 @@ const RM_PROCESSED = { grain: 400, flour: 200, bread: 200, planks: 300, cloth: 2
 const RM_LABEL = { food: 'Army provisions', timber: 'Timber', stone: 'Stone', iron: 'Iron', hides: 'Hides', wool: 'Wool', horses: 'Horses', gold: 'Treasury', grain: 'Grain', flour: 'Flour', bread: 'Bread', planks: 'Planks', cloth: 'Cloth', tools: 'Tools' };
 const RM_PRICE = { food: 2, timber: 4, stone: 4, iron: 15, hides: 6, wool: 5, horses: 120, gold: 1, grain: 2, flour: 3, bread: 5, planks: 6, cloth: 8, tools: 20 };
 const RM_CATALOG = {
-  farm: { label: 'Grain farm', cost: { timber: 28, stone: 8 }, seconds: 45, workers: 2, inputs: {}, outputs: { grain: 4 } },
-  mill: { label: 'Flour mill', cost: { timber: 35, stone: 14 }, seconds: 50, workers: 2, inputs: { grain: 3 }, outputs: { flour: 3 } },
-  bakery: { label: 'Bakery', cost: { planks: 14, stone: 20, iron: 4 }, seconds: 55, workers: 2, inputs: { flour: 3, timber: 0.3 }, outputs: { bread: 3 } },
-  woodcutter: { label: 'Woodcutters', cost: { timber: 20, stone: 4 }, seconds: 35, workers: 2, inputs: {}, outputs: { timber: 1.5 } },
-  sawmill: { label: 'Sawmill', cost: { timber: 30, stone: 10 }, seconds: 45, workers: 2, inputs: { timber: 1.5 }, outputs: { planks: 3 } },
-  sheepfold: { label: 'Sheepfold', cost: { timber: 24, stone: 6 }, seconds: 40, workers: 2, inputs: {}, outputs: { wool: 0.4 } },
-  weaver: { label: 'Weavers', cost: { planks: 12, stone: 10 }, seconds: 45, workers: 2, inputs: { wool: 0.4 }, outputs: { cloth: 0.6 } },
-  mine: { label: 'Iron mine', cost: { planks: 16, stone: 20, tools: 2 }, seconds: 60, workers: 2, inputs: {}, outputs: { iron: 0.5 } },
-  toolmaker: { label: 'Toolsmith', cost: { planks: 18, stone: 16, iron: 8 }, seconds: 60, workers: 2, inputs: { iron: 0.5, planks: 1 }, outputs: { tools: 0.4 } },
-  quarry: { label: 'Stone quarry', cost: { timber: 24, planks: 4 }, seconds: 45, workers: 2, inputs: {}, outputs: { stone: 1 } },
-  hunter: { label: 'Hunters', cost: { timber: 16 }, seconds: 30, workers: 1, inputs: {}, outputs: { food: 1, hides: 0.25 } },
-  stables: { label: 'Stables', cost: { timber: 30, stone: 8, food: 20 }, seconds: 55, workers: 1, inputs: { food: 0.5 }, outputs: { horses: 0.02 } },
-  house: { label: 'Dwellings', cost: { timber: 18, stone: 8, planks: 6 }, seconds: 35, workers: 0, housing: 16, inputs: {}, outputs: {} },
-  market: { label: 'Market', cost: { planks: 22, stone: 20, tools: 2 }, seconds: 50, workers: 2, inputs: {}, outputs: {} },
+  farm: { label: 'Grain farm', siteTypes: ['town'], cost: { timber: 28, stone: 8 }, seconds: 45, workers: 2, inputs: {}, outputs: { grain: 4 } },
+  mill: { label: 'Flour mill', siteTypes: ['town'], cost: { timber: 35, stone: 14 }, seconds: 50, workers: 2, inputs: { grain: 3 }, outputs: { flour: 3 } },
+  bakery: { label: 'Bakery', siteTypes: ['town'], cost: { planks: 14, stone: 20, iron: 4 }, seconds: 55, workers: 2, inputs: { flour: 3, timber: 0.3 }, outputs: { bread: 3 } },
+  woodcutter: { label: 'Woodcutters', siteTypes: ['town', 'keep'], cost: { timber: 20, stone: 4 }, seconds: 35, workers: 2, inputs: {}, outputs: { timber: 1.5 } },
+  sawmill: { label: 'Sawmill', siteTypes: ['town', 'keep'], cost: { timber: 30, stone: 10 }, seconds: 45, workers: 2, inputs: { timber: 1.5 }, outputs: { planks: 3 } },
+  sheepfold: { label: 'Sheepfold', siteTypes: ['town'], cost: { timber: 24, stone: 6 }, seconds: 40, workers: 2, inputs: {}, outputs: { wool: 0.4 } },
+  weaver: { label: 'Weavers', siteTypes: ['town'], cost: { planks: 12, stone: 10 }, seconds: 45, workers: 2, inputs: { wool: 0.4 }, outputs: { cloth: 0.6 } },
+  mine: { label: 'Iron mine', siteTypes: ['town', 'keep'], cost: { planks: 16, stone: 20, tools: 2 }, seconds: 60, workers: 2, inputs: {}, outputs: { iron: 0.5 } },
+  toolmaker: { label: 'Toolsmith', siteTypes: ['town', 'keep'], cost: { planks: 18, stone: 16, iron: 8 }, seconds: 60, workers: 2, inputs: { iron: 0.5, planks: 1 }, outputs: { tools: 0.4 } },
+  quarry: { label: 'Stone quarry', siteTypes: ['town', 'keep'], cost: { timber: 24, planks: 4 }, seconds: 45, workers: 2, inputs: {}, outputs: { stone: 1 } },
+  hunter: { label: 'Hunters', siteTypes: ['town', 'keep'], cost: { timber: 16 }, seconds: 30, workers: 1, inputs: {}, outputs: { food: 1, hides: 0.25 } },
+  stables: { label: 'Stables', siteTypes: ['town', 'keep'], cost: { timber: 30, stone: 8, food: 20 }, seconds: 55, workers: 1, inputs: { food: 0.5 }, outputs: { horses: 0.02 } },
+  house: { label: 'Dwellings', siteTypes: ['town'], cost: { timber: 18, stone: 8, planks: 6 }, seconds: 35, workers: 0, housing: 16, inputs: {}, outputs: {} },
+  market: { label: 'Market', siteTypes: ['town'], cost: { planks: 22, stone: 20, tools: 2 }, seconds: 50, workers: 2, inputs: {}, outputs: {} },
+  watchpost: { label: 'Watchpost', siteTypes: ['keep'], maxLevel: 1, defenseSupport: 0.1,
+    description: 'A defensive watchtower: two workers and food support the existing keep garrison with 10% more outgoing damage. It does not fire on its own.',
+    cost: { timber: 60, stone: 40, iron: 8, tools: 2 }, seconds: 90, workers: 2, inputs: { food: 0.5 }, outputs: {} },
 };
 const RM_START = ['farm', 'woodcutter', 'quarry', 'mine', 'sheepfold', 'hunter', 'stables', 'house', 'house', 'house'];
 // A placement version is fixed when construction is commissioned. Version 1 is
@@ -132,6 +135,22 @@ function rmBuilding(plotId, kind, adopted = false) {
     remaining: adopted ? 0 : D.seconds, total: D.seconds, paused: false, priority: 1, workers: D.workers,
     assigned: 0, working: false, blocked: adopted ? '' : 'construction', adopted };
 }
+function realmManageBuildSiteAllowed(kind, plot) {
+  const D = Object.hasOwn(RM_CATALOG, kind) ? RM_CATALOG[kind] : null;
+  const siteType = typeof plot?.site === 'string' ? plot.site.split(':')[0] : '';
+  return !!D && D.siteTypes.includes(siteType);
+}
+// The last active step paid the full food input. Partial supply has an inputs
+// block; existing assigned/working/blocked fields survive canonical save/load.
+function realmManageDefenseSupport(RS, keepIndex) {
+  const K = Number.isSafeInteger(keepIndex) && keepIndex >= 0 ? RS?.keeps?.[keepIndex] : null;
+  if (!K || !rmRealm(K.h)) return 0;
+  const rows = RS.realms?.[K.h]?.management?.buildings;
+  if (!Array.isArray(rows)) return 0;
+  const prefix = 'keep:' + keepIndex + ':';
+  return rows.some(b => b?.kind === 'watchpost' && typeof b.plotId === 'string' && b.plotId.startsWith(prefix) && b.level === 1
+    && b.status === 'built' && !b.paused && b.workers >= 2 && b.assigned >= 2 && b.working === true && b.blocked === '') ? 0.1 : 0;
+}
 function rmFreshRealm(r) {
   return { v: 1, stock: { grain: 24, flour: 6, bread: 12, planks: 20, cloth: 8, tools: 6 },
     population: 32, happiness: 65, taxPolicy: 'normal', revenue: 0, needs: { bread: 1, cloth: 1, tools: 1 },
@@ -230,7 +249,11 @@ function realmManageStep(RS, dt) {
   // Captured keep plots follow the keep's canonical holder, preserving the actual building.
   for (let r = 0; r < 3; r++) for (const b of [...RS.realms[r].management.buildings]) {
     const owner = owners.get(b.plotId);
-    if (rmRealm(owner) && owner !== r) { RS.realms[r].management.buildings = RS.realms[r].management.buildings.filter(x => x !== b); RS.realms[owner].management.buildings.push(b); }
+    if (rmRealm(owner) && owner !== r) {
+      RS.realms[r].management.buildings = RS.realms[r].management.buildings.filter(x => x !== b);
+      if (b.kind === 'watchpost') { b.assigned = 0; b.working = false; b.blocked = 'workforce'; }
+      RS.realms[owner].management.buildings.push(b);
+    }
   }
   for (const relation of RS.management.relations) if (relation.treaty !== 'war' && relation.expires <= RS.t) { relation.treaty = 'war'; relation.expires = 0; }
   for (const offer of RS.management.offers) if (offer.status === 'pending' && offer.expires <= RS.t) offer.status = 'expired';
@@ -251,7 +274,7 @@ function realmManageStep(RS, dt) {
         continue;
       }
       if (!D.workers) continue;
-      const toolFactor = M.stock.tools > 0 || ['farm', 'woodcutter', 'quarry', 'hunter'].includes(b.kind) ? 1 : 0.65;
+      const toolFactor = M.stock.tools > 0 || ['farm', 'woodcutter', 'quarry', 'hunter', 'watchpost'].includes(b.kind) ? 1 : 0.65;
       let fraction = b.assigned / (D.workers * b.level) * toolFactor;
       for (const [g, n] of Object.entries(D.inputs)) if (n > 0) {
         const room = rmStock(R, g) / (n * b.level * minutes || 1);
@@ -309,6 +332,9 @@ function realmManageAction(RS, realm, args, context = {}) {
   if (type === 'build') {
     const plot = plots.find(p => p.id === args.plotId), D = Object.hasOwn(RM_CATALOG, args.kind) ? RM_CATALOG[args.kind] : null;
     if (!plot || plot.owner !== realm || !D || all.some(b => b.plotId === plot.id)) return no('Choose an empty plot held by your realm.');
+    if (!realmManageBuildSiteAllowed(args.kind, plot)) return no('Choose a ' + D.siteTypes.join(' or ') + ' plot for this building.');
+    if (args.kind === 'watchpost' && all.some(b => b.kind === 'watchpost' && b.plotId.startsWith(plot.site + ':')))
+      return no('This keep already has a watchpost or one under construction.');
     if (!plot.placementAvailable || plot.placementVersion !== RM_PLOT_LAYOUT_VERSION) return no('This construction site is unavailable. Review the realm’s current plots.');
     if (!rmPay(R, D.cost)) return no('The realm lacks the building materials.');
     local.buildings.push({ ...rmBuilding(plot.id, args.kind), placementVersion: RM_PLOT_LAYOUT_VERSION }); message = D.label + ' construction commissioned.';
@@ -316,7 +342,7 @@ function realmManageAction(RS, realm, args, context = {}) {
     const b = all.find(b => b.id === args.buildingId), plot = b && plots.find(p => p.id === b.plotId);
     if (!b || plot?.owner !== realm) return no('That building is not held by your realm.');
     if (type === 'upgrade') {
-      if (b.status !== 'built' || b.level >= 3) return no('That building cannot be upgraded now.');
+      if (b.status !== 'built' || b.level >= (RM_CATALOG[b.kind].maxLevel || 3)) return no('That building cannot be upgraded now.');
       const cost = Object.fromEntries(Object.entries(RM_CATALOG[b.kind].cost).map(([g, n]) => [g, Math.ceil(n * (b.level + 1) * 0.75)]));
       if (!rmPay(R, cost)) return no('The realm lacks the upgrade materials.');
       b.status = 'upgrading'; b.targetLevel = b.level + 1; b.total = b.remaining = RM_CATALOG[b.kind].seconds * b.targetLevel; message = 'Building upgrade commissioned.';
@@ -402,8 +428,8 @@ function realmManageView(RS, realm) {
   const R = RS.realms[realm], M = R.management, plots = rmPlots(RS), all = RS.realms.flatMap((q, r) => q.management.buildings.map(b => ({ ...b, owner: r })));
   const publicBuildings = all.map(b => { const p = plots.find(p => p.id === b.plotId), D = RM_CATALOG[b.kind]; return { ...rmClone(b), x: p.x, z: p.z,
     home: p.home, yaw: p.yaw, placementVersion: p.placementVersion,
-    owner: p.owner, upgradeCost: b.status === 'built' && b.level < 3 ? Object.fromEntries(Object.entries(D.cost).map(([g, n]) => [g, Math.ceil(n * (b.level + 1) * 0.75)])) : null,
-    upgradeSeconds: b.status === 'built' && b.level < 3 ? D.seconds * (b.level + 1) : 0, progress: b.status === 'built' ? 1 : Math.max(0, 1 - b.remaining / (b.total || 1)), inputs: D.inputs, outputs: D.outputs }; });
+    owner: p.owner, maxLevel: D.maxLevel || 3, upgradeCost: b.status === 'built' && b.level < (D.maxLevel || 3) ? Object.fromEntries(Object.entries(D.cost).map(([g, n]) => [g, Math.ceil(n * (b.level + 1) * 0.75)])) : null,
+    upgradeSeconds: b.status === 'built' && b.level < (D.maxLevel || 3) ? D.seconds * (b.level + 1) : 0, progress: b.status === 'built' ? 1 : Math.max(0, 1 - b.remaining / (b.total || 1)), inputs: D.inputs, outputs: D.outputs }; });
   const publicPlots = plots.map(p => ({ ...p, buildingId: all.find(b => b.plotId === p.id)?.id || null }));
   const pop = rmPopulation(M), assigned = M.buildings.reduce((n, b) => n + b.assigned, 0) + (M.training?.assigned || 0);
   const relations = [0, 1, 2].filter(r => r !== realm).map(r => { const q = rmRelation(RS, realm, r, false); return { realm: r, score: q?.score || 0, treaty: q?.expires > RS.t ? q.treaty : 'war', expires: q?.expires || 0 }; });
@@ -425,7 +451,7 @@ function realmManageView(RS, realm) {
     plots: publicPlots.filter(p => p.owner === realm), buildings: publicBuildings.filter(b => b.owner === realm),
     publicPlots, publicBuildings: publicBuildings.map(b => ({ id: b.id, plotId: b.plotId, kind: b.kind, level: b.level, targetLevel: b.targetLevel,
       status: b.status, remaining: b.remaining, total: b.total, progress: b.progress, paused: b.paused, assigned: b.assigned, working: b.working,
-      blocked: b.blocked, adopted: b.adopted, owner: b.owner, home: b.home, yaw: b.yaw, placementVersion: b.placementVersion, x: b.x, z: b.z })), catalog: Object.entries(RM_CATALOG).map(([id, D]) => ({ id, ...rmClone(D) })),
+      blocked: b.blocked, adopted: b.adopted, owner: b.owner, home: b.home, yaw: b.yaw, placementVersion: b.placementVersion, x: b.x, z: b.z })), catalog: Object.entries(RM_CATALOG).map(([id, D]) => ({ id, ...rmClone(D), maxLevel: D.maxLevel || 3 })),
     recipes: Object.entries(RM_CATALOG).filter(([, D]) => Object.keys(D.inputs).length).map(([id, D]) => ({ id, inputs: D.inputs, outputs: D.outputs })),
     offers: RS.management.offers.filter(o => o.from === realm || o.to === realm).map(rmClone), relations,
     allRelations: RS.management.relations.map(rmClone), log: M.log.map(rmClone) };
@@ -481,7 +507,7 @@ function realmManageSanitize(RS, inputRS) {
     }
     RS.management.nextOffer = Math.max(RS.management.nextOffer, ...RS.management.offers.map(o => o.id + 1));
   }
-  const plots = rmPlots(RS), ids = new Set();
+  const plots = rmPlots(RS), ids = new Set(), watchKeeps = new Set();
   for (let r = 0; r < 3; r++) {
     const src = inputRS?.realms?.[r]?.management;
     if (!src || src.v !== 1) continue;
@@ -500,8 +526,10 @@ function realmManageSanitize(RS, inputRS) {
       const p = plots.find(p => p.id === b?.plotId), D = Object.hasOwn(RM_CATALOG, b?.kind) ? RM_CATALOG[b.kind] : null;
       if (!p || !D || b.id !== 'b:' + p.id || ids.has(b.id)
         || Object.hasOwn(b, 'placementVersion') && !(b.placementVersion === 1 || Number.isSafeInteger(b.placementVersion) && Object.hasOwn(RM_PLOT_LAYOUTS, b.placementVersion))) continue;
+      if (b.kind === 'watchpost' && (!realmManageBuildSiteAllowed(b.kind, p) || b.adopted === true || watchKeeps.has(p.site))) continue;
+      if (b.kind === 'watchpost') watchKeeps.add(p.site);
       ids.add(b.id);
-      M.buildings.push({ id: b.id, plotId: b.plotId, kind: b.kind, level: rmInt(b.level, 0, 0, 3), targetLevel: rmInt(b.targetLevel, 1, 1, 3),
+      M.buildings.push({ id: b.id, plotId: b.plotId, kind: b.kind, level: rmInt(b.level, 0, 0, D.maxLevel || 3), targetLevel: rmInt(b.targetLevel, 1, 1, D.maxLevel || 3),
         status: ['built', 'building', 'upgrading'].includes(b.status) ? b.status : 'building', remaining: rmNum(b.remaining, 0, 0, 600), total: rmNum(b.total, D.seconds, 1, 600),
         paused: b.paused === true, priority: rmInt(b.priority, 1, 0, 2), workers: rmInt(b.workers, D.workers, 0, D.workers * 3), assigned: rmInt(b.assigned, 0, 0, D.workers * 3 + 2),
         working: b.working === true, blocked: String(b.blocked || '').slice(0, 40), adopted: b.adopted === true,

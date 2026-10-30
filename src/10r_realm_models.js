@@ -4,6 +4,7 @@ const REALM_RTS_MODEL_LIMIT = 72;
 const REALM_RTS_MODEL_HEIGHT = {
   farm: 4.2, mill: 7.4, bakery: 5.8, woodcutter: 4.1, sawmill: 5.5, sheepfold: 3.8,
   weaver: 5.5, mine: 4.5, toolmaker: 6.2, quarry: 5.4, hunter: 4.2, stables: 5.1, house: 5.7, market: 3.7,
+  watchpost: 6.1,
 };
 const REALM_RTS_MODELS = {
   group: null, material: null, pools: new Map(), signature: '', view: null, check: 0,
@@ -79,6 +80,21 @@ function realmRtsModelParts(kind) {
     for (let x = -2.8; x < 3; x += 0.8) box(x, 0.57, -0.5, 0.25, 0.5, 5.8, '#bdad54');
     box(2.2, 1.35, 2.1, 2.4, 2.2, 2.6, '#a47449');
     roof(2.2, 2.95, 2.1, 2.9, 1.1, 3.1, '#715448');
+  } else if (kind === 'watchpost') {
+    // An original low lookout: an open stair reaches a real timber landing.
+    box(0,1.85,-1.8,4.8,.3,3.6,wood); parts[parts.length-1].walkable=true;
+    for(let i=1;i<=8;i++) {
+      box(0,i*.125,4.5-(i-.5)*.5625,1.8,i*.25,.5625,wood);
+      parts[parts.length-1].walkable=true;
+    }
+    for(const x of [-2.25,2.25]) for(const z of [-3.45,-.2]) {
+      box(x,.85,z,.22,1.7,.22,dark); // stilts meet the deck underside
+      box(x,3.55,z,.22,3.1,.22,dark);
+    }
+    for(const x of [-2.3,2.3]) box(x,2.8,-1.8,.14,.16,3.6,wood);
+    box(0,2.8,-3.5,4.6,.16,.14,wood);
+    for(const x of [-1.65,1.65]) box(x,2.8,-.08,1.35,.16,.14,wood);
+    roof(0,5.6,-1.8,5.25,1,4.05,'#66735d');
   } else if (kind === 'woodcutter') {
     hut(2.9, 2.2, 3, '#9d8060', '#617157'); logs(0, 2.2, 5);
     add('cyl', -2.8, 0.75, -1.8, 0.75, 0.9, 0.75, '#a48153');
@@ -157,7 +173,7 @@ function realmRtsModelPartBounds(parts, bases, kind) {
     const matrix = new THREE.Matrix4().compose(new THREE.Vector3(p.x,p.y,p.z),
       new THREE.Quaternion().setFromEuler(new THREE.Euler(p.rx||0,p.ry||0,p.rz||0)),new THREE.Vector3(p.sx,p.sy,p.sz));
     for (let i=0;i<positions.count;i++) bounds.expandByPoint(point.fromBufferAttribute(positions,i).applyMatrix4(matrix));
-    return { min:bounds.min.clone(), max:bounds.max.clone() };
+    return { min:bounds.min.clone(), max:bounds.max.clone(), ...(p.walkable ? { walkable:true } : {}) };
   });
 }
 function realmRtsModelsInit() {
@@ -222,6 +238,7 @@ function realmRtsModelsInit() {
       const parts = realmRtsModelParts(kind); addPool(kind,parts); state.bodyBounds.set(kind,realmRtsModelPartBounds(parts,bases,kind));
     }
     addPool('foundation', [part('box', 0, 0.18, 0, 7.6, 0.36, 7.6, '#aea28b')]);
+    addPool('watchpost-base',[part('box',0,.18,-1.8,4.8,.36,3.6,'#aea28b'),part('box',0,.18,2.25,1.8,.36,4.5,'#aea28b')]);
     const frame = [];
     for (const x of [-3.5, 3.5]) for (const z of [-3.5, 3.5]) frame.push(part('box', x, 0.5, z, 0.16, 1, 0.16, '#c1a475'));
     for (const y of [0.25, 0.65, 1]) for (const side of [-1, 1]) frame.push(
@@ -300,6 +317,24 @@ function realmRtsModelsDropSolid(item) {
   // Restore those registration bounds when removing them from the grids.
   for (const collider of item.colliders) { collider.active=false; Object.assign(collider,{x:item.x,z:item.z,hx:6,hz:6}); bCollRemove(collider); }
   for (const floor of item.floors) { floor.active=false; Object.assign(floor,{x:item.x,z:item.z,hx:6,hz:6}); bFloorRemove(floor); }
+  if(item.ramp) { REALM_RTS_MODELS.group.remove(item.ramp); item.ramp.geometry.dispose(); }
+}
+function realmRtsWatchpostAccess(b,yaw,ground) {
+  const c=Math.cos(yaw),s=Math.sin(yaw),world=(x,z)=>({x:b.x+x*c+z*s,z:b.z-x*s+z*c});
+  const left=world(-.9,6),right=world(.9,6),centre=world(0,6);
+  const low=Math.max(heightAt(left.x,left.z),heightAt(right.x,right.z),heightAt(centre.x,centre.z))+.02;
+  return {pads:[{...world(0,-1.8),hx:2.4,hz:1.8},{...world(0,2.25),hx:.9,hz:2.25}],
+    ramp:{...world(0,5.25),hx:.9,hz:.75,ya:ground.top,yb:Math.min(ground.top,low),bottom:ground.bottom}};
+}
+function realmRtsWatchpostRamp(b,yaw,access) {
+  const c=Math.cos(yaw),s=Math.sin(yaw),r=access.ramp,positions=[],colors=[];
+  const points=[[-.9,r.ya,4.5],[.9,r.ya,4.5],[.9,r.yb,6],[-.9,r.yb,6],[-.9,r.bottom,4.5],[.9,r.bottom,4.5],[.9,r.bottom,6],[-.9,r.bottom,6]];
+  for(const index of [0,2,1,0,3,2,4,5,6,4,6,7,0,1,5,0,5,4,3,7,6,3,6,2,0,4,7,0,7,3,1,2,6,1,6,5]) {
+    const [x,y,z]=points[index];positions.push(b.x+x*c+z*s,y,b.z-x*s+z*c);colors.push(.45,.32,.22);
+  }
+  const geometry=new THREE.BufferGeometry();geometry.setAttribute('position',new THREE.Float32BufferAttribute(positions,3));
+  geometry.setAttribute('color',new THREE.Float32BufferAttribute(colors,3));geometry.computeVertexNormals();geometry.computeBoundingSphere();
+  const mesh=new THREE.Mesh(geometry,REALM_RTS_MODELS.material);mesh.name='realm-watchpost-access';REALM_RTS_MODELS.group.add(mesh);return mesh;
 }
 function realmRtsModelsSolids(buildings) {
   const state = REALM_RTS_MODELS, live = new Set(); let removed = false;
@@ -313,16 +348,28 @@ function realmRtsModelsSolids(buildings) {
     let item = old;
     if (old?.key !== key || !COLL.boxes.includes(old.colliders[0]) || !FLOOR.list.includes(old.floors[0])) {
       if (old) { realmRtsModelsDropSolid(old); state.solids.delete(b.id); removed=true; }
-      const collider = addBox(b.x,b.z,6,6,yaw,'realm-work',ground.top-ground.bottom);
-      Object.assign(collider,{baseY:ground.bottom,vert:true,y0:ground.bottom,realmRtsBuildingId:b.id});
-      const floor=addFloorBox(b.x,b.z,6,6,yaw,ground.top,ground.top,ground.bottom,0,'realm-work');
-      item={key,x:b.x,z:b.z,colliders:[collider],floors:[floor],parts:[]};
+      if(b.kind==='watchpost') {
+        const access=realmRtsWatchpostAccess(b,yaw,ground);item={key,x:b.x,z:b.z,colliders:[],floors:[],parts:[]};
+        for(const pad of access.pads) {
+          const collider=addBox(b.x,b.z,6,6,yaw,'realm-work',ground.top-ground.bottom);
+          Object.assign(collider,{...pad,baseY:ground.bottom,vert:true,y0:ground.bottom,realmRtsBuildingId:b.id});item.colliders.push(collider);
+          const floor=addFloorBox(b.x,b.z,6,6,yaw,ground.top,ground.top,ground.bottom,0,'realm-work');
+          Object.assign(floor,pad);item.floors.push(floor);
+        }
+        const r=access.ramp,floor=addFloorBox(b.x,b.z,6,6,yaw,r.ya,r.yb,r.bottom,0,'realm-work');
+        Object.assign(floor,{x:r.x,z:r.z,hx:r.hx,hz:r.hz});item.floors.push(floor);item.ramp=realmRtsWatchpostRamp(b,yaw,access);
+      } else {
+        const collider = addBox(b.x,b.z,6,6,yaw,'realm-work',ground.top-ground.bottom);
+        Object.assign(collider,{baseY:ground.bottom,vert:true,y0:ground.bottom,realmRtsBuildingId:b.id});
+        const floor=addFloorBox(b.x,b.z,6,6,yaw,ground.top,ground.top,ground.bottom,0,'realm-work');
+        item={key,x:b.x,z:b.z,colliders:[collider],floors:[floor],parts:[]};
+      }
       const parts=[...(state.bodyBounds.get(b.kind)||[]).map(bounds=>({bounds,scaffold:false})),
         ...(constructing||upgrading?(state.bodyBounds.get('scaffold')||[]).map(bounds=>({bounds,scaffold:true})):[])].slice(0,64);
       for(const part of parts) {
         const body=addBox(b.x,b.z,6,6,yaw,'realm-work',1);
         Object.assign(body,{vert:true,realmRtsBuildingId:b.id}); item.colliders.push(body);
-        const bounds=part.bounds, low=!part.scaffold && bounds.max.y<=.62 && (bounds.max.x-bounds.min.x)*(bounds.max.z-bounds.min.z)>=1;
+        const bounds=part.bounds, low=!part.scaffold && (bounds.walkable || bounds.max.y<=.62 && (bounds.max.x-bounds.min.x)*(bounds.max.z-bounds.min.z)>=1);
         const step=low?addFloorBox(b.x,b.z,6,6,yaw,ground.top,ground.top,ground.bottom,0,'realm-work'):null;
         if(step)item.floors.push(step); item.parts.push({...part,collider:body,floor:step});
       }
@@ -352,7 +399,8 @@ function realmRtsModelsRebuild(plots, buildings) {
     const level = Math.max(1, Math.min(4, Number(b.level) || 1)), scale = 1 + 0.08 * (Math.min(4,level + (upgrading ? progress : 0)) - 1);
     const height = REALM_RTS_MODEL_HEIGHT[b.kind] * scale;
     const depth = Math.max(0.18,ground.top-ground.bottom);
-    realmRtsModelInstance('foundation', b.x, ground.bottom, b.z, yaw, 12/7.6, depth/0.36, 12/7.6, '#ffffff');
+    if(b.kind==='watchpost')realmRtsModelInstance('watchpost-base',b.x,ground.bottom,b.z,yaw,1,depth/.36,1,'#ffffff');
+    else realmRtsModelInstance('foundation', b.x, ground.bottom, b.z, yaw, 12/7.6, depth/0.36, 12/7.6, '#ffffff');
     if (!constructing || progress >= 0.15) {
       realmRtsModelInstance(b.kind, b.x, y, b.z, yaw, scale, scale * (constructing ? Math.max(0.18, progress) : 1), scale,
         constructing || upgrading ? '#c6bba7' : '#ffffff');

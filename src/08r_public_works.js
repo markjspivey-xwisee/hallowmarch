@@ -41,6 +41,7 @@ function realmPublicWorksApply(value) {
   const keeps = value.keeps.map((k, i) => ({
     i, r: Number.isInteger(k?.r) && k.r >= 0 && k.r <= 2 ? k.r : -1,
     g: realmPublicWorksClamp(k?.g, 0, 40), gate: realmPublicWorksClamp(k?.gate, 0, 1), siege: !!k?.siege,
+    defenseSupport: k?.defenseSupport === 0.1 ? 0.1 : 0,
     tier: Math.max(Math.floor(realmPublicWorksClamp(k?.tier, 0, 3)), same ? old.keeps[i].tier : 0),
   }));
   const funding=value.logistics||value.management?.logistics;
@@ -228,7 +229,17 @@ function realmPublicWorksHungerK(e) {
   const band=e.warband?.season;
   return (band ? band.hungry===true || band.hungry===1 || band.hungry==null&&e.lHungry>GAME.t : s.works[e.faction].hungry>2) ? 0.88 : 1;
 }
-function realmPublicWorksAttackK(e) { return Math.sqrt(realmPublicWorksUnitQuality(e)); }
+function realmPublicWorksAttackK(e) {
+  let support = 0;
+  const K = e?.keep;
+  if (K && ['guard', 'lord'].includes(e.role) && !e.bot && !e.netCompanion && !e.netEntityOwner && e.faction === K.realm) {
+    if (realmPublicWorksHosted()) {
+      const row = realmPublicWorksCurrent()?.keeps[K.id];
+      if (row?.r === K.realm) support = row.defenseSupport === 0.1 ? 0.1 : 0;
+    } else if (typeof seasonKeepDefenseSupport === 'function') support = seasonKeepDefenseSupport(K);
+  }
+  return Math.sqrt(realmPublicWorksUnitQuality(e)) * (1 + support);
+}
 function realmPublicWorksArmorK(e) { return 1/Math.sqrt(realmPublicWorksUnitQuality(e)); }
 function realmPublicWorksVisual(e, mask, armor) {
   const q=realmPublicWorksUnitQuality(e), tier=Math.round((q-1)/0.12);

@@ -37,6 +37,7 @@ function fixture() {
     },
   });
   vm.runInContext(['throneRtsEscape', 'throneRtsNumber', 'throneRtsForm', 'throneRtsCost', 'throneRtsOptions',
+    'throneRtsBuildReason', 'throneRtsConstructionDetail', 'throneRtsUpdateOptions', 'throneRtsRefreshConstruction', 'throneRtsSelectPlot',
     'throneRtsConstructionChoice', 'throneRtsConstruction', 'throneRtsRenderPanel', 'throneRtsManage', 'throneRtsClick', 'throneRtsMarkerAction', 'throneRtsFormInput', 'throneRtsFocusBuilding']
     .map(extract).join('\n'), scope);
   const render = () => { scope.throneRtsRenderPanel(true); return nodes['rts-content'].innerHTML; };

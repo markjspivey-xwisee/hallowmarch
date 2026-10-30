@@ -258,7 +258,9 @@ window.__realmSiteQA = (() => {
     return {count:entries.length,legacyCount:legacy.length,crownRadii,results,controls,obstacles:obstacles.length,trees:W.trees.length,rocks:W.rocks.length,farms:FARM.plots.length};
   }
   function foundations(rawRows){
-    const rows=normalize(rawRows),kinds=Object.keys(REALM_RTS_MODEL_HEIGHT),matrix=new THREE.Matrix4(),vertex=new THREE.Vector3();
+    // Retain the full-envelope oracle for all fourteen original models. The
+    // watchpost has an entrance ramp and is audited by its real walking route.
+    const rows=normalize(rawRows),kinds=Object.keys(REALM_RTS_MODEL_HEIGHT).filter(kind=>kind!=='watchpost'),matrix=new THREE.Matrix4(),vertex=new THREE.Vector3();
     const plots=Object.entries(rows).map(([id,row])=>({id,...row,owner:(row.home+1)%3}));
     const surfaces=plots.map(row=>{const lods=[0,1,2,3].map(level=>exactSurface(row,level));
       return {min:Math.min(...lods.map(s=>s.min)),max:Math.max(...lods.map(s=>s.max)),lods};});
@@ -296,7 +298,7 @@ window.__realmSiteQA = (() => {
   }
   let fixture=null;
   function installFixture(){
-    const RS=realmSimInit(314159);realmManageInit(RS);const kinds=Object.keys(RM_CATALOG);
+    const RS=realmSimInit(314159);realmManageInit(RS);const kinds=Object.keys(RM_CATALOG).filter(kind=>kind!=='watchpost');
     for(let home=0;home<3;home++){
       RS.realms[home].management.buildings=[];
       for(let i=0;i<8;i++){
