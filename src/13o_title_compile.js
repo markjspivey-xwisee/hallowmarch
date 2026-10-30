@@ -436,10 +436,10 @@ function titleInitialOrder(jobs, receipt) {
     peers.push(job); seen.set(job.object, peers);
     ordered.push({ job, index: ordered.length, chars: (job.material.vertexShader?.length || 0) + (job.material.fragmentShader?.length || 0) });
   }
-  // Experimental scheduling only: measured native stragglers have large
-  // original shaders. Reorder preparation, never draws or shader/cache inputs.
-  // The renderer remains the authority for actual program-cache identity.
-  ordered.sort((a, b) => b.chars - a.chars || a.index - b.index);
+  // Experimental initial ordering: prepare the existing structures family first.
+  // Preserve source-size order and original-index ties within both finite partitions.
+  // Only preparation order changes; the renderer remains the program-cache authority.
+  ordered.sort((a, b) => Number(b.job.family === 'structures') - Number(a.job.family === 'structures') || b.chars - a.chars || a.index - b.index);
   return ordered.map(row => row.job);
 }
 
@@ -455,7 +455,7 @@ async function prepareTitleProgramJobs(inventory, stages, generation, dependency
     scheduledPollWaits: 0, requestedPollWaitMs: 0, maxRequestedPollWaitMs: 0, backoffWaits: 0, budgetClippedWaits: 0,
     flushMs: 0, maxFlushMs: 0, pollMs: 0, maxPollMs: 0,
     errorCheckMs: 0, maxErrorCheckMs: 0, elapsedMs: 0, visibleMs: 0, hiddenMs: 0, disposed: 0, families: {},
-    waveLatency: [], droppedWaveLatency: 0, queuePolicy: dependencyId === 'initial' ? 'combined-source-size' : 'staged', deduplicatedJobs: 0 };
+    waveLatency: [], droppedWaveLatency: 0, queuePolicy: dependencyId === 'initial' ? 'combined-structures-first-source-size' : 'staged', deduplicatedJobs: 0 };
   const history = GRAPHICS_STARTUP.titlePreparations ||= [];
   history.push(receipt);
   if (history.length > 8) history.shift();

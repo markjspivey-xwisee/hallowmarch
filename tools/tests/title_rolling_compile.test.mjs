@@ -3,6 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { parse } from '../node_modules/acorn/dist/acorn.mjs';
 import { basicFixture, entryFixture, THREE, originalController, currentController } from './title_rolling_fixture.mjs';
+import { undoStructureFamilyPriority } from './title_structure_priority_fixture.mjs';
 const normalizeLF = value => value.replace(/\r\n/g, '\n');
 
 function singles(f, count = f.objects.length) {
@@ -19,7 +20,7 @@ function nextDelay(f) {
 const receiptOf = f => f.ctx.GRAPHICS_STARTUP.titlePreparations[0];
 
 test('only the scheduler body/diagnostics change; every other inventory/dependency/snapshot function and limits stay exact', () => {
-  const old = normalizeLF(originalController), candidate = normalizeLF(currentController);
+  const old = normalizeLF(originalController), candidate = undoStructureFamilyPriority(normalizeLF(currentController));
   const functions = source => new Map(parse(source, { ecmaVersion: 'latest' }).body
     .filter(node => node.type === 'FunctionDeclaration').map(node => [node.id.name, source.slice(node.start, node.end)]));
   const before = functions(old), after = functions(candidate);

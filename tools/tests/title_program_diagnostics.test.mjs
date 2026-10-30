@@ -6,6 +6,7 @@ import {createHash} from 'node:crypto';
 import vm from 'node:vm';
 import {parse} from '../node_modules/acorn/dist/acorn.mjs';
 import {basicFixture} from './title_rolling_fixture.mjs';
+import {undoStructureFamilyPriority} from './title_structure_priority_fixture.mjs';
 const root=new URL('../../',import.meta.url),read=path=>readFileSync(new URL(path,root),'utf8'),sha=text=>createHash('sha256').update(text).digest('hex');
 const source=read('src/13o_title_compile.js'),tree=parse(source,{ecmaVersion:'latest'}),node=tree.body.find(value=>value.type==='FunctionDeclaration'&&value.id.name==='titleFailedProgramDiagnostics');
 assert(node);const helper=source.slice(node.start,node.end),plain=value=>JSON.parse(JSON.stringify(value));
@@ -27,8 +28,8 @@ function fixture(options={}){
 test('only the exact new helper and failed-branch call differ from the pinned release queue',()=>{
   const oracle=JSON.parse(read('tools/tests/fixtures/title_program_diagnostics_fc983.json'));
   assert.equal(oracle.revision,'fc983ff6d582b3daa0983dca25fa57435f0c8cfd');assert.equal(sha(oracle.source),'7df3b4483d92d5f451438759edb25395fe387540a6335fad53d352c854980083');assert.equal(oracle.sha256,sha(oracle.source));
-  const start=source.indexOf('// Failure-only observations.'),block=source.slice(start,node.end)+'\n\n',call='              Object.assign(receipt.failedProgram, titleFailedProgramDiagnostics(program));\n';
-  assert(start>0);assert.equal(source.split(block).length,2);assert.equal(source.split(call).length,2);assert.equal(source.replace(block,'').replace(call,''),oracle.source);
+  const control=undoStructureFamilyPriority(source),start=control.indexOf('// Failure-only observations.'),block=control.slice(start,node.end)+'\n\n',call='              Object.assign(receipt.failedProgram, titleFailedProgramDiagnostics(program));\n';
+  assert(start>0);assert.equal(control.split(block).length,2);assert.equal(control.split(call).length,2);assert.equal(control.replace(block,'').replace(call,''),oracle.source);
 });
 test('one live owned failed program log is read once with positive pre/post checks and no shader API',()=>{
   const f=fixture(),result=f.run();assert.equal(result.programLog,'actual failed program log');assert.equal(result.programLogSource,'live-failed-program');assert.equal(f.calls.filter(x=>x==='programLog').length,1);assert.equal(f.calls.filter(x=>x==='isProgram').length,2);assert.equal(result.vertexLog,null);assert.equal(result.fragmentLog,null);assert(!f.calls.some(x=>x.startsWith('FORBIDDEN:')));

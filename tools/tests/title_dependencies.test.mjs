@@ -691,7 +691,7 @@ test('combined initial preparation sorts original jobs in one shared capped queu
   const f=initialFixture({shadows:11,readyDelay:50}),before=f.state();
   const counts=f.sources.map(object=>object.geometry.instanceCount),parents=f.sources.map(object=>object.parent);
   const receipt=await f.finish(f.runInitial());
-  assert.equal(receipt.completed,true);assert.equal(receipt.dependency,'initial');assert.equal(receipt.queuePolicy,'combined-source-size');
+  assert.equal(receipt.completed,true);assert.equal(receipt.dependency,'initial');assert.equal(receipt.queuePolicy,'combined-structures-first-source-size');
   assert.equal(receipt.eligibleJobs,25);assert.equal(receipt.preparedJobs,25);assert(receipt.maxPending<=4);
   const sizes=f.calls.map(call=>call.material.vertexShader.length+call.material.fragmentShader.length);
   assert(sizes.every((size,index)=>index===0||size<=sizes[index-1]),'stable descending original shader size');

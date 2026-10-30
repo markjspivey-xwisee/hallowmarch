@@ -47,6 +47,15 @@ retain bounded state diagnostics.
 
 ## Native graphics verification
 
+The isolated structure-priority study changes only initial preparation order:
+existing `structures` jobs come first after the original compound-job deduplication,
+with descending source size and original-index ties retained within both partitions.
+It preserves the four unfinished slots, all shader/cache/draw inputs, physical fences
+and original deadlines. The focused actual-source ordering tests run in the headless
+and performance CI lanes. Historical pending intervals motivate this hypothesis;
+they do not identify a driver cause or establish a loading/entry improvement. A
+separate prospective full-entry screen must decide whether the policy is retained.
+
 The normal sky reproduced a graphics-context loss in an isolated 64 × 64 RGBA8
 view on a GTX 980 Ti / ANGLE D3D11, without world geometry, HDR or MSAA.
 Base sky, cosmos and the direct cloud-dome path passed separately; the screen
