@@ -16,7 +16,7 @@ function actual(file, names) {
 }
 const source = [actual('08h_farming.js', ['farmSeedSeller', 'farmServiceName', 'farmOffers']),
   actual('08i_farm_draw.js', ['drawFarmSellerIcon', 'drawFarmMap', 'farmMapSide']),
-  actual('10_ui.js', ['unitSub', 'drawMinimap']), actual('10e_guide.js', ['GUIDE_DIRS'])].join('\n');
+  actual('10_ui.js', ['unitSub', 'minimapObserveSize', 'drawMinimap']), actual('10e_guide.js', ['GUIDE_DIRS'])].join('\n');
 
 function canvas() {
   const commands = [], stack = [], ctx = {commands, fillStyle: '#original', strokeStyle: '#stroke', globalAlpha: .4, lineWidth: 7, lineJoin: 'bevel'};
