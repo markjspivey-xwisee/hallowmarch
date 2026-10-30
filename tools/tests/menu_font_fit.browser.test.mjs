@@ -88,7 +88,7 @@ for (const [width, height] of [[320, 740], [390, 780], [844, 390]]) {
     await page.evaluate(() => { document.getElementById('menu').hidden = true; document.getElementById('hud').hidden = false; });
     const navFit = await geometry(page, '#mobile-nav', name === 'normal' ? 12 : 13);
     assert.deepEqual(menuFit.labels, ['Character', 'Companion', 'Progress', 'Chronicle', 'Settings', 'How to play']);
-    assert.deepEqual(navFit.labels, ['Inventory', 'Skills', 'Map', 'Notes', 'Menu']);
+    assert.deepEqual(navFit.labels, ['Items', 'Skills', 'Map', 'Notes', 'Menu']);
     assert([...menuFit.fonts, ...navFit.fonts].every(font => /monospace/i.test(font)), 'The wide local fallback must actually reach every control.');
     assert.deepEqual(errors, []); assert.deepEqual(requests, []);
     assert.deepEqual([...menuFit.failures, ...navFit.failures], [], `${width}x${height} ${name}: full readable text, complete captions and 48px targets must fit.`);
