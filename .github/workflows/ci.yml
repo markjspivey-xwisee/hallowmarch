@@ -109,6 +109,7 @@ jobs:
               ;;
             startup) check python3 tools/tests/startup_graphics.py ;;
             onboarding)
+              check node --test tools/tests/prologue_navigation.browser.test.mjs
               check python3 tools/tests/lore.py desktop phone
               check python3 tools/tests/guide.py desk phone
               ;;

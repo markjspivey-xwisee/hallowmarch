@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import vm from 'node:vm';
 import { parse } from 'acorn';
 
@@ -81,9 +82,102 @@ function prologueActions({ touch = false, replay = false } = {}) {
     overlay().listeners.click({ target: button });
   };
   return { c, effects, progress, overlay, click,
-    key(code) { keys[0]({ code, preventDefault() {}, stopPropagation() {} }); },
+    key(code, properties = {}) {
+      const observed = { prevented: 0, stopped: 0, leaked: 0 };
+      keys[0]({ code, ...properties, preventDefault() { observed.prevented++; }, stopPropagation() { observed.stopped++; } });
+      if (!observed.stopped) observed.leaked++;
+      return observed;
+    },
     view(index) { c.LORE.pro.i = index; c.renderPrologue(); return overlay().buttons; } };
 }
+
+test('prologue module differs from release 1145461 only by the exact held-page-key guard', () => {
+  const source = readFileSync(new URL('../../src/10c_lore.js', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+  const guard = "  // Holding a page key must not run through the book or dismiss its last page.\n"
+    + "  if (e.repeat === true && (k === 'ArrowRight' || k === 'PageDown' || k === 'ArrowLeft' || k === 'PageUp')) {\n"
+    + "    e.preventDefault();\n    e.stopPropagation();\n    return;\n  }\n";
+  assert.equal(source.split(guard).length, 2, 'Exactly one approved insertion');
+  const original = source.replace(guard, '');
+  assert.equal(createHash('sha256').update(original).digest('hex'), '2f42286a05f13727a3520019e35b891448f88951c30b64188ec15d3a7596cb23');
+  assert.notEqual(createHash('sha256').update(source).digest('hex'), '2f42286a05f13727a3520019e35b891448f88951c30b64188ec15d3a7596cb23');
+});
+
+test('actual repeated arrow/page keys cannot turn, rerender or leave any prologue page', () => {
+  for (const replay of [false, true]) for (const touch of [false, true]) {
+    for (const index of [0, 2, 4]) for (const code of ['ArrowRight', 'PageDown', 'ArrowLeft', 'PageUp']) {
+      const f = prologueActions({ replay, touch }); f.view(index);
+      const buttons = f.overlay().buttons, markup = f.overlay().innerHTML;
+      const observed = f.key(code, { repeat: true });
+      assert.deepEqual(observed, { prevented: 1, stopped: 1, leaked: 0 }, code);
+      assert.equal(f.c.LORE.pro.i, index); assert.equal(f.c.UI.modal, 'prologue');
+      assert.equal(f.overlay().buttons, buttons, 'No renderer replacement'); assert.equal(f.overlay().innerHTML, markup);
+      assert.equal(f.effects.input, 1, 'The original input hook still sees this event once');
+      assert.equal(f.effects.saves, 0); assert.deepEqual(f.effects.notes, []); assert.deepEqual(f.effects.sounds, []);
+    }
+  }
+});
+
+test('nonrepeated and legacy page keys still move once, respect boundaries and explicitly finish', () => {
+  for (const properties of [{}, { repeat: false }]) for (const code of ['ArrowRight', 'PageDown', 'ArrowLeft', 'PageUp']) {
+    const f = prologueActions(); f.view(2);
+    assert.deepEqual(f.key(code, properties), { prevented: 1, stopped: 1, leaked: 0 });
+    assert.equal(f.c.LORE.pro.i, code === 'ArrowRight' || code === 'PageDown' ? 3 : 1);
+    assert.deepEqual(f.effects.sounds, ['click']); assert.equal(f.effects.saves, 0);
+  }
+  for (const code of ['ArrowLeft', 'PageUp']) {
+    const f = prologueActions(), buttons = f.overlay().buttons;
+    f.key(code, { repeat: false }); assert.equal(f.c.LORE.pro.i, 0); assert.equal(f.overlay().buttons, buttons);
+  }
+  for (const replay of [false, true]) for (const code of ['ArrowRight', 'PageDown']) {
+    const f = prologueActions({ replay }); f.view(4);
+    f.key(code, { repeat: true }); assert.equal(f.c.LORE.pro.i, 4); assert.equal(f.effects.saves, 0);
+    assert.deepEqual(f.key(code, { repeat: false }), { prevented: 1, stopped: 1, leaked: 0 });
+    assert.equal(f.c.LORE.pro, null); assert.equal(f.c.UI.modal, null); assert.equal(f.effects.saves, 1);
+    assert.deepEqual(f.effects.notes, replay ? [] : ['start']);
+  }
+});
+
+test('suppressed repeats preserve the actual trusted-input gates and microtask forwarding', () => {
+  for (const trusted of [false, true]) for (const hidden of [false, true]) for (const focused of [false, true]) {
+    const f = prologueActions(); f.view(4);
+    const tasks = []; let forwarded = 0, synced = 0;
+    f.c.document.hidden = hidden; f.c.document.hasFocus = () => focused;
+    f.c.NET_HUMAN_PLAY = { focused: false, activity: 0, pendingAt: null };
+    f.c.performance = { now: () => 100 }; f.c.queueMicrotask = fn => tasks.push(fn);
+    f.c.netHumanSuspend = () => { throw Error('A valid finite activity counter must not suspend'); };
+    f.c.netHumanSync = () => { synced++; assert.equal(f.c.UI.modal, 'prologue'); };
+    vm.runInContext(declarations('14m_liveplay.js', ['netHumanInput']), f.c);
+    const actualInput = f.c.netHumanInput;
+    f.c.netHumanInput = event => { forwarded++; actualInput(event); };
+    assert.deepEqual(f.key('PageDown', { type: 'keydown', repeat: true, isTrusted: trusted }), { prevented: 1, stopped: 1, leaked: 0 });
+    const eligible = trusted && !hidden && focused;
+    assert.equal(forwarded, 1); assert.equal(f.c.NET_HUMAN_PLAY.activity, eligible ? 1 : 0);
+    assert.equal(f.c.NET_HUMAN_PLAY.pendingAt, eligible ? 100 : null);
+    assert.equal(tasks.length, eligible ? 1 : 0); tasks.forEach(fn => fn()); assert.equal(synced, eligible ? 1 : 0);
+    assert.equal(f.c.LORE.pro.i, 4); assert.equal(f.effects.saves, 0);
+  }
+});
+
+test('repeat suppression stays inside the open prologue and changes no other key route', () => {
+  for (const absent of ['modal', 'pro']) {
+    const f = prologueActions(); if (absent === 'modal') f.c.UI.modal = null; else f.c.LORE.pro = null;
+    assert.deepEqual(f.key('ArrowRight', { repeat: true }), { prevented: 0, stopped: 0, leaked: 1 });
+    assert.equal(f.effects.input, 0); assert.equal(f.effects.saves, 0);
+  }
+  for (const code of ['Enter', 'Space', 'NumpadEnter']) {
+    const focused = prologueActions();
+    assert.deepEqual(focused.key(code, { repeat: true }), { prevented: 0, stopped: 1, leaked: 0 });
+    assert.equal(focused.c.LORE.pro.i, 0, 'Focused button keeps the original native activation route, not modeled by this CPU fixture');
+    const unfocused = prologueActions({ touch: true });
+    assert.deepEqual(unfocused.key(code, { repeat: true }), { prevented: 1, stopped: 1, leaked: 0 });
+    assert.equal(unfocused.c.LORE.pro.i, 1, 'The existing unfocused route is unchanged');
+  }
+  const escape = prologueActions(); escape.view(4); escape.key('Escape', { repeat: true });
+  assert.equal(escape.c.UI.modal, null); assert.equal(escape.effects.saves, 1);
+  const unrelated = prologueActions();
+  assert.deepEqual(unrelated.key('KeyW', { repeat: true }), { prevented: 0, stopped: 1, leaked: 0 });
+  assert.equal(unrelated.c.LORE.pro.i, 0);
+});
 
 for (const replay of [false, true]) for (const touch of [false, true]) {
   test(`prologue has one final exit while earlier skipping and navigation remain, replay=${replay}, touch=${touch}`, () => {
