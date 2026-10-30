@@ -30,7 +30,7 @@ class Element {
 export function selectionFixture({baseline=false,plots,catalog}={}) {
   const ledger={revision:1,plots:plots||[{id:'town:1:0',site:'town:1',name:'Town west',owner:1,x:0,z:0},{id:'keep:0:0',site:'keep:0',name:'Keep east',owner:1,x:20,z:0}],
     catalog:catalog||[{id:'mill',label:'Mill',siteTypes:['town'],cost:{timber:10},workers:2,seconds:45,maxLevel:3},{id:'sawmill',label:'Sawmill',siteTypes:['town','keep'],cost:{timber:20},workers:3,seconds:60,maxLevel:3},{id:'watchpost',label:'Watchpost',siteTypes:['keep'],cost:{stone:40},workers:2,seconds:90,maxLevel:1}],buildings:[],publicBuildings:[]};
-  const state={root:{},tab:'build',key:'',form:{plotId:ledger.plots[0].id,buildKind:'mill'},selectedPlot:ledger.plots[0].id,quoteForm:{},markers:[],markerKey:''};
+  const state={root:{},tab:'build',key:'',time:0,form:{plotId:ledger.plots[0].id,buildKind:'mill'},selectedPlot:ledger.plots[0].id,quoteForm:{},markers:[],markerKey:'',notice:'',noticeUntil:0,noticeKind:''};
   const plotSelect=new Element('select'),kindSelect=new Element('select'),detail=new Element(),commit=new Element('button');
   plotSelect.name='plotId';kindSelect.name='buildKind';plotSelect.value=state.form.plotId;kindSelect.value='mill';
   const host=new Element(),nodes={'rts-content':host,'rts-title':{},'rts-tabs':{querySelectorAll:()=>[]},'rts-markers':new Element(),'rts-routes':new Element(),'rts-stage':{getBoundingClientRect:()=>({left:0,top:0,right:800,bottom:600,width:800,height:600})}};
@@ -38,22 +38,23 @@ export function selectionFixture({baseline=false,plots,catalog}={}) {
   host.querySelector=selector=>({'[name="buildKind"]':kindSelect,'[name="plotId"]':plotSelect,'[data-rts-construction-detail]':detail,'[data-action="build"]':commit}[selector]||null);
   const document={activeElement:kindSelect,createElement:tag=>new Element(tag),createTextNode:value=>({nodeType:3,nodeValue:value,remove(){if(this.parentElement){const p=this.parentElement;p.children.splice(p.children.indexOf(this),1);this.parentElement=null;}}})};
   const camera=new THREE.PerspectiveCamera(55,800/600,.1,2000);camera.position.set(20,25,35);camera.lookAt(0,0,0);camera.updateMatrixWorld();
-  const commands=[],notices=[],actions=[],blocked=new Map(),world=read('09_player.js');
-  const scope=vm.createContext({THREE,document,camera,_proj:new THREE.Vector3(),view:{w:800,h:600},heightAt:(x,z)=>.02*x-.01*z,
+  const commands=[],notices=[],actions=[],blocked=new Map(),world=read('09_player.js'),netStatus={pending:false,result:null,message:''};let clock=0,statusText='';
+  nodes['rts-status']={};Object.defineProperty(nodes['rts-status'],'textContent',{get:()=>statusText,set:value=>{statusText=value;notices.push(value);}});nodes['rts-retry']=new Element('button');
+  const scope=vm.createContext({THREE,document,camera,_proj:new THREE.Vector3(),view:{w:800,h:600},heightAt:(x,z)=>.02*x-.01*z,performance:{now:()=>clock},netRealmManagementStatus:()=>netStatus,
     THRONE_RTS:{active:true},THRONE_RTS_UI:state,GAME:{player:{faction:1}},UI:{modal:'rts'},CWUI:{sel:null},WAR:{keeps:[],temples:[],warbands:[]},
     HALL:{sit:{H:{S:{name:'Test keep'}}}},REALMS:[{}, {name:'Test realm'}],$:id=>nodes[id],hallThroneGrant:()=>true,
-    throneRtsView:()=>ledger,throneRtsNotice:text=>notices.push(text),REALM_RTS_SITE_CACHE:new Map(),realmRtsSiteStatus:p=>({eligible:!blocked.has(p.id),reason:blocked.get(p.id)||''}),
+    throneRtsView:()=>ledger,REALM_RTS_SITE_CACHE:new Map(),realmRtsSiteStatus:p=>({eligible:!blocked.has(p.id),reason:blocked.get(p.id)||''}),
     realmRtsModelYaw:p=>p.yaw||0,realmRtsSiteGround:p=>({top:.02*p.x-.01*p.z+.06}),throneRtsCanonicalArmies:()=>[],
     wbLeader:()=>null,cwRoute:()=>null,cwIssue:(...x)=>actions.push(x),throneRtsFocusArmy:id=>actions.push(['focus',id]),netRealmManagementCommand:command=>commands.push(command)});
-  const names=['throneRtsEscape','throneRtsNumber','throneRtsForm','throneRtsCost','throneRtsOptions','throneRtsConstructionChoice','throneRtsConstruction','throneRtsRenderPanel','throneRtsFormInput','throneRtsManage'];
-  if(!baseline)names.push('throneRtsBuildReason','throneRtsConstructionDetail','throneRtsUpdateOptions','throneRtsRefreshConstruction','throneRtsSelectPlot','throneRtsMarkerAction','throneRtsCollectMarkers','throneRtsPick','throneRtsPlotPolygon','throneRtsPointInPolygon','throneRtsDrawMarkers');
+  const names=['throneRtsEscape','throneRtsNumber','throneRtsForm','throneRtsCost','throneRtsOptions','throneRtsNotice','throneRtsSetStatus','throneRtsConstructionChoice','throneRtsConstruction','throneRtsRenderPanel','throneRtsFormInput','throneRtsManage'];
+  if(!baseline)names.push('throneRtsBuildReason','throneRtsConstructionDetail','throneRtsUpdateOptions','throneRtsRefreshConstruction','throneRtsSelectPlot','throneRtsMarkerAction','throneRtsCollectMarkers','throneRtsPick','throneRtsPlotPolygon','throneRtsPointInPolygon','throneRtsDrawMarkers','updateThroneRTS');
   vm.runInContext(extract(world,'screenOf')+'\n'+names.map(name=>extract(baseline?oracle.sources['src/10q_throne_rts.js']:uiSource,name)).join('\n'),scope);
   scope.throneRtsRenderPanel(true);
   const choice=scope.throneRtsConstructionChoice(ledger);
   plotSelect.innerHTML=scope.throneRtsOptions(choice.plots.map(p=>[p.id,p.name||p.site||p.id]),choice.chosen);
   kindSelect.innerHTML=scope.throneRtsOptions((choice.catalog||ledger.catalog).map(item=>[item.id,item.label||item.id]),choice.kind);
   if(!baseline)detail.innerHTML=scope.throneRtsConstructionDetail(choice);
-  return {scope,ledger,state,nodes,document,plotSelect,kindSelect,detail,commit,commands,notices,actions,blocked,
+  return {scope,ledger,state,nodes,document,plotSelect,kindSelect,detail,commit,commands,notices,actions,blocked,netStatus,get status(){return statusText;},advance:ms=>{clock+=ms;},
     change(name,value){const target=name==='plotId'?plotSelect:kindSelect;target.value=value;document.activeElement=target;scope.throneRtsFormInput({type:'change',target});},
     screen:(x,z)=>scope.screenOf(x,scope.heightAt(x,z)+.06,z)};
 }

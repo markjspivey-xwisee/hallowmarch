@@ -1,6 +1,6 @@
 /* Live 3D throne strategy UI. Camera navigation is local; every realm/army
  * mutation continues through its existing canonical authority route. */
-const THRONE_RTS_UI = { root: null, tab: 'realm', key: '', time: 0, markers: [], markerKey: '', form: {}, selectedPlot: '', focusBefore: null, revision: null, quoteForm: {}, notice: '', noticeUntil: 0, armyFocus: null };
+const THRONE_RTS_UI = { root: null, tab: 'realm', key: '', time: 0, markers: [], markerKey: '', form: {}, selectedPlot: '', focusBefore: null, revision: null, quoteForm: {}, notice: '', noticeUntil: 0, noticeKind: '', armyFocus: null };
 const throneRtsTabs = [['realm', 'Realm'], ['production', 'Production'], ['build', 'Construction'], ['resources', 'Resources'], ['diplomacy', 'Diplomacy'], ['armies', 'Armies']];
 function throneRtsEscape(value) { return String(value ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c])); }
 function throneRtsNumber(value) { return Number.isFinite(+value) ? Math.round(+value * 10) / 10 : 0; }
@@ -23,10 +23,25 @@ function throneRtsManage(action) {
     return false;
   }
   netRealmManagementCommand(action);
+  if (THRONE_RTS_UI.noticeKind === 'selection') {
+    THRONE_RTS_UI.notice=''; THRONE_RTS_UI.noticeUntil=0; THRONE_RTS_UI.noticeKind='';
+    const status=typeof netRealmManagementStatus==='function'?netRealmManagementStatus():null;
+    throneRtsSetStatus(status?.message || (status?.pending?'Waiting for the realm order to save…':'World live · your character remains seated'));
+  }
   THRONE_RTS_UI.key = '';
   return true;
 }
-function throneRtsNotice(message) { THRONE_RTS_UI.notice=message; THRONE_RTS_UI.noticeUntil=performance.now()+8000; throneRtsSetStatus(message); }
+function throneRtsNotice(message, kind = 'validation') {
+  if(kind==='selection') {
+    if(performance.now()<THRONE_RTS_UI.noticeUntil && THRONE_RTS_UI.noticeKind!=='selection')return;
+    const status=typeof netRealmManagementStatus==='function'?netRealmManagementStatus():null;
+    if(status?.pending || status?.result || status?.message) {
+      if(THRONE_RTS_UI.noticeKind==='selection'){THRONE_RTS_UI.notice='';THRONE_RTS_UI.noticeUntil=0;THRONE_RTS_UI.noticeKind='';}
+      throneRtsSetStatus(status.message || (status.pending?'Waiting for the realm order to save…':'Realm order reply received.'));return;
+    }
+  }
+  THRONE_RTS_UI.notice=message; THRONE_RTS_UI.noticeUntil=performance.now()+8000; THRONE_RTS_UI.noticeKind=kind; throneRtsSetStatus(message);
+}
 function throneRtsSetStatus(message) { const e = $('rts-status'); if (e) e.textContent = String(message || ''); }
 function throneRtsFormInput(e) {
   if (!e.target.name) return;
@@ -191,6 +206,7 @@ function throneRtsRefreshConstruction() {
   THRONE_RTS_UI.revision = v.revision;
   THRONE_RTS_UI.quoteForm = {...THRONE_RTS_UI.form};
   THRONE_RTS_UI.key = '';
+  throneRtsNotice(choice.plot ? `Selected ${choice.plot.name || choice.plot.id}${choice.item ? ' · '+(choice.item.label || choice.kind) : ''}. Preview only; commission when ready.` : 'No clear owned site selected.', 'selection');
 }
 function throneRtsConstruction(v) {
   const choice = throneRtsConstructionChoice(v), { plots, chosen, kind, item, catalog, unavailable } = choice;
@@ -287,7 +303,7 @@ function throneRtsSelectPlot(id, render = true) {
   if (render) {
     THRONE_RTS_UI.tab = 'build'; throneRtsRenderPanel(true);
     const item = throneRtsConstructionChoice(throneRtsView()).item;
-    throneRtsNotice(`Selected ${plot.name || plot.id}${item ? ' · ' + (item.label || item.id) : ''}. Preview only; commission when ready.`);
+    throneRtsNotice(`Selected ${plot.name || plot.id}${item ? ' · ' + (item.label || item.id) : ''}. Preview only; commission when ready.`, 'selection');
   }
   return true;
 }
@@ -470,7 +486,8 @@ function updateThroneRTS(dt) {
   THRONE_RTS_UI.time-=dt;
   if (THRONE_RTS_UI.time<=0) {THRONE_RTS_UI.time=0.5;throneRtsRenderPanel();}
   const status=typeof netRealmManagementStatus==='function'?netRealmManagementStatus():null;
-  throneRtsSetStatus(THRONE_RTS_UI.tab === 'armies' && CWUI.msg ? CWUI.msg : (performance.now()<THRONE_RTS_UI.noticeUntil ? THRONE_RTS_UI.notice : status?.message) || (status?.pending?'Waiting for the realm order to save…':'World live · your character remains seated'));
+  const notice=performance.now()<THRONE_RTS_UI.noticeUntil && (THRONE_RTS_UI.noticeKind!=='selection'||!status?.pending&&!status?.result&&!status?.message)?THRONE_RTS_UI.notice:'';
+  throneRtsSetStatus(THRONE_RTS_UI.tab === 'armies' && CWUI.msg ? CWUI.msg : notice || status?.message || (status?.pending?'Waiting for the realm order to save…':'World live · your character remains seated'));
   $('rts-retry').hidden = !status?.pending;
   throneRtsDrawMarkers();
 }

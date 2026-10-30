@@ -174,3 +174,31 @@ test('emitted stilts support the deck and the canopy clears the actual normal un
   // This is the normal unmounted envelope only; mounted movement is not validated.
   for(const geometry of Object.values(bases))geometry.dispose();f.clear();
 });
+test('committed construction choices immediately refresh the actual selection status with focus and quote intact',()=>{
+  const f=selectionFixture();f.change('plotId','keep:0:0');
+  assert.match(f.status,/Selected Keep east · Sawmill/);
+  const select=f.kindSelect,options=[...select.options];f.change('buildKind','watchpost');
+  assert.match(f.status,/Selected Keep east · Watchpost/);assert.doesNotMatch(f.status,/Sawmill/);
+  assert.equal(f.document.activeElement,select);assert(select.options.every((option,i)=>option===options[i]));
+  assert.equal(f.state.quoteForm.buildKind,'watchpost');assert.match(f.detail.innerHTML,/Watchpost/);assert.equal(f.commands.length,0);
+  f.change('plotId','town:1:0');assert.match(f.status,/Selected Town west/);assert.doesNotMatch(f.status,/Keep east|Watchpost/);
+  assert.equal(f.document.activeElement,f.plotSelect);assert.equal(f.state.quoteForm.plotId,'town:1:0');assert.equal(f.commands.length,0);
+});
+test('selection feedback never masks pending, reply or validation notices and is retired when an order starts',()=>{
+  for(const status of [{pending:true,result:null,message:'Waiting for the native realm save…'},
+    {pending:false,result:{ok:true,confirmed:true},message:'Realm order confirmed.'},
+    {pending:false,result:{ok:false,confirmed:false},message:'Realm order refused.'}]) {
+    const f=selectionFixture();f.scope.throneRtsSelectPlot('keep:0:0');Object.assign(f.netStatus,status);
+    f.scope.updateThroneRTS(0);assert.equal(f.status,status.message,'normal status frame must not retain the old selection over an order');
+    f.change('buildKind','watchpost');assert.equal(f.status,status.message);assert.equal(f.state.quoteForm.buildKind,'watchpost');
+    assert.equal(f.document.activeElement,f.kindSelect);assert.equal(f.commands.length,0);
+  }
+  const validation=selectionFixture();validation.scope.throneRtsSelectPlot('keep:0:0');validation.scope.throneRtsNotice('Review the updated costs.');
+  validation.change('buildKind','watchpost');assert.equal(validation.status,'Review the updated costs.');assert.equal(validation.state.quoteForm.buildKind,'watchpost');
+  validation.advance(8001);validation.change('buildKind','sawmill');assert.match(validation.status,/Selected Keep east · Sawmill/);
+  const paid=selectionFixture();paid.scope.throneRtsSelectPlot('keep:0:0');paid.change('buildKind','watchpost');
+  paid.scope.netRealmManagementCommand=command=>{paid.commands.push(command);Object.assign(paid.netStatus,{pending:true,message:'Waiting for the native realm save…'});};
+  paid.scope.throneRtsManage({type:'build',plotId:'keep:0:0',kind:'watchpost'});
+  assert.equal(paid.commands.length,1);assert.equal(paid.status,paid.netStatus.message);assert.equal(paid.state.notice,'');
+  assert.equal(paid.state.noticeKind,'');
+});

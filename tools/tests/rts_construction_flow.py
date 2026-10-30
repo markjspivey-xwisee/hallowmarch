@@ -93,7 +93,9 @@ window.__rtsConstructionQA = (() => {
     const plot = NETS.s.management.plots.find(p=>p.site.startsWith('keep:') && !p.buildingId && realmRtsSiteStatus(p).eligible);
     if (!plot) throw Error('No clear held keep plot');
     throneRtsFocus(plot.x,plot.z); THRONE_RTS.distance=THRONE_RTS.targetDistance=45;
-    throneRtsUpdateCamera(0); realmRtsModelsFrame(.3); throneRtsDrawMarkers();
+    // The click must land on the frame a player can actually see, not only a
+    // projected hit target over an old non-RTS canvas.
+    draw('low',false,plot.id);
     const rect=$('rts-stage').getBoundingClientRect(),yaw=realmRtsModelYaw(plot),c=Math.cos(yaw),s=Math.sin(yaw);
     const points=[];
     for (const u of [-4.5,4.5]) for (const v of [-4.5,4.5]) {
@@ -114,6 +116,7 @@ window.__rtsConstructionQA = (() => {
       kind:select?.value,focusName:document.activeElement?.name || '',
       quote:{...THRONE_RTS_UI.quoteForm},detail:document.querySelector('[data-rts-construction-detail]')?.textContent || '',
       markerPressed:marker?.getAttribute('aria-pressed'),preview:!!document.querySelector('.rts-plot-preview'),
+      previewLabel:document.querySelector('#rts-routes text')?.textContent || '',status:$('rts-status')?.textContent || '',
       stock:Object.fromEntries((v?.stocks || []).map(s=>[s.id,s.n])),building:b || null,
       support:realmManageDefenseSupport(state,keep),sent:sent.length,answers:answers.length,
       result:NETR_MANAGE.result,pending:!!NETR_MANAGE.pending,input:input.slice(),poses:{...poses}};
@@ -132,7 +135,8 @@ window.__rtsConstructionQA = (() => {
     realmRtsModelsFrame(.3); throneRtsDrawMarkers();
   }
   function draw(q,night,plotId) {
-    const b=NETS.s.management.buildings.find(b=>b.plotId===plotId);
+    const b=NETS.s.management.buildings.find(b=>b.plotId===plotId) || NETS.s.management.plots.find(p=>p.id===plotId);
+    if(!b)throw Error('No real plot or building to draw');
     setQuality(q); tod.p=tod.fixedP=night?2.1:.25; tod.mode='fixed'; applyTimeOfDay(tod.p);
     applyWeather(); applyIndoor(); resize();
     throneRtsFocus(b.x,b.z); throneRtsUpdateCamera(0); updateLod(); drawHouses(0);
@@ -143,7 +147,8 @@ window.__rtsConstructionQA = (() => {
       return source.includes('vGroundMark')?{instanced:source.includes('#define USE_INSTANCING'),linked:gl.getProgramParameter(p.program,gl.LINK_STATUS)}:null;
     }).filter(Boolean);
     return {q,night,programs,errors:HM_ERRORS.slice(),glError:gl.getError(),
-      body:REALM_RTS_MODELS.pools.get('watchpost')?.count || 0};
+      body:REALM_RTS_MODELS.pools.get('watchpost')?.count || 0,
+      preview:document.querySelector('#rts-routes text')?.textContent || ''};
   }
   function walk(plotId) {
     closeThroneRTS(true); UI.modal=null;
@@ -252,8 +257,16 @@ async def run():
                     quote = await page.evaluate("id=>__rtsConstructionQA.snapshot(id)", plot)
                     assert quote["kind"] == "watchpost" and quote["quote"]["buildKind"] == "watchpost", quote
                     assert "Watchpost" in quote["detail"] and "90" in quote["detail"] and "10%" in quote["detail"], quote
+                    if realm == 0:
+                        assert "Watchpost" in quote["status"], quote
                     if not phone:
                         assert quote["focusName"] == "buildKind", quote
+                    # The immediate quote above is observed before any frame or
+                    # panel refresh. Render only afterwards to inspect the
+                    # player's actual selected footprint and its current label.
+                    preview = await page.evaluate("a=>__rtsConstructionQA.draw(...a)", ["low", False, plot])
+                    assert "Watchpost" in preview["preview"] and not preview["errors"] and preview["glError"] == 0, preview
+                    await page.screenshot(path=str(OUT / ("realm-" + str(realm) + "-selection.png")), timeout=300000)
                     button = page.locator('[data-action="build"]')
                     if phone:
                         await button.tap()
@@ -288,7 +301,7 @@ async def run():
                     assert not walk["outlines"] and not walk["solidRetained"] and walk["remainingColliders"] == walk["remainingFloors"] == walk["retainedFloorGridEntries"] == 0, walk
                     assert any(e["type"] == "pointerup" and e["trusted"] for e in commissioned["input"])
                     report["realms"].append({"target": target, "selected": selected, "quote": quote, "commissioned": commissioned,
-                                             "partial": partial, "finished": finished, "draws": draws, "walk": walk})
+                                             "previewDraw": preview, "partial": partial, "finished": finished, "draws": draws, "walk": walk})
                     (OUT / "flow.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
                     print(json.dumps({"realm": realm, "commissioned": True, "support": finished["support"], "draws": len(draws), "walk": walk}), flush=True)
                 assert not errors, errors

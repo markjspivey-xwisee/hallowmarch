@@ -240,7 +240,8 @@ Construction selection accepts the visible plot footprint and clearly names
 the selected site and building. Its preview and pressed marker state represent
 a local choice; the Commission action still requires the current canonical
 quote and the existing authority/confirmation path. Changing the native building
-selector refreshes its details without replacing the focused control.
+selector refreshes its details without replacing the focused control. Selection
+feedback must name the current choice without masking a pending order or error.
 
 New farms, mills, bakeries, sheepfolds, weavers, dwellings and markets use town
 plots. Existing saved works retain their site and placement version. Frontier
@@ -263,5 +264,8 @@ damage behavior and mouse/touch construction selection. The full-world
 journey uses real client commands and canonical state behind an explicitly
 fictional socket boundary, with external requests blocked. It does not certify
 production authentication, native persistence, physical touch devices or Edge.
+The fixture renders the actual plot before its off-centre mouse/touch selection,
+observes the immediate native quote before another frame, and saves selected
+preview images separately from completed-building images in all three realms.
 Full-world and release acceptance requires saved successful run results; these
 checks do not establish overall reviewer readiness.
