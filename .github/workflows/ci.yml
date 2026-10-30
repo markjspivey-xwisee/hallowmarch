@@ -80,7 +80,7 @@ jobs:
               node --test tools/tests/readiness_responsiveness.test.mjs tools/tests/weather_entry_resources.test.mjs tools/tests/ripple_entry_resources.test.mjs tools/tests/meadow_rgb_preparation.test.mjs tools/tests/season_settle_equivalence.test.mjs
               node --test tools/tests/season_ice_settle.test.mjs
               node --test tools/tests/early_title.test.mjs
-              node --test tools/tests/entry_feedback.test.mjs tools/tests/adaptive_quality_clock.test.mjs tools/tests/minimap_size_observer.test.mjs tools/tests/mobile_hud_spacing.test.mjs
+              node --test tools/tests/entry_feedback.test.mjs tools/tests/adaptive_quality_clock.test.mjs tools/tests/minimap_size_observer.test.mjs tools/tests/mobile_hud_spacing.test.mjs tools/tests/hud_watch_noise.test.mjs
               node --test tools/tests/map_build_chunks.test.mjs
               node --test tools/tests/sound_buffer_preparation.test.mjs tools/tests/music_impulse_preparation.test.mjs
               node --test tools/tests/ground_ao_preparation.test.mjs tools/tests/season_map_preparation.test.mjs
@@ -110,7 +110,7 @@ jobs:
               ;;
             startup) check python3 tools/tests/startup_graphics.py ;;
             onboarding)
-              check env HM_BROWSER_CHANNEL=chrome node --test tools/tests/prologue_navigation.browser.test.mjs
+              check env HM_BROWSER_CHANNEL=chrome node --test --test-concurrency=1 tools/tests/prologue_navigation.browser.test.mjs tools/tests/hud_watch_noise.browser.test.mjs
               check python3 tools/tests/lore.py desktop phone
               check python3 tools/tests/guide.py desk phone
               ;;
