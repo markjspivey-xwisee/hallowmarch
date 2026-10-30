@@ -18,7 +18,7 @@ function eventTarget(extra={}){return Object.assign({listeners:new Map(),addEven
   emit(type){for(const fn of this.listeners.get(type)||[])fn({type});}},extra);}
 
 function fixture({prologue=false,native=false}={}){
-  let now=100,focused=true;const calls={cold:[],frames:[],errors:[],saves:0,notes:[],created:0},timers=new Map(),microtasks=[];
+  let now=100,focused=true;const calls={cold:[],frames:[],errors:[],saves:0,notes:[],created:0,preparationCancels:0},timers=new Map(),microtasks=[];
   const node=(id,hidden=false)=>({id,hidden,isConnected:true,inert:false,innerHTML:'',querySelector:()=>null,
     focus(){throw Error('Entry feedback must not move focus');}});
   const nodes=Object.fromEntries(['entry-feedback','title','menu','menu-tabs','lore-pro','hud'].map(id=>[id,node(id,id!=='hud')]));
@@ -51,6 +51,7 @@ function fixture({prologue=false,native=false}={}){
     sfx(){},loreOnStart:save=>{c.UI.modal=save.fresh?'prologue':null;c.LORE.pro=save.fresh?{replay:false}:null;},
     giftsOnStart(){},buildOnStart(){},survivalOnStart(){},depthOnStart(){},
     renderMenu(){},menuReturnFocus:null,
+    musicImpulsePrepareFrame(){},musicImpulsePrepareCancel(){calls.preparationCancels++;},
   });
   const noopNames=['throneRtsGuard','applyTimeOfDay','updateWeather','seasonsFrame','applyWeather','applyIndoor',
     'updateNightSky','wxCloudsFrame','netPump','updateCamera','captureCamera','wxCloudsScreen','drawActors','drawDragon',
@@ -145,6 +146,7 @@ test('menu/modal, blur, hidden page, pagehide and context loss clear the status 
 test('graphics stopped and a real tick error clear presentation while preserving original error handling',()=>{
   const stopped=fixture();stopped.input();stopped.prepare();stopped.frame();stopped.c.GRAPHICS_STARTUP.stopped=true;stopped.frame();
   assert.equal(stopped.c.feedback(),null);assert.equal(stopped.calls.frames.length,1);
+  assert.equal(stopped.calls.preparationCancels,1,'Graphics stop also releases private music preparation');
   const f=fixture(),original=Error('Original cold tick failure');f.input();f.prepare();f.frame();f.c.seasonsFrame=()=>{throw original;};f.frame();
   assert.equal(f.nodes['entry-feedback'].hidden,true);assert.equal(f.c.feedback(),null);assert.equal(f.calls.errors[0],original);
   const takeover=fixture();takeover.input();takeover.prepare();takeover.frame();const notice={hidden:true,inert:true};

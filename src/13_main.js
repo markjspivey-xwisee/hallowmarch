@@ -1034,6 +1034,7 @@ function tick(dt) {
 function frame(now) {
   if (GRAPHICS_CONTEXT_LOST || GRAPHICS_STARTUP.stopped) {
     if (typeof entryFeedbackCancel === 'function') entryFeedbackCancel();
+    musicImpulsePrepareCancel();
     return;
   }
   requestAnimationFrame(frame);
@@ -1041,7 +1042,7 @@ function frame(now) {
   lastNow = now;
   if (!(dt > 0)) dt = 1 / 60;
   dt = Math.min(dt, 0.1);
-  try { tick(dt); } catch (err) {
+  try { musicImpulsePrepareFrame(); tick(dt); } catch (err) {
     if (typeof entryFeedbackCancel === 'function') entryFeedbackCancel();
     reportError(err);
   }
