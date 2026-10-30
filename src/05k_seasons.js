@@ -55,7 +55,184 @@ function seasonBirdK() { const A = seasonCur().A; return 1 - 0.6 * A[3] - 0.15 *
 /* ------------------------------------------------------------------ */
 /* the season map: each place's warmth and the snow lying there         */
 /* ------------------------------------------------------------------ */
+// Optional private numeric work. The ordinary seasonMapBuild call still owns
+// every season array publication and the original texture/UUID allocation.
+const SEASON_MAP_PRIVATE_CAP = 2 * 1024 * 1024;
+const SEASON_MAP_WORK = 128, SEASON_MAP_BITS_WORK = 2048;
+const seasonMapInputFns = [heightAt, realmWeightsAt, bearingOf, angDiff, clamp, sstep, lerp];
+const seasonMapMathNames = ['atan2', 'hypot', 'pow', 'max', 'cos', 'floor', 'round'];
+const seasonMapMathFns = seasonMapMathNames.map(name => Math[name]);
+const seasonMapArrayFns = [Float32Array, Uint32Array, Uint8Array, ArrayBuffer, Array.prototype.map];
+let seasonMapPrepared = null, seasonMapPreparation = 0, seasonMapActive = null;
+function seasonMapPreparationNote(outcome, reason = null, generation = seasonMapPreparation, bytes = 0) {
+  try {
+    if (generation !== seasonMapPreparation || typeof GRAPHICS_STARTUP !== 'object') return;
+    const note = GRAPHICS_STARTUP.seasonMap ||= { preparations: 0, stale: 0, canceled: 0, fallbacks: 0, completed: false, consumed: false };
+    note.generation = generation; note.outcome = outcome; note.reason = reason;
+    if (outcome === 'preparing') { note.preparations = Math.min(255, note.preparations + 1); note.completed = false; note.consumed = false; note.bytes = 0; }
+    if (outcome === 'completed') { note.completed = true; note.bytes = bytes; }
+    if (outcome === 'consumed') note.consumed = true;
+    if (outcome === 'stale') note.stale = Math.min(255, note.stale + 1);
+    if (outcome === 'canceled') note.canceled = Math.min(255, note.canceled + 1);
+    if (outcome === 'fallback') note.fallbacks = Math.min(255, note.fallbacks + 1);
+  } catch (e) { /* Optional counters never change season-map behavior. */ }
+}
+function seasonMapPreparationInputs() {
+  const H = W.H, R = SEAS.res, c = SEAS.cell;
+  if (SEAS.inited || SEAS.warm || SEAS.lie || SEAS.bytes || SEAS.tex
+    || !H || Object.getPrototypeOf(H) !== Float32Array.prototype
+    || Object.getPrototypeOf(H.buffer) !== ArrayBuffer.prototype || H.buffer.resizable === true
+    || !Number.isSafeInteger(HN) || HN < 2 || H.length !== HN * HN
+    || !Number.isSafeInteger(R) || R < 1 || !Number.isFinite(c) || c <= 0
+    || !Number.isFinite(HALF) || HALF <= 0 || !Number.isFinite(HS) || HS <= 0
+    || !Number.isFinite(DUN_X0) || !Array.isArray(REALMS) || REALMS.length !== 3
+    || Object.getPrototypeOf(REALMS) !== Array.prototype || REALMS.map !== seasonMapArrayFns[4]) return null;
+  const bytes = H.byteLength + R * R * 8;
+  // Every +/-3 height sample must use the ordinary terrain branch. Dungeon
+  // state is deliberately unsupported rather than silently approximated.
+  if (!Number.isSafeInteger(bytes) || bytes > SEASON_MAP_PRIVATE_CAP
+    || -HALF + (R - 0.5) * c + 3 > DUN_X0) return null;
+  const realms = [];
+  for (const object of REALMS) {
+    const bearing = object && Object.getOwnPropertyDescriptor(object, 'bearing');
+    if (!bearing || !('value' in bearing) || !Number.isFinite(bearing.value)) return null;
+    realms.push({ object, bearing: bearing.value });
+  }
+  const uniform = Object.getOwnPropertyDescriptor(U, 'uSeasonMap')?.value;
+  const uniformValue = uniform && Object.getOwnPropertyDescriptor(uniform, 'value');
+  if (!uniformValue || !('value' in uniformValue)) return null;
+  return { H, buffer: H.buffer, offset: H.byteOffset, length: H.length, half: HALF, hn: HN, hs: HS,
+    dungeon: DUN_X0, tau: TAU, R, c, bytes, realmArray: REALMS, realms,
+    ground: typeof A2FL === 'object' && A2FL ? A2FL : null,
+    groundEpoch: typeof A2FL === 'object' && A2FL ? A2FL.ground : null,
+    warm: SEAS.warm, lie: SEAS.lie, rgba: SEAS.bytes, texture: SEAS.tex,
+    uniform, uniformValue: uniformValue.value };
+}
+function seasonMapPreparationCurrent(input, generation, preparing = false) {
+  const uniformValue = Object.getOwnPropertyDescriptor(input.uniform, 'value');
+  if (!uniformValue || !('value' in uniformValue)) return false;
+  if (generation !== seasonMapPreparation || (preparing && SEAS.inited)
+    || W.H !== input.H || input.H.buffer !== input.buffer || input.H.byteOffset !== input.offset || input.H.length !== input.length
+    || HALF !== input.half || HN !== input.hn || HS !== input.hs || DUN_X0 !== input.dungeon || TAU !== input.tau
+    || SEAS.res !== input.R || SEAS.cell !== input.c || REALMS !== input.realmArray || REALMS.length !== 3
+    || SEAS.warm !== input.warm || SEAS.lie !== input.lie || SEAS.bytes !== input.rgba || SEAS.tex !== input.texture
+    || Object.getOwnPropertyDescriptor(U, 'uSeasonMap')?.value !== input.uniform
+    || uniformValue.value !== input.uniformValue
+    || (preparing && ((typeof A2FL === 'object' && A2FL ? A2FL : null) !== input.ground
+      || (typeof A2FL === 'object' && A2FL ? A2FL.ground : null) !== input.groundEpoch))
+    || heightAt !== seasonMapInputFns[0] || realmWeightsAt !== seasonMapInputFns[1]
+    || bearingOf !== seasonMapInputFns[2] || angDiff !== seasonMapInputFns[3]
+    || clamp !== seasonMapInputFns[4] || sstep !== seasonMapInputFns[5] || lerp !== seasonMapInputFns[6]
+    || Float32Array !== seasonMapArrayFns[0] || Uint32Array !== seasonMapArrayFns[1]
+    || Uint8Array !== seasonMapArrayFns[2] || ArrayBuffer !== seasonMapArrayFns[3]
+    || Array.prototype.map !== seasonMapArrayFns[4] || REALMS.map !== seasonMapArrayFns[4]) return false;
+  for (let i = 0; i < 3; i++) {
+    const bearing = REALMS[i] && Object.getOwnPropertyDescriptor(REALMS[i], 'bearing');
+    if (REALMS[i] !== input.realms[i].object || !bearing || !('value' in bearing) || !Object.is(bearing.value, input.realms[i].bearing)) return false;
+  }
+  for (let i = 0; i < seasonMapMathNames.length; i++) if (Math[seasonMapMathNames[i]] !== seasonMapMathFns[i]) return false;
+  return true;
+}
+function seasonMapPrivateHeight(input, x, z) {
+  const gx = clamp((x + input.half) / input.hs, 0, input.hn - 1.0001), gz = clamp((z + input.half) / input.hs, 0, input.hn - 1.0001);
+  const i = Math.floor(gx), j = Math.floor(gz), fx = gx - i, fz = gz - j;
+  const H = input.heights, k = j * input.hn + i;
+  const a = H[k], b = H[k + 1], c = H[k + input.hn], d = H[k + input.hn + 1];
+  return a + (b - a) * fx + (c - a) * fz + (a - b - c + d) * fx * fz;
+}
+function seasonMapPrivateRealmWeights(input, x, z) {
+  const b = bearingOf(x, z), r = Math.hypot(x, z);
+  const w = input.realms.map((R) => Math.pow(Math.max(0, Math.cos(angDiff(b, R.bearing) * 0.75)), 6));
+  const blend = sstep(10, 60, r);
+  let s = 0;
+  for (let k = 0; k < 3; k++) { w[k] = lerp(1 / 3, w[k], blend); s += w[k]; }
+  for (let k = 0; k < 3; k++) w[k] /= s || 1;
+  return w;
+}
+function* prepareSeasonMapChunks() {
+  // A second unfinished iterator cannot retain a second height/output set.
+  // Optional callers may use the ordinary fallback while this owner finishes.
+  if (seasonMapActive) return false;
+  const generation = ++seasonMapPreparation;
+  const owner = seasonMapActive = { generation };
+  seasonMapPrepared = null;
+  seasonMapPreparationNote('preparing');
+  let ended = false, input = null, bits = null, warm = null, bytes = null;
+  try {
+    input = seasonMapPreparationInputs();
+    if (!input || !seasonMapPreparationCurrent(input, generation, true)) {
+      ended = true; seasonMapPreparationNote('unavailable', 'unsupported-or-live-inputs', generation); return false;
+    }
+    bits = new Uint32Array(input.length);
+    input.heights = new Float32Array(bits.buffer);
+    warm = new Float32Array(input.R * input.R); bytes = new Uint8Array(input.R * input.R * 4);
+    const source = new Uint32Array(input.buffer, input.offset, input.length);
+    for (let q = 0; q < input.length; q++) {
+      bits[q] = source[q];
+      if ((q + 1) % SEASON_MAP_BITS_WORK === 0) {
+        yield;
+        if (!seasonMapPreparationCurrent(input, generation, true)) { ended = true; seasonMapPreparationNote('stale', 'snapshot-inputs-changed', generation); return false; }
+      }
+    }
+    const R = input.R, c = input.c;
+    for (let j = 0; j < R; j++) for (let i = 0; i < R; i++) {
+      const x = -input.half + (i + 0.5) * c, z = -input.half + (j + 0.5) * c, q = j * R + i;
+      const rw = seasonMapPrivateRealmWeights(input, x, z);
+      let h = 0;
+      for (const [dx, dz] of [[0, 0], [-3, -3], [3, -3], [-3, 3], [3, 3]]) h += seasonMapPrivateHeight(input, x + dx, z + dz);
+      h /= 5;
+      warm[q] = rw[0] * 1.2 - rw[2] * 6.5 - Math.max(0, h - 6) * 0.3;
+      bytes[q * 4 + 1] = Math.round(clamp((warm[q] + 30) / 40, 0, 1) * 255);
+      bytes[q * 4 + 3] = 255;
+      if ((q + 1) % SEASON_MAP_WORK === 0) {
+        yield;
+        if (!seasonMapPreparationCurrent(input, generation, true)) { ended = true; seasonMapPreparationNote('stale', 'numeric-inputs-changed', generation); return false; }
+      }
+    }
+    if (!seasonMapPreparationCurrent(input, generation, true)) { ended = true; seasonMapPreparationNote('stale', 'inputs-changed', generation); return false; }
+    seasonMapPrepared = { generation, input, bits, warm, bytes };
+    ended = true; seasonMapPreparationNote('completed', null, generation, input.bytes);
+    return true;
+  } catch (e) { ended = true; seasonMapPreparationNote('unavailable', 'optional-preparation-failed', generation); return false; }
+  finally {
+    // Only a complete private generation keeps references. A closed, superseded
+    // or failed iterator never publishes partial outputs to SEAS or uniforms.
+    if (!ended) seasonMapPreparationNote('canceled', 'iterator-closed', generation);
+    input = bits = warm = bytes = null;
+    if (seasonMapActive === owner) seasonMapActive = null;
+  }
+}
+function seasonMapTakePrepared() {
+  const prepared = seasonMapPrepared;
+  seasonMapPrepared = null;
+  if (!prepared) return null;
+  try {
+    // seasonsInit sets inited before its original map call. The still-empty
+    // arrays/texture/uniform are the live owner guard, not that inited flag.
+    if (!seasonMapPreparationCurrent(prepared.input, prepared.generation)) {
+      seasonMapPreparationNote('stale', 'inputs-changed', prepared.generation); return null;
+    }
+    const current = new Uint32Array(prepared.input.buffer, prepared.input.offset, prepared.input.length);
+    for (let q = 0; q < current.length; q++) if (current[q] !== prepared.bits[q]) {
+      seasonMapPreparationNote('stale', 'terrain-bits-changed', prepared.generation); return null;
+    }
+    return { warm: prepared.warm, bytes: prepared.bytes, generation: prepared.generation };
+  } catch (e) { return null; }
+  finally { prepared.input = prepared.bits = prepared.warm = prepared.bytes = null; }
+}
 function seasonMapBuild() {
+  const prepared = seasonMapTakePrepared();
+  if (prepared) {
+    const R = SEAS.res;
+    SEAS.warm = prepared.warm; SEAS.lie = new Float32Array(R * R); SEAS.bytes = prepared.bytes;
+    const T = new THREE.DataTexture(SEAS.bytes, R, R, THREE.RGBAFormat, THREE.UnsignedByteType);
+    T.minFilter = THREE.LinearFilter; T.magFilter = THREE.LinearFilter; T.generateMipmaps = false;
+    T.needsUpdate = true;
+    SEAS.tex = T; U.uSeasonMap.value = T;
+    seasonMapPreparationNote('consumed', null, prepared.generation);
+    return;
+  }
+  seasonMapPreparationNote('fallback', 'no-current-private-map');
   const R = SEAS.res, c = SEAS.cell;
   SEAS.warm = new Float32Array(R * R); SEAS.lie = new Float32Array(R * R); SEAS.bytes = new Uint8Array(R * R * 4);
   for (let j = 0; j < R; j++) for (let i = 0; i < R; i++) {

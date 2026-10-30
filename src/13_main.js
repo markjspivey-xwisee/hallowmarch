@@ -567,6 +567,7 @@ async function boot() {
   if (await graphicsRunDiagnostic()) return;
   await loadStep(0.82, 'Preparing the sounds', () => prepareSoundBuffersChunks());
   await loadStep(0.83, 'Preparing the ground', () => prepareGroundAOChunks());
+  await loadStep(0.835, 'Preparing the seasons', () => prepareSeasonMapChunks());
   if (typeof prepareTitleDraft === 'function') prepareTitleDraft(save);
   await loadStep(0.84, 'Drawing the map', () => bootSequence([buildMapImageChunks, buildDungeonMapChunks]));
   await loadStep(0.9, 'Preparing the first view', () => {

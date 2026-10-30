@@ -145,6 +145,18 @@ test('the actual ground preparation step stays cooperative before title admissio
   assert(receipt.completed&&receipt.chunked);assert.equal(receipt.workMs,36);assert(receipt.maxSliceMs<=9);assert(receipt.yields>=3);
 });
 
+test('the actual season-map preparation step stays cooperative before title admission',async()=>{
+  const h=harness(),seen=[];
+  h.ctx.prepareSeasonMapChunks=function*(){for(let i=0;i<12;i++){h.advance(3);seen.push(i);yield;}};
+  const start=source.indexOf("  await loadStep(0.835, 'Preparing the seasons'");assert(start>=0);
+  const actualStep=source.slice(start,source.indexOf('\n',start));
+  vm.runInContext('async function prepareActualSeasonStep(){'+actualStep+'}',h.ctx);
+  await h.ctx.prepareActualSeasonStep();
+  assert.deepEqual(seen,Array.from({length:12},(_,i)=>i));
+  const [receipt]=h.ctx.GRAPHICS_STARTUP.bootWork;
+  assert(receipt.completed&&receipt.chunked);assert.equal(receipt.workMs,36);assert(receipt.maxSliceMs<=9);assert(receipt.yields>=3);
+});
+
 test('the actual profiling wrapper preserves resumable generation through its last chunk',async()=>{
   const h=harness(),seen=[];
   const perf=readFileSync(new URL('../../src/13p_perf.js',import.meta.url),'utf8');
