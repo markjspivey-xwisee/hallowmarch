@@ -499,7 +499,8 @@ function rsmSiege(RS, A, R, hr) {
   // [season2] an offensive's keep, warned: the holder keeps feeding its walls from the levy while the siege lasts
   if (A.kind === 'offensive' && D.lev > 6) { const n = Math.min(D.lev - 6, RSM.brace.feed * hr, Math.max(0, RSM.garrison * RSM.brace.room - K.g)); D.lev -= n; K.g += n; }
   const att = A.n * A.arm * hungryA * (1 + 0.3 * A.eng) * (1 + 0.4 * rsmBehind(RS, A.r));
-  const def = (K.g + 3) * (1 + 0.12 * D.proj.smithy) * hungryD * (1 + 0.3 * K.tier) * (K.gate > 0 ? 1.5 : 1) * (1 + RSM.catchUp * rsmBehind(RS, K.h));
+  const watchSupport = typeof realmManageDefenseSupport === 'function' ? realmManageDefenseSupport(RS, A.k) : 0;
+  const def = (K.g + 3) * (1 + 0.12 * D.proj.smithy) * hungryD * (1 + 0.3 * K.tier) * (K.gate > 0 ? 1.5 : 1) * (1 + RSM.catchUp * rsmBehind(RS, K.h)) * (1 + watchSupport);
   // the gate gives way to the engines and the rams
   K.gate = Math.max(0, K.gate - hr * (0.03 + 0.07 * A.eng) * (1 - 0.15 * K.tier));
   const lossA = def * 0.07 * hr * (0.8 + 0.4 * rsmRand(RS)), lossD = att * 0.05 * hr * (K.gate > 0 ? 0.5 : 1) * (0.8 + 0.4 * rsmRand(RS));
@@ -695,7 +696,8 @@ function realmSimSummary(RS, realm, since = -1) {
     stores: RSM_GOODS.map((g, i) => ({ g, v: Math.round(R.s[i]), fill: R.s[i] / RSM.target[i] })),
     short: R.short.slice(), hungry: R.hungry > 2,
     project: P ? { id: R.act, name: P.name, prog: Math.round(R.prog * 100), votes: Object.assign({}, R.votes) } : null,
-    built: Object.assign({}, R.proj), keeps: RS.keeps.map((K, i) => ({ k: i, name: rsmKN(RS, i), h: K.h, home: K.home, g: Math.round(K.g), tier: K.tier, siege: !!K.siege })),
+    built: Object.assign({}, R.proj), keeps: RS.keeps.map((K, i) => ({ k: i, name: rsmKN(RS, i), h: K.h, home: K.home, g: Math.round(K.g), tier: K.tier, siege: !!K.siege,
+      defenseSupport: typeof realmManageDefenseSupport === 'function' ? realmManageDefenseSupport(RS, i) : 0 })),
     lev: Math.round(R.lev), offs, lines, past: RS.past.slice(-3),
   };
 }

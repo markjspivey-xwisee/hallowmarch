@@ -204,14 +204,14 @@ test('population respects completed dwelling capacity and growth remains bounded
 });
 test('captured keep plots transfer the actual paid building and its control', () => {
   const f = fixture(); fund(f, 0); fund(f, 1); pauseAll(f);
-  const id = commission(f, 'mill', 'keep:0:0'), original = building(f, 0, id);
+  const id = commission(f, 'sawmill', 'keep:0:0'), original = building(f, 0, id);
   f.state.t = f.state.len / 4; f.state.phase = 'war';
   f.api.realmSimLive(f.state, { type: 'keep', keep: 0, holder: 1 }); f.tick(1);
   assert.equal(building(f, 0, id), undefined);
   assert.equal(building(f, 1, id), original, 'capture preserves the constructed building');
   assert.equal(f.view(1).plots.find(p => p.id === 'keep:0:0').buildingId, id);
   noCharge(f, 0, { type: 'pause', buildingId: id, paused: true });
-  noCharge(f, 0, { type: 'build', plotId: 'keep:0:1', kind: 'house' });
+  noCharge(f, 0, { type: 'build', plotId: 'keep:0:1', kind: 'sawmill' });
   succeed(f.action(1, { type: 'pause', buildingId: id, paused: true }));
   assert.equal(original.paused, true);
   const cost = f.view(1).buildings.find(b => b.id === id).upgradeCost, before = stocks(f, 1);

@@ -1367,6 +1367,11 @@
     body.touch #hud #bottom { bottom: calc(136px + var(--safe-b)); }
     body.touch #hud #error { bottom: calc(148px + var(--safe-b)); }
   }
+  /* Construction selection is a preview, separate from a paid realm order. */
+  #rts-routes .rts-plot-preview { fill: #ffd76b38; stroke: #fff2b0; stroke-width: 4; stroke-linejoin: round; paint-order: stroke; }
+  #rts-routes .rts-preview-label { fill: #fff5ca; stroke: #151922; stroke-width: 4; paint-order: stroke; text-anchor: middle; font: 700 14px var(--ui); }
+  #rts-markers .rts-marker.plot.selected { background: #73571e; color: #fff4bd; box-shadow: 0 0 0 3px #fff0a4; }
+  #rts-content .rts-selection { padding: 10px; border: 2px solid #ffe29b; border-radius: 6px; background: #493c24; color: #fff1cb; }
 </style>
 
 <canvas id="scene" aria-label="Hallowmarch, a 3D world of three realms at war" role="img"></canvas>

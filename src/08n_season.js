@@ -174,6 +174,11 @@ function seasonGateK(door) {
   if (!RS || !K || !RS.keeps[K.id]) return 1;
   return 1 / (1 + 0.25 * RS.keeps[K.id].tier);
 }
+function seasonKeepDefenseSupport(K) {
+  const RS = SEASONP.rs;
+  if (seasonServer() || !RS || !K || RS.keeps[K.id]?.h !== K.realm || typeof realmManageDefenseSupport !== 'function') return 0;
+  return realmManageDefenseSupport(RS, K.id);
+}
 // the realm's catch-up and its yard in the live work (08m_loops.js loopsProduce)
 function seasonProdK(r, g) {
   const RS = SEASONP.rs;

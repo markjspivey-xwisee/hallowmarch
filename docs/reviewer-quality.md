@@ -233,3 +233,33 @@ delivery, plus immediate prologue readability on desktop and phone under normal,
 device-reduced and app-reduced motion. These behavior checks do not establish a
 loading, entry-latency or frame-rate improvement. Cold loading and first entry
 remain open review limits.
+
+## RTS construction selection and keep watchposts
+
+Construction selection accepts the visible plot footprint and clearly names
+the selected site and building. Its preview and pressed marker state represent
+a local choice; the Commission action still requires the current canonical
+quote and the existing authority/confirmation path. Changing the native building
+selector refreshes its details without replacing the focused control.
+
+New farms, mills, bakeries, sheepfolds, weavers, dwellings and markets use town
+plots. Existing saved works retain their site and placement version. Frontier
+plots retain resource works and can host one Watchpost per held keep.
+
+A Watchpost costs 60 timber, 40 stone, eight iron and two tools, takes 90 seconds
+of construction work and requests two workers. A finished, unpaused post with
+two assigned workers and its full food input (0.5 provisions per minute)
+supports its keep's existing guards and lord with 10% more outgoing damage.
+The same support applies in canonical sieges. It does not create troops or fire
+independently, and it adds no building-damage or repair system. Captured posts
+need the new holder's workforce and supplies. The current post has one level.
+
+The low raised platform has registered stair/deck floors and an entrance ramp;
+its visual structure and collision access must agree. New regressions cover
+canonical spending, siting, staffing, supply, ownership, save/summary/live
+damage behavior and mouse/touch construction selection. The full-world
+journey uses real client commands and canonical state behind an explicitly
+fictional socket boundary, with external requests blocked. It does not certify
+production authentication, native persistence, physical touch devices or Edge.
+Full-world and release acceptance requires saved successful run results; these
+checks do not establish overall reviewer readiness.

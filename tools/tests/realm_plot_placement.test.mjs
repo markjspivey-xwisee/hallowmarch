@@ -102,7 +102,7 @@ test('known explicit versions survive reload and unknown placement versions neve
 
 test('keep capture changes control while legacy and current buildings retain their home orientation and position', () => {
   const f = fixture(); fund(f);
-  assert.equal(f.action(0, { type: 'build', plotId: 'keep:0:0', kind: 'mill' }).ok, true);
+  assert.equal(f.action(0, { type: 'build', plotId: 'keep:0:0', kind: 'sawmill' }).ok, true);
   const legacy = f.api.rmBuilding('keep:0:1', 'house', true); f.state.realms[0].management.buildings.push(legacy);
   const ids = ['b:keep:0:0', legacy.id], before = new Map(f.view(0).publicBuildings.filter(row => ids.includes(row.id)).map(row => [row.id, coordinates(row)]));
   f.state.keeps[0].h = 1;

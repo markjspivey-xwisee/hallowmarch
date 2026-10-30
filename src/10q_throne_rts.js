@@ -32,9 +32,9 @@ function throneRtsFormInput(e) {
   if (!e.target.name) return;
   THRONE_RTS_UI.form[e.target.name] = e.target.value;
   if (e.target.name === 'plotId') {
-    const plot = throneRtsView()?.plots?.find(p => p.id === e.target.value);
-    THRONE_RTS_UI.selectedPlot = plot && plot.owner === GAME.player.faction && !plot.buildingId && realmRtsSiteStatus(plot).eligible ? plot.id : '';
+    throneRtsSelectPlot(e.target.value, false);
   }
+  if (e.type === 'change' && ['plotId','buildKind'].includes(e.target.name)) throneRtsRefreshConstruction();
 }
 function throneRtsInitUI() {
   if (THRONE_RTS_UI.root) return THRONE_RTS_UI.root;
@@ -134,7 +134,7 @@ function throneRtsResources(v) {
 }
 function throneRtsProduction(v) {
   const rows = (v.buildings || []).filter(b => b.kind !== 'house');
-  return `<h3>Production and workforce</h3><p>Staff a building to work its chain. Missing inputs, an unfinished site or too few workers stop production.</p>${rows.map(b => `<article class="rts-card"><button class="rts-focus" data-building-focus="${throneRtsEscape(b.id)}">${throneRtsEscape(b.label ?? b.kind)} · Lv ${throneRtsNumber(b.level || 1)}</button><p>${throneRtsEscape(b.paused ? 'Paused' : b.blocked || (b.status !== 'built' ? b.status : b.working ? 'Producing' : 'Idle'))}${b.remaining > 0 ? ` · ${Math.ceil(b.remaining)}s` : ''}</p><p>${throneRtsCost(b.inputs)} → ${throneRtsCost(b.outputs)}</p>
+  return `<h3>Production and workforce</h3><p>Staff a building to work its chain. Missing inputs, an unfinished site or too few workers stop production.</p>${rows.map(b => `<article class="rts-card"><button class="rts-focus" data-building-focus="${throneRtsEscape(b.id)}">${throneRtsEscape((v.catalog || []).find(c => c.id === b.kind)?.label ?? b.label ?? b.kind)} · Lv ${throneRtsNumber(b.level || 1)}</button><p>${throneRtsEscape(b.paused ? 'Paused' : (b.kind === 'watchpost' ? (b.blocked === 'inputs:food' ? 'Needs provisions' : b.blocked === 'workforce' ? 'Needs two workers' : b.blocked === 'construction' ? 'Under construction' : b.blocked) : b.blocked) || (b.status !== 'built' ? b.status : b.working ? b.kind === 'watchpost' ? 'Working' : 'Producing' : 'Idle'))}${b.remaining > 0 ? ` · ${Math.ceil(b.remaining)}s` : ''}</p>${b.kind === 'watchpost' ? `<p>${throneRtsEscape((v.catalog || []).find(c => c.id === b.kind)?.description || 'A defensive watchtower supporting the existing keep troops; it does not fire on its own.')}</p><p>Food requirement: ${throneRtsCost(b.inputs)} per minute. Staffing and supply support the keep; no goods are produced.</p>` : `<p>${throneRtsCost(b.inputs)} → ${throneRtsCost(b.outputs)}</p>`}
       <p>${throneRtsNumber(b.assigned)} workers assigned</p><label>Requested workers<input type="number" min="0" max="${Math.max(0, throneRtsNumber(v.population?.workers || 0))}" name="workers-${throneRtsEscape(b.id)}" value="${throneRtsEscape(throneRtsForm('workers-'+b.id,b.workers ?? 0))}"></label>
       <label>Priority<select name="priority-${throneRtsEscape(b.id)}">${throneRtsOptions([['0','Low'],['1','Normal'],['2','High']], throneRtsForm('priority-'+b.id,b.priority ?? 1))}</select></label>
       <div class="rts-row"><button data-workforce="${throneRtsEscape(b.id)}">Assign workers</button><button data-pause="${throneRtsEscape(b.id)}" data-paused="${b.paused ? '0' : '1'}">${b.paused ? 'Resume' : 'Pause'}</button></div></article>`).join('') || '<p>Choose Construction to commission production buildings.</p>'}`;
@@ -146,22 +146,62 @@ function throneRtsConstructionChoice(v) {
   const unavailable = available.filter(row => !row.status.eligible);
   const requested = throneRtsForm('plotId', THRONE_RTS_UI.selectedPlot);
   const chosen = plots.find(p => p.id === requested)?.id || plots[0]?.id || '';
-  const catalog = v?.catalog || [], requestedKind = throneRtsForm('buildKind', catalog[0]?.id || '');
+  const plot = plots.find(p => p.id === chosen), all = v?.catalog || [];
+  const catalog = all.filter(item => !throneRtsBuildReason(item, plot, v));
+  const excluded = all.filter(item => !catalog.includes(item)).map(item => ({ item, reason: throneRtsBuildReason(item, plot, v) }));
+  const requestedKind = throneRtsForm('buildKind', catalog[0]?.id || '');
   const item = catalog.find(c => c.id === requestedKind) || catalog[0];
   const kind = item?.id || '';
   THRONE_RTS_UI.form.plotId = chosen; THRONE_RTS_UI.selectedPlot = chosen; THRONE_RTS_UI.form.buildKind = kind;
-  return { plots, chosen, kind, item, unavailable };
+  return { plots, chosen, plot, kind, item, catalog, excluded, unavailable };
+}
+function throneRtsBuildReason(item, plot, v) {
+  if (!plot) return 'Choose a clear, owned site first.';
+  const type = String(plot.site || plot.id).split(':')[0], types = item.siteTypes || ['town','keep'];
+  if (item.siteTypes && !types.includes(type)) return types.length === 1 && types[0] === 'town' ? 'Town sites only.' : 'Keep sites only.';
+  if (item.id === 'watchpost') {
+    const keep = String(plot.id).split(':').slice(0,2).join(':') + ':';
+    if ([...(v?.buildings || []), ...(v?.publicBuildings || [])].some(b => b.kind === 'watchpost' && String(b.plotId).startsWith(keep))) return 'This keep already has a Watchpost, including any work in progress.';
+  }
+  return '';
+}
+function throneRtsConstructionDetail(choice) {
+  const { plot, item, kind, excluded } = choice;
+  return `<p class="rts-selection" role="status">${plot ? `Selected site: <b>${throneRtsEscape(plot.name || plot.id)}</b>${item ? ` · <b>${throneRtsEscape(item.label || kind)}</b>` : ''}.` : 'No clear owned site selected.'} Selection is a preview; nothing is commissioned yet.</p>
+    ${item ? `<div class="rts-card"><b>${throneRtsEscape(item.label || kind)}</b>${item.description ? `<p>${throneRtsEscape(item.description)}</p>` : ''}<p>${throneRtsCost(item.cost)}</p><p>${throneRtsNumber(item.seconds)} seconds · ${throneRtsNumber(item.workers)} workers</p><p>${throneRtsCost(item.inputs)} → ${throneRtsCost(item.outputs)}</p></div>` : ''}
+    ${excluded.length ? `<details><summary>Other building types</summary><ul>${excluded.map(row => `<li>${throneRtsEscape(row.item.label || row.item.id)}: ${throneRtsEscape(row.reason)}</li>`).join('')}</ul></details>` : ''}`;
+}
+function throneRtsUpdateOptions(select,rows,value) {
+  if (!select) return;
+  const same=select.options.length===rows.length && rows.every(([id,label],i)=>select.options[i].value===String(id)&&select.options[i].textContent===String(label));
+  if(!same)select.innerHTML=throneRtsOptions(rows,value);
+  select.value=value;
+}
+function throneRtsRefreshConstruction() {
+  if (THRONE_RTS_UI.tab !== 'build' || !THRONE_RTS.active) return;
+  const v = throneRtsView(), host = $('rts-content'), detail = host.querySelector('[data-rts-construction-detail]');
+  if (!v || !detail) return;
+  const choice = throneRtsConstructionChoice(v), kinds = host.querySelector('[name="buildKind"]'), sites = host.querySelector('[name="plotId"]');
+  // Keep the native selectors themselves: a committed change must not lose focus.
+  throneRtsUpdateOptions(sites,choice.plots.map(p => [p.id,p.name || p.site || p.id]),choice.chosen);
+  throneRtsUpdateOptions(kinds,choice.catalog.map(item => [item.id,item.label || item.id]),choice.kind);
+  detail.innerHTML = throneRtsConstructionDetail(choice);
+  const commit = host.querySelector('[data-action="build"]');
+  if (commit) commit.disabled = !choice.plot || !choice.item;
+  THRONE_RTS_UI.revision = v.revision;
+  THRONE_RTS_UI.quoteForm = {...THRONE_RTS_UI.form};
+  THRONE_RTS_UI.key = '';
 }
 function throneRtsConstruction(v) {
-  const { plots, chosen, kind, item, unavailable } = throneRtsConstructionChoice(v);
+  const choice = throneRtsConstructionChoice(v), { plots, chosen, kind, item, catalog, unavailable } = choice;
   return `<h3>Construction</h3><p>Choose a clear, owned plot in the 3D view or below. Plot boundaries appear only while this Construction view is open. Realm stores pay the displayed cost; workers then complete the building.</p>
     ${!plots.length ? '<p>No clear building plots are currently available.</p>' : ''}
     <label>Building plot<select name="plotId">${throneRtsOptions(plots.map(p => [p.id,p.name || p.site || p.id]),chosen)}</select></label>
-    <label>Building<select name="buildKind">${throneRtsOptions((v.catalog || []).map(c => [c.id,c.label || c.id]),kind)}</select></label>
-    ${item ? `<div class="rts-card"><b>${throneRtsEscape(item.label || kind)}</b><p>${throneRtsCost(item.cost)}</p><p>${throneRtsNumber(item.seconds)} seconds · ${throneRtsNumber(item.workers)} workers</p><p>${throneRtsCost(item.inputs)} → ${throneRtsCost(item.outputs)}</p></div>` : ''}
+    <label>Building<select name="buildKind">${throneRtsOptions(catalog.map(c => [c.id,c.label || c.id]),kind)}</select></label>
+    <div data-rts-construction-detail>${throneRtsConstructionDetail(choice)}</div>
     <button data-action="build"${!plots.length || !item ? ' disabled' : ''}>Commission building</button>
     ${unavailable.length ? `<details><summary>Unavailable sites · ${unavailable.length}</summary><ul>${unavailable.map(row => `<li>${throneRtsEscape(row.plot.name || row.plot.id)}: ${throneRtsEscape(row.status.reason)}</li>`).join('')}</ul></details>` : ''}
-    <h4>Sites and upgrades</h4>${(v.buildings || []).map(b => `<article class="rts-card"><button class="rts-focus" data-building-focus="${throneRtsEscape(b.id)}">${throneRtsEscape(b.label || b.kind)} · Lv ${throneRtsNumber(b.level || 1)}</button><p>${throneRtsEscape(b.status || '')}${b.remaining > 0 ? ` · ${Math.ceil(b.remaining)}s to complete` : ''}</p>${b.upgradeCost ? `<p>Upgrade: ${throneRtsCost(b.upgradeCost)}</p>` : ''}<button data-upgrade="${throneRtsEscape(b.id)}"${!b.upgradeCost ? ' disabled' : ''}>${b.level >= 3 ? 'Maximum level' : 'Upgrade building'}</button></article>`).join('')}`;
+    <h4>Sites and upgrades</h4>${(v.buildings || []).map(b => { const max = (v.catalog || []).find(c => c.id === b.kind)?.maxLevel || 3; return `<article class="rts-card"><button class="rts-focus" data-building-focus="${throneRtsEscape(b.id)}">${throneRtsEscape(b.label || b.kind)} · Lv ${throneRtsNumber(b.level || 1)}</button><p>${throneRtsEscape(b.status || '')}${b.remaining > 0 ? ` · ${Math.ceil(b.remaining)}s to complete` : ''}</p>${b.upgradeCost && b.level < max ? `<p>Upgrade: ${throneRtsCost(b.upgradeCost)}</p>` : ''}<button data-upgrade="${throneRtsEscape(b.id)}"${!b.upgradeCost || b.level >= max ? ' disabled' : ''}>${b.level >= max ? 'Maximum level' : 'Upgrade building'}</button></article>`; }).join('')}`;
 }
 function throneRtsDiplomacy(v) {
   const realm = GAME.player.faction, others = [0,1,2].filter(r => r !== realm), target = throneRtsForm('targetRealm',others[0]);
@@ -233,17 +273,30 @@ function throneRtsFocusBuilding(id) {
     : plot.site?.startsWith('keep:') ? WAR.keeps.find(k => k.id === Number(plot.site.slice(5)))?.site : null : item;
   if (Number.isFinite(site?.x) && Number.isFinite(site?.z)) throneRtsFocus(site.x, site.z);
 }
+function throneRtsSelectPlot(id, render = true) {
+  const plot = throneRtsView()?.plots?.find(p => String(p.id) === String(id));
+  const owned = plot && plot.owner === GAME.player.faction && !plot.buildingId;
+  if (owned) REALM_RTS_SITE_CACHE.delete(plot.id);
+  const status = owned ? realmRtsSiteStatus(plot) : null;
+  if (!status?.eligible) {
+    if (!render) THRONE_RTS_UI.selectedPlot = '';
+    if (render && owned) { throneRtsNotice(status?.reason || 'Choose a clear, owned building site.'); throneRtsRenderPanel(true); }
+    return false;
+  }
+  THRONE_RTS_UI.selectedPlot = plot.id; THRONE_RTS_UI.form.plotId = plot.id;
+  if (render) {
+    THRONE_RTS_UI.tab = 'build'; throneRtsRenderPanel(true);
+    const item = throneRtsConstructionChoice(throneRtsView()).item;
+    throneRtsNotice(`Selected ${plot.name || plot.id}${item ? ' · ' + (item.label || item.id) : ''}. Preview only; commission when ready.`);
+  }
+  return true;
+}
 function throneRtsMarkerAction(kind, id) {
   if (!THRONE_RTS.active || UI.modal !== 'rts' || !hallThroneGrant()) return;
   if (kind === 'canonical') { throneRtsFocusArmy(id); return; }
   if (kind === 'army') { throneRtsSelectBand(id); return; }
   if (kind === 'plot') {
-    const plot = throneRtsView()?.plots?.find(p => String(p.id) === String(id));
-    if (!plot || plot.owner !== GAME.player.faction || plot.buildingId) return;
-    REALM_RTS_SITE_CACHE.delete(plot.id);
-    const status = realmRtsSiteStatus(plot);
-    if (!status.eligible) { throneRtsNotice(status.reason); throneRtsRenderPanel(true); return; }
-    THRONE_RTS_UI.selectedPlot = plot.id; THRONE_RTS_UI.form.plotId = plot.id; THRONE_RTS_UI.tab = 'build'; throneRtsRenderPanel(true); return;
+    throneRtsSelectPlot(id); return;
   }
   if (!CWUI.sel) return;
   if (kind === 'keep') { const k = WAR.keeps.find(k => k.id === +id); if (k) cwIssue(k.realm === GAME.player.faction ? 'defend' : 'attack',k.id); }
@@ -329,25 +382,82 @@ function throneRtsPick(x,y) {
     const d = Math.hypot(marker.screen.x-x,marker.screen.y-y);
     if (d < distance) { distance=d; best=marker; }
   }
-  if (best) throneRtsMarkerAction(best.kind,best.id);
+  // Existing banner/keep/marker targets retain priority over a large ground box.
+  if (best) { throneRtsMarkerAction(best.kind,best.id); return; }
+  if (THRONE_RTS_UI.tab !== 'build') return;
+  const stage = $('rts-stage').getBoundingClientRect();
+  if (x < stage.left || x > stage.right || y < stage.top || y > stage.bottom) return;
+  let chosen = null, depth = Infinity;
+  for (const plot of throneRtsView()?.plots || []) {
+    if (plot.owner !== GAME.player.faction || plot.buildingId || !realmRtsSiteStatus(plot).eligible) continue;
+    const polygon = throneRtsPlotPolygon(plot);
+    if (!polygon || !throneRtsPointInPolygon(x,y,polygon)) continue;
+    const z = polygon.reduce((sum,p) => sum+p.z,0)/polygon.length;
+    if (z < depth) { chosen = plot; depth = z; }
+  }
+  if (chosen) throneRtsSelectPlot(chosen.id);
+}
+function throneRtsPlotPolygon(plot) {
+  const yaw = realmRtsModelYaw(plot), c = Math.cos(yaw), s = Math.sin(yaw), points = [];
+  // The same12m outline and one-metre ground samples as the world boundary mesh.
+  for (let side=0;side<4;side++) for (let i=0;i<12;i++) {
+    const t=-6+i, u=side===0?t:side===1?6:side===2?-t:-6, v=side===0?-6:side===1?t:side===2?6:-t;
+    const x=plot.x+u*c+v*s,z=plot.z-u*s+v*c, p=screenOf(x,heightAt(x,z)+.06,z);
+    if (!p || !Number.isFinite(p.x) || !Number.isFinite(p.y) || !Number.isFinite(p.z)) return null;
+    points.push(p);
+  }
+  return points;
+}
+function throneRtsPointInPolygon(x,y,points) {
+  let inside=false;
+  for(let i=0,j=points.length-1;i<points.length;j=i++) {
+    const a=points[j],b=points[i],dx=b.x-a.x,dy=b.y-a.y;
+    const cross=(x-a.x)*dy-(y-a.y)*dx;
+    if(Math.abs(cross)<.001 && x>=Math.min(a.x,b.x)-.001 && x<=Math.max(a.x,b.x)+.001 && y>=Math.min(a.y,b.y)-.001 && y<=Math.max(a.y,b.y)+.001)return true;
+    if((a.y>y)!==(b.y>y) && x<(b.x-a.x)*(y-a.y)/(b.y-a.y)+a.x)inside=!inside;
+  }
+  return inside;
 }
 function throneRtsDrawMarkers() {
   const markers = throneRtsCollectMarkers(), host = $('rts-markers'), stage = $('rts-stage').getBoundingClientRect();
   const key = markers.map(m => `${m.kind}:${m.id}:${m.label}:${m.color}`).join('|');
-  if (key !== THRONE_RTS_UI.markerKey) { host.innerHTML = markers.map(m => `<button type="button" class="rts-marker ${m.kind}${m.kind === 'army' && m.id === CWUI.sel ? ' selected':''}" data-marker="${m.kind}" data-id="${throneRtsEscape(m.id)}" aria-label="${throneRtsEscape(m.label)}" style="--marker:${m.color}">${m.kind === 'plot' ? '＋' : m.kind === 'army' || m.kind === 'canonical' || m.kind === 'enemy' ? '⚑' : '◆'}<span>${throneRtsEscape(m.label)}</span></button>`).join(''); THRONE_RTS_UI.markerKey=key; }
+  if (key !== THRONE_RTS_UI.markerKey) {
+    const previous=new Map([...host.children].map(node=>[node.dataset.marker+':'+node.dataset.id,node]));
+    for(let i=0;i<markers.length;i++) {
+      const m=markers[i], id=m.kind+':'+m.id;
+      let node=previous.get(id);
+      if(!node) {node=document.createElement('button');node.type='button';node.className='rts-marker '+m.kind;node.dataset.marker=m.kind;node.dataset.id=m.id;node.appendChild(document.createElement('span'));}
+      previous.delete(id);
+      const icon=m.kind==='plot'?'＋':['army','canonical','enemy'].includes(m.kind)?'⚑':'◆';
+      if(node.firstChild.nodeType!==3)node.insertBefore(document.createTextNode(icon),node.firstChild);else node.firstChild.nodeValue=icon;
+      node.querySelector('span').textContent=m.label;node.style.setProperty('--marker',m.color);
+      if(host.children[i]!==node)host.insertBefore(node,host.children[i]||null);
+    }
+    for(const node of previous.values())node.remove();
+    THRONE_RTS_UI.markerKey=key;
+  }
   const nodes = host.children;
   for (let i=0;i<markers.length;i++) {
     const marker=markers[i], s=screenOf(marker.x,marker.y,marker.z), node=nodes[i];
     const visible=s && s.x > stage.left+18 && s.x < stage.right-18 && s.y > stage.top+24 && s.y < stage.bottom-16;
     marker.screen=visible?s:null; node.hidden=!visible;
-    if (visible) {node.style.left=`${s.x}px`;node.style.top=`${s.y}px`;node.classList.toggle('selected',marker.kind==='army'&&marker.id===CWUI.sel || marker.kind==='plot'&&marker.id===THRONE_RTS_UI.selectedPlot);}
+    const selected=marker.kind==='army'&&marker.id===CWUI.sel || marker.kind==='plot'&&marker.id===THRONE_RTS_UI.selectedPlot;
+    node.classList.toggle('selected',selected);node.setAttribute('aria-label',marker.label+(selected?' · Selected':''));
+    if(marker.kind==='plot')node.setAttribute('aria-pressed',String(selected));
+    if (visible) {node.style.left=`${s.x}px`;node.style.top=`${s.y}px`;}
   }
   THRONE_RTS_UI.markers=markers;
   const band=WAR.warbands.find(w => w.id===CWUI.sel), leader=band&&wbLeader(band);
   const route=band&&cwRoute(band);
   const points=leader&&route?[{x:leader.x,z:leader.z},...route].map(p => screenOf(p.x,heightAt(p.x,p.z)+1,p.z)).filter(Boolean):[];
   $('rts-routes').setAttribute('viewBox',`0 0 ${view.w} ${view.h}`);
-  $('rts-routes').innerHTML=points.length>1?`<polyline points="${points.map(p=>`${p.x},${p.y}`).join(' ')}"/>`:'';
+  const plot=THRONE_RTS_UI.tab==='build' ? throneRtsView()?.plots?.find(p=>p.id===THRONE_RTS_UI.selectedPlot) : null;
+  const polygon=plot&&plot.owner===GAME.player.faction&&!plot.buildingId&&realmRtsSiteStatus(plot).eligible?throneRtsPlotPolygon(plot):null;
+  const candidate=throneRtsView()?.catalog?.find(item=>item.id===THRONE_RTS_UI.form.buildKind);
+  const kind=plot&&candidate&&!throneRtsBuildReason(candidate,plot,throneRtsView())?candidate:null;
+  const middle=polygon&&screenOf(plot.x,realmRtsSiteGround(plot).top+.1,plot.z);
+  const preview=polygon?`<defs><clipPath id="rts-preview-clip"><rect x="${stage.left}" y="${stage.top}" width="${stage.width}" height="${stage.height}"/></clipPath></defs><g clip-path="url(#rts-preview-clip)"><polygon class="rts-plot-preview" points="${polygon.map(p=>`${p.x},${p.y}`).join(' ')}"/>${middle?`<text class="rts-preview-label" x="${middle.x}" y="${middle.y}">Preview: ${throneRtsEscape(kind?.label || 'building site')}</text>`:''}</g>`:'';
+  $('rts-routes').innerHTML=preview+(points.length>1?`<polyline points="${points.map(p=>`${p.x},${p.y}`).join(' ')}"/>`:'');
 }
 function updateThroneRTS(dt) {
   if (!THRONE_RTS.active || UI.modal !== 'rts') return;
