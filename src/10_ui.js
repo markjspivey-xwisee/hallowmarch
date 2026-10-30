@@ -165,7 +165,10 @@ function bindTitle() {
   cp.addEventListener('keydown', menuRadioKey);
   $('btn-dice').onclick = () => { if (titleEntryBlocked()) return; $('name-input').value = randomName(UI.realm); UI.nameTouched = false; };
   $('name-input').addEventListener('input', () => { if (titleDraftEditable()) UI.nameTouched = true; });
-  $('name-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('btn-begin').click(); });
+  $('name-input').addEventListener('keydown', (e) => {
+    if (e.isComposing || e.keyCode === 229) return;
+    if (e.key === 'Enter') $('btn-begin').click();
+  });
   $('btn-begin').onclick = () => {
     if (GAME.started || titleEntryBlocked()) return;
     if (UI.titleSave?.char) {
@@ -1281,6 +1284,9 @@ function uiDeath(by, killer = null) {
   // appended overlays must not cover the recovery choice or retain its focus.
   if (typeof netSheetToggle === 'function') netSheetToggle(false);
   if (typeof netChatClose === 'function') netChatClose();
+  if (UI.modal === 'kit') closeKit();
+  else if (UI.modal === 'map') toggleMap(false);
+  else if (UI.modal === 'dialog') closeDialog();
   UI.modal = 'death';
   $('death').hidden = false;
   $('death-by').textContent = `Slain by ${by}.` + uiDeathDamage(killer);
