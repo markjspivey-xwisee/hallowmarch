@@ -67,8 +67,11 @@ test('independent da387 pins and whole-source inverses restrict changes to priva
   const oldTail = declaration(oracle.main,'adaptQuality').slice(declaration(oracle.main,'adaptQuality').indexOf('  PERF.grace -= dt;'));
   assert.equal(declaration(main,'adaptQuality').slice(declaration(main,'adaptQuality').indexOf('  PERF.grace -= dt;')),oldTail);
   const beginning = main.indexOf(declaration(main,'PERF')), end = main.indexOf(declaration(main,'adaptQuality')) + declaration(main,'adaptQuality').length;
+  const touchInventoryCopy = "IS_TOUCH ? 'Tap Items' : 'Press I'";
+  assert.equal(main.split(touchInventoryCopy).length,2,'Unique approved touch inventory label');
   const inverse = (main.slice(0,beginning) + declaration(oracle.main,'PERF') + '\n' + declaration(oracle.main,'adaptQuality') + main.slice(end))
-    .replace(/^\s+resetAdaptiveQualityClock\(\);\n/gm,'');
+    .replace(/^\s+resetAdaptiveQualityClock\(\);\n/gm,'')
+    .replace(touchInventoryCopy,"IS_TOUCH ? 'Tap Kit' : 'Press I'");
   assert.equal(inverse,oracle.main);
   assert.equal(live.replace(transitionHook,''),oracle.live,'No grant, timer, input, save or transport condition changes');
   const reset = declaration(main,'resetAdaptiveQualityClock');

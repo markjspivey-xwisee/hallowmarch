@@ -671,7 +671,7 @@ function startGame(save, mayStart = () => true) {
       for (const [slot, q] of [['weapon', 2], ['chest', 2], ['head', 1]]) INV.eq[slot] = makeItem({ cls: P.cls, realm: P.faction, lvl: Math.max(1, P.level - 1), q, slot });
       applyGear();
       P.hp = P.maxHp;
-      setTimeout(() => uiToast(`The quartermaster has issued you a kit and some coin. ${IS_TOUCH ? 'Tap Kit' : 'Press I'} to see your gear.`, 'hint') /* [guide] */, 2500);
+      setTimeout(() => uiToast(`The quartermaster has issued you a kit and some coin. ${IS_TOUCH ? 'Tap Items' : 'Press I'} to see your gear.`, 'hint') /* [guide] */, 2500);
       saveSoon();
     }
   }

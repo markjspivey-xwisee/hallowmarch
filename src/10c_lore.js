@@ -264,7 +264,7 @@ const homeIn = (R) => R.homeName.replace(/^The /, 'the ');
 // how to do things, in the words of the device in hand
 function LK() {
   return IS_TOUCH
-    ? { use: 'tap Use', potion: 'tap Potion', map: 'tap the map button', kit: 'tap Kit', ride: 'tap Ride', menu: 'tap the menu button' }
+    ? { use: 'tap Use', potion: 'tap Potion', map: 'tap the map button', kit: 'tap Items', ride: 'tap Ride', menu: 'tap the menu button' }
     : { use: 'press E', potion: 'press Q', map: 'press M', kit: 'press I', ride: 'press R', menu: 'press Esc' };
 }
 Object.assign(ICONS, {
