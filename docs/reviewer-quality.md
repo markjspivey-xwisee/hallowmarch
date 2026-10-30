@@ -70,8 +70,9 @@ One instrumented cold-profile run took 115.1 seconds to Ready and exposed an
 approximately 18-second first-play page stall while further programs appeared.
 An equivalent fog-expression factoring passed numerical and native correctness
 checks but took 117.9 seconds in its comparison run; it was rejected as an
-unproven optimization. The retained title scheduler prepares only supported current-view materials in
-a four-program window, at most four preparation calls per turn. Every original
+unproven optimization. The current release candidate prepares only supported current-view materials in
+an eight-unfinished-program window, at most four preparation calls and four
+reflections per turn within the unchanged cooperative budgets. Every original
 real draw and fence, and the combined visible-frame gate, remain mandatory.
 Recovery and unsupported cases keep the serial path. Visibility/resize changes
 drain a stale window before replanning; context, link and GL failures stop it.
@@ -150,10 +151,19 @@ program reuse. These are single sequential runs, not input latency, displayed
 FPS or statistically isolated benchmark results. They precede the final ice and
 character-draft changes; final frozen-build evidence must be recorded separately.
 
-An eight-program experiment reached Ready sooner but produced a 2.991-second
-preparation task, so the four-program limit remains. An audio impulse cache passed
+An earlier eight-program experiment reached Ready sooner but produced a 2.991-second
+preparation task, so the four-program limit was retained at that stage. An audio impulse cache passed
 byte/RNG equivalence but regressed cold lite cases and added temporary memory;
 it was rejected. All failed and rejected native trials remain in the evidence.
+
+A later four-run study compared four versus eight unfinished programs while
+retaining four prepares/reflections per turn, the original budgets and deadlines,
+and every functional gate. Both opposite-order pairs met the predeclared 12%
+Ready and initial-preparation reduction requirements with matching recorded
+settings on one host and adapter. This supports the isolated pending-cap change;
+it is not a universal speed claim, a reduction of the first-entry callback pause,
+or evidence of production deployment. The earlier aborted comparison remains
+failed and is excluded from this dataset.
 
 The later first-pointer trace attributes a 3.511-second task to audio unlock,
 without resolving its child costs. A separate protected native audio-only check

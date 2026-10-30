@@ -1,8 +1,8 @@
 /* Prepare only this title's required shader programs. Actual draws and GPU
    fences remain the readiness gate; compilation completion is not a frame. */
-// Experimental rolling four unfinished programs; validate the finite batch before reflection or real draws.
+// Experimental rolling eight unfinished programs; validate the finite batch before reflection or real draws.
 // Context loss and completed failed links still stop admission immediately.
-const TITLE_COMPILE_LIMITS = Object.freeze({ pending: 4, perTurn: 4, turnMs: 8, pollMs: 10, idlePollMaxMs: 100, programMs: 90000, totalMs: 180000 });
+const TITLE_COMPILE_LIMITS = Object.freeze({ pending: 8, perTurn: 4, turnMs: 8, pollMs: 10, idlePollMaxMs: 100, programMs: 90000, totalMs: 180000 });
 
 function titleCompileEligible(object) {
   if (!liveIn(object) || !object.layers.test(camera.layers)) return false;
@@ -371,7 +371,7 @@ function titleInitialOrder(jobs, receipt) {
 
 async function prepareTitleProgramJobs(inventory, stages, generation, dependencyId = null, weatherResources = null) {
   const started = performance.now();
-  const receipt = { generation, dependency: dependencyId, errorPolicy: 'finite-batch-drain', admissionPolicy: 'rolling-four-unfinished', telemetryUnit: 'finite-batch-in-legacy-wave-fields', supported: false, outcome: 'serial', completed: false, stale: false,
+  const receipt = { generation, dependency: dependencyId, errorPolicy: 'finite-batch-drain', admissionPolicy: 'rolling-eight-unfinished', telemetryUnit: 'finite-batch-in-legacy-wave-fields', supported: false, outcome: 'serial', completed: false, stale: false,
     eligibleJobs: 0, preparedJobs: 0, skipped: 0, newPrograms: 0, maxPending: 0, maxPreparesPerTurn: 0,
     prepareMs: 0, maxSinglePrepareMs: 0, slowestPrepare: null, maxFullTurnMs: 0, budgetYields: 0, waves: 0, maxWavePrograms: 0,
     reflectedPrograms: 0, deferredReflections: 0, reflectionMs: 0, maxSingleReflectionMs: 0, maxReflectionsPerTurn: 0, reflectionBudgetYields: 0, slowestReflection: null,

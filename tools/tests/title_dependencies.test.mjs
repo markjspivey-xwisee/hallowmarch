@@ -10,7 +10,8 @@ import { WebGLUniforms } from '../node_modules/three/src/renderers/webgl/WebGLUn
 const root = new URL('../../', import.meta.url);
 const read = path => readFileSync(new URL(path, root), 'utf8');
 const original = read('src/02_render.js'), controller = read('src/13o_title_compile.js');
-const productPending = Number(controller.match(/pending:\s*(\d+)/)[1]);
+// Historical timing/search criteria stay at four; dedicated eight-slot tests use explicit options.
+const regressionPending = 4;
 const dive = read('src/07d_dive.js'), diagnostic = read('src/13y_gpu_diagnostic.js');
 const rendererSource = read('tools/node_modules/three/src/renderers/WebGLRenderer.js');
 const section = (text, start, end) => text.slice(text.indexOf(start), text.indexOf(end, text.indexOf(start)));
@@ -32,7 +33,7 @@ function events() {
     count: () => [...listeners.values()].reduce((count, set) => count + set.size, 0) };
 }
 
-function fixture({ level = 'medium', safe = false, supported = true, readyDelay = 25, compileMs = 0, reflectionMs = 0, failure = '', pendingLimit = productPending } = {}) {
+function fixture({ level = 'medium', safe = false, supported = true, readyDelay = 25, compileMs = 0, reflectionMs = 0, failure = '', pendingLimit = regressionPending } = {}) {
   let now = 0, timerId = 0, lost = false, cache, randomCalls = 0, preflightCalls = 0;
   const timers = new Map(), programs = [], known = new Map(), compileCalls = [], calls = [], errors = [], errorChecks = [], reflections = [];
   const document = { hidden: false, ...events() }, window = events(), canvas = events();
@@ -145,7 +146,7 @@ test('post preparation uses only exact original leaves, materials, camera and ta
   assert(f.calls.every(call => call.geometry === f.r.fsTriGeo));
   assert.deepEqual(f.state(), before); assert.equal(f.currentTarget(), f.originalTarget); assert.equal(f.randomCalls(), 0);
   assert.equal(f.preflightCalls(), 1); assert.equal(receipt.dependency, 'post'); assert.equal(receipt.completed, true);
-  assert.equal(receipt.newPrograms, 4); assert(receipt.maxPending <= productPending); assert.equal(receipt.waves, 1); assert.equal(receipt.maxWavePrograms, 4);
+  assert.equal(receipt.newPrograms, 4); assert(receipt.maxPending <= regressionPending); assert.equal(receipt.waves, 1); assert.equal(receipt.maxWavePrograms, 4);
   assert.equal(f.ctx.GRAPHICS_STARTUP.titleCompleted, undefined);
   assert(f.errorChecks.every(count => count === 0)); f.clean();
 });
@@ -458,8 +459,8 @@ for (const failure of ['compile', 'target', 'context', 'link']) test('entry fail
 
 test('entry queued GL failure prevents the next wave and completion even when resources become stale', async () => {
   const f = entryFixture({ shadows: 7, readyDelay: 50 }), promise = f.runEntry(); await f.flush();
-  assert.equal(f.compileCalls.length, productPending); f.errors.push(['0x0502']); f.weather.on = false;
-  await assert.rejects(f.finish(promise), /GL errors/); assert.equal(f.compileCalls.length, productPending);
+  assert.equal(f.compileCalls.length, regressionPending); f.errors.push(['0x0502']); f.weather.on = false;
+  await assert.rejects(f.finish(promise), /GL errors/); assert.equal(f.compileCalls.length, regressionPending);
   assert.equal(f.ctx.GRAPHICS_STARTUP.titlePreparations.at(-1).completed, false); assert(f.errorChecks.every(count => count === 0)); f.clean();
 });
 

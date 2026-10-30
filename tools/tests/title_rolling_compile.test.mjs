@@ -18,7 +18,7 @@ function nextDelay(f) {
 }
 const receiptOf = f => f.ctx.GRAPHICS_STARTUP.titlePreparations[0];
 
-test('only the scheduler body/diagnostics change; every other inventory/dependency/snapshot function and limits stay exact', () => {
+test('only the scheduler body/diagnostics and experimental capacity change; other inventory/dependency/snapshot functions and limits stay exact', () => {
   const old = normalizeLF(originalController), candidate = normalizeLF(currentController);
   const functions = source => new Map(parse(source, { ecmaVersion: 'latest' }).body
     .filter(node => node.type === 'FunctionDeclaration').map(node => [node.id.name, source.slice(node.start, node.end)]));
@@ -27,8 +27,8 @@ test('only the scheduler body/diagnostics change; every other inventory/dependen
   for (const [name, body] of before) if (name !== 'prepareTitleProgramJobs') assert.equal(after.get(name), body, name);
   const region = source => source.slice(source.indexOf('const jobs = [], inventoryStarted'), source.indexOf('let index = 0, wavePrograms'));
   assert(region(old).length > 1000); assert.equal(region(candidate), region(old));
-  assert.equal(candidate.match(/const TITLE_COMPILE_LIMITS[^\n]+/)[0], old.match(/const TITLE_COMPILE_LIMITS[^\n]+/)[0]);
-  assert(candidate.includes("errorPolicy: 'finite-batch-drain'")); assert(candidate.includes("admissionPolicy: 'rolling-four-unfinished'"));
+  assert.equal(candidate.match(/const TITLE_COMPILE_LIMITS[^\n]+/)[0].replace('pending: 8', 'pending: 4'), old.match(/const TITLE_COMPILE_LIMITS[^\n]+/)[0]);
+  assert(candidate.includes("errorPolicy: 'finite-batch-drain'")); assert(candidate.includes("admissionPolicy: 'rolling-eight-unfinished'"));
   assert(candidate.includes('queuedVisibleMs, family: job.family, observation'));
   assert(candidate.includes('const queuedAt = performance.now(), queuedVisibleMs = visibleElapsed()')); // immutable per-admission deadline
 });
