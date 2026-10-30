@@ -79,7 +79,7 @@ jobs:
               node --test tools/tests/readiness_responsiveness.test.mjs tools/tests/weather_entry_resources.test.mjs tools/tests/ripple_entry_resources.test.mjs tools/tests/meadow_rgb_preparation.test.mjs tools/tests/season_settle_equivalence.test.mjs
               node --test tools/tests/season_ice_settle.test.mjs
               node --test tools/tests/early_title.test.mjs
-              node --test tools/tests/entry_feedback.test.mjs tools/tests/minimap_size_observer.test.mjs
+              node --test tools/tests/entry_feedback.test.mjs tools/tests/minimap_size_observer.test.mjs tools/tests/mobile_hud_spacing.test.mjs
               node --test tools/tests/map_build_chunks.test.mjs
               node --test tools/tests/sound_buffer_preparation.test.mjs tools/tests/music_impulse_preparation.test.mjs
               node --test tools/tests/ground_ao_preparation.test.mjs
@@ -140,7 +140,7 @@ jobs:
               ;;
             companies) check python3 tools/tests/net.py companies ;;
             season) check python3 tools/tests/season2.py ;;
-            performance) node --test tools/tests/terrain_block_topology.test.mjs tools/tests/title_rolling_compile.test.mjs tools/tests/entry_feedback.test.mjs tools/tests/minimap_size_observer.test.mjs ;;
+            performance) node --test tools/tests/terrain_block_topology.test.mjs tools/tests/title_rolling_compile.test.mjs tools/tests/entry_feedback.test.mjs tools/tests/minimap_size_observer.test.mjs tools/tests/mobile_hud_spacing.test.mjs ;;
             visuals)
               check python3 tools/tests/combat_targeting.py
               check python3 tools/tests/objective_tracking.py

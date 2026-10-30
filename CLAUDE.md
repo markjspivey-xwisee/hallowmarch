@@ -64,6 +64,8 @@ These apply to every change, not only to the feature that prompted them.
 
 - **Entry feedback (2026-10-29):** An owned, nonmodal Entering Hallowmarch status gets one ordinary paint opportunity before the first live frame. Returning entry and fresh prologue completion use the original start/ownership checks; the live-input lease and its five-second bridge stay unchanged. Visibility, owner, menu and graphics changes cancel presentation. The HUD starts its minimap size observer before the first draw, using only delivered current-viewport measurements and retaining the live-width fallback. The first real frame still performs all its original work: this provides feedback, not a CPU reduction or proof of physical display timing.
 
+- **Touch HUD spacing (2026-10-30):** The existing measured-panel placement pass reserves eight pixels between touch panels, matching the control-spacing requirement; desktop keeps its four-pixel margin. The same safe rectangle, search, observers and fallback/hiding rules remain. A pinned pre-change predicate and actual-source search regression cover the accepted seven-pixel gap and its rejection. DOM and full phone-matrix verification remain separate from CPU geometry checks.
+
 ## Build and run
 
 - Run `python3 build.py`. It concatenates `src/page.html` and every `src/NN[a-z]_*.js` module in filename order into one `<script type="module">`, and writes `hallowmarch.html`. three.js 0.160.0 is imported from jsDelivr.
