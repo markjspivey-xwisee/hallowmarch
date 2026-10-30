@@ -140,15 +140,19 @@ window.__rtsConstructionQA = (() => {
     setQuality(q); tod.p=tod.fixedP=night?2.1:.25; tod.mode='fixed'; applyTimeOfDay(tod.p);
     applyWeather(); applyIndoor(); resize();
     throneRtsFocus(b.x,b.z); throneRtsUpdateCamera(0); updateLod(); drawHouses(0);
-    realmRtsModelsFrame(.3); throneRtsDrawMarkers(); camera.updateMatrixWorld();
+    realmRtsModelsFrame(.3); updateThroneRTS(0); camera.updateMatrixWorld();
     renderer.setRenderTarget(null); renderer.info.reset(); renderer.render(scene,camera); gl.finish();
     const programs=renderer.info.programs.map(p=>{
       const source=gl.getShaderSource(p.vertexShader)||'';
       return source.includes('vGroundMark')?{instanced:source.includes('#define USE_INSTANCING'),linked:gl.getProgramParameter(p.program,gl.LINK_STATUS)}:null;
     }).filter(Boolean);
-    return {q,night,programs,errors:HM_ERRORS.slice(),glError:gl.getError(),
+    const rect=node=>{const r=node?.getBoundingClientRect();return r?{left:r.left,top:r.top,right:r.right,bottom:r.bottom,width:r.width,height:r.height}:null;};
+    const label=document.querySelector('#rts-routes .rts-preview-label'),status=$('rts-status');
+    return {q,night,programs,errors:HM_ERRORS.slice(),glError:gl.getError(),status:status?.textContent || '',
       body:REALM_RTS_MODELS.pools.get('watchpost')?.count || 0,
-      preview:document.querySelector('#rts-routes text')?.textContent || ''};
+      preview:label?.textContent || '',layout:label?{stage:rect($('rts-stage')),label:rect(label),
+        marker:rect(document.querySelector('.rts-marker.plot.selected')),status:rect(status),content:rect($('rts-content')),
+        statusClientHeight:status.clientHeight,statusScrollHeight:status.scrollHeight}:null};
   }
   function walk(plotId) {
     closeThroneRTS(true); UI.modal=null;
@@ -261,11 +265,25 @@ async def run():
                         assert "Watchpost" in quote["status"], quote
                     if not phone:
                         assert quote["focusName"] == "buildKind", quote
+                        # Leave the native selector through ordinary keyboard
+                        # navigation only after proving its focus survived.
+                        await selector.press("Tab")
                     # The immediate quote above is observed before any frame or
                     # panel refresh. Render only afterwards to inspect the
                     # player's actual selected footprint and its current label.
                     preview = await page.evaluate("a=>__rtsConstructionQA.draw(...a)", ["low", False, plot])
                     assert "Watchpost" in preview["preview"] and not preview["errors"] and preview["glError"] == 0, preview
+                    layout = preview["layout"]
+                    assert layout and all(layout[k] for k in ["stage", "label", "marker", "status", "content"]), preview
+                    assert all(layout[k]["width"] > 0 and layout[k]["height"] > 0
+                               for k in ["stage", "label", "marker", "status", "content"]), layout
+                    a, b, stage = layout["label"], layout["marker"], layout["stage"]
+                    assert (a["right"] + 2 <= b["left"] - 3 or a["left"] - 2 >= b["right"] + 3 or
+                            a["bottom"] + 2 <= b["top"] - 3 or a["top"] - 2 >= b["bottom"] + 3), layout
+                    assert (a["left"] >= stage["left"] + 2 and a["right"] <= stage["right"] - 2 and
+                            a["top"] >= stage["top"] + 2 and a["bottom"] <= stage["bottom"] - 2), layout
+                    assert layout["statusScrollHeight"] <= layout["statusClientHeight"] + 1, layout
+                    assert layout["status"]["bottom"] <= layout["content"]["top"] + 1, layout
                     await page.screenshot(path=str(OUT / ("realm-" + str(realm) + "-selection.png")), timeout=300000)
                     button = page.locator('[data-action="build"]')
                     if phone:
@@ -292,6 +310,7 @@ async def run():
                             await human_play(page)
                             draw = await page.evaluate("a=>__rtsConstructionQA.draw(...a)", [quality, night, plot])
                             assert draw["body"] > 0 and not draw["errors"] and draw["glError"] == 0, draw
+                            assert draw["status"] == "Watchpost construction commissioned.", draw
                             assert {v["instanced"] for v in draw["programs"]} == {False, True} and all(v["linked"] for v in draw["programs"]), draw
                             draws.append(draw)
                             if quality == "low" and not night:

@@ -267,5 +267,8 @@ production authentication, native persistence, physical touch devices or Edge.
 The fixture renders the actual plot before its off-centre mouse/touch selection,
 observes the immediate native quote before another frame, and saves selected
 preview images separately from completed-building images in all three realms.
+Actual browser bounds must keep the preview label clear of its selection marker
+and keep wrapped status text above the scrolling content. Normal RTS frames
+display the confirmed order status during the completed-building render checks.
 Full-world and release acceptance requires saved successful run results; these
 checks do not establish overall reviewer readiness.

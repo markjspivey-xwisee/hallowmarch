@@ -452,12 +452,13 @@ function throneRtsDrawMarkers() {
     for(const node of previous.values())node.remove();
     THRONE_RTS_UI.markerKey=key;
   }
-  const nodes = host.children;
+  const nodes = host.children; let selectedMarker=null;
   for (let i=0;i<markers.length;i++) {
     const marker=markers[i], s=screenOf(marker.x,marker.y,marker.z), node=nodes[i];
     const visible=s && s.x > stage.left+18 && s.x < stage.right-18 && s.y > stage.top+24 && s.y < stage.bottom-16;
     marker.screen=visible?s:null; node.hidden=!visible;
     const selected=marker.kind==='army'&&marker.id===CWUI.sel || marker.kind==='plot'&&marker.id===THRONE_RTS_UI.selectedPlot;
+    if(marker.kind==='plot'&&selected)selectedMarker=node;
     node.classList.toggle('selected',selected);node.setAttribute('aria-label',marker.label+(selected?' · Selected':''));
     if(marker.kind==='plot')node.setAttribute('aria-pressed',String(selected));
     if (visible) {node.style.left=`${s.x}px`;node.style.top=`${s.y}px`;}
@@ -474,6 +475,15 @@ function throneRtsDrawMarkers() {
   const middle=polygon&&screenOf(plot.x,realmRtsSiteGround(plot).top+.1,plot.z);
   const preview=polygon?`<defs><clipPath id="rts-preview-clip"><rect x="${stage.left}" y="${stage.top}" width="${stage.width}" height="${stage.height}"/></clipPath></defs><g clip-path="url(#rts-preview-clip)"><polygon class="rts-plot-preview" points="${polygon.map(p=>`${p.x},${p.y}`).join(' ')}"/>${middle?`<text class="rts-preview-label" x="${middle.x}" y="${middle.y}">Preview: ${throneRtsEscape(kind?.label || 'building site')}</text>`:''}</g>`:'';
   $('rts-routes').innerHTML=preview+(points.length>1?`<polyline points="${points.map(p=>`${p.x},${p.y}`).join(' ')}"/>`:'');
+  const label=$('rts-routes').querySelector('.rts-preview-label');
+  if(label&&selectedMarker&&!selectedMarker.hidden) {
+    const markerRect=selectedMarker.getBoundingClientRect(),textRect=label.getBoundingClientRect();
+    const left=Math.max(stage.left+4,Math.min(stage.right-4-textRect.width,markerRect.left+(markerRect.width-textRect.width)/2));
+    const below=markerRect.bottom+8,above=markerRect.top-8-textRect.height;
+    const top=Math.max(stage.top+4,Math.min(stage.bottom-4-textRect.height,below+textRect.height<=stage.bottom-4?below:above));
+    label.setAttribute('x',Number(label.getAttribute('x'))+left-textRect.left);
+    label.setAttribute('y',Number(label.getAttribute('y'))+top-textRect.top);
+  }
 }
 function updateThroneRTS(dt) {
   if (!THRONE_RTS.active || UI.modal !== 'rts') return;
@@ -502,7 +512,7 @@ function updateThroneRTS(dt) {
 #throne-rts button{cursor:pointer;min-width:44px}#throne-rts button:disabled{opacity:.5;cursor:not-allowed}#throne-rts button:focus-visible{outline:2px solid #ffe4a4;outline-offset:2px}#throne-rts .rts-leave{background:#66402e}
 #rts-panel{position:absolute;right:max(12px,env(safe-area-inset-right));top:88px;bottom:max(12px,env(safe-area-inset-bottom));width:316px;display:flex;flex-direction:column;background:#141922f2;border:1px solid #8d7654;border-radius:10px;pointer-events:auto;overflow:hidden}
 #rts-tabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px;padding:8px;border-bottom:1px solid #8d7654}#rts-tabs button[aria-current=page]{background:#685339;border-color:#edcb83}
-#rts-status{min-height:20px;margin:0;padding:8px 12px;font-size:12px;color:#f7d992;border-bottom:1px solid #66583f}
+#rts-status{flex:none;min-height:20px;margin:0;padding:8px 12px;font-size:12px;color:#f7d992;border-bottom:1px solid #66583f}
 #rts-content{overflow:auto;padding:12px;overscroll-behavior:contain;min-height:0;line-height:1.4;font:12px/1.45 var(--ui)}#rts-content h3{margin:0 0 8px;font:500 20px var(--caps)}#rts-content h4{font:600 13px var(--caps);letter-spacing:.04em;margin:14px 0 6px}
 #rts-content p{color:#cfcdc4;margin:6px 0}#rts-content label{display:grid;gap:4px;margin:8px 0;color:#e8d9ba}#rts-content select,#rts-content input{width:100%;min-width:0}
 .rts-card{padding:10px;margin:8px 0;border:1px solid #8a7550;border-radius:7px;background:#222934bd}.rts-row{display:flex;gap:6px;flex-wrap:wrap}.rts-row>*{flex:1}.rts-metrics{display:grid;grid-template-columns:1fr 1fr;gap:8px}.rts-metrics span{display:grid;gap:4px;background:#272e37;padding:8px;border-radius:5px}.rts-needs{padding:0;list-style:none}.rts-needs li{display:flex;justify-content:space-between;gap:8px;padding:5px 0}
