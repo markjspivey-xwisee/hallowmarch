@@ -293,6 +293,7 @@ function buffsHTML(e) {
 }
 function unitSub(e, viewer) {
   if (e.siegeEngine) return 'Siege engine'; // [siege] (04h_siege.js)
+  if (farmSeedSeller(e)) return 'Farmer · Seeds & tools';
   if (e.kind === 'door') return e.keepRef ? `Gate of ${e.keepRef.site.name}` : `Gate of ${e.templeRef.site.name}`;
   if (e.role === 'dungeonBoss') return 'Undead · lord of the barrow';
   if (e.role === 'mob') return `${e.mobType === 'wisp' ? 'Spirit' : e.kind === 'humanoid' ? (e.mobType === 'skeleton' || e.mobType === 'draugr' ? 'Undead' : 'Hostile') : 'Beast'}${e.l2risen ? ' · risen champion' /* [late2] 10l_late.js */ : e.elite ? ' · elite' : ''} · ${CON[conIndex(e.level, viewer.level)].name} to you`;
@@ -592,10 +593,12 @@ function drawMinimap() {
       ctx.restore();
     }
   }
+  const nearbySellers = [];
   forNear(P.x, P.z, range * 1.42, (e) => {
     if (!e.alive || e === P || e.kind === 'door' || e.role === 'critter' || e.kind === 'dragon') return;
     const [x, y] = toM(e.x, e.z);
     if (x < -4 || y < -4 || x > S + 4 || y > S + 4) return;
+    if (!dun && farmSeedSeller(e)) { nearbySellers.push([x, y]); return; }
     let col;
     if (e.faction === FACTION_MONSTER) col = CON[conIndex(e.level, P.level)].col;
     else if (e.faction === FACTION_NEUTRAL) col = '#e9dfc9';
@@ -605,7 +608,8 @@ function drawMinimap() {
   });
   for (const rel of WAR.relics) { const p = relicPosition(rel); const [x, y] = toM(p.x, p.z); ctx.fillStyle = '#ffe28a'; ctx.beginPath(); ctx.arc(x, y, 3.2 * dpr, 0, TAU); ctx.fill(); }
   drawTrackedMinimap(ctx, toM, S, dpr); // [balance] the archer's tracked quarry (07c_balance.js)
-  if (!dun) drawFarmMap(ctx, toM, k); // [farming] your beds and the town strips (08i_farm_draw.js)
+  if (!dun) drawFarmMap(ctx, toM, k, false); // seller icons already use the existing nearby-entity pass
+  for (const [x, y] of nearbySellers) drawFarmSellerIcon(ctx, x, y, 5 * dpr); // above a farmer's current crop plot
   if (!dun) drawCampaignMinimap(ctx, toM, S, dpr); // [campaign] warband routes and orders (08g_campaign.js)
   guideMinimap(ctx, toM, S, dpr); // [guide] where your path's next step is (10e_guide.js)
   netMinimap(ctx, toM, S, dpr); // [net] the others in the March (14o_netui.js)
@@ -794,7 +798,7 @@ function updateNameplates() {
     if (!el) { el = document.createElement('div'); el.className = 'np'; el.innerHTML = '<span class="n"></span><span class="hb"><i></i></span>'; host.appendChild(el); UI.npPool.push(el); el._n = el.firstChild; el._b = el.lastChild.firstChild; el._hb = el.lastChild; }
     el.style.display = '';
     el.style.transform = `translate(${s.x.toFixed(1)}px, ${s.y.toFixed(1)}px) translate(-50%, -100%)`;
-    const txt = e.kind === 'door' ? e.name : `${e.name}`;
+    const txt = farmServiceName(e);
     if (el._txt !== txt) { el._n.textContent = txt; el._txt = txt; }
     el._eid = e.id; // (which body this name is over: two may share a name)
     el.style.setProperty('--nc', nameColor(e, P));
@@ -1159,8 +1163,19 @@ $('menu-body').addEventListener('click', (e) => {
     menuReplacementSync();
   }
 });
+function menuReadingKey(e) {
+  const body = $('menu-body');
+  if (UI.modal !== 'menu' || UI.menuTab === 'settings' || !body?.isConnected
+    || e.currentTarget !== body || e.target !== body || document.activeElement !== body
+    || e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || e.isComposing
+    || (e.key !== 'Home' && e.key !== 'End')) return false;
+  e.preventDefault();
+  body.scrollTo({ top: e.key === 'Home' ? 0 : body.scrollHeight, behavior: 'instant' });
+  return true;
+}
 $('menu-body').addEventListener('keydown', (e) => {
   if (UI.menuTab === 'settings') menuRadioKey(e);
+  else menuReadingKey(e);
 });
 bgClose('menu', () => closeMenu());
 

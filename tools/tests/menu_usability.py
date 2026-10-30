@@ -158,9 +158,9 @@ window.__menuPanelScrollQA=(()=>{
   const event=(record,type,e)=>{
     if(record.events.length<24)record.events.push({type,at:performance.now(),stamp:e.timeStamp,trusted:e.isTrusted,top:record.node.scrollTop});
   };
-  const clean=record=>{if(record)for(const [node,type,fn]of record.listeners)node.removeEventListener(type,fn);};
-  const listen=(record,node,type,fn,options)=>{node.addEventListener(type,fn,options);record.listeners.push([node,type,fn]);};
-  const receipt=record=>record?{kind:record.kind,initial:record.initial,written:record.written,lastTop:record.lastTop,
+  const clean=record=>{if(record)for(const [node,type,fn,capture]of record.listeners)node.removeEventListener(type,fn,capture);};
+  const listen=(record,node,type,fn,options)=>{node.addEventListener(type,fn,options);record.listeners.push([node,type,fn,!!options?.capture]);};
+  const receipt=record=>record?{kind:record.kind,mode:record.mode,initial:record.initial,written:record.written,lastTop:record.lastTop,
     stableAt:record.stableAt,scrolls:record.scrolls,ends:record.ends,down:record.down,released:record.released,invalid:record.invalid,moved:record.moved,ended:record.ended,endStamp:record.endStamp,endTop:record.endTop,invalidEndStamp:record.invalidEndStamp,lastMovementStamp:record.lastMovementStamp,
     events:record.events,connected:record.node.isConnected,samePanel:record.node===panel(),top:record.node.scrollTop,
     height:record.node.clientHeight,total:record.node.scrollHeight,focus:document.activeElement?.id,
@@ -183,18 +183,27 @@ window.__menuPanelScrollQA=(()=>{
     if(record.lastTop!==top){record.lastTop=top;record.stableAt=now;return false;}
     return top<=2&&now-record.stableAt>=200;
   }
-  function startKey(expected){
+  function startKey(expected,mode='native'){
+    if(!['native','panel'].includes(mode)||(mode==='panel'&&!['Home','End'].includes(expected)))throw Error('Unsupported scroll-key mode');
     clean(fixture);clean(key);clean(touch);touch=null;
     const node=panel();
-    key={kind:'key',node,listeners:[],initial:node.scrollTop,lastTop:node.scrollTop,scrolls:0,ends:0,events:[],down:null,moved:false,ended:false,endStamp:null,endTop:null,invalidEndStamp:null,lastMovementStamp:null};
+    key={kind:'key',mode,node,listeners:[],initial:node.scrollTop,lastTop:node.scrollTop,scrolls:0,ends:0,events:[],down:null,moved:false,ended:false,endStamp:null,endTop:null,invalidEndStamp:null,lastMovementStamp:null};
     const record=key;
     const reconcile=()=>{record.ended=record.moved&&record.endStamp!==null&&record.endTop===record.lastTop;};
+    if(mode==='panel')listen(record,document,'keydown',e=>{
+      if(e.key!==expected||!e.isTrusted||e.target!==node||document.activeElement!==node)return;
+      // The owned target handler scrolls immediately. Retain this real key's
+      // pre-action position, then observe its final cancellation at bubble.
+      record.down={key:e.key,stamp:e.timeStamp,top:node.scrollTop,prevented:null};
+      record.downEvent=e;record.lastTop=node.scrollTop;
+    },{capture:true});
     listen(record,document,'keydown',e=>{
       if(e.key!==expected)return;
       event(record,'keydown',e);
       if(!e.isTrusted||e.target!==node||document.activeElement!==node)return;
-      record.down={key:e.key,stamp:e.timeStamp,top:node.scrollTop,prevented:null};
-      record.lastTop=node.scrollTop;
+      if(mode==='native'){
+        record.down={key:e.key,stamp:e.timeStamp,top:node.scrollTop,prevented:null};record.lastTop=node.scrollTop;
+      }else if(record.downEvent!==e)return;
       queueMicrotask(()=>{record.down.prevented=e.defaultPrevented;});
     });
     listen(record,node,'scroll',e=>{
@@ -267,7 +276,8 @@ window.__menuPanelScrollQA=(()=>{
   };
   const keyComplete=moves=>{
     if(key&&key.endStamp!==null&&key.node.scrollTop!==key.endTop)clearKeyEnd(key);
-    return !!(key?.node===panel()&&key.node.isConnected&&key.down&&key.down.prevented===false
+    return !!(key?.node===panel()&&key.node.isConnected&&document.activeElement===key.node&&key.down
+      &&key.down.prevented===(key.mode==='panel')
       &&(!moves||(key.moved&&key.ended)));
   };
   const finish=kind=>{const record=kind==='fixture'?fixture:kind==='touch'?touch:key;const value=receipt(record);clean(record);return value;};
@@ -377,7 +387,9 @@ async def audit(args):
                 finally:
                     await page.evaluate("__menuPanelScrollQA.finish('fixture')")
             async def panel_key(key,condition,moves):
-                await page.evaluate('(key)=>__menuPanelScrollQA.startKey(key)',key)
+                # Reading-panel Home/End are intentionally handled by the UI;
+                # PageDown retains its native, unprevented default action.
+                await page.evaluate("(key)=>__menuPanelScrollQA.startKey(key,['Home','End'].includes(key)?'panel':'native')",key)
                 try:
                     await page.keyboard.press(key)
                     await page.wait_for_function(condition,timeout=5000,polling=50)

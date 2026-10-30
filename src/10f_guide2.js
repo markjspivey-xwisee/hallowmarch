@@ -174,7 +174,7 @@ const g2Times = (k) => ['', 'once', 'twice', 'three times', 'four times'][k] || 
 const g2Share = (k) => ({ 0.25: 'a quarter of', 0.5: 'half', 0.75: 'three quarters of' })[k] || `${Math.round(k * 100)}% of`;
 const G2_NOTES = {
   hall: { t: 'A keep\'s great hall', x: () => `At the war table you command your realm's warbands; at the armourer's bench you mend and clean your gear; wash at the basin, dry off and heal by the hearth; the stores sell building goods. ${g2Use()} beside each.` },
-  farmers: { t: 'The farmers', x: () => `They sell seed and hoes. Till a bed of meadow (${IS_TOUCH ? 'Till a bed here, on the plant card' : 'E'}), sow it, keep it weeded, and harvest it ripe: the rain waters it. The Chronicle's Fields page tells more.` },
+  farmers: { t: 'The farmers', x: () => `They sell seed and hoes. Till a bed of meadow (${IS_TOUCH ? 'Till a bed here, on the plant card' : 'E'}), sow it, keep it weeded, and harvest it ripe: the rain waters it. The Chronicle's Fields page tells more.`, ok: () => /^Buy seed and tools from .+ the farmer$/.test(guideNotePrompt()) },
   ripe: { t: 'A ripe bed', x: () => `Harvest it before it sheds. Look at its plants first: keep the seed of the best (${IS_TOUCH ? 'on its plant card' : 'E on it'}), and your strain grows better each year.` },
   herb: { t: 'An unfamiliar plant', x: () => `Examine it (${IS_TOUCH ? 'on the plant card' : 'E'}) to learn it for your herbal; then you may gather it, dig up its root with a knife, and plant it in your own bed.` },
   scaffold: { t: 'Scaffolds and masons', x: () => `In peace a keep mends its breaches behind scaffolding, and two masons come out of its hall to work. Its boards carry you and its ladders climb: walk into one, or ${g2Use()}.` },
@@ -192,6 +192,7 @@ for (const k in G2_NOTES) if (!FIELD_NOTES[k]) FIELD_NOTES[k] = G2_NOTES[k]; els
 // what each waits for (10e_guide.js guideWatch calls these)
 Object.assign(GUIDE_WATCH, {
   hall: (P) => !!hallOf(P),
+  farmers: () => G2_NOTES.farmers.ok(), // An old herbal tip bit may predate this still-uncollected note.
   scaffold: (P, ctx) => /scaffold/i.test(ctx.prompt) || G2.near.scaffold,
   setwall: (P, ctx) => /^Set the (palisade|wall walk|log wall|gate|thatch)\b.* alight/i.test(ctx.prompt),
   battered: () => G2.near.battered,
