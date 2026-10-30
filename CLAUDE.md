@@ -1,5 +1,7 @@
 # Working notes for The Hallowmarch
 
+Touch inventory guidance now names the visible **Items** button in loot notes, workstation help, the gear and survival Chronicle pages, and the returning-character quartermaster notice. Crafting directions use **Items → Crafting**. Desktop keys and all existing handlers remain unchanged; the exact-text inverse fixture retains its original release hashes and lists the three additional approved literal substitutions.
+
 Read this before changing anything. It covers what the game is, the owner's standing requirements, how the code fits together, how to test it, and what is planned. A summary of this handoff (the status, the owner's requirements, how to build, the roadmap's latest rows and the history, with the commit whose CLAUDE.md holds the rest: `tools/handoff/make_handoff.py ... summary`) is also kept in the owner's Interego pod as the graph `urn:graph:project:hallowmarch`, updated at each milestone.
 
 - **Owner:** Mark (GitHub `markjspivey-xwisee`)

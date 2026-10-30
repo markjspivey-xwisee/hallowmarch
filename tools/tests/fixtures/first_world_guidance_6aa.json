@@ -21,6 +21,10 @@
       {
         "before": "  start: { t: 'First steps', x: () => (IS_TOUCH ? `Drag on the ${MOBILE_PREFS.hand === 'left' ? 'right' : 'left'} of the screen to walk and on the ${MOBILE_PREFS.hand === 'left' ? 'left' : 'right'} to look around. Tap a creature to target it, then tap an ability. Your path, at the top left, shows your next step; the gold gem on the minimap marks where.` : 'WASD to walk, drag to look. Click a creature, then press 1. Your path, at the left of the screen, shows your next step; the gold gem on the minimap marks where. H shows every key.') }, // [guide] the gem",
         "after": "  start: { t: 'First steps', x: () => (IS_TOUCH ? `Drag on the lower ${MOBILE_PREFS.hand === 'left' ? 'right' : 'left'} to walk and on the ${MOBILE_PREFS.hand === 'left' ? 'left' : 'right'} to look around. Open Menu → Options → How to play for all controls.` : 'WASD to walk. Drag to look around. Press H for all controls.') }, // A short control primer; the path and prompt carry the current objective."
+      },
+      {
+        "before": "kit: 'tap Kit'",
+        "after": "kit: 'tap Items'"
       }
     ],
     "10e_guide.js": [
@@ -71,6 +75,14 @@
       {
         "before": "// [guide2] each in a line or two on a phone\n  return `<div class=\"keys\">",
         "after": "// [guide2] each in a line or two on a phone\n  }\n  return `<div class=\"keys\">"
+      },
+      {
+        "before": "'Crafting in your Kit'",
+        "after": "'Items → Crafting'"
+      },
+      {
+        "before": "IS_TOUCH ? 'Kit' : 'I'",
+        "after": "IS_TOUCH ? 'Items' : 'I'"
       }
     ],
     "10q_mobile.js": [
