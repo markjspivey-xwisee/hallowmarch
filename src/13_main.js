@@ -122,6 +122,7 @@ function resize() {
 }
 function setQuality(level, auto = false) {
   if (!QUALITY_PRESETS[level]) return;
+  resetAdaptiveQualityClock();
   if (!auto) quality.userChanged = true;
   const rebuild = level !== quality.level;
   quality.level = level;
@@ -144,9 +145,31 @@ window.addEventListener('resize', () => {
 });
 
 /* adaptive detail: step down when frames run long for a while */
-const PERF = { acc: 0, n: 0, window: 0, grace: 6 };
+const PERF = { acc: 0, n: 0, window: 0, grace: 6, lastAt: null, player: null };
+function resetAdaptiveQualityClock() {
+  // Paused/hidden/manual time is not an active frame. Retain the remaining
+  // initial/reduction grace, but discard any partial frame average.
+  PERF.lastAt = null; PERF.player = null;
+  PERF.acc = 0; PERF.n = 0; PERF.window = 0;
+}
 function adaptQuality(dt) {
-  if (!quality.auto || navigator.webdriver || document.hidden) return;
+  if (!quality.auto || navigator.webdriver || document.hidden
+    || GRAPHICS_CONTEXT_LOST || GRAPHICS_STARTUP.stopped || !GAME.started || !GAME.player
+    || UI.modal === 'menu' || UI.modal === 'prologue') { resetAdaptiveQualityClock(); return; }
+  let now;
+  try {
+    if (typeof netHumanLive === 'function' && !netHumanLive()) { resetAdaptiveQualityClock(); return; }
+    now = performance.now();
+  } catch { resetAdaptiveQualityClock(); return; }
+  if (!Number.isFinite(now) || now < 0) { resetAdaptiveQualityClock(); return; }
+  if (PERF.player !== GAME.player) resetAdaptiveQualityClock();
+  if (PERF.lastAt === null) { PERF.lastAt = now; PERF.player = GAME.player; return; }
+  const elapsed = (now - PERF.lastAt) / 1000;
+  if (!(elapsed > 0) || !Number.isFinite(elapsed)) { resetAdaptiveQualityClock(); return; }
+  PERF.lastAt = now;
+  // Only this private sampler uses wall time. The caller's capped simulation
+  // delta and every world/render/input clock remain unchanged.
+  dt = elapsed;
   PERF.grace -= dt;
   if (PERF.grace > 0) return;
   PERF.acc += dt; PERF.n++; PERF.window += dt;
@@ -448,6 +471,7 @@ async function renderFirstTitleFrame() {
   }
 }
 document.addEventListener('visibilitychange', () => {
+  resetAdaptiveQualityClock();
   if (!document.hidden && GAME.ready && !GAME.started) void renderTitleFrame().catch(reportError);
 });
 const BOOT_STEPS = []; // [perf2] every step's time, the first too (13x_perf2.js)
@@ -1034,6 +1058,7 @@ function tick(dt) {
 }
 function frame(now) {
   if (GRAPHICS_CONTEXT_LOST || GRAPHICS_STARTUP.stopped) {
+    resetAdaptiveQualityClock();
     if (typeof entryFeedbackCancel === 'function') entryFeedbackCancel();
     musicImpulsePrepareCancel();
     return;

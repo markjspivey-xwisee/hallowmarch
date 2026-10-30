@@ -66,6 +66,8 @@ These apply to every change, not only to the feature that prompted them.
 
 - **Touch HUD spacing (2026-10-30):** The existing measured-panel placement pass reserves eight pixels between touch panels, matching the control-spacing requirement; desktop keeps its four-pixel margin. The same safe rectangle, search, observers and fallback/hiding rules remain. A pinned pre-change predicate and actual-source search regression cover the accepted seven-pixel gap and its rejection. DOM and full phone-matrix verification remain separate from CPU geometry checks.
 
+- **Automatic quality clock (2026-10-30):** Ordinary automatic mode samples elapsed time between completed eligible frames instead of the capped simulation delta. Hidden/menu/prologue/manual, context-stop and player/live-session boundaries clear only the private anchor and partial average; they preserve remaining grace. The original six-second grace, four-second window, 36 FPS threshold, five-second regrace and frame-boundary quantization remain: a large interval can cross grace and count toward the same window. The webdriver refusal stays in place, so automated native captures still do not exercise automatic downshifting. Physics, tick, year, input, activity grants and RNG are unchanged. Fake-clock source tests establish response policy, not smoother gameplay or the cause of a capture stall.
+
 ## Build and run
 
 - Run `python3 build.py`. It concatenates `src/page.html` and every `src/NN[a-z]_*.js` module in filename order into one `<script type="module">`, and writes `hallowmarch.html`. three.js 0.160.0 is imported from jsDelivr.

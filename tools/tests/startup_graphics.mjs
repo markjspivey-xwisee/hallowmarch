@@ -20,6 +20,8 @@ const apply = extract(read('12_save.js'), 'applySettings');
 const saveGraphics = extract(read('12_save.js'), 'graphicsSaveSettings');
 const phone = extract(read('13q_lod.js'), 'phoneQualityPick');
 const set = extract(read('13_main.js'), 'setQuality');
+const adaptiveClock = read('13_main.js').split('\n').find(line => line.startsWith('const PERF ='))
+  + '\n' + extract(read('13_main.js'), 'resetAdaptiveQualityClock');
 const renderRatio = extract(read('13_main.js'), 'graphicsRenderRatio');
 const automatic = read('13_main.js').split('\n').find(line => line.startsWith('quality.auto ='));
 
@@ -192,7 +194,7 @@ function settings(b) {
   ctx.setMusicVolume=v=>ctx.calls.push(['music',v]);
   ctx.soundApplySettings=st=>ctx.calls.push(['sound',st.sound]);
   ctx.setWeatherMode=v=>ctx.calls.push(['weather',v]);
-  vm.runInContext(set+'\n'+apply,ctx);
+  vm.runInContext(adaptiveClock+'\n'+set+'\n'+apply,ctx);
 }
 test('safe boot ignores saved High while still applying nongraphics settings',()=>{
   const b=boot({url:'https://march.example/?safe=1'});settings(b);
@@ -457,7 +459,7 @@ function titleFixture({autoPaint=false}={}) {
   const resizeStart=main.indexOf('let resizeTimer = 0;'),resizeEnd=main.indexOf('\n\n',resizeStart);
   assert.ok(resizeStart>=0 && resizeEnd>resizeStart,'test installs the actual resize timer declaration and listener');
   vm.createContext(ctx);
-  vm.runInContext(titleCompile+'\n'+main.slice(resizeStart,resizeEnd)+'\n'+declarations+'\n'+['prepareTitleView','graphicsRenderRatio','applyGraphicsSize','resize','captureTitleResizeRequest','titleAssertActive','titleGraphicsBusy','titleLoadingProgress','submitTitleStage','renderTitleFrame','waitForTitleVisibility',
+  vm.runInContext(titleCompile+'\n'+adaptiveClock+'\n'+main.slice(resizeStart,resizeEnd)+'\n'+declarations+'\n'+['prepareTitleView','graphicsRenderRatio','applyGraphicsSize','resize','captureTitleResizeRequest','titleAssertActive','titleGraphicsBusy','titleLoadingProgress','submitTitleStage','renderTitleFrame','waitForTitleVisibility',
     'renderFirstTitleFrame','tick','frame','startGame'].map(name=>extract(main,name)).join('\n'),ctx);
   const f={ctx,nodes,events,staticCalls,fences,paints,glErrors,sizeCalls,inventory,objects,hidden,postState,originalTrail,originalShaderError,direct,
     grassCenter,grassCamera,flowerCenter,flowerCamera,documentListeners,canvasListeners,windowListeners,resizeTimers,

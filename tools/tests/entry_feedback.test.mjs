@@ -64,7 +64,7 @@ function fixture({prologue=false,native=false}={}){
   for(const name of noopNames)c[name]=()=>calls.cold.push(name);
   c.simStep=dt=>{calls.cold.push('simStep');c.GAME.t+=dt;};
   window.__hm={UI:c.UI};
-  vm.runInContext(presentation+'\n'+read('14m_liveplay.js')+'\n'+actual(main,['startGame','tick','frame'])+'\n'
+  vm.runInContext(presentation+'\n'+read('14m_liveplay.js')+'\n'+actual(main,['PERF','resetAdaptiveQualityClock','startGame','tick','frame'])+'\n'
     +actual(lore,['closePrologue'])+'\n'+actual(ui,['openMenu'])+'\n'+actual(render,['graphicsFailureTakeover'])
     +'\nglobalThis.feedback=()=>ENTRY_FEEDBACK;globalThis.human=NET_HUMAN_PLAY;',c);
   const flush=()=>{while(microtasks.length)microtasks.shift()();};
@@ -173,7 +173,9 @@ test('actual startGame preserves title-resize coalescing and waits until origina
 });
 
 test('original live-guard source, accessible nonmodal markup and reduced-motion path remain explicit',()=>{
-  assert.equal(createHash('sha256').update(read('14m_liveplay.js')).digest('hex'),'0513a8d76d14c09862d40ad288825b5801f21b311786dd120d103de2a283541b');
+  const liveGuard = read('14m_liveplay.js').replace(
+    "  // Observe the existing transition only; this never grants or extends play.\n  if (live !== wasLive && typeof resetAdaptiveQualityClock === 'function') resetAdaptiveQualityClock();\n",'');
+  assert.equal(createHash('sha256').update(liveGuard).digest('hex'),'0513a8d76d14c09862d40ad288825b5801f21b311786dd120d103de2a283541b');
   assert(!/netHumanInput|netHumanSync|NET_HUMAN_PLAY|setTimeout|requestAnimationFrame|Math\.random|new THREE|saveSoon|saveNow/.test(presentation));
   const html=read('page.html'),element=html.match(/<div id="entry-feedback"[^\n]+/)[0];
   assert.match(element,/role="status" aria-live="polite" aria-atomic="true" hidden/);
