@@ -188,6 +188,7 @@ function bindTitle() {
   UI.titleBound = true;
 }
 function setupTitle(save) {
+  if (typeof entryFeedbackCancel === 'function') entryFeedbackCancel();
   titleDraftCancel();
   if (typeof loreCancelBegin === 'function') loreCancelBegin(); // A title/account reset cancels the old character's Begin intent.
   if (!UI.titleBound) bindTitle();
@@ -255,7 +256,76 @@ function buildHUD() {
   if (IS_TOUCH) document.body.classList.add('touch');
   $('log').innerHTML = '';
   $('hud').hidden = false;
+  UI.mmSize = null; UI.mmViewport = null;
+  minimapObserveSize();
   updateWarPanel();
+}
+// Entry presentation owns no input lease, modal, clock or game work. The first
+// eligible frame gives this status a paint opportunity; the next runs normally.
+let ENTRY_FEEDBACK = null, ENTRY_FEEDBACK_BOUND = false;
+function entryFeedbackScope() {
+  return { host: NETWS.host, account: NETWS.acct?.id, profile: NATIVE_PLAYER.profile,
+    ref: SAVE.ref, key: SAVE.lsKey, native: SAVE.native };
+}
+function entryFeedbackCancel() {
+  const record = ENTRY_FEEDBACK;
+  ENTRY_FEEDBACK = null;
+  if (record) record.element.hidden = true;
+}
+function entryFeedbackCurrent(record) {
+  if (!record || ENTRY_FEEDBACK !== record || !GAME.started || !GAME.ready
+    || GAME.player !== record.player || GAME.prog !== record.prog
+    || !record.element.isConnected || $('entry-feedback') !== record.element
+    || GRAPHICS_CONTEXT_LOST || GRAPHICS_STARTUP.stopped || NETWS.reload || NETWS.worldReloadRequired
+    || NATIVE_PLAYER.switching || NATIVE_PLAYER.claimConfirmationPending || NATIVE_PLAYER.openExistingPending
+    || SAVE.native && (!SAVE.readConfirmed || !NATIVE_PLAYER.status?.verified)) return false;
+  const scope = record.scope;
+  return NETWS.host === scope.host && NETWS.acct?.id === scope.account && NATIVE_PLAYER.profile === scope.profile
+    && SAVE.ref === scope.ref && SAVE.lsKey === scope.key && SAVE.native === scope.native;
+}
+function entryFeedbackSync() {
+  const record = ENTRY_FEEDBACK;
+  if (!record) return;
+  if (!entryFeedbackCurrent(record) || document.hidden || !document.hasFocus()
+    || (record.phase === 'prologue' ? UI.modal !== 'prologue' : !!UI.modal)) entryFeedbackCancel();
+}
+function entryFeedbackPrepare() {
+  if (entryFeedbackCurrent(ENTRY_FEEDBACK)) { entryFeedbackSync(); if (ENTRY_FEEDBACK) return; }
+  entryFeedbackCancel();
+  const element = $('entry-feedback');
+  if (!element || !element.isConnected || !GAME.started || !GAME.player || !GAME.prog
+    || UI.modal && UI.modal !== 'prologue') return;
+  ENTRY_FEEDBACK = { element, player: GAME.player, prog: GAME.prog, scope: entryFeedbackScope(),
+    phase: UI.modal === 'prologue' ? 'prologue' : 'pending' };
+  entryFeedbackSync();
+  if (!ENTRY_FEEDBACK || ENTRY_FEEDBACK_BOUND) return;
+  ENTRY_FEEDBACK_BOUND = true;
+  document.addEventListener('visibilitychange', () => { if (document.hidden) entryFeedbackCancel(); });
+  window.addEventListener('blur', entryFeedbackCancel);
+  window.addEventListener('pagehide', entryFeedbackCancel);
+  canvas.addEventListener('webglcontextlost', entryFeedbackCancel);
+}
+function entryFeedbackLeavePrologue() {
+  const record = ENTRY_FEEDBACK;
+  if (record?.phase !== 'prologue') return;
+  if (!entryFeedbackCurrent(record) || UI.modal) { entryFeedbackCancel(); return; }
+  record.phase = 'pending';
+}
+function entryFeedbackBeforeFrame(live) {
+  entryFeedbackSync();
+  const record = ENTRY_FEEDBACK;
+  if (!record || record.phase === 'prologue') return false;
+  if (!live) { entryFeedbackCancel(); return false; }
+  if (record.phase === 'pending') {
+    record.element.hidden = false;
+    record.phase = 'paint';
+    return true;
+  }
+  record.phase = 'rendering';
+  return false;
+}
+function entryFeedbackComplete() {
+  if (ENTRY_FEEDBACK?.phase === 'rendering') entryFeedbackCancel();
 }
 // the ability bar, rebuilt on level-ups so ranks and new abilities show
 function buildHotbar() {
@@ -543,14 +613,33 @@ function drawSiteIcon(ctx, kind, x, y, s, col, alarm = false) {
   if (alarm) { ctx.strokeStyle = `rgba(255,90,60,${0.5 + 0.5 * Math.sin(GAME.t * 6)})`; ctx.lineWidth = s * 0.3; ctx.beginPath(); ctx.arc(0, 0, s * 1.9, 0, TAU); ctx.stroke(); }
   ctx.restore();
 }
+// Start observation when the HUD opens, so its normal layout can deliver the
+// size before the first map draw. An immediate entry or resize keeps the
+// original clientWidth fallback rather than using a stale or guessed size.
+function minimapObserveSize(cv = $('minimap')) {
+  if (!cv || typeof ResizeObserver !== 'function') return;
+  if (UI.mmRO && UI.mmCanvas === cv) return;
+  if (UI.mmRO) UI.mmRO.disconnect();
+  UI.mmSize = null; UI.mmViewport = null; UI.mmCanvas = cv;
+  const observer = new ResizeObserver(entries => {
+    if (UI.mmRO !== observer || UI.mmCanvas !== cv || $('minimap') !== cv
+      || !cv.isConnected || !entries.some(entry => entry.target === cv)) return;
+    const size = cv.clientWidth;
+    UI.mmSize = size > 0 ? size : null;
+    UI.mmViewport = size > 0 ? [innerWidth, innerHeight, window.devicePixelRatio || 1] : null;
+  });
+  UI.mmRO = observer;
+  observer.observe(cv);
+}
 function drawMinimap() {
   const cv = $('minimap'), P = GAME.player;
   if (!cv || !UI.mapImg) return;
   const dpr = Math.min(2, window.devicePixelRatio || 1);
-  // [perf2] the minimap's size from a ResizeObserver: reading clientWidth here, after the frame's writes to the HUD,
-  // made the browser lay the whole page out at once every third frame
-  if (!UI.mmRO && typeof ResizeObserver === 'function') { UI.mmRO = new ResizeObserver(() => { UI.mmSize = cv.clientWidth; }); UI.mmRO.observe(cv); UI.mmSize = cv.clientWidth; }
-  const size = (UI.mmRO ? UI.mmSize : cv.clientWidth) || 186;
+  minimapObserveSize(cv);
+  const viewport = UI.mmViewport;
+  const measured = UI.mmRO && UI.mmCanvas === cv && viewport
+    && viewport[0] === innerWidth && viewport[1] === innerHeight && viewport[2] === (window.devicePixelRatio || 1);
+  const size = (measured ? UI.mmSize : cv.clientWidth) || 186;
   if (cv.width !== Math.round(size * dpr)) { cv.width = Math.round(size * dpr); cv.height = Math.round(size * dpr); }
   const ctx = cv.getContext('2d');
   const S = cv.width;
@@ -1012,6 +1101,7 @@ function onEscape() {
 function openMenu(tab = 'char') {
   if (UI.modal === 'net' && typeof netSheetToggle === 'function') netSheetToggle(false);
   if (UI.modal && UI.modal !== 'menu') return;
+  if (typeof entryFeedbackCancel === 'function') entryFeedbackCancel();
   const opening = UI.modal !== 'menu';
   if (opening) menuReturnFocus = document.activeElement;
   UI.modal = 'menu';

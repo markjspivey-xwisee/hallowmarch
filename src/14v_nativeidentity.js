@@ -375,6 +375,7 @@ function nativePlayerSaveMessage() {
 }
 function nativePlayerRender() {
   if (typeof titleDraftSync === 'function') titleDraftSync();
+  if (typeof entryFeedbackSync === 'function') entryFeedbackSync();
   const preparing = typeof titleEntryBlocked === 'function' ? titleEntryBlocked() : GAME.ready === false;
   const drafting = typeof titleDraftActive === 'function' && titleDraftActive();
   const status = NATIVE_PLAYER.status;

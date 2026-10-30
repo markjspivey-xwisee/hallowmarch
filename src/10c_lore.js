@@ -1005,6 +1005,7 @@ function closePrologue() {
   if (UI.modal === 'prologue') UI.modal = null;
   if (GAME.prog && GAME.prog.lore) { GAME.prog.lore.pro = 1; saveSoon(); }
   if (S && !S.replay) loreNote('start');
+  if (S && !S.replay && typeof entryFeedbackLeavePrologue === 'function') entryFeedbackLeavePrologue();
 }
 // the prologue's keys come first, and the game never sees them
 window.addEventListener('keydown', (e) => {
