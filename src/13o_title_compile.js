@@ -1,6 +1,6 @@
 /* Prepare only this title's required shader programs. Actual draws and GPU
    fences remain the readiness gate; compilation completion is not a frame. */
-// Fill by new programs, then validate a drained wave before refill.
+// Experimental rolling four unfinished programs; validate the finite batch before reflection or real draws.
 // Context loss and completed failed links still stop admission immediately.
 const TITLE_COMPILE_LIMITS = Object.freeze({ pending: 4, perTurn: 4, turnMs: 8, pollMs: 10, idlePollMaxMs: 100, programMs: 90000, totalMs: 180000 });
 
@@ -371,7 +371,7 @@ function titleInitialOrder(jobs, receipt) {
 
 async function prepareTitleProgramJobs(inventory, stages, generation, dependencyId = null, weatherResources = null) {
   const started = performance.now();
-  const receipt = { generation, dependency: dependencyId, errorPolicy: 'drained-waves', supported: false, outcome: 'serial', completed: false, stale: false,
+  const receipt = { generation, dependency: dependencyId, errorPolicy: 'finite-batch-drain', admissionPolicy: 'rolling-four-unfinished', telemetryUnit: 'finite-batch-in-legacy-wave-fields', supported: false, outcome: 'serial', completed: false, stale: false,
     eligibleJobs: 0, preparedJobs: 0, skipped: 0, newPrograms: 0, maxPending: 0, maxPreparesPerTurn: 0,
     prepareMs: 0, maxSinglePrepareMs: 0, slowestPrepare: null, maxFullTurnMs: 0, budgetYields: 0, waves: 0, maxWavePrograms: 0,
     reflectedPrograms: 0, deferredReflections: 0, reflectionMs: 0, maxSingleReflectionMs: 0, maxReflectionsPerTurn: 0, reflectionBudgetYields: 0, slowestReflection: null,
@@ -391,6 +391,8 @@ async function prepareTitleProgramJobs(inventory, stages, generation, dependency
   const message = document.getElementById?.('loadmsg');
   if (message && dependencyId !== 'initial' && message.textContent !== 'Preparing the first view') message.textContent = 'Preparing the first view';
   const pending = new Map(), entryInitializers = [], initialTarget = sceneRT;
+  const programObservationLimit = 256; // Numeric observations are independently bounded, not by the rolling window.
+  receipt.programObservationLimit = programObservationLimit; receipt.droppedProgramObservations = 0;
   let timer = null, wake = null, lost = false, stale = false, avatarJob = null, dependencies = null, mainSnapshots = null;
   let idlePollMs = TITLE_COMPILE_LIMITS.pollMs, idleWaiting = false;
   const materialJobs = new Map();
@@ -428,7 +430,7 @@ async function prepareTitleProgramJobs(inventory, stages, generation, dependency
       firstObservedReadyMs: null, lastObservedReadyMs: null, polls: 0, maxObservedPollGapMs: 0,
       timerSchedules: 0, timerCallbacks: 0, timerLateMs: 0, maxTimerLateMs: 0, validationMs: 0,
       requestedPollWaitMs: 0, maxRequestedPollWaitMs: 0, backoffWaits: 0, budgetClippedWaits: 0,
-      reflectedPrograms: 0, reflectionMs: 0, outcome: 'preparing', families: {}, programs: [] };
+      reflectedPrograms: 0, reflectionMs: 0, outcome: 'preparing', families: {}, programs: [], droppedPrograms: 0 };
     wavePollAt = null;
     if (receipt.waveLatency.length < 128) receipt.waveLatency.push(waveLatency);
     else receipt.droppedWaveLatency++;
@@ -631,13 +633,13 @@ async function prepareTitleProgramJobs(inventory, stages, generation, dependency
         const visibleNow = visibleElapsed();
         for (const job of pending.values()) if (visibleNow - job.queuedVisibleMs >= TITLE_COMPILE_LIMITS.programMs) throw new Error('Title program preparation timed out.');
         if (stale || index === jobs.length) waveSealed = true;
-        if (!pending.size && (!waveStarted || waveSealed)) {
-          // Observe queued GL errors before another wave adds driver work.
+        if (!pending.size && (stale || index === jobs.length)) {
+          // The entire finite batch (or canceled batch) has drained. Never reflect while another original job can still add compiler work.
           errors();
           if (stale) { entryInitializers.length = 0; finishWaveLatency('stale'); receipt.outcome = 'stale'; receipt.stale = true; return receipt; }
           // r160 defers its original diagnostics and uniform/attribute lookup
           // until getUniforms(). Run that same initializer only for newly
-          // acquired entry programs after the entire wave has linked. Never
+          // acquired entry programs after the entire finite batch has linked. Never
           // query reflection while sibling compiler work is pending. A stale
           // generation retains the normal first-draw initializer fallback.
           while (entryInitializers.length && reflected < TITLE_COMPILE_LIMITS.perTurn) {
@@ -679,18 +681,17 @@ async function prepareTitleProgramJobs(inventory, stages, generation, dependency
           if (stale) { entryInitializers.length = 0; finishWaveLatency('stale'); receipt.outcome = 'stale'; receipt.stale = true; return receipt; }
           if (!entryInitializers.length) {
             finishWaveLatency('drained');
-            if (index === jobs.length) break;
-            wavePrograms = 0; waveStarted = false; waveSealed = false;
+            break; // Live admission is exhausted; stale returns above before any reflection.
           }
         }
         if (visibleElapsed() >= TITLE_COMPILE_LIMITS.totalMs) throw new Error('Title program preparation exceeded its time budget.');
         let prepared = 0;
-        // Cache hits do not consume a wave's program capacity. Fill across
-        // bounded turns, counting even completed handles in this wave; partial
-        // completion cannot free slots or permit a new wave before draining.
-        while (!deferAdmission && !waveSealed && !stale && index < jobs.length && prepared + reflected < TITLE_COMPILE_LIMITS.perTurn) {
+        // Only unfinished handles reserve slots. Cached jobs retain the exact order
+        // and per-turn limit. A cost-two head cannot be skipped or speculatively
+        // submitted into one free slot, even if it might prove to be cached.
+        while (!deferAdmission && !stale && index < jobs.length && prepared + reflected < TITLE_COMPILE_LIMITS.perTurn) {
           const job = jobs[index];
-          if (wavePrograms + job.cost > TITLE_COMPILE_LIMITS.pending) { waveSealed = true; break; }
+          if (pending.size + job.cost > TITLE_COMPILE_LIMITS.pending) break;
           active(); changed();
           if (stale) break;
           const eligible = job.dependency ? dependenciesCurrent() && titleCompileSupported(job.object, job.material)
@@ -731,14 +732,16 @@ async function prepareTitleProgramJobs(inventory, stages, generation, dependency
           const added = renderer.info.programs.filter(program => !before.has(program));
           if (added.length > job.cost) throw new Error('Title compilation exceeded its reserved program window.');
           for (const program of added) {
-            // The cap bounds these numeric signatures too. Original shader text
-            // and renderer resources stay out of retained diagnostic history.
-            const observation = { programId: program.id, family: job.family, objectId: job.object.id, materialId: job.material.id,
+            // Completed observations can outlive a rolling slot. Bound this numeric
+            // history independently; never retain shader text or resource objects.
+            let observation = null;
+            if (waveLatency.programs.length < programObservationLimit) observation = { programId: program.id, family: job.family, objectId: job.object.id, materialId: job.material.id,
               geometryId: job.geometry.id, kind: job.object.isInstancedMesh ? 'instanced-mesh' : job.geometry.isInstancedBufferGeometry ? 'instanced-buffer' : 'mesh',
               instances: job.object.isInstancedMesh ? job.object.count : Number.isFinite(job.geometry.instanceCount) ? job.geometry.instanceCount : null,
               vertexChars: job.material.vertexShader?.length || 0, fragmentChars: job.material.fragmentShader?.length || 0,
               queuedMs: performance.now() - started - waveLatency.startMs, observedReadyMs: null, outcome: 'pending' };
-            waveLatency.programs.push(observation);
+            if (observation) waveLatency.programs.push(observation);
+            else { waveLatency.droppedPrograms++; receipt.droppedProgramObservations++; }
             pending.set(program, { queuedVisibleMs, family: job.family, observation,
               entryReflection: dependencyId === 'entry' || !!job.entryPreparation });
           }
@@ -757,7 +760,7 @@ async function prepareTitleProgramJobs(inventory, stages, generation, dependency
           receipt.families[job.family].programs += added.length;
           index++; prepared++; receipt.preparedJobs++;
           receipt.maxPending = Math.max(receipt.maxPending, pending.size);
-          if (wavePrograms === TITLE_COMPILE_LIMITS.pending || index === jobs.length) waveSealed = true;
+          if (index === jobs.length) waveSealed = true; // The legacy seal now means all finite jobs were admitted.
           // JavaScript cannot preempt one synchronous driver call. Yield before
           // starting another once this turn has spent its elapsed-time budget.
           if (performance.now() - turnStarted >= TITLE_COMPILE_LIMITS.turnMs) { receipt.budgetYields++; break; }
@@ -770,12 +773,13 @@ async function prepareTitleProgramJobs(inventory, stages, generation, dependency
           const flushed = performance.now() - flushStarted;
           receipt.flushMs += flushed; receipt.maxFlushMs = Math.max(receipt.maxFlushMs, flushed);
           active();
-          if (!pending.size) errors();
+          // No in-flight GL error query. Final/stale drain above is the next validation boundary.
         }
         shouldPause = index < jobs.length || pending.size || entryInitializers.length;
-        if (!stale && waveSealed && pending.size) {
-          // Only an unchanged, sealed wave can idle. Admission, reflection and
-          // any observed completion reset the next wait to the original 10 ms.
+        const capacityBlocked = index < jobs.length && pending.size + jobs[index].cost > TITLE_COMPILE_LIMITS.pending;
+        if (!stale && pending.size && (index === jobs.length || capacityBlocked)) {
+          // Back off only when unfinished capacity blocks further work, or all
+          // jobs are admitted. Completion, admission and reflection reset 10 ms.
           idlePollMs = idleWaiting && !progressed && !prepared && !reflected
             ? Math.min(TITLE_COMPILE_LIMITS.idlePollMaxMs, idlePollMs * 2) : TITLE_COMPILE_LIMITS.pollMs;
           idleWaiting = true; pauseMs = idlePollMs;

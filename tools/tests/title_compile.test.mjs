@@ -132,9 +132,9 @@ test('bounded preparation uses exact original leaves/flags and restores sides an
   const f = fixture(), parents = f.all.map(object => object.parent), sides = f.objects.map(object => object.material.side);
   const receipt = await f.finish(f.run());
   assert.equal(receipt.completed, true); assert.equal(receipt.outcome, 'completed');
-  assert.equal(receipt.errorPolicy, 'drained-waves');
+  assert.equal(receipt.errorPolicy, 'finite-batch-drain');
   assert(receipt.maxPending <= productPending && receipt.maxPending > 1); assert(receipt.maxPreparesPerTurn <= 4);
-  assert(receipt.maxWavePrograms <= productPending);
+  assert.equal(receipt.waves, 1); assert.equal(receipt.maxWavePrograms, receipt.newPrograms);
   assert(f.errorChecks.every(check => check.pendingPrograms.length === 0));
   assert(f.calls.every(call => f.all.includes(call.object) && call.geometry === call.object.geometry));
   for (const object of [f.hidden, f.offscreen, f.wrongLayer, f.array, f.hooked, f.cacheHook]) assert(!f.calls.some(call => call.object === object));
@@ -176,17 +176,18 @@ test('wave latency separates observed completion, poll opportunities and delayed
   assert(f.errorChecks.every(check => check.pendingPrograms.length === 0)); f.clean();
 });
 
-test('wave observations retain partial completion without admitting work through the barrier', async () => {
+test('finite-batch observations retain partial completion while refilling unfinished slots', async () => {
   const f = fixture({ count: 4, readyDelay: 100 }), promise = f.run(); await f.flush();
   const submitted = f.compileCalls.length; f.programs[0].readyAt = 10;
-  await f.timer(); assert.equal(f.compileCalls.length, submitted);
+  await f.timer(); assert(f.compileCalls.length > submitted);
   await f.timer(90);
   const receipt = await f.finish(promise), wave = receipt.waveLatency[0];
-  assert.equal(wave.newPrograms, 4); assert.equal(wave.completedPrograms, 4);
-  assert.equal(wave.firstObservedReadyMs, 10); assert.equal(wave.lastObservedReadyMs, 110);
+  assert.equal(wave.newPrograms, 6); assert.equal(wave.completedPrograms, 6);
+  assert.equal(wave.firstObservedReadyMs, 10); assert(wave.lastObservedReadyMs >= 110);
   assert.equal(wave.programs[0].observedReadyMs, 10);
-  assert(wave.programs.slice(1).every(row => row.observedReadyMs === 110));
-  assert.equal(wave.elapsedMs, 110); assert.equal(wave.outcome, 'drained'); f.clean();
+  assert(wave.programs.slice(1).every(row => row.observedReadyMs >= 100));
+  assert.equal(wave.elapsedMs, wave.lastObservedReadyMs); assert.equal(wave.outcome, 'drained');
+  assert(receipt.maxPending <= productPending); f.clean();
 });
 
 test('a hidden delayed poll is visible as wall wait without spending the wave visible-time budget', async () => {
@@ -201,23 +202,26 @@ test('a hidden delayed poll is visible as wall wait without spending the wave vi
 
 test('wave diagnostics remain bounded and contain no renderer resource references', async () => {
   const f = fixture({ count: 440, readyDelay: 0 }), receipt = await f.finish(f.run());
-  assert(receipt.waves > 128); assert.equal(receipt.waveLatency.length, 128);
-  assert.equal(receipt.droppedWaveLatency, receipt.waves - 128);
+  assert.equal(receipt.waves, 1); assert.equal(receipt.waveLatency.length, 1);
+  assert.equal(receipt.droppedWaveLatency, 0); assert.equal(receipt.newPrograms, 551);
+  assert.equal(receipt.programObservationLimit, 256);
+  assert.equal(receipt.droppedProgramObservations, receipt.newPrograms - 256);
+  assert(receipt.maxPending <= productPending);
   for (const wave of receipt.waveLatency) {
     assert.equal(wave.outcome, 'drained'); assert.equal(wave.completedPrograms, wave.newPrograms);
     assert(Object.values(wave).every(value => value === null || typeof value !== 'object' || value === wave.families || value === wave.programs));
-    assert(wave.programs.length <= productPending);
+    assert.equal(wave.programs.length, 256); assert.equal(wave.droppedPrograms, receipt.droppedProgramObservations);
     assert(!('program' in wave)); assert(!('material' in wave));
   }
   assert.doesNotThrow(() => JSON.stringify(receipt)); f.clean();
 });
 
-test('a failed drained validation leaves a failed wave receipt and never starts the next wave', async () => {
+test('a queued GL error leaves a failed finite-batch receipt after all pending handles drain', async () => {
   const f = fixture({ readyDelay: 100 }), promise = f.run(); await f.flush();
-  f.glErrors.push(['0x0502']); const submitted = f.compileCalls.length;
-  const rejected = assert.rejects(promise, /GL errors/); await f.timer(100); await rejected;
+  f.glErrors.push(['0x0502']);
+  await assert.rejects(f.finish(promise), /GL errors/);
   const receipt = f.ctx.GRAPHICS_STARTUP.titlePreparations[0], [wave] = receipt.waveLatency;
-  assert.equal(f.compileCalls.length, submitted); assert.equal(receipt.completed, false);
+  assert.equal(f.compileCalls.length, 21); assert.equal(receipt.newPrograms, 26); assert.equal(receipt.completed, false);
   assert.equal(wave.outcome, 'failed'); assert.equal(wave.completedPrograms, wave.newPrograms);
   assert.equal(receipt.waveLatency.length, 1); f.clean();
 });
@@ -302,11 +306,12 @@ test('context loss cancels100ms idle waiting and rejects before another GL query
   assert.equal(f.queries.length,queries);assert.equal(f.errorChecks.length,checks);assert.equal(f.compileCalls.length,1);f.clean();
 });
 
-test('a queued GL error still rejects at the first drained boundary after backoff before any next wave',async()=>{
+test('a queued GL error rejects at the final drained batch after idle backoff',async()=>{
   const f=fixture({count:8,readyDelay:1000}),promise=f.run();await f.flush();await reachIdle100(f);
-  const submitted=f.compileCalls.length;f.glErrors.push(['0x0502']);for(const program of f.programs)program.readyAt=0;
-  const rejected=assert.rejects(promise,/GL errors/);await f.timer();await rejected;
-  assert.equal(f.compileCalls.length,submitted);assert.equal(f.ctx.GRAPHICS_STARTUP.titlePreparations[0].completed,false);f.clean();
+  f.glErrors.push(['0x0502']);for(const program of f.programs)program.readyAt=0;
+  await assert.rejects(f.finish(promise),/GL errors/);
+  assert.equal(f.compileCalls.length,9);assert.equal(f.ctx.GRAPHICS_STARTUP.titlePreparations[0].completed,false);
+  assert(f.errorChecks.every(check=>check.pendingPrograms.length===0));f.clean();
 });
 
 test('a failed completed link is fatal at its next idle poll while its siblings remain pending',async()=>{
@@ -478,35 +483,36 @@ test('completed failed links and GL errors fail closed without a completion rece
   const link = fixture({ failure: 'link' }), pending = link.run(); await assert.rejects(link.finish(pending), /failed to link/); link.clean();
   const gl = fixture(); gl.glErrors.push(['0x0502']); await assert.rejects(gl.run(), /GL errors/); assert.equal(gl.calls.length, 0); gl.clean();
 });
-test('a queued GL error rejects at the drained boundary before another wave or flush', async () => {
+test('a queued GL error is not queried during rolling admission and rejects only after the full batch drains', async () => {
   const f = fixture({ readyDelay: 100 }), promise = f.run(); await f.flush();
-  await f.timer(); assert.equal(f.programs.length, productPending, 'the first wave fills within its bounded turns');
+  await f.timer(); assert.equal(f.programs.length, productPending, 'unfinished slots fill within bounded turns');
   const submitted = f.calls.length, flushed = f.flushes.length, checks = f.errorChecks.length;
   assert(submitted > 0 && f.timers.size === 1);
   f.glErrors.push(['0x0502']);
-  await f.timer(); assert.equal(f.errorChecks.length, checks, 'do not synchronize on errors while the wave is pending');
+  await f.timer(); assert.equal(f.errorChecks.length, checks, 'do not synchronize on errors while the batch is pending');
   assert.equal(f.calls.length, submitted); assert.equal(f.flushes.length, flushed);
   await assert.rejects(f.finish(promise), /GL errors/);
-  assert.equal(f.calls.length, submitted); assert.equal(f.flushes.length, flushed); f.clean();
+  assert.equal(f.compileCalls.length,21); assert.equal(f.programs.length,26);
+  assert(f.calls.length>submitted); assert(f.flushes.length>flushed); f.clean();
   assert(f.errorChecks.every(check => check.pendingPrograms.length === 0));
 });
-test('a flush GL error is rejected when its wave drains and never starts another wave', async () => {
+test('a flush GL error is rejected when the finite batch drains without claiming completion', async () => {
   const f = fixture({ failure: 'flushGL' }); await assert.rejects(f.finish(f.run()), /GL errors/);
-  assert.equal(f.programs.length, productPending); assert(f.flushes.length >= 1);
+  assert.equal(f.programs.length, 26); assert(f.flushes.length >= 1);
   assert.equal(f.ctx.GRAPHICS_STARTUP.titlePreparations[0].waves, 1);
   assert.equal(f.ctx.GRAPHICS_STARTUP.titlePreparations[0].outcome, 'failed'); f.clean();
   assert(f.errorChecks.every(check => check.pendingPrograms.length === 0));
 });
-for (const pendingLimit of [4, 8]) test('a partially completed wave never refills its newly available slots, cap=' + pendingLimit, async () => {
+for (const pendingLimit of [4, 8]) test('partial completion refills newly available unfinished slots, cap=' + pendingLimit, async () => {
   const f = fixture({ readyDelay: 100, pendingLimit }), promise = f.run(); await f.flush();
   await f.timer(); assert.equal(f.programs.length, pendingLimit);
   const submitted = f.compileCalls.length, checks = f.errorChecks.length;
   f.programs[0].readyAt = 0; f.programs[1].readyAt = 0;
   await f.timer();
-  assert.equal(f.compileCalls.length, submitted, 'two available slots do not authorize another wave');
+  assert(f.compileCalls.length > submitted && f.compileCalls.length <= submitted + 2, 'refill respects original order and double-sided reservations');
   assert.equal(f.errorChecks.length, checks);
   const receipt = await f.finish(promise);
-  assert(receipt.waves > 1); assert(receipt.maxPending <= pendingLimit); assert.equal(receipt.maxWavePrograms, pendingLimit);
+  assert.equal(receipt.waves,1); assert(receipt.maxPending <= pendingLimit); assert.equal(receipt.maxWavePrograms, receipt.newPrograms);
   assert(f.errorChecks.every(check => check.pendingPrograms.length === 0)); f.clean();
 });
 for (const pendingLimit of [4, 8]) test('23 terrain cache-hit jobs allow distinct programs to fill the first wave, cap=' + pendingLimit, async () => {
@@ -520,17 +526,19 @@ for (const pendingLimit of [4, 8]) test('23 terrain cache-hit jobs allow distinc
   assert.equal(f.programs.length, pendingLimit); assert.equal(f.queries.length, 0, 'fill distinct programs before the first handle drains');
   assert(f.compileCalls.length > 23); assert.equal(f.ctx.GRAPHICS_STARTUP.titlePreparations[0].waves, 1);
   const submitted = f.compileCalls.length; f.programs[0].readyAt = 0; await f.timer();
-  assert.equal(f.compileCalls.length, submitted, 'partial completion cannot create another wave');
+  assert(f.compileCalls.length>submitted && f.compileCalls.length<=submitted+4, 'a freed slot admits bounded ordered work');
   const receipt = await f.finish(promise);
-  assert.equal(receipt.completed, true); assert.equal(receipt.maxWavePrograms, pendingLimit); assert(receipt.maxPending <= pendingLimit);
+  assert.equal(receipt.completed, true); assert.equal(receipt.maxWavePrograms, 15); assert(receipt.maxPending <= pendingLimit);
   assert(receipt.maxPreparesPerTurn <= 4); assert(f.errorChecks.every(check => check.pendingPrograms.length === 0)); f.clean();
 });
-for (const pendingLimit of [4, 8]) test('completion while filling never frees already consumed capacity, cap=' + pendingLimit, async () => {
+for (const pendingLimit of [4, 8]) test('completion while filling frees unfinished capacity without changing the turn budget, cap=' + pendingLimit, async () => {
   const f = fixture({ readyDelay: 1000, compileMs: 5, pendingLimit }), promise = f.run(); await f.flush();
   assert.equal(f.programs.length, 3); f.programs[0].readyAt = 0;
-  while (f.programs.length < pendingLimit) await f.timer(); assert.equal(f.programs.length, pendingLimit);
-  const submitted = f.compileCalls.length; await f.timer(); assert.equal(f.compileCalls.length, submitted);
-  const receipt = await f.finish(promise); assert.equal(receipt.maxWavePrograms, pendingLimit); assert(receipt.maxPending <= pendingLimit); f.clean();
+  while (f.programs.length <= pendingLimit) await f.timer();
+  assert(f.programs.length>pendingLimit, 'cumulative submissions may exceed the unfinished cap');
+  assert(f.programs.filter(program=>f.ctx.performance.now()<program.readyAt).length<=pendingLimit);
+  const receipt = await f.finish(promise); assert.equal(receipt.maxWavePrograms, receipt.newPrograms);
+  assert(receipt.maxPending <= pendingLimit); assert(receipt.maxPreparesPerTurn<=2); f.clean();
 });
 test('cached-only jobs still check their GL errors before completing or adding another wave', async () => {
   const f = fixture({ count: 1, readyDelay: 0 }); await f.finish(f.run());

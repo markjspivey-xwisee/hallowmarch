@@ -160,13 +160,13 @@ test('sky preparation compiles only the owned eligible original sky and leaves n
   assert.equal(receipt.waves, 1); assert.equal(receipt.maxWavePrograms, 1); f.clean();
 });
 
-for (const pendingLimit of [4, 8]) test('the dependency API reserves double-sided variants across bounded waves, cap=' + pendingLimit, async () => {
+for (const pendingLimit of [4, 8]) test('the dependency API reserves double-sided variants within the rolling unfinished cap, cap=' + pendingLimit, async () => {
   const f = fixture({ compileMs: 10, readyDelay: 1000, pendingLimit });
   for (const material of [f.r.bloomDown, f.r.bloomUp, f.r.raysMat, f.r.composite]) {
     material.transparent = true; material.side = THREE.DoubleSide; material.forceSinglePass = false;
   }
   const before = f.state(), receipt = await f.finish(f.run('post'));
-  assert.equal(receipt.waves, pendingLimit === 4 ? 2 : 1); assert.equal(receipt.newPrograms, 8); assert.equal(receipt.maxWavePrograms, pendingLimit);
+  assert.equal(receipt.waves, 1); assert.equal(receipt.newPrograms, 8); assert.equal(receipt.maxWavePrograms, 8);
   assert.equal(receipt.maxPending, pendingLimit); assert.equal(receipt.maxPreparesPerTurn, 1); assert.equal(f.compileCalls.length, 4);
   assert(f.errorChecks.every(count => count === 0)); assert.deepEqual(f.state(), before); f.clean();
 });
@@ -355,13 +355,13 @@ function entryFixture(options = {}) {
     runEntry: (pairs = resources) => f.ctx.prepareTitleEntryPrograms(f.inventory, f.ctx.TITLE_WARM_GENERATION, pairs) });
 }
 
-for (const pendingLimit of [4, 8]) test('entry preparation uses exact original shadow/weather resources in bounded drained waves, cap=' + pendingLimit, async () => {
+for (const pendingLimit of [4, 8]) test('entry preparation retains all exact shadow/weather resources with rolling unfinished capacity, cap=' + pendingLimit, async () => {
   const f = entryFixture({ shadows: 11, pendingLimit, readyDelay: 50 }), before = f.state();
   const counts = f.sources.map(source => source.geometry.instanceCount), parents = f.sources.map(source => source.parent);
   const receipt = await f.finish(f.runEntry());
   assert.equal(receipt.completed, true); assert.equal(receipt.dependency, 'entry'); assert.equal(receipt.eligibleJobs, 14);
-  assert.equal(receipt.maxPending, pendingLimit); assert.equal(receipt.maxWavePrograms, pendingLimit);
-  assert.equal(receipt.waves, Math.ceil(14 / pendingLimit)); assert(receipt.maxPreparesPerTurn <= 4);
+  assert.equal(receipt.maxPending, pendingLimit); assert.equal(receipt.maxWavePrograms, 14);
+  assert.equal(receipt.waves, 1); assert(receipt.maxPreparesPerTurn <= 4);
   assert(f.errorChecks.every(count => count === 0)); assert.deepEqual(f.state(), before);
   assert.deepEqual(f.sources.map(source => source.geometry.instanceCount), counts); assert.deepEqual(f.sources.map(source => source.parent), parents);
   assert.equal(f.randomCalls(), 0); assert.equal(f.preflightCalls(), 0); assert.equal(f.currentTarget(), f.originalTarget);
@@ -535,7 +535,7 @@ test('shader similarity alone cannot admit foreign glass, and unavailable ripple
   assert(!f.calls.some(call => call.object === foreign)); f.clean();
 });
 
-test('entry reflection uses original linked programs only at drained boundaries and leaves post/sky serial initializers alone', async () => {
+test('entry reflection uses original linked programs only after the full finite batch drains and leaves post/sky serial initializers alone', async () => {
   const f = entryFixture({ shadows: 11, readyDelay: 50 });
   f.ctx.renderer.debug.checkShaderErrors=false;
   const receipt = await f.finish(f.runEntry());
@@ -548,30 +548,34 @@ test('entry reflection uses original linked programs only at drained boundaries 
   assert.equal(f.reflections.length, before); f.clean();
 });
 
-test('an early completed handle does not prevent the entry wave from filling across bounded turns', async () => {
+test('an early completed handle permits rolling entry admission across bounded turns', async () => {
   const f = entryFixture({ shadows: 7, compileMs: 10, readyDelay: 5 });
   const receipt = await f.finish(f.runEntry());
-  assert.equal(receipt.completed, true); assert.equal(receipt.maxWavePrograms, 4);
+  assert.equal(receipt.completed, true); assert.equal(receipt.maxWavePrograms, 10); assert(receipt.maxPending<=4);
   assert.equal(receipt.reflectedPrograms, receipt.newPrograms); assert(receipt.maxPreparesPerTurn <= 1); f.clean();
 });
 
-test('one slow original entry initializer yields before another initializer or wave submission', async () => {
+test('one slow original entry initializer yields before another initializer after all jobs have been submitted', async () => {
   const f = entryFixture({ shadows: 7, readyDelay: 25, reflectionMs: 5000 }), promise = f.runEntry(); await f.flush();
-  const submitted = f.compileCalls.length;
-  await f.timer(30);
-  assert.equal(f.reflections.length, 1); assert.equal(f.compileCalls.length, submitted);
+  for(let i=0;i<40&&f.reflections.length===0;i++){
+    assert.equal(f.reflections.length,0); await f.timer();
+  }
+  assert.equal(f.reflections.length, 1); assert.equal(f.compileCalls.length, 10);
   const receipt = await f.finish(promise);
   assert.equal(receipt.maxSingleReflectionMs, 5000); assert.equal(receipt.maxReflectionsPerTurn, 1);
   assert.equal(receipt.reflectionMs, receipt.reflectedPrograms * 5000); assert.equal(receipt.maxFullTurnMs, 5000);
   assert(receipt.reflectionBudgetYields > 0); f.clean();
 });
 
-test('actual entry reflection keeps the base10ms cadence after a backed-off pending wave',async()=>{
+test('actual entry reflection keeps the base10ms cadence after a backed-off pending finite batch',async()=>{
   const f=entryFixture({shadows:7,readyDelay:1000,reflectionMs:10}),promise=f.runEntry();await f.flush();
   const wait=()=>[...f.timers.values()][0].due-f.ctx.performance.now();
   assert.equal(wait(),10);for(let i=0;i<10&&wait()<100;i++)await f.timer();assert.equal(wait(),100);
-  for(const program of f.programs)program.readyAt=0;
-  await f.timer();assert.equal(f.reflections.length,1);assert.equal(wait(),10);
+  for(let i=0;i<20&&f.reflections.length===0;i++){
+    for(const program of f.programs)program.readyAt=0;
+    await f.timer();
+  }
+  assert.equal(f.compileCalls.length,10);assert.equal(f.reflections.length,1);assert.equal(wait(),10);
   const receipt=await f.finish(promise);assert.equal(receipt.completed,true);assert.equal(receipt.maxReflectionsPerTurn,1);f.clean();
 });
 
@@ -584,20 +588,21 @@ test('completed entry siblings do not prevent idle backoff while other sealed pr
   const receipt=await f.finish(promise);assert.equal(receipt.reflectedPrograms,receipt.newPrograms);f.clean();
 });
 
-test('queued GL errors reject before entry reflection or any next wave', async () => {
+test('queued GL errors reject after the finite entry batch drains and before any reflection', async () => {
   const f = entryFixture({ shadows: 7, readyDelay: 50 }), promise = f.runEntry(); await f.flush();
-  const submitted = f.compileCalls.length; f.errors.push(['0x0502']);
-  const rejected = assert.rejects(promise, /GL errors/); await f.timer(60); await rejected;
-  assert.equal(f.reflections.length, 0); assert.equal(f.compileCalls.length, submitted); f.clean();
+  f.errors.push(['0x0502']);
+  await assert.rejects(f.finish(promise), /GL errors/);
+  assert.equal(f.reflections.length, 0); assert.equal(f.compileCalls.length, 10);
+  assert(f.errorChecks.every(count=>count===0)); f.clean();
 });
 
 for (const [failure, message] of [['reflection', /reflection failure/], ['reflectionGL', /GL errors/],
   ['reflectionDiagnostics', /original diagnostics/], ['reflectionDispose', /disposed during reflection/], ['reflectionContext', /Graphics stopped/]])
-test('entry initializer fails closed without retry or another wave: ' + failure, async () => {
+test('entry initializer fails closed after final-batch validation without retry: ' + failure, async () => {
   const f = entryFixture({ shadows: 7, readyDelay: 50, failure }), promise = f.runEntry(); await f.flush();
   f.ctx.renderer.debug.checkShaderErrors=false;
-  const submitted = f.compileCalls.length, rejected = assert.rejects(promise, message); await f.timer(60); await rejected;
-  assert.equal(f.reflections.length, 1); assert.equal(f.compileCalls.length, submitted);
+  await assert.rejects(f.finish(promise), message);
+  assert.equal(f.reflections.length, 1); assert.equal(f.compileCalls.length, 10);
   assert.equal(f.reflections[0].checked,true);assert.equal(f.ctx.renderer.debug.checkShaderErrors,false);
   const receipt = f.ctx.GRAPHICS_STARTUP.titlePreparations[0]; assert.equal(receipt.completed, false); assert.equal(receipt.outcome, 'failed'); f.clean();
 });
@@ -615,14 +620,14 @@ test('a generation change during initialization stops after that call without an
   const f = entryFixture({ shadows: 7, readyDelay: 50, failure: 'reflectionStale' });
   const receipt = await f.finish(f.runEntry());
   assert.equal(receipt.stale, true); assert.equal(receipt.completed, false); assert.equal(f.reflections.length, 1);
-  assert.equal(receipt.reflectedPrograms, 1); assert.equal(f.compileCalls.length, 4); f.clean();
+  assert.equal(receipt.reflectedPrograms, 1); assert.equal(f.compileCalls.length, 10); f.clean();
 });
 
 for(const change of ['missing API','unowned wrapper'])test('entry reflection rejects unavailable original program ownership: '+change,async()=>{
   const f=entryFixture({shadows:7,readyDelay:50}),promise=f.runEntry();await f.flush();
   if(change==='missing API')f.programs[0].getUniforms=null;else f.programs.shift();
-  const rejected=assert.rejects(promise,change==='missing API'?/reflection is unavailable/:/disposed before reflection/);
-  await f.timer(60);await rejected;assert.equal(f.reflections.length,0);f.clean();
+  await assert.rejects(f.finish(promise),change==='missing API'?/reflection is unavailable/:/disposed before reflection/);
+  assert.equal(f.reflections.length,0);f.clean();
 });
 
 test('a late completed final entry wave retains original completion ordering without starting reflection after its visible budget',async()=>{
@@ -639,12 +644,20 @@ test('a completed slow initializer cannot start more optional reflection after t
   assert.equal(receipt.maxFullTurnMs,200000);assert.equal(f.reflections.length,1);f.clean();
 });
 
-test('a short reflection crossing the total budget cannot admit another wave in the same turn',async()=>{
+test('short final-batch reflection crossing the total budget defers the remaining optional initializer',async()=>{
+  const f=entryFixture({shadows:0,readyDelay:25,reflectionMs:3}),promise=f.runEntry();await f.flush();
+  await f.timer(179985);const receipt=await promise;
+  assert.equal(receipt.completed,true);assert.equal(f.compileCalls.length,3);
+  assert.equal(f.reflections.length,2);assert.equal(receipt.deferredReflections,1);
+  assert(receipt.visibleMs>=180000);f.clean();
+});
+
+test('a late drained subset cannot reflect or admit remaining entry jobs after the total budget',async()=>{
   const f=entryFixture({shadows:7,readyDelay:25,reflectionMs:3}),promise=f.runEntry();await f.flush();
   const submitted=f.compileCalls.length,rejected=assert.rejects(promise,/exceeded its time budget/);
-  await f.timer(179985);await rejected;
+  await f.timer(179990);await rejected;
   const receipt=f.ctx.GRAPHICS_STARTUP.titlePreparations[0];
-  assert.equal(f.reflections.length,2);assert.equal(receipt.deferredReflections,2);
+  assert.equal(f.reflections.length,0);assert.equal(receipt.reflectedPrograms,0);
   assert.equal(f.compileCalls.length,submitted);assert.equal(receipt.completed,false);f.clean();
 });
 
@@ -801,10 +814,11 @@ test('combined queue overlaps known expensive synthetic programs without increas
   serial.clean();combined.clean();
 });
 
-test('combined queue failures still reject before another wave and never claim readiness',async()=>{
+test('combined queued GL failures reject after finite-batch drain without reflection or readiness',async()=>{
   const f=initialFixture({shadows:7,readyDelay:50}),promise=f.runInitial();await f.flush();
-  const submitted=f.compileCalls.length;f.errors.push(['0x0502']);const rejected=assert.rejects(promise,/GL errors/);
-  await f.timer(60);await rejected;assert.equal(f.compileCalls.length,submitted);
+  f.errors.push(['0x0502']);await assert.rejects(f.finish(promise),/GL errors/);
+  const receipt=f.ctx.GRAPHICS_STARTUP.titlePreparations[0];
+  assert.equal(f.compileCalls.length,receipt.eligibleJobs);assert.equal(f.reflections.length,0);assert(f.errorChecks.every(count=>count===0));
   assert.equal(f.ctx.GRAPHICS_STARTUP.titlePreparations[0].completed,false);assert.equal(f.ctx.GRAPHICS_STARTUP.titleCompleted,undefined);f.clean();
 });
 
