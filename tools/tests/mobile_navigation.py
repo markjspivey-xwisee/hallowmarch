@@ -23,7 +23,7 @@ SIZES = [(393, 668), (393, 852), (320, 568), (852, 393)]
 FAILS = []
 RESULTS = []
 NAV = {
-    'mobile-inventory': 'Inventory',
+    'mobile-inventory': 'Items',
     'mobile-skills': 'Skills',
     'mobile-map': 'Map',
     'mobile-notes': 'Notes',
@@ -120,7 +120,7 @@ async def geometry(page, tag):
           tag + ': navigation uses the usable ' + edge + ' edge without extra padding ' + json.dumps(nav))
     buttons = m['buttons']
     check({b['id'] for b in buttons} == set(NAV),
-          tag + ': Inventory, Skills, Map, Notes and Menu are present in permanent navigation')
+          tag + ': Items, Skills, Map, Notes and Menu are present in permanent navigation')
     bad = [b for b in buttons if not b.get('hit') or b.get('w', 0) < 47.5 or
            b.get('h', 0) < 47.5 or b.get('clipped') or NAV.get(b['id'], '') not in b.get('text', '') or
            b['x'] < safe['l'] - 1 or b['x'] + b['w'] > m['w'] - safe['r'] + 1 or
