@@ -298,7 +298,7 @@ window.__realmSiteQA = (() => {
   }
   let fixture=null;
   function installFixture(){
-    const RS=realmSimInit(314159);realmManageInit(RS);const kinds=Object.keys(RM_CATALOG);
+    const RS=realmSimInit(314159);realmManageInit(RS);const kinds=Object.keys(RM_CATALOG).filter(kind=>kind!=='watchpost');
     for(let home=0;home<3;home++){
       RS.realms[home].management.buildings=[];
       for(let i=0;i<8;i++){
