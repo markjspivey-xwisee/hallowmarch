@@ -17,7 +17,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        check: [headless, companies, season, performance, visuals, shaders, phone, soak, water, startup, networking]
+        check: [headless, companies, season, performance, visuals, shaders, phone, soak, water, startup, onboarding, networking]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -74,7 +74,7 @@ jobs:
           check() { python tools/ci/run_check.py "$@"; }
           case "$CHECK" in
             headless)
-              node --test tools/tests/presentation_accessibility.test.mjs tools/tests/objective_guidance.test.mjs tools/tests/combat_targeting.test.mjs tools/tests/lore_observation.test.mjs tools/tests/potion_purchase_receipt.test.mjs tools/tests/combat_notes.test.mjs tools/tests/contextual_notes.test.mjs tools/tests/taming_prompt.test.mjs tools/tests/menu_reading_keys.test.mjs tools/tests/farmer_wayfinding.test.mjs
+              node --test tools/tests/presentation_accessibility.test.mjs tools/tests/objective_guidance.test.mjs tools/tests/combat_targeting.test.mjs tools/tests/lore_observation.test.mjs tools/tests/first_world_guidance.test.mjs tools/tests/potion_purchase_receipt.test.mjs tools/tests/combat_notes.test.mjs tools/tests/contextual_notes.test.mjs tools/tests/taming_prompt.test.mjs tools/tests/menu_reading_keys.test.mjs tools/tests/farmer_wayfinding.test.mjs
               node --test tools/tests/menu_edit_save.test.mjs tools/tests/menu_edit_save.browser.test.mjs
               node --test tools/tests/readiness_responsiveness.test.mjs tools/tests/weather_entry_resources.test.mjs tools/tests/ripple_entry_resources.test.mjs tools/tests/meadow_rgb_preparation.test.mjs tools/tests/season_settle_equivalence.test.mjs
               node --test tools/tests/season_ice_settle.test.mjs
@@ -108,6 +108,10 @@ jobs:
               node tools/tests/loops_season.js seeds=12 json=tools/out/season2.json
               ;;
             startup) check python3 tools/tests/startup_graphics.py ;;
+            onboarding)
+              check python3 tools/tests/lore.py desktop phone
+              check python3 tools/tests/guide.py desk phone
+              ;;
             networking)
               node --test server/gaming/*.test.mjs tools/tests/gaming_live.test.mjs
               node --test client/native-pod/client.test.mjs client/native-pod/profile.test.mjs client/native-pod/public-record.test.mjs client/native-pod/owner-agent-grant.test.mjs client/native-pod/native-load.test.mjs client/native-pod/performance-consultation.test.mjs client/native-pod/foxxi-consulting*.test.mjs client/native-pod/agent-own-session.test.mjs
