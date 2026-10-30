@@ -21,6 +21,8 @@ function netHumanLive() {
 }
 function netHumanPublish() {
   const h = NET_HUMAN_PLAY, live = netHumanLive(), wasLive = h.reportedLive;
+  // Observe the existing transition only; this never grants or extends play.
+  if (live !== wasLive && typeof resetAdaptiveQualityClock === 'function') resetAdaptiveQualityClock();
   if (live === wasLive) {
     // Trusted input renews at most once a second, even if rendering is stalled.
     // The client expires before the server, leaving a publication margin.
