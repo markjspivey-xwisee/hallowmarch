@@ -45,7 +45,7 @@ export async function adoptRetainedKey({ scope, sourceScope, publicKey, keyStora
   active();
   // Atomic insert, with a separate address: never rename, replace or duplicate
   // a protected key record, and never change its authenticated encryption data.
-  const stored = await keyStorage.create(address(scope), alias, { signal, isCurrent });
+  const stored = await keyStorage.create(address(scope), alias, { signal, isCurrent, absentKeys: [scope] });
   active();
   if (sourceFor(scope, stored) !== sourceScope || stored.publicKey !== publicKey) {
     refusal('recovery_conflict', 'Another recovery choice is already saved. Existing keys were kept.');

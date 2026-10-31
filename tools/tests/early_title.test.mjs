@@ -46,6 +46,8 @@ function fixture({career=null,native=true,visualViewport=true}={}){
     nativePlayerSaveMessage:()=> 'Private character kept',nativePlayerGuestExpired:()=>false,nativePlayerIsProvisional:()=>false,nativePlayerQuotaExhausted:()=>false,
     nativePlayerFreshAllowed:()=>false,nativePlayerNewAdventureAllowed:()=>false,nativePlayerExpiredAdventureAllowed:()=>false,
     nativePlayerConnect:()=>{calls.actions++;},nativePlayerRecovery:()=>{calls.actions++;},nativePlayerRestore:()=>{calls.actions++;},
+    nativePlayerCheckRecovery:()=>{calls.actions++;},nativePlayerFindRetainedKey:()=>{calls.actions++;},
+    nativePlayerUseRetainedKey:()=>{calls.actions++;},nativePlayerDownloadOlderSave:()=>{calls.actions++;},
     nativePlayerTask:async()=>{calls.tasks++;},fetch:async()=>({ok:true,status:200,json:async()=>({playerIdentity:{provisionalPlay:{enabled:true}}})}),
     netLinkWS:async()=>true,nativePlayerRequest:async()=>c.serverStatus,nativePlayerError:(code,message)=>Object.assign(Error(message),{code}),
     applySettings:()=>{calls.settings++;},applyWorldSave:()=>{calls.world++;},setTimeout:()=>1,clearTimeout(){},

@@ -107,7 +107,7 @@ try {
     assert.deepEqual(result.after, result.before);
   });
 
-  await check('a second tab canonical insert wins a concurrent recovery and neither encrypted key is overwritten', async context => {
+  await check('a second tab canonical winner aborts the queued alias insert without storing metadata or overwriting either key', async context => {
     const recovering = await pageFor(context), competing = await pageFor(context);
     const original = await recovering.evaluate(async () => {
       window.originalVault = new ClientKeyVault(previousScope, keyStorage, crypto);
@@ -131,12 +131,12 @@ try {
       const resolved = scopeApi.createOwnerKeyVault({ scope: currentScope, keyStorage, crypto });
       return { outcome, selectedPublicKey: await resolved.publicKey(), content: await resolved.open(canonical.envelope),
         originalContent: await originalVault.open(originalEnvelope), source: await fingerprint(previousScope),
-        canonical: await fingerprint(currentScope), count: await recordCount(), aliasFields: Object.keys(await keyStorage.load(aliasAddress)).sort() };
+        canonical: await fingerprint(currentScope), count: await recordCount(), alias: await keyStorage.load(aliasAddress) };
     }, canonical);
-    assert.deepEqual(result.outcome, { error: 'key_exists' }); assert.equal(result.selectedPublicKey, canonical.publicKey);
+    assert.deepEqual(result.outcome, { error: 'key_scope_changed' }); assert.equal(result.selectedPublicKey, canonical.publicKey);
     assert.equal(result.content, 'canonical concurrent fixture'); assert.equal(result.originalContent, 'original retained fixture');
-    assert.deepEqual(result.source, original); assert.deepEqual(result.canonical, canonical.fingerprint); assert.equal(result.count, 3);
-    assert.deepEqual(result.aliasFields, ['publicKey', 'schema', 'sourceScope']);
+    assert.deepEqual(result.source, original); assert.deepEqual(result.canonical, canonical.fingerprint); assert.equal(result.count, 2);
+    assert.equal(result.alias, null);
   });
   for (const changed of ['source', 'canonical']) await check('an already resolved alias refuses private operations after a different ' + changed + ' key appears', async context => {
     const held = await pageFor(context), other = await pageFor(context);

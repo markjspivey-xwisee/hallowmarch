@@ -118,7 +118,8 @@ const netNote=()=>{},netStr=(value,n)=>String(value).slice(0,n);
 window.WebSocket=class {constructor(){this.readyState=0;queueMicrotask(()=>{this.readyState=1;this.onopen?.({})})}
 send(raw){const message=JSON.parse(raw);if(message.t!=='hello')return;identityCalls.hellos.push(message);const reply=()=>this.onmessage?.({data:JSON.stringify(message.token?{t:'denied',why:'native_signin_required'}:{t:'welcome',v:1,peer:'fixture-fresh-peer',token:${JSON.stringify(GUEST_TOKEN)},acct:{id:'fixture-fresh-guest',guest:true},world:{k:[]}})});if(message.token&&coldHelloHold)coldHelloReplies.push(reply);else queueMicrotask(reply)}
 close(){this.readyState=3;this.onclose?.({code:1008,reason:'native_signin_required'})}};` : `const netServerUrl=()=>location.origin,netLinkWS=async()=>{identityCalls.links.push(NETWS.token);return true};`}
-const CAPTURE={on:false},buildSave=()=>structuredClone(fixtureMemory),coreKey=value=>JSON.stringify(value),withTimeout=(promise,ms)=>Promise.race([promise,new Promise(resolve=>setTimeout(()=>resolve(null),ms))]);
+const CAPTURE={on:false},buildSave=()=>structuredClone(fixtureMemory),coreKey=value=>JSON.stringify(value);
+const withTimeout=(promise,ms)=>{const delay=window.recoveryTimeoutMs&&ms===45000?window.recoveryTimeoutMs:ms;if(delay!==ms)identityCalls.shortenedTimeout=ms;return Promise.race([promise,new Promise(resolve=>setTimeout(()=>resolve(null),delay))])};
 ${nativeSaves}
 if(!${live})saveNow=async()=>{identityCalls.save++};
 ${players}
@@ -141,7 +142,7 @@ SAVE.loading={settled:true,server:netServerUrl(),owner:NETWS.acct.id,host:NETWS.
 NATIVE_PLAYER.cache={list:async()=>[{relayUrl:'https://relay.example',ownerDid:${JSON.stringify(owner.subjectDid)},podUrl:${JSON.stringify(owner.podUrl)}}],get:async()=>({credential:{kind:'relay-oauth-bearer',accessToken:${JSON.stringify(NATIVE_TOKEN)},expiresAt:Date.now()+600000}}),close:async()=>{}};
 NATIVE_PLAYER.module=Promise.resolve({
 createRetainedCharacterRecovery:options=>({discover:async()=>{identityCalls.discover++;return structuredClone(recoveryResult)},restore:async(file,passphrase)=>{identityCalls.restore++;if(file.schema!=='fixture-encrypted-recovery'||passphrase.length<12||window.failRecoveryRestore)throw Error('The encrypted fixture recovery file could not be opened.');return structuredClone(recoveryResult)},activate:async handle=>{identityCalls.activate++;window.activationStarted=true;if(window.activationGate)await activationGate;if(handle!=='fixture-verified-handle')throw Error('Invalid fixture recovery authorization');if(!options.isCurrent())return{status:'cancelled'};return structuredClone(activationResult)},close:()=>{identityCalls.probeClosed++}}),
-createPlayerPodProfile:()=>{identityCalls.newProfiles++;return{status:()=>({hasRecord:true,keyPresent:true,pending:false,linked:true}),connect:async()=>({keyPresent:true}),get:async()=>({exists:true,data:()=>structuredClone(recoveryResult.status==='verified_empty'?{v:1,char:null}:browserRecoveredSave)}),set:async()=>{identityCalls.save++;throw Error('Unexpected recovery profile write')},close:()=>{identityCalls.profileClosed++}}}
+createPlayerPodProfile:()=>{identityCalls.newProfiles++;return{status:()=>({hasRecord:true,keyPresent:true,pending:false,linked:true}),connect:async()=>({keyPresent:true}),get:async()=>{if(window.holdRecoveryRead)await new Promise(resolve=>{window.releaseRecoveryRead=resolve});return{exists:true,data:()=>structuredClone(recoveryResult.status==='verified_empty'?{v:1,char:null}:browserRecoveredSave)}},set:async()=>{identityCalls.save++;throw Error('Unexpected recovery profile write')},close:()=>{identityCalls.profileClosed++}}}
 });` : ''}
 netUiOn();netAcctRender();nativePlayerRender();
 if(${JSON.stringify(view)}.startsWith('players')){$('title').hidden=true;$('netsheet').hidden=false;NETUI.open=true;UI.modal='net'}
@@ -419,6 +420,32 @@ try {
       loads: identityCalls.load, oldClosed: identityCalls.profileClosed, newProfiles: identityCalls.newProfiles, entries: identityCalls.entries.length })),
       { discover: 1, activate: 1, saves: 0, loads: 1, oldClosed: 1, newProfiles: 1, entries: 0 });
     assert.equal(await page.evaluate(() => SAVE.readConfirmed), true);
+    await context.close();
+  });
+  await check('a real title-load timeout retains stale data without claiming that recovery opened its character', async () => {
+    const context = await contextForMobile(), page = await openFixture(context, 'recovery-check');
+    await page.evaluate(() => {
+      recoveryResult = { status: 'verified_character', handle: 'fixture-verified-handle',
+        summary: { name: 'Verified browser hero', level: 23, realm: 2, calling: 'mage', realmPoints: 174 } };
+      window.staleRecoverySave = { v: 1, char: { name: 'Stale unconfirmed hero', level: 8, realm: 0, cls: 'warrior' } };
+      SAVE.loaded = staleRecoverySave;
+    });
+    const box = page.locator('#title .native-player');
+    await box.getByRole('button', { name: 'Check this browser', exact: true }).click();
+    await page.waitForFunction(() => !NATIVE_PLAYER.busy && NATIVE_PLAYER.browserRecovery?.result.status === 'verified_character');
+    // Only the fixture's wait port is shortened. The actual src12 loader still
+    // supplies its original 45-second deadline and owns timedOut/readConfirmed.
+    await page.evaluate(() => { window.holdRecoveryRead = true; window.recoveryTimeoutMs = 40; });
+    await box.getByRole('button', { name: 'Use this key on this site', exact: true }).click();
+    await page.waitForFunction(() => !NATIVE_PLAYER.busy && SAVE.loading?.timedOut === true, undefined, { timeout: 5000 });
+    assert.deepEqual(await page.evaluate(() => ({ deadline: identityCalls.shortenedTimeout, sameStaleSave: SAVE.loaded === staleRecoverySave,
+      phase: SAVE.loading.phase, settled: SAVE.loading.settled, readConfirmed: SAVE.readConfirmed, getWasHeld: typeof releaseRecoveryRead === 'function',
+      loads: identityCalls.load, newProfiles: identityCalls.newProfiles, saves: identityCalls.save, entries: identityCalls.entries.length })),
+      { deadline: 45000, sameStaleSave: true, phase: 'read', settled: false, readConfirmed: false, getWasHeld: true,
+        loads: 1, newProfiles: 1, saves: 0, entries: 0 });
+    assert.equal(await page.evaluate(() => NATIVE_PLAYER.message), 'The key was selected. Your existing character still needs to be confirmed before play.');
+    assert(!(await box.textContent()).includes('Your existing character opened with its saved key'));
+    assert.equal(await page.evaluate(() => GAME.started), false); assert(await page.locator('#btn-begin').isDisabled());
     await context.close();
   });
   await check('a verified empty record requires explicit unlock and never starts or creates a character', async () => {

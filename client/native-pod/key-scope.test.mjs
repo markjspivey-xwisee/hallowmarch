@@ -71,7 +71,8 @@ test('a concurrent canonical insert wins and no key is overwritten', async () =>
     f.keyStorage.records.set(current, canonicalStore.records.get(current));
     return insert(address, value, context);
   };
-  await assert.rejects(adoptRetainedKey(f), { code: 'key_exists' });
+  await assert.rejects(adoptRetainedKey(f), { code: 'key_scope_changed' });
+  assert.equal(f.keyStorage.records.size, 2, 'A refused recovery leaves no public alias behind.');
   assert.equal(await ownerVault(f.keyStorage).publicKey(), key);
   assert.equal(await f.original.publicKey(), f.publicKey);
 });
