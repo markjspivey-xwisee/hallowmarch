@@ -548,6 +548,36 @@ try {
     assert.equal(await page.evaluate(() => identityCalls.save), 0, 'entry never substitutes an automatic identity/save operation');
     await context.close();
   });
+  for (const width of [320, 390, 1280]) await check(width + 'px unverified locked title makes reconnect the sole primary until identity is verified', async () => {
+    const context = await contextForMobile(width), page = await openFixture(context, 'title');
+    const before = calls.length;
+    await page.evaluate(() => {
+      SAVE.loaded = null; SAVE.readConfirmed = false;
+      NATIVE_PLAYER.status.verified = false; NATIVE_PLAYER.state = 'key_required';
+      NATIVE_PLAYER.profile.status = () => ({ hasRecord: true, keyPresent: false, pending: false });
+      window.originalLockedProfile = NATIVE_PLAYER.profile; window.originalLockedRef = SAVE.ref;
+      window.originalLockedBinding = JSON.stringify(NATIVE_PLAYER.status.binding);
+      identityTest.showTitle(null);
+    });
+    const box = page.locator('#title .native-player');
+    assert.deepEqual(await page.locator('#title button.primary:visible').allTextContents(), ['Reconnect identity']);
+    assert(await box.getByRole('button', { name: 'Reconnect identity', exact: true }).isEnabled());
+    assert.equal(await box.getByRole('button', { name: /^(Check recovery options|Check this browser)$/ }).count(), 0);
+    assert(await page.locator('#btn-begin').isDisabled()); assert(await page.locator('#btn-continue').isHidden());
+    await page.evaluate(() => { NATIVE_PLAYER.status.verified = true; nativePlayerRender(); });
+    assert.deepEqual(await page.locator('#title button.primary:visible').allTextContents(), ['Check recovery options']);
+    assert(await box.getByRole('button', { name: 'Check this browser', exact: true }).isVisible());
+    assert(await page.locator('#btn-begin').isDisabled());
+    assert.equal(calls.length, before, 'rendering must not start sign-in or create a character');
+    assert.deepEqual(await page.evaluate(() => ({
+      profilePreserved: NATIVE_PLAYER.profile === originalLockedProfile, refPreserved: SAVE.ref === originalLockedRef,
+      bindingPreserved: JSON.stringify(NATIVE_PLAYER.status.binding) === originalLockedBinding,
+      saves: identityCalls.save, loads: identityCalls.load, entries: identityCalls.entries.length,
+      discovers: identityCalls.discover, restores: identityCalls.restore, activations: identityCalls.activate,
+    })), { profilePreserved: true, refPreserved: true, bindingPreserved: true,
+      saves: 0, loads: 0, entries: 0, discovers: 0, restores: 0, activations: 0 });
+    await context.close();
+  });
   await check('expired access, unread connection and pending states surface recovery without authorizing entry', async () => {
     const context = await contextForMobile(), page = await openFixture(context, 'title');
     await page.evaluate(() => {

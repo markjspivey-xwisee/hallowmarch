@@ -447,12 +447,16 @@ function nativePlayerRender() {
     if (!compact) add('h3', expired ? 'Temporary session expired' : provisional ? 'Keep your character' : status.bound ? 'Your identity and character' : nativePlayerCanPlayNow() ? 'Start your adventure' : 'Your identity and character');
     const hint = add('p', expired || status.bound || nativePlayerCanPlayNow() || nativePlayerNewAdventureAllowed() ? nativePlayerSaveMessage() : 'Connect your Interego identity to open your private character.');
     hint.className = 'native-player-status'; hint.tabIndex = -1;
+    const profile = NATIVE_PLAYER.switching ? null : NATIVE_PLAYER.profile;
+    const forcedRecovery = profile && profileStatus?.hasRecord && !profileStatus.keyPresent;
+    const canCheckRecovery = profile && status.bound && status.verified && !provisional && !GAME.started;
     const primary = !taskPanel ? null : claimRecovery ? 'Restore saved character' : expired ? 'Open my saved character'
       : NATIVE_PLAYER.claimConfirmationPending ? 'Confirm kept character'
-      : profileStatus?.hasRecord && !profileStatus.keyPresent ? 'Check recovery options'
+      : forcedRecovery && canCheckRecovery ? 'Check recovery options'
       : nativePlayerFreshAllowed() && NATIVE_PLAYER.authRefusal.reason !== 'native_owner_mismatch' ? 'Start a fresh sign-in'
       : nativePlayerFreshAllowed() && NATIVE_PLAYER.authRefusal.reason === 'native_owner_mismatch' ? 'Reconnect identity'
       : provisional ? nativePlayerQuotaExhausted() && SAVE.pending ? 'Keep last confirmed save' : 'Keep my character'
+      : status.bound && !status.verified ? 'Reconnect identity'
       : status.bound && profileStatus && !SAVE.readConfirmed ? 'Retry connection'
       : status.bound ? 'Reconnect identity' : 'I already have an identity';
     const action = (label, run, parent = taskPanel && label !== primary ? alternativeBody : content) => {
@@ -479,9 +483,7 @@ function nativePlayerRender() {
       NATIVE_PLAYER.authRefusal.reason === 'native_owner_mismatch' ? 'Sign in with a different account' : 'Start a fresh sign-in', () => nativePlayerConnect(true));
     const connectionRetry = !expired && SAVE.native && !SAVE.readConfirmed && !GAME.started && !NATIVE_PLAYER.switching;
     if (connectionRetry) action('Retry connection', () => nativePlayerTask(nativePlayerRetryLoad));
-    const profile = NATIVE_PLAYER.switching ? null : NATIVE_PLAYER.profile;
-    const forcedRecovery = profile && profileStatus?.hasRecord && !profileStatus.keyPresent;
-    if (profile && status.bound && status.verified && !provisional && !GAME.started && (forcedRecovery || NATIVE_PLAYER.recoveryOpen)) {
+    if (canCheckRecovery && (forcedRecovery || NATIVE_PLAYER.recoveryOpen)) {
       add('p', 'You are signed in. Opening a private character also needs its character key. These checks keep your existing saves and keys.');
       action('Check recovery options', nativePlayerCheckRecovery, content);
       action('Check this browser', nativePlayerFindRetainedKey, content);
