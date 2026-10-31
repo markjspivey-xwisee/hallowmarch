@@ -132,6 +132,10 @@ const server = http.createServer(async (req, res) => {
     if (url.pathname === '/' || url.pathname === '/fixture-ui') {
       res.writeHead(200, { 'Content-Type': 'text/html' }); res.end(await fixturePage(url.searchParams.get('view') || 'connect')); return;
     }
+    if (url.pathname === '/fixture-claim-authorize') {
+      res.writeHead(200, { 'Content-Type': 'text/html' });
+      res.end('<!doctype html><title>Inert character-claim authorization fixture</title><p>Awaiting explicit owner authorization.</p>'); return;
+    }
     if (claimMode.startsWith('callback-') && url.pathname === '/gaming/identity/callback') {
       await callbackBridge.handle(req, res); return;
     }
@@ -173,6 +177,16 @@ const server = http.createServer(async (req, res) => {
 });
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 const base = 'http://127.0.0.1:' + server.address().port;
+// A different real loopback port is a different origin. The old identity
+// window deliberately retains its legacy target name after navigation.
+const foreignRequests = [];
+const foreignServer = http.createServer((req, res) => {
+  foreignRequests.push(req.url);
+  res.writeHead(200, { 'Content-Type': 'text/html', 'Cache-Control': 'no-store' });
+  res.end('<!doctype html><title>Retained foreign identity fixture</title><script>window.name="hallowmarch-identity";window.retainedIdentityFixture=true;sessionStorage.setItem("foreign.fixture.marker","untouched")</script>');
+});
+await new Promise(resolve => foreignServer.listen(0, '127.0.0.1', resolve));
+const foreignBase = 'http://127.0.0.1:' + foreignServer.address().port;
 const browser = await chromium.launch({ headless: true, executablePath: process.env.HM_CHROMIUM_EXECUTABLE || undefined, args: ['--no-sandbox'] });
 const failures = [];
 async function check(name, run) { try { await run(); console.log('PASS ' + name); } catch (error) { failures.push({ name, message: error.message }); console.error('FAIL ' + name + ': ' + error.message); }
@@ -239,6 +253,14 @@ async function prepareLive(page) {
 async function reconnectPopup(page) {
   const popup=page.waitForEvent('popup');
   await page.locator('#netsheet .native-player button').filter({hasText:'Reconnect identity'}).click();return popup;
+}
+async function retainedForeignPopup(page) {
+  const opening = page.waitForEvent('popup', { timeout: 5000 });
+  await page.evaluate(url => { window.retainedForeignIdentity = window.open(url, 'hallowmarch-identity', 'popup,width=520,height=760'); }, foreignBase + '/retained-identity');
+  const popup = await opening;
+  await popup.waitForFunction(() => window.retainedIdentityFixture === true);
+  assert.equal(await popup.evaluate(() => window.name), 'hallowmarch-identity');
+  return popup;
 }
 try {
   for (const width of [320, 390, 1280]) await check(width + 'px first-player title has one entry action and optional sign-in', async () => {
@@ -574,7 +596,8 @@ try {
     await page.waitForFunction(()=>identityCalls.hellos.length===2&&NETWS.state==='opening');
     const starts=calls.filter(call=>call.pathname==='/gaming/identity/start').length;
     startHold=gate();const fresh=page.locator('#title .native-player button').filter({hasText:'Sign in with a different account'});await fresh.waitFor();
-    await fresh.click();
+    const freshOpening=page.waitForEvent('popup');await fresh.click();const freshPopup=await freshOpening;
+    assert.notEqual(freshPopup,popup,'the explicit retry starts a fresh same-origin popup');
     await page.waitForFunction(()=>NETWS.acct?.id==='fixture-fresh-guest',undefined,{timeout:2500});
     await startHold.entered;
     assert.equal(calls.filter(call=>call.pathname==='/gaming/identity/start').length,starts+1,'the explicit switch starts a second identity ceremony');
@@ -589,7 +612,8 @@ try {
     await page.evaluate(()=>{SAVE.readConfirmed=true;nativePlayerRender()});
     assert(await page.locator('#btn-begin').isDisabled());assert(await page.locator('#btn-continue').isDisabled());
     assert.equal(await page.locator('button').filter({hasText:'Download recovery file'}).count(),0);
-    const closing=popup.waitForEvent('close');startHold.release();startHold=null;await closing;await page.waitForFunction(()=>window.identityTest?.ready);
+    const closing=freshPopup.waitForEvent('close');startHold.release();startHold=null;await closing;await page.waitForFunction(()=>window.identityTest?.ready);
+    assert.equal(popup.isClosed(),false,'the earlier refused ceremony is not reused or implicitly cancelled');
     assert.equal(await page.evaluate(()=>localStorage.getItem('hallowmarch.token.'+location.host)),APP_TOKEN);
     assert.equal((await cached(page)).result.credential.accessToken,NATIVE_TOKEN);assert.equal((await cached(page)).result.ownerDid,owner.subjectDid);
     await context.close();
@@ -667,6 +691,96 @@ try {
     await page.evaluate(()=>identityTest.releaseWrite());await page.waitForFunction(()=>identityTest.status().pending===null);
     state=await page.evaluate(()=>identityTest.status());assert.deepEqual(state.calls.saved.map(save=>save.char.n),[10,40]);
     await context.close();
+  });
+  await check('legacy fixed-name popup reuse reproduces the foreign sessionStorage SecurityError', async () => {
+    const context = await contextForMobile(), page = await openFixture(context, 'connect');
+    try {
+      const starts = calls.filter(call => call.pathname === '/gaming/identity/start').length;
+      await retainedForeignPopup(page);
+      const result = await page.evaluate(() => {
+        const popup = window.open('about:blank', 'hallowmarch-identity', 'popup,width=520,height=760');
+        try {
+          popup.sessionStorage.setItem('hallowmarch.identity.ceremony.v1', JSON.stringify({ fixture: true }));
+          return { reused: popup === window.retainedForeignIdentity, error: null };
+        } catch (error) { return { reused: popup === window.retainedForeignIdentity, error: error.name, message: error.message }; }
+      });
+      assert.equal(result.reused, true);
+      assert.equal(result.error, 'SecurityError', 'the old WindowProxy remains foreign until its about:blank navigation completes');
+      assert.match(result.message, /sessionStorage|cross-origin|Blocked a frame/i);
+      assert.equal(calls.filter(call => call.pathname === '/gaming/identity/start').length, starts, 'the platform-only reproduction must not start an identity ceremony');
+    } finally { await context.close(); }
+  });
+  await check('owner sign-in opens a fresh ceremony beside a retained foreign identity popup and completes the real finish', async () => {
+    claimMode = 'success'; startHold = gate();
+    const context = await contextForMobile(), page = await openFixture(context, 'connect');
+    try {
+      const retained = await retainedForeignPopup(page), retainedUrl = retained.url();
+      const opening = page.waitForEvent('popup', { timeout: 5000 });
+      await page.locator('#title .native-player').getByRole('button', { name: 'I already have an identity', exact: true }).click();
+      const popup = await opening; await startHold.entered;
+      assert.notEqual(popup, retained, 'each attempt needs its own initial same-origin window');
+      assert.equal(retained.url(), retainedUrl);
+      assert.equal(await retained.evaluate(() => sessionStorage.getItem('foreign.fixture.marker')), 'untouched');
+      assert.equal(await retained.evaluate(() => sessionStorage.getItem('hallowmarch.identity.ceremony.v1')), null);
+      const ceremony = await popup.evaluate(() => JSON.parse(sessionStorage.getItem('hallowmarch.identity.ceremony.v1')));
+      assert.equal(ceremony.token, GAME_TOKEN); assert.equal(ceremony.host, new URL(base).host);
+      assert.match(ceremony.channel, /^hallowmarch-owner-[0-9a-f-]{36}$/i);
+      assert(ceremony.expiresAt > Date.now() && ceremony.expiresAt <= Date.now() + 10 * 60 * 1000);
+      assert.deepEqual(Object.keys(ceremony).sort(), ['channel', 'expiresAt', 'host', 'token']);
+      assert.deepEqual(await page.evaluate(() => ({ saves: identityCalls.save, loads: identityCalls.load, entries: identityCalls.entries.length, token: NETWS.token })),
+        { saves: 0, loads: 0, entries: 0, token: GAME_TOKEN });
+      const closing = popup.waitForEvent('close'); startHold.release(); startHold = null; await closing;
+      await page.waitForFunction(() => window.identityTest?.ready);
+      assert.equal((await cached(page)).result.credential.accessToken, NATIVE_TOKEN);
+      assert.equal(await page.evaluate(() => localStorage.getItem('hallowmarch.token.' + location.host)), APP_TOKEN);
+      assert(broadcastMessages.some(message => message.direction === 'received' && message.channel === ceremony.channel && message.data.type === 'hallowmarch-native-connected'));
+      assert.equal(retained.url(), retainedUrl);
+      assert.equal(await retained.evaluate(() => sessionStorage.getItem('foreign.fixture.marker')), 'untouched');
+    } finally { await context.close(); }
+  });
+  await check('Keep my character seeds a separate owner-bound ceremony without replacing the retained character or key', async () => {
+    const context = await contextForMobile(), page = await openFixture(context, 'connect');
+    try {
+      await page.evaluate(({ owner, authorizationUrl, browserCeremony }) => {
+        const save = { v: 1, char: { name: 'Retained temporary fixture hero', realm: 1, cls: 'mage', level: 8, inventory: ['earned fixture item'] } };
+        const key = { fingerprint: 'retained-fixture-character-key' };
+        window.claimFixture = { prepare: 0, keyWrites: 0, recordWrites: 0, save, key };
+        const refuseWrite = name => { claimFixture[name]++; throw Error('The authorization popup must not replace a character or key.'); };
+        const profile = { status: () => ({ hasRecord: true, keyPresent: true, pending: false }),
+          set: async () => refuseWrite('recordWrites'), createKey: async () => refuseWrite('keyWrites') };
+        const session = { status: () => ({ provisional: true, guestExpiresAt: Date.now() + 600000, keyPresent: true, pending: false }),
+          claimProfile: () => null, prepareClaim: async () => { claimFixture.prepare++; return { authorizationUrl, browserCeremony }; } };
+        SAVE.native = true; SAVE.loaded = save; SAVE.readConfirmed = true; SAVE.pending = null;
+        NATIVE_PLAYER.status = { enabled: true, bound: false, verified: true, provisional: true, provisionalPlay: { enabled: true }, binding: owner };
+        NATIVE_PLAYER.state = 'ready'; NATIVE_PLAYER.profile = profile; NATIVE_PLAYER.provisional = session;
+        claimFixture.profile = profile; claimFixture.session = session; claimFixture.account = NETWS.acct; claimFixture.token = NETWS.token;
+        nativePlayerRender();
+      }, { owner, authorizationUrl: base + '/fixture-claim-authorize', browserCeremony: BROWSER_CEREMONY });
+      const retained = await retainedForeignPopup(page), retainedUrl = retained.url();
+      const opening = page.waitForEvent('popup', { timeout: 5000 });
+      await page.locator('#title .native-player').getByRole('button', { name: 'Keep my character', exact: true }).click();
+      const popup = await opening;
+      assert.notEqual(popup, retained);
+      await popup.waitForURL(base + '/fixture-claim-authorize');
+      const ceremony = await popup.evaluate(() => JSON.parse(sessionStorage.getItem('hallowmarch.identity.ceremony.v1')));
+      assert.equal(ceremony.purpose, 'character-claim-target'); assert.equal(ceremony.expectedOwnerDid, owner.subjectDid);
+      assert.equal(ceremony.browserCeremony, BROWSER_CEREMONY); assert.equal(ceremony.token, GAME_TOKEN); assert.equal(ceremony.host, new URL(base).host);
+      assert.match(ceremony.channel, /^hallowmarch-claim-[0-9a-f-]{36}$/i);
+      assert(ceremony.expiresAt > Date.now() && ceremony.expiresAt <= Date.now() + 10 * 60 * 1000);
+      assert.deepEqual(Object.keys(ceremony).sort(), ['browserCeremony', 'channel', 'expectedOwnerDid', 'expiresAt', 'host', 'purpose', 'token']);
+      await page.waitForFunction(() => !NATIVE_PLAYER.busy);
+      assert.deepEqual(await page.evaluate(() => ({ prepare: claimFixture.prepare, keyWrites: claimFixture.keyWrites, recordWrites: claimFixture.recordWrites,
+        sameSave: SAVE.loaded === claimFixture.save, sameProfile: NATIVE_PLAYER.profile === claimFixture.profile, sameSession: NATIVE_PLAYER.provisional === claimFixture.session,
+        sameAccount: NETWS.acct === claimFixture.account, sameToken: NETWS.token === claimFixture.token, key: claimFixture.key.fingerprint,
+        character: SAVE.loaded.char, flushes: identityCalls.save, entries: identityCalls.entries.length })),
+        { prepare: 1, keyWrites: 0, recordWrites: 0, sameSave: true, sameProfile: true, sameSession: true, sameAccount: true, sameToken: true,
+          key: 'retained-fixture-character-key', character: { name: 'Retained temporary fixture hero', realm: 1, cls: 'mage', level: 8, inventory: ['earned fixture item'] }, flushes: 1, entries: 0 });
+      assert.equal((await cached(page)).entries.length, 0);
+      assert.equal(await page.evaluate(() => localStorage.length), 0);
+      assert.equal(retained.url(), retainedUrl);
+      assert.equal(await retained.evaluate(() => sessionStorage.getItem('foreign.fixture.marker')), 'untouched');
+      assert.equal(await retained.evaluate(() => sessionStorage.getItem('hallowmarch.identity.ceremony.v1')), null);
+    } finally { await context.close(); }
   });
   await check('real popup ceremony, same-game-token claim, encrypted cache and BroadcastChannel return', async () => {
     claimMode='success';startHold=gate();const context=await contextForMobile(),page=await openFixture(context,'connect');
@@ -881,7 +995,8 @@ try {
     assert.equal((await cached(page)).entries.length,0);assert.equal(await page.evaluate(()=>localStorage.getItem('hallowmarch.token.'+location.host)),null);await context.close();
   });
   assert(urls.every(url=>!url.includes(NATIVE_TOKEN)));assert(consoleMessages.every(message=>!message.includes(NATIVE_TOKEN)));
+  assert(foreignRequests.every(url => !url.includes(GAME_TOKEN) && !url.includes(NATIVE_TOKEN)));
   assert(!urls.some(url=>/refresh_token|grant_type=refresh_token/.test(url)));
   if(failures.length)throw Error(JSON.stringify(failures));
   console.log('PASS native bearer absent from URLs/localStorage/console; no refresh exchange or live identity provisioning.');
-} finally { callbackBridge.close();await browser.close();await new Promise(resolve=>server.close(resolve)); }
+} finally { callbackBridge.close();await browser.close();await Promise.all([new Promise(resolve=>server.close(resolve)),new Promise(resolve=>foreignServer.close(resolve))]); }
