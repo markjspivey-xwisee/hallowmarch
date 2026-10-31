@@ -48,6 +48,25 @@ function accountSummary(account) {
   while (Buffer.byteLength(letters.join('')) > 128) letters.pop();
   return { id: account.id, name: letters.join('') || 'Traveller', guest: account.guest === true };
 }
+function recoveryLabel(value, maxBytes = 128) {
+  if (typeof value !== 'string') return null;
+  const letters = Array.from(value.replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 128));
+  while (Buffer.byteLength(letters.join('')) > maxBytes) letters.pop();
+  return letters.join('') || null;
+}
+function legacyRecoverySummary(save) {
+  const exists = save != null, character = plain(save) && plain(save.char) && Object.keys(save.char).length ? save.char : null;
+  // Presence is not import validation. Keep malformed or unfamiliar saves intact;
+  // this diagnostic never rewrites them or declares an owner-pod record absent.
+  return { exists, hasCharacter: !!character, character: character ? {
+    name: recoveryLabel(character.name),
+    level: Number.isSafeInteger(character.level) && character.level >= 1 && character.level <= 50 ? character.level : null,
+    class: recoveryLabel(character.cls, 64),
+    realm: Number.isSafeInteger(character.realm) && character.realm >= 0 && character.realm <= 2 ? character.realm : null,
+  } : null, savedAt: plain(save) && Number.isSafeInteger(save.savedAt) && save.savedAt >= 0 ? save.savedAt : null,
+  digest: exists ? 'sha256:' + hash(JSON.stringify(save)) : null, digestFormat: 'json-stringify-sha256',
+  source: 'legacy-server', authoritative: false };
+}
 function publicBinding(binding) {
   const result = {};
   for (const key of ['subjectDid', 'podUrl', 'webId', 'userId', 'authenticatedAgentDid', 'authenticatedAgentId', 'verifiedAt', 'issuer', 'verificationMethod']) {
@@ -115,7 +134,8 @@ export function createPlayerAccountHost(options = {}) {
   let recoveryFlight = null, recoverAfter = 0;
   const ready = Promise.resolve(ledger.ready).then(() => { readyOk = ledger.enabled === true; }, () => { readyOk = false; })
     .finally(() => { initialReadySettled = true; });
-  const routes = Object.freeze({ status: '/gaming/identity/status', legacyImport: '/gaming/identity/legacy-import', recordLink: '/gaming/identity/record-link',
+  const routes = Object.freeze({ status: '/gaming/identity/status', recoveryStatus: '/gaming/identity/recovery-status',
+    legacyImport: '/gaming/identity/legacy-import', recordLink: '/gaming/identity/record-link',
     playChallenge: '/gaming/identity/play/challenge', playComplete: '/gaming/identity/play/complete',
     claimChallenge: '/gaming/identity/play/claim-challenge', claimComplete: '/gaming/identity/play/claim-complete',
     claimRecoveryChallenge: '/gaming/identity/play/claim-recovery-challenge' });
@@ -477,6 +497,20 @@ export function createPlayerAccountHost(options = {}) {
       provisional: record?.binding.provisional === true, provisionalPlay: playDescription(),
       saveAuthority: record ? 'player-pod' : 'legacy-server' });
   }
+  async function recoveryStatus(req, auth, subjectDid) {
+    const save = await options.readLegacySave(auth.account.id);
+    // Storage may be asynchronous. Recheck the same live session and native
+    // owner after it returns, before disclosing even a private save summary.
+    if (!enabled()) fail('native_identity_unavailable', 503);
+    const current = authenticated(req);
+    if (current.account.id !== auth.account.id || current.sessionId !== auth.sessionId
+      || freshDid(current.claims, current.account.id, { human: true }) !== subjectDid) fail('native_signin_required', 403);
+    const record = recordFor(current.account.id);
+    return { readOnly: true, owner: { accountId: current.account.id, subjectDid, podUrl: record.binding.podUrl },
+      legacySave: legacyRecoverySummary(save), nativeRecord: {
+        pointer: structuredClone(record.records?.character ?? null), hintOnly: true, verified: false,
+      } };
+  }
   return Object.freeze({ ready,
     // Native publication is owned by the injected host service. This immutable
     // public graph contains contracts only; it is not a signed descriptor.
@@ -524,7 +558,7 @@ export function createPlayerAccountHost(options = {}) {
         await requireReady();
         if (native) return await bridge.handle(req, res);
         if (claimNative) return await claimBridge.handle(req, res);
-        const method = ['status', 'legacyImport'].includes(route) ? 'GET' : 'POST';
+        const method = ['status', 'legacyImport', 'recoveryStatus'].includes(route) ? 'GET' : 'POST';
         if (req.method !== method) { res.setHeader('Allow', method); fail('method_not_allowed', 405); }
         if (method === 'POST' && req.headers.origin !== publicUrl.origin) fail('invalid_identity_origin', 403);
         if (route === 'status') await statusResponse(req, res);
@@ -546,7 +580,8 @@ export function createPlayerAccountHost(options = {}) {
         else {
           const auth = authenticated(req), subjectDid = freshDid(auth.claims, auth.account.id, { human: true });
           if (!subjectDid) fail('native_signin_required', 403);
-          if (route === 'legacyImport') json(res, 200, { save: await options.readLegacySave(auth.account.id),
+          if (route === 'recoveryStatus') json(res, 200, await recoveryStatus(req, auth, subjectDid));
+          else if (route === 'legacyImport') json(res, 200, { save: await options.readLegacySave(auth.account.id),
             source: 'legacy-local-import', authoritative: false });
           else {
             const body = await readBody(req);

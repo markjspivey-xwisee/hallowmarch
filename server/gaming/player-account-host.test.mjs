@@ -4,7 +4,7 @@ import http from 'node:http';
 import { createPlayerAccountHost } from './player-account-host.js';
 import { createPlayerBindingLedger } from './player-bindings.js';
 import { createGameSessionTokens } from './game-session.js';
-import { generateKeyPairSync } from 'node:crypto';
+import { createHash, generateKeyPairSync } from 'node:crypto';
 
 const ORIGIN = 'https://game.example';
 const RELAY = 'https://relay.interego.xwisee.com';
@@ -537,6 +537,103 @@ test('legacy import reads only the fresh native owner account and labels its sav
   assert.equal(imported.source, 'legacy-local-import'); assert.equal(imported.authoritative, false); assert(!f.legacyReads.includes('guest-b'));
 });
 
+test('recovery diagnostics require the same current native owner proof before any legacy read', async t => {
+  const f = await fixture(t), { payload } = await f.connect(), baseline = structuredClone(f.store.commits);
+  for (const [session, status] of [[null, 401], ['forged-session', 401], [f.aliceToken, 403], [f.bobToken, 403],
+    [f.token('guest-a', { nativeDid: nativeOwner('u-pk-other').subjectDid, nativeVerifiedAt: f.clock() }), 403],
+    [f.token('guest-a', { nativeDid: nativeOwner().subjectDid, nativeVerifiedAt: f.clock() - 3_600_001 }), 403],
+    [f.token('guest-a', { nativeDid: nativeOwner().subjectDid, nativeVerifiedAt: f.clock(), exp: f.clock() - 1 }), 401]]) {
+    const response = await f.request('/gaming/identity/recovery-status', { session });
+    assert.equal(response.status, status); assert.deepEqual(Object.keys(await response.json()), ['error']);
+  }
+  assert.equal((await f.request('/gaming/identity/recovery-status', { session: payload.appSession.token, hostname: 'evil.example' })).status, 403);
+  const wrongMethod = await f.request('/gaming/identity/recovery-status', { method: 'POST', session: payload.appSession.token, body: {} });
+  assert.equal(wrongMethod.status, 405); assert.equal(wrongMethod.headers.get('allow'), 'GET');
+  assert.deepEqual(f.legacyReads, []); assert.deepEqual(f.store.commits, baseline);
+});
+
+test('advertised recovery GET summarizes only the proven account and stable full-save digest without mutation', async t => {
+  const save = { v: 1, savedAt: 1_760_616_000_000, char: { name: 'Ash Traveller', level: 17, cls: 'warrior', realm: 2,
+    bag: ['PRIVATE_INVENTORY'], gold: 731 }, world: { privateHistory: 'PRIVATE_WORLD' }, credentials: 'PRIVATE_SAVE_FIELD' };
+  const original = structuredClone(save), reads = [];
+  const f = await fixture(t, { readLegacySave: id => { reads.push(id); return save; } }), { payload } = await f.connect();
+  const session = payload.appSession.token;
+  assert.equal((await f.request('/gaming/identity/record-link', { method: 'POST', session, body: characterPointer })).status, 200);
+  const baseline = structuredClone(f.store.commits), issued = f.issued.length, remote = f.remote.length;
+  const document = await (await f.request('/gaming/identity/affordances')).json();
+  const operation = document['hydra:supportedOperation'].find(op => op['iep:action']['@id'] === 'urn:interego:identity:owner:recoveryStatus');
+  assert.equal(operation['hydra:method'], 'GET');
+  const target = new URL(operation['hydra:target']).pathname;
+  const response = await f.request(target + '?accountId=guest-b&subjectDid=did:example:other&podUrl=https://evil.example/', { session });
+  assert.equal(response.status, 200); assert.equal(response.headers.get('cache-control'), 'no-store');
+  assert.equal(response.headers.get('x-content-type-options'), 'nosniff');
+  const result = await response.json();
+  assert.deepEqual(result.owner, { accountId: 'guest-a', subjectDid: nativeOwner().subjectDid, podUrl: nativeOwner().podUrl });
+  assert.equal(result.readOnly, true);
+  assert.deepEqual(result.legacySave, { exists: true, hasCharacter: true,
+    character: { name: 'Ash Traveller', level: 17, class: 'warrior', realm: 2 }, savedAt: save.savedAt,
+    digest: 'sha256:' + createHash('sha256').update(JSON.stringify(save)).digest('hex'), digestFormat: 'json-stringify-sha256',
+    source: 'legacy-server', authoritative: false });
+  assert.deepEqual(result.nativeRecord, { pointer: characterPointer, hintOnly: true, verified: false });
+  const repeated = await (await f.request(target, { session })).json(); assert.deepEqual(repeated, result);
+  assert.deepEqual(reads, ['guest-a', 'guest-a']); assert.deepEqual(save, original);
+  assert.deepEqual(f.store.commits, baseline); assert.equal(f.issued.length, issued); assert.equal(f.remote.length, remote);
+  for (const secret of ['PRIVATE_INVENTORY', 'PRIVATE_WORLD', 'PRIVATE_SAVE_FIELD', 'native-access-secret', 'native-refresh-secret']) {
+    assert(!JSON.stringify(result).includes(secret));
+  }
+  save.char.gold++; const changed = await (await f.request(target, { session })).json();
+  assert.notEqual(changed.legacySave.digest, result.legacySave.digest, 'digest covers omitted private state, not just the summary');
+  assert.deepEqual(changed.legacySave.character, result.legacySave.character); assert.deepEqual(f.store.commits, baseline);
+});
+
+test('recovery diagnostics distinguish absent, empty and unfamiliar legacy saves without inventing native absence', async t => {
+  for (const save of [null, { v: 1, char: null }, { v: 1, char: {} }, { v: 1, char: { unfamiliar: true } }]) {
+    const f = await fixture(t, { readLegacySave: () => save }), { payload } = await f.connect();
+    const baseline = structuredClone(f.store.commits), before = structuredClone(save);
+    const result = await (await f.request('/gaming/identity/recovery-status', { session: payload.appSession.token })).json();
+    assert.equal(result.legacySave.exists, save !== null);
+    assert.equal(result.legacySave.hasCharacter, save?.char?.unfamiliar === true);
+    assert.deepEqual(result.legacySave.character, save?.char?.unfamiliar ? { name: null, level: null, class: null, realm: null } : null);
+    assert.equal(result.legacySave.savedAt, null);
+    assert.equal(result.legacySave.digest === null, save === null);
+    assert.deepEqual(result.nativeRecord, { pointer: null, hintOnly: true, verified: false });
+    assert.deepEqual(save, before); assert.deepEqual(f.store.commits, baseline);
+  }
+});
+
+test('recovery summary bounds text and refuses malformed metadata without returning arbitrary save fields', async t => {
+  const save = { v: 1, savedAt: -1, char: { name: '\u0000' + '🔥'.repeat(200), cls: 'x'.repeat(500),
+    realm: { secret: 'PRIVATE_REALM' }, level: 'PRIVATE_LEVEL' } };
+  const f = await fixture(t, { readLegacySave: () => save }), { payload } = await f.connect();
+  const result = await (await f.request('/gaming/identity/recovery-status', { session: payload.appSession.token })).json();
+  assert.equal(result.legacySave.hasCharacter, true); assert.equal(result.legacySave.savedAt, null);
+  assert(Buffer.byteLength(result.legacySave.character.name) <= 128); assert(!result.legacySave.character.name.includes('\u0000'));
+  assert.equal(Buffer.byteLength(result.legacySave.character.class), 64);
+  assert.equal(result.legacySave.character.realm, null); assert.equal(result.legacySave.character.level, null);
+  assert(!JSON.stringify(result).includes('PRIVATE_')); assert(JSON.stringify(result).length < 1600);
+});
+
+for (const change of ['revoke', 'expire']) test(`recovery diagnostics recheck authorization after a queued legacy read (${change})`, async t => {
+  let started, release; const reading = new Promise(resolve => { started = resolve; });
+  const gate = new Promise(resolve => { release = resolve; });
+  const f = await fixture(t, { readLegacySave: async () => { started(); await gate; return { v: 1, char: { name: 'PRIVATE_QUEUED_CHARACTER' } }; } });
+  const { payload } = await f.connect(), session = payload.appSession.token, baseline = structuredClone(f.store.commits);
+  const response = f.request('/gaming/identity/recovery-status', { session });
+  await reading;
+  if (change === 'revoke') f.claims.delete(session); else f.advance(3_600_001);
+  release(); const result = await response;
+  assert.equal(result.status, change === 'revoke' ? 401 : 403); assert.deepEqual(Object.keys(await result.json()), ['error']);
+  assert.deepEqual(f.store.commits, baseline); assert.equal(f.issued.length, 1);
+});
+
+test('unavailable legacy reads return a fixed private-data-free recovery failure and perform no write', async t => {
+  const f = await fixture(t, { readLegacySave: () => { throw new Error('PRIVATE_LEGACY_PATH_AND_TOKEN'); } });
+  const { payload } = await f.connect(), baseline = structuredClone(f.store.commits);
+  const response = await f.request('/gaming/identity/recovery-status', { session: payload.appSession.token });
+  assert.equal(response.status, 503); assert.deepEqual(await response.json(), { error: 'native_identity_unavailable' });
+  assert.deepEqual(f.store.commits, baseline); assert.equal(f.issued.length, 1);
+});
+
 test('a returning native owner restores the canonical account from the ledger without claiming a new guest', async t => {
   const store = new NativeStoreFixture(); const seed = createPlayerBindingLedger({ store }); await seed.ready;
   await seed.bindVerified(nativeOwner(), 'original-account', { operationId: 'initial-owner',
@@ -806,7 +903,7 @@ test('public owner capability documents remain discoverable without bearer or na
   const f = await fixture(t, { store: null });
   const response = await f.request('/gaming/identity/affordances', { session: null }); assert.equal(response.status, 200);
   assert.match(response.headers.get('content-type'), /application\/ld\+json/);
-  const document = await response.json(); assert.equal(document['hydra:supportedOperation'].length, 11);
+  const document = await response.json(); assert.equal(document['hydra:supportedOperation'].length, 12);
   const schemas = await f.request('/gaming/identity/schemas', { session: null }); assert.equal(schemas.status, 200);
   assert.match(schemas.headers.get('content-type'), /application\/schema\+json/);
   assert((await schemas.json()).$defs.RecordLinkRequest);

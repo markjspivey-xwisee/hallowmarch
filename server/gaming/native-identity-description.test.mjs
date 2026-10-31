@@ -2,10 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { nativeIdentityDescription } from './native-identity-description.js';
 
-test('the owned capability exports all eleven native-discoverable owner, guest and claim actions with matching HTTP and schema references', () => {
+test('the owned capability exports all twelve native-discoverable owner, guest and claim actions with matching HTTP and schema references', () => {
   const value = nativeIdentityDescription({ publicOrigin: 'https://app.example', allowOwnerBrowserHandoff: true });
   const operations = value.description['hydra:supportedOperation'];
-  assert.equal(operations.length, 11);
+  assert.equal(operations.length, 12);
   assert.deepEqual(operations.map(op => [op['iep:action']['@id'], op['hydra:method'], op['hydra:target']]), [
     ['urn:interego:identity:owner:playChallenge', 'POST', 'https://app.example/gaming/identity/play/challenge'],
     ['urn:interego:identity:owner:playComplete', 'POST', 'https://app.example/gaming/identity/play/complete'],
@@ -16,6 +16,7 @@ test('the owned capability exports all eleven native-discoverable owner, guest a
     ['urn:interego:identity:owner:claimRecoveryChallenge', 'POST', 'https://app.example/gaming/identity/play/claim-recovery-challenge'],
     ['urn:interego:identity:owner:start', 'POST', 'https://app.example/gaming/identity/start'],
     ['urn:interego:identity:owner:status', 'GET', 'https://app.example/gaming/identity/status'],
+    ['urn:interego:identity:owner:recoveryStatus', 'GET', 'https://app.example/gaming/identity/recovery-status'],
     ['urn:interego:identity:owner:claim', 'POST', 'https://app.example/gaming/identity/claim'],
     ['urn:interego:identity:owner:recordLink', 'POST', 'https://app.example/gaming/identity/record-link'],
   ]);
@@ -61,6 +62,23 @@ test('schemas preserve explicit browser write consent and permit no refresh toke
   assert.deepEqual(defs.StatusResponse.properties.saveAuthority.enum, ['player-pod', 'legacy-server']);
   assert.equal(value.manifest.nativeTeamMigration, false); assert.equal(value.manifest.nativeAgentDelegation, false);
   assert.equal(Object.isFrozen(defs.ClaimResponse.properties.nativeSession), true);
+});
+
+test('recovery discovery advertises a read-only owner proof contract and no native save verification claim', () => {
+  const value = nativeIdentityDescription({ publicOrigin: 'https://app.example' });
+  const operation = value.description['hydra:supportedOperation'].find(op => op['iep:action']['@id'].endsWith(':recoveryStatus'));
+  assert.equal(operation['hydra:method'], 'GET'); assert.equal(operation['hydra:expects'], undefined);
+  assert.equal(operation['hydra:target'], 'https://app.example/gaming/identity/recovery-status');
+  assert.deepEqual(operation['dct:requires'].map(x => x['@id'].split('/').at(-1)), ['account', 'native']);
+  assert.match(operation['hydra:description'], /Creates no key, import, checkpoint or save mutation/);
+  assert.match(operation['hydra:description'], /does not prove the owner pod has no saved character/);
+  const response = value.schemas.$defs.RecoveryStatusResponse;
+  assert.equal(response.additionalProperties, false); assert.equal(response.properties.readOnly.const, true);
+  assert.deepEqual(response.properties.owner.required, ['accountId', 'subjectDid', 'podUrl']);
+  assert.equal(response.properties.legacySave.properties.authoritative.const, false);
+  assert.equal(response.properties.nativeRecord.properties.verified.const, false);
+  assert.equal(response.properties.nativeRecord.properties.hintOnly.const, true);
+  assert.match(response.properties.nativeRecord.description, /not fetched, decrypted or verified/);
 });
 
 test('public metadata carries transport prerequisites and truthful migration and pointer limits without player instances', () => {
