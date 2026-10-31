@@ -584,7 +584,8 @@ async function nativePlayerTask(run, busyMessage = 'Preparing your character…'
 }
 function nativePlayerClaimConnect({ lastConfirmed = false } = {}) {
   if (NATIVE_PLAYER.busy || !nativePlayerIsProvisional() || !NATIVE_PLAYER.provisional) return;
-  const popup = window.open('about:blank', 'hallowmarch-identity', 'popup,width=520,height=760');
+  // A retained sign-in window may still be cross-origin; seed a fresh window.
+  const popup = window.open('about:blank', '_blank', 'popup,width=520,height=760');
   if (!popup) { NATIVE_PLAYER.message = 'Allow this sign-in window, then choose Keep my character again.'; nativePlayerRender(); return; }
   void nativePlayerTask(async () => {
     const session = NATIVE_PLAYER.provisional, host = NETWS.host, accountId = NETWS.acct?.id;
@@ -829,7 +830,8 @@ function nativePlayerConnect(fresh = false) {
   if (expected && (!expected.accountId || !expected.ownerDid || !expected.podUrl || !expected.profile || !SAVE.readConfirmed)) {
     NATIVE_PLAYER.message = 'Your current character is still in memory. Confirm its original identity before reconnecting.'; nativePlayerRender(); return;
   }
-  const popup = window.open('about:blank', 'hallowmarch-identity', 'popup,width=520,height=760');
+  // A retained sign-in window may still be cross-origin; seed a fresh window.
+  const popup = window.open('about:blank', '_blank', 'popup,width=520,height=760');
   if (!popup) { NATIVE_PLAYER.message = 'Allow this sign-in window, then connect again.'; nativePlayerRender(); return; }
   let starting;
   starting = nativePlayerTask(async () => {
