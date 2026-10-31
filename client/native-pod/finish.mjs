@@ -1,11 +1,10 @@
-import { createBrowserAccessCache } from './access-cache.mjs';
 const status = document.querySelector('#status'), button = document.querySelector('#return');
 const key = 'hallowmarch.identity.ceremony.v1';
-const failure = document.querySelector('meta[name="hallowmarch-identity-error"]');
-if (failure && ['native_owner_mismatch', 'identity_authorization_declined', 'identity_connection_failed'].includes(failure.content)) {
-  history.replaceState(null, '', '/gaming/identity/finish');
-}
 try {
+  // Consume callback URLs before any import or claim. The fixed finish page
+  // also runs directly at the callback, without a second document navigation.
+  history.replaceState(null, '', '/gaming/identity/finish');
+  const failure = document.querySelector('meta[name="hallowmarch-identity-error"]');
   const ceremony = JSON.parse(sessionStorage.getItem(key) || 'null');
   sessionStorage.removeItem(key);
   if (typeof ceremony?.token !== 'string' || !ceremony.token || typeof ceremony.channel !== 'string'
@@ -78,6 +77,8 @@ try {
   if (!method) throw new Error('This identity provider needs a compatible browser credential bridge.');
   const credential = { kind: 'relay-oauth-bearer', method, accessToken: result.nativeSession.accessToken,
     expiresAt: Date.parse(result.nativeSession.expiresAt) };
+  // Claim the short-lived, owner-bound handoff before loading the cache/SDK.
+  const { createBrowserAccessCache } = await import('./access-cache.mjs');
   const cache = createBrowserAccessCache();
   await cache.put({ relayUrl, ownerDid: result.binding.subjectDid, podUrl: result.binding.podUrl, credential });
   await cache.close();

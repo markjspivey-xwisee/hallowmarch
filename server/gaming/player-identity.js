@@ -11,6 +11,7 @@
  * This authorizes personal pod access; it conveys no learning-export consent.
  */
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
+import { isAsyncFunction } from 'node:util/types';
 
 const NATIVE_RELAY = 'https://relay.interego.xwisee.com';
 const NATIVE_IDENTITY = 'https://identity.interego.xwisee.com';
@@ -166,6 +167,9 @@ function parseMcp(raw) {
  *     Honor context.signal for cancelable work; native credentials are absent.
  *     Optional bounded appSession is returned only through the same one-use
  *     browser/account-bound claim, including with a read-only native grant.
+ * Optional renderBrowserSuccess(req, res) synchronously serves a fixed HTML
+ *   page and returns true after ending the response. It runs only for an HTML
+ *   callback after verified binding and cookie setup, without grant/view data.
  *
  * handle(req, res, parsedBody?) consumes only paths it advertises. Mount before
  * other request-body consumers, or supply their already-parsed JSON body.
@@ -179,6 +183,9 @@ function parseMcp(raw) {
 export function createPlayerIdentityBridge(options = {}) {
   if (typeof options.authorizeGameAccount !== 'function' || typeof options.onVerified !== 'function') {
     throw new TypeError('Game account authorization and verified-binding callbacks are required');
+  }
+  if (options.renderBrowserSuccess !== undefined && (typeof options.renderBrowserSuccess !== 'function' || isAsyncFunction(options.renderBrowserSuccess))) {
+    throw new TypeError('Browser success rendering must be a synchronous host callback');
   }
   const publicUrl = httpsUrl(options.publicOrigin, 'publicOrigin', { origin: true });
   const identityUrl = httpsUrl(options.identityOrigin ?? NATIVE_IDENTITY, 'identityOrigin', { origin: true });
@@ -394,6 +401,20 @@ export function createPlayerIdentityBridge(options = {}) {
           lifetime);
         // Replace the clearing cookie; neither the bearer nor a claim secret goes in a URL.
         setCookie(res, cookieName, ceremony, lifetime);
+      }
+      if (acceptsHtml(req) && options.renderBrowserSuccess) {
+        // The trusted host serves its fixed page, with no grant or account data
+        // passed to the view. Retain the exact cookie and bounded claim checks.
+        res.setHeader('Pragma', 'no-cache');
+        try {
+          if (options.renderBrowserSuccess(req, res) !== true || !res.writableEnded) fail('identity_finish_unavailable', 503);
+        } catch {
+          // A host renderer may have begun a response before throwing. Never
+          // append a second HTML document or overwrite its committed headers.
+          if (res.headersSent) { if (!res.writableEnded) res.end(); return; }
+          fail('identity_finish_unavailable', 503);
+        }
+        return;
       }
       res.writeHead(303, { Location: successPath, 'Cache-Control': 'no-store', Pragma: 'no-cache', 'Referrer-Policy': 'no-referrer' });
       res.end();
