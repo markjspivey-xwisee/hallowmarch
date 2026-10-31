@@ -37,7 +37,7 @@ window.GD = {
   calm(r = 80) { const H = this.H, P = this.P(); for (const e of H.ENT) if (e !== P && e.alive && e.kind !== 'door' && !e.siegeEngine && H.fn.isEnemy(P, e) && Math.hypot(e.x - P.x, e.z - P.z) < r) { e.alive = false; e.removeAt = H.GAME.t; } P.hp = P.maxHp; P.buffs.length = 0; P.casting = null; P.target = null; P.combatUntil = 0; return 0; },
   // the HUD laid out now (the page's own pass runs four times a second of wall time)
   lay() { const L = this.H.hud.HUDL; L.k = 0; L.t = 0; if (this.H.guide2) this.H.guide2.G2.tap.until = 0; this.H.hud.hudLayout(1); return 0; }, // [guide2] laid out now even while a tap's click is on its way
-  // a field note on the screen now: shown, laid out, and held there (it fades on the wall clock)
+  // Explicit forced-announcement layout fixture: H.hud.note calls showNextNote(true), even on touch.
   noteOn(id) { const H = this.H, L = H.GAME.prog.lore; L.seen = L.seen.filter((x) => x !== id); H.LORE.state.noteUntil = 0; H.LORE.loreNote(id); const q = H.LORE.state.queue; q.splice(q.indexOf(id), 1); q.unshift(id); H.hud.note(id); const d = [...document.querySelectorAll('#banners .lore-note')].pop(); if (d) { d.remove = () => {}; d.style.animation = 'none'; } this.lay(); return 0; },
   // where a panel is, and whether it is clear of every other panel the layout placed and on the screen
   clear(sel) {
@@ -65,7 +65,7 @@ window.GD = {
   },
   // one look of the path's watch with no window open; what the path now has
   steps() { const L = this.H.LORE; for (let i = 0; i < 3; i++) L.check(); return L.progress(); },
-  overflow() { const s = document.querySelector('#menu .sheet'); return s ? s.scrollWidth - s.clientWidth : 0; },
+  overflow() { const s = document.querySelector('#menu-body'); return s ? s.scrollWidth - s.clientWidth : 0; },
 };
 0;
 """
@@ -107,6 +107,7 @@ async def phone(p):
     for sel in ['#realm-pick [data-realm="1"]', '#class-pick [data-cls="mage"]', '#btn-begin']:
         r = await page.evaluate("(sel) => { const el = document.querySelector(sel), r = el.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; }", sel)
         await page.touchscreen.tap(r['x'], r['y'])
+    await page.wait_for_function("() => { const H=__hm, S=window.__hmStartup; if(S?.stopped || S?.titleError || H.errors.length) throw new Error(S?.titleError || H.errors.join('; ') || 'Graphics stopped before entry'); return H.GAME.started && H.GAME.player; }", timeout=180000, polling=100)
     await page.wait_for_timeout(600)
     check(await ev(page, "__hm.UI.modal") == 'prologue', 'tapping a realm, a calling and Enter the realm opens the prologue')
     # ---- the prologue, turned by swipes; Begin on the last page ----
@@ -122,7 +123,8 @@ async def phone(p):
     await ev(page, "GD.calm(); __hm.simulate(0.3); __hm.frame(1/30); 0")
     r = await ev(page, "({ seen: __hm.LORE.progress().seen.slice(), quiet: __hm.guide.GUIDE && typeof guideQuiet === 'undefined' })")
     check(r['seen'][:1] == ['start'], f'no other note shows before it ({r["seen"]})')
-    # the note on the screen, clear of every panel, on every phone size
+    check(await ev(page, "document.querySelectorAll('#banners .lore-note').length") == 0, 'ordinary touch collects First steps without a popup')
+    # Deliberately force the note for the existing full geometry/screenshots on every phone size.
     await ev(page, "GD.noteOn('start')")
     r = await ev(page, "GD.clear('#banners')")
     check(r.get('shown') and r.get('on') and not r.get('hit'), f'the first-steps note is on an upright phone\'s screen, clear of the other panels ({r})')
@@ -185,7 +187,7 @@ async def phone(p):
     check(await tap(page, '#mobile-notes'), 'Notes opens on request')
     check(await ev(page, "__hm.UI.modal === 'menu' && document.querySelector('#menu-body').textContent.includes('Food and water')"), 'collected notes can be read in the Chronicle')
     # every new note's watch, through the world's own state
-    await ev(page, "(() => { if (!document.getElementById('menu').hidden) document.getElementById('btn-resume').click(); __hm.UI.modal = null; return 0; })()")  # a tap on a note shrunk to its title opens the Chronicle
+    await ev(page, "(() => { if (!document.getElementById('menu').hidden) document.getElementById('menu-close').click(); __hm.UI.modal = null; return 0; })()")  # a tap on a note shrunk to its title opens the Chronicle
     r = await ev(page, """(() => { const H = __hm, G = H.guide, P = GD.P(), seen = () => H.LORE.progress().seen, out = {};
       const want = (id, set, unset) => { set(); G.GUIDE.scanT = 0; for (let i = 0; i < 3; i++) { H.LORE.check(); H.LORE.state.noteUntil = 0; H.frame(1/30); } out[id] = seen().includes(id); if (unset) unset(); };
       want('brand', () => { P.brand = { until: H.GAME.t + 30, wet: 0, x: P.x, y: P.y + 1.4, z: P.z, emitAcc: 0 }; }, () => { P.brand = null; });
@@ -218,8 +220,19 @@ async def phone(p):
     want = ['Left thumb', 'Use', 'Food and water', 'Your path', 'Keeps, towers and sieges', 'Water', 'Food, water and crafting', 'Animals', 'Keep halls and building']
     check(all(w in r['t'] for w in want) and r['o'] <= 1, f'How to play gives a phone\'s controls and every system\'s lines ({[w for w in want if w not in r["t"]]})')
     check('press E' not in r['t'] and 'Press V' not in r['t'], 'and speaks of taps, not keys')
+    # Exercise actual preference selection and help rerender, then restore the original default hand.
+    try:
+        for hand, walk_side, look_side in [('right', 'left', 'right'), ('left', 'right', 'left')]:
+            await ev(page, "__hm.mobile.applyPrefs({hand:" + json.dumps(hand) + "}, false); document.querySelector('#menu-tabs [data-tab=\"help\"]').click(); 0")
+            keys = await ev(page, "[...document.querySelector('#menu-body .keys').querySelectorAll('kbd')].slice(0, 3).map(k => [k.textContent, k.nextElementSibling.textContent])")
+            expected = [[walk_side.capitalize() + ' thumb', f'Drag on the lower {walk_side} to walk; to the edge to run.'],
+                        [look_side.capitalize() + ' thumb', f'Drag on the {look_side} to look around. Tap a creature, soldier or gate to target it.'],
+                        ['Ability buttons', f'Learned abilities stay on the {look_side}. Tap Skills to read all eight, including what you unlock next.']]
+            check(keys == expected, f'How to play follows the actual {hand}-handed controls ({keys})')
+    finally:
+        await ev(page, "__hm.mobile.applyPrefs({hand:'right'}, false); document.querySelector('#menu-tabs [data-tab=\"help\"]').click(); 0")
     await shot(page, 'guide_phone_help')
-    check(await tap(page, '#btn-resume'), 'Resume closes the menu')
+    check(await tap(page, '#menu-close'), 'Back to game closes the menu')
 
     # ---- every new step of the path, through the world's own state, each paid ----
     r = await ev(page, """(() => { const H = __hm, F = H.fn, P = GD.P(), L = H.LORE, out = {};
@@ -277,11 +290,12 @@ async def desk(p):
     await ev(page, HOLD)
     await ev(page, "document.querySelector('#realm-pick [data-realm=\"0\"]').click(); document.querySelector('#class-pick [data-cls=\"warrior\"]').click(); 0")
     await page.click('#btn-begin')
+    await page.wait_for_function("() => { const H=__hm, S=window.__hmStartup; if(S?.stopped || S?.titleError || H.errors.length) throw new Error(S?.titleError || H.errors.join('; ') || 'Graphics stopped before entry'); return H.GAME.started && H.GAME.player; }", timeout=180000, polling=100)
     await page.wait_for_timeout(400)
     await page.keyboard.press('Escape')
     await ev(page, "GD.calm(); __hm.simulate(0.3); __hm.frame(1/30); __hm.frame(1/30); 0")
     r = await ev(page, "(document.querySelector('#banners .lore-note') || {}).textContent || ''")
-    check('H shows every key' in r and 'gold gem' in r, f'the first-steps note points to H and the gem ({r[:80]})')
+    check('WASD to walk. Drag to look around. Press H for all controls.' in r, f'the first-steps note teaches walking, looking and H ({r[:80]})')
     await page.keyboard.press('KeyH')
     r = await ev(page, "({ tab: __hm.UI.menuTab, t: document.getElementById('menu-body').textContent })")
     want = ['W A S D', 'J · H · Esc', 'V · C', 'G · K · U', '9', 'Your path', 'Keeps, towers and sieges']

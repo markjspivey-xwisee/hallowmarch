@@ -1,0 +1,99 @@
+{
+  "revision": "6aa103a0ce5c3e71a4954c19b4fca31c5f529b59",
+  "authority": "cd6c6cf95afc7efe6b1ea6db331b87cec539922b51dd9e98ddb35922ebeaf9db",
+  "scope": "Only approved control/navigation text plus touch-local existing hand selection; inverse to release bytes is mandatory.",
+  "sources": {
+    "10c_lore.js": {
+      "rawSha256": "ddd19523f90fd1a630e707b0cf8c73b1767a74dd488ae73b36d8d85c2f0bcc70",
+      "lfSha256": "ddd19523f90fd1a630e707b0cf8c73b1767a74dd488ae73b36d8d85c2f0bcc70"
+    },
+    "10e_guide.js": {
+      "rawSha256": "27870d18f031e1475d5ab5667425d3491eb3c220d6499ba2b195f576c8363acf",
+      "lfSha256": "27870d18f031e1475d5ab5667425d3491eb3c220d6499ba2b195f576c8363acf"
+    },
+    "10q_mobile.js": {
+      "rawSha256": "318a3f3a7d8468760a53e22ebb76a35eb59c8c7138d84f7daab52e18405ca84b",
+      "lfSha256": "318a3f3a7d8468760a53e22ebb76a35eb59c8c7138d84f7daab52e18405ca84b"
+    }
+  },
+  "approvedEdits": {
+    "10c_lore.js": [
+      {
+        "before": "  start: { t: 'First steps', x: () => (IS_TOUCH ? `Drag on the ${MOBILE_PREFS.hand === 'left' ? 'right' : 'left'} of the screen to walk and on the ${MOBILE_PREFS.hand === 'left' ? 'left' : 'right'} to look around. Tap a creature to target it, then tap an ability. Your path, at the top left, shows your next step; the gold gem on the minimap marks where.` : 'WASD to walk, drag to look. Click a creature, then press 1. Your path, at the left of the screen, shows your next step; the gold gem on the minimap marks where. H shows every key.') }, // [guide] the gem",
+        "after": "  start: { t: 'First steps', x: () => (IS_TOUCH ? `Drag on the lower ${MOBILE_PREFS.hand === 'left' ? 'right' : 'left'} to walk and on the ${MOBILE_PREFS.hand === 'left' ? 'left' : 'right'} to look around. Open Menu → Options → How to play for all controls.` : 'WASD to walk. Drag to look around. Press H for all controls.') }, // A short control primer; the path and prompt carry the current objective."
+      },
+      {
+        "before": "kit: 'tap Kit'",
+        "after": "kit: 'tap Items'"
+      }
+    ],
+    "10e_guide.js": [
+      {
+        "before": "Open More to find the food and water bars. Tap them",
+        "after": "Open Menu → Explore to find the food and water bars. Tap them"
+      },
+      {
+        "before": "Learned abilities stay beside your right thumb. More shows all eight, including what you unlock next.",
+        "after": "Learned abilities stay on the ${lookSide}. Tap Skills to read all eight, including what you unlock next."
+      },
+      {
+        "before": "Target and Jump stay in the dock (Rise in deep water). Open More to ride your horse.",
+        "after": "Target and Jump stay in the dock (Rise in deep water). Open Menu → Explore → Ride for your horse."
+      },
+      {
+        "before": "Potion stays in the dock. Open More, then Kit &amp; bags, for gear, crafting and goods.",
+        "after": "Potion stays in the dock. Tap Items for gear, crafting and goods."
+      },
+      {
+        "before": "<kbd>Potion · Kit</kbd>",
+        "after": "<kbd>Potion · Items</kbd>"
+      },
+      {
+        "before": "Open More and tap your food and water bars to eat or drink the best you carry. A warning appears when you need them.",
+        "after": "Open Menu → Explore and tap your food or water bar to eat or drink the best you carry. A warning appears when you need them."
+      },
+      {
+        "before": "Beside the minimap: Map, Kit, Animals, Build, Players, Chronicle and Settings. Tap your name for Character, or the minimap for Map.",
+        "after": "Explore: Map, Ride, Animals, Build and Chronicle. Skills: abilities, Inventory and Character. Social: Players &amp; chat. Options: Graphics &amp; sound, How to play and touch controls. Tap your name for Character, or the minimap for Map."
+      },
+      {
+        "before": "<kbd>More</kbd>",
+        "after": "<kbd>Menu</kbd>"
+      },
+      {
+        "before": "  if (IS_TOUCH) return `<div class=\"keys\">",
+        "after": "  if (IS_TOUCH) {\n    const walkSide = MOBILE_PREFS.hand === 'left' ? 'right' : 'left';\n    const lookSide = MOBILE_PREFS.hand === 'left' ? 'left' : 'right';\n    return `<div class=\"keys\">"
+      },
+      {
+        "before": "<kbd>Left thumb</kbd><span>Drag on the left to walk; to the edge to run.</span>",
+        "after": "<kbd>${capFirst(walkSide)} thumb</kbd><span>Drag on the lower ${walkSide} to walk; to the edge to run.</span>"
+      },
+      {
+        "before": "<kbd>Right thumb</kbd><span>Drag to look around. Tap a creature, soldier or gate to target it.</span>",
+        "after": "<kbd>${capFirst(lookSide)} thumb</kbd><span>Drag on the ${lookSide} to look around. Tap a creature, soldier or gate to target it.</span>"
+      },
+      {
+        "before": "// [guide2] each in a line or two on a phone\n  return `<div class=\"keys\">",
+        "after": "// [guide2] each in a line or two on a phone\n  }\n  return `<div class=\"keys\">"
+      },
+      {
+        "before": "'Crafting in your Kit'",
+        "after": "'Items → Crafting'"
+      },
+      {
+        "before": "IS_TOUCH ? 'Kit' : 'I'",
+        "after": "IS_TOUCH ? 'Items' : 'I'"
+      }
+    ],
+    "10q_mobile.js": [
+      {
+        "before": "Thirsty · More to drink",
+        "after": "Thirsty · Menu → Explore"
+      },
+      {
+        "before": "Hungry · More to eat",
+        "after": "Hungry · Menu → Explore"
+      }
+    ]
+  }
+}

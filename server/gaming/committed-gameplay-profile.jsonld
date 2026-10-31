@@ -1,0 +1,2304 @@
+{
+  "id": "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld",
+  "@context": "https://w3id.org/xapi/profiles/context",
+  "type": "Profile",
+  "conformsTo": "https://w3id.org/xapi/profiles#1.0",
+  "prefLabel": {
+    "en": "Hallowmarch committed gameplay projection"
+  },
+  "definition": {
+    "en": "An explicitly selected projection of committed authoritative game events. This does not relabel owner-browser observations or migrate existing legacy exports. An actual caller-supplied run registration partitions the stream; the Profile invents no initialization, completion, achievement or learner assessment. Profile support is not LRS conformance certification."
+  },
+  "seeAlso": "https://github.com/markjspivey-xwisee/hallowmarch/blob/main/docs/gameplay-activity-profile.md",
+  "versions": [
+    {
+      "id": "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/versions/1.0.0",
+      "generatedAtTime": "2026-10-27T19:00:00Z"
+    }
+  ],
+  "author": {
+    "type": "Organization",
+    "name": "The Hallowmarch project",
+    "url": "https://github.com/markjspivey-xwisee/hallowmarch"
+  },
+  "concepts": [
+    {
+      "id": "urn:interego:gaming:verbs/damage",
+      "type": "Verb",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/versions/1.0.0",
+      "prefLabel": {
+        "en": "damage"
+      },
+      "definition": {
+        "en": "Damage accepted by the authoritative game, with the measured amount and any one credited kill."
+      }
+    },
+    {
+      "id": "urn:interego:gaming:verbs/loot.granted",
+      "type": "Verb",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/versions/1.0.0",
+      "prefLabel": {
+        "en": "loot.granted"
+      },
+      "definition": {
+        "en": "A committed loot grant, with its measured quantity."
+      }
+    },
+    {
+      "id": "urn:interego:gaming:verbs/resource.gathered",
+      "type": "Verb",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/versions/1.0.0",
+      "prefLabel": {
+        "en": "resource.gathered"
+      },
+      "definition": {
+        "en": "A committed resource collection, with its measured quantity."
+      }
+    },
+    {
+      "id": "urn:interego:gaming:verbs/teaching.delivered",
+      "type": "Verb",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/versions/1.0.0",
+      "prefLabel": {
+        "en": "teaching.delivered"
+      },
+      "definition": {
+        "en": "The game accepted a requested teaching action. This does not establish learner understanding or intervention effectiveness."
+      }
+    },
+    {
+      "id": "urn:interego:gaming:verbs/knowledge.consulted",
+      "type": "Verb",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/versions/1.0.0",
+      "prefLabel": {
+        "en": "knowledge.consulted"
+      },
+      "definition": {
+        "en": "The game accepted an explicit knowledge consultation. Consultation does not establish learning."
+      }
+    },
+    {
+      "id": "urn:interego:gaming:verbs/companion.spawned",
+      "type": "Verb",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/versions/1.0.0",
+      "prefLabel": {
+        "en": "companion.spawned"
+      },
+      "definition": {
+        "en": "The authoritative game created a companion body."
+      }
+    },
+    {
+      "id": "urn:interego:gaming:verbs/movement.applied",
+      "type": "Verb",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/versions/1.0.0",
+      "prefLabel": {
+        "en": "movement.applied"
+      },
+      "definition": {
+        "en": "The authoritative game applied movement. A command or animation alone is insufficient."
+      }
+    },
+    {
+      "id": "urn:interego:gaming:verbs/telemetry.sample",
+      "type": "Verb",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/versions/1.0.0",
+      "prefLabel": {
+        "en": "telemetry.sample"
+      },
+      "definition": {
+        "en": "Measured network/game timing retained in the authoritative log."
+      }
+    },
+    {
+      "id": "urn:interego:gaming:verbs/player.joined",
+      "type": "Verb",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/versions/1.0.0",
+      "prefLabel": {
+        "en": "player.joined"
+      },
+      "definition": {
+        "en": "The authoritative expedition admitted a player."
+      }
+    },
+    {
+      "id": "urn:interego:gaming:verbs/encounter.started",
+      "type": "Verb",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/versions/1.0.0",
+      "prefLabel": {
+        "en": "encounter.started"
+      },
+      "definition": {
+        "en": "The authoritative expedition began its next encounter. This is not a learning session lifecycle."
+      }
+    },
+    {
+      "id": "urn:interego:gaming:verbs/entity.recovered",
+      "type": "Verb",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/versions/1.0.0",
+      "prefLabel": {
+        "en": "entity.recovered"
+      },
+      "definition": {
+        "en": "The authoritative expedition recovered an entity according to game rules."
+      }
+    },
+    {
+      "id": "urn:interego:gaming:verbs/companion.nativeReferenceRegistered",
+      "type": "Verb",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/versions/1.0.0",
+      "prefLabel": {
+        "en": "companion.nativeReferenceRegistered"
+      },
+      "definition": {
+        "en": "The authoritative game registered a native companion reference."
+      }
+    },
+    {
+      "id": "urn:interego:gaming:verbs/companion.nativeAdmitted",
+      "type": "Verb",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/versions/1.0.0",
+      "prefLabel": {
+        "en": "companion.nativeAdmitted"
+      },
+      "definition": {
+        "en": "The authoritative game admitted a companion using a verified native grant."
+      }
+    },
+    {
+      "id": "urn:interego:gaming:verbs/companion.nativeRevoked",
+      "type": "Verb",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/versions/1.0.0",
+      "prefLabel": {
+        "en": "companion.nativeRevoked"
+      },
+      "definition": {
+        "en": "The authoritative game revoked a native companion relationship."
+      }
+    },
+    {
+      "id": "urn:interego:gaming:verbs/companion.granted",
+      "type": "Verb",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/versions/1.0.0",
+      "prefLabel": {
+        "en": "companion.granted"
+      },
+      "definition": {
+        "en": "The authoritative game created a companion delegation."
+      }
+    },
+    {
+      "id": "urn:interego:gaming:verbs/companion.revoked",
+      "type": "Verb",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/versions/1.0.0",
+      "prefLabel": {
+        "en": "companion.revoked"
+      },
+      "definition": {
+        "en": "The authoritative game revoked a companion delegation."
+      }
+    },
+    {
+      "id": "urn:interego:gaming:verbs/consent.changed",
+      "type": "Verb",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/versions/1.0.0",
+      "prefLabel": {
+        "en": "consent.changed"
+      },
+      "definition": {
+        "en": "The authoritative game changed the owner-controlled export preference. This event never authorizes its own export."
+      }
+    },
+    {
+      "id": "urn:interego:gaming:CommittedGameActivity",
+      "type": "ActivityType",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/versions/1.0.0",
+      "prefLabel": {
+        "en": "Committed game activity"
+      },
+      "definition": {
+        "en": "An action accepted and durably committed by an authoritative game service. The object identifies the committed event, not a learned competency."
+      }
+    },
+    {
+      "id": "urn:interego:gaming:domain",
+      "type": "ContextExtension",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/versions/1.0.0",
+      "prefLabel": {
+        "en": "domain"
+      },
+      "definition": {
+        "en": "The authoritative game domain; no learning-domain inference is made."
+      },
+      "inlineSchema": "{\"$schema\":\"http://json-schema.org/draft-07/schema#\",\"type\":\"string\",\"minLength\":1,\"maxLength\":512}"
+    },
+    {
+      "id": "urn:interego:gaming:gameId",
+      "type": "ContextExtension",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/versions/1.0.0",
+      "prefLabel": {
+        "en": "gameId"
+      },
+      "definition": {
+        "en": "The committed game stream application identifier."
+      },
+      "inlineSchema": "{\"$schema\":\"http://json-schema.org/draft-07/schema#\",\"type\":\"string\",\"minLength\":1,\"maxLength\":512}"
+    },
+    {
+      "id": "urn:interego:gaming:source",
+      "type": "ContextExtension",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/versions/1.0.0",
+      "prefLabel": {
+        "en": "source"
+      },
+      "definition": {
+        "en": "Exact committed event and stream-version reference. This describes application provenance; it does not establish LRS certification."
+      },
+      "inlineSchema": "{\"$schema\":\"http://json-schema.org/draft-07/schema#\",\"type\":\"object\",\"additionalProperties\":false,\"properties\":{\"authority\":{\"const\":\"authoritative-game-log\"},\"eventId\":{\"type\":\"string\",\"minLength\":1,\"maxLength\":512},\"streamId\":{\"type\":\"string\",\"minLength\":1,\"maxLength\":512},\"version\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":9007199254740991},\"index\":{\"type\":\"integer\",\"minimum\":0,\"maximum\":9007199254740991},\"binding\":{\"const\":\"committed-log-reference\"}},\"required\":[\"authority\",\"eventId\",\"streamId\",\"version\",\"binding\"]}"
+    },
+    {
+      "id": "urn:interego:gaming:delegatedAgentId",
+      "type": "ContextExtension",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/versions/1.0.0",
+      "prefLabel": {
+        "en": "delegatedAgentId"
+      },
+      "definition": {
+        "en": "The controller identifier retained by the authoritative game when a delegated agent acted; it does not replace the statement subject."
+      },
+      "inlineSchema": "{\"$schema\":\"http://json-schema.org/draft-07/schema#\",\"type\":\"string\",\"minLength\":1,\"maxLength\":512}"
+    },
+    {
+      "id": "urn:interego:gaming:measured",
+      "type": "ContextExtension",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/versions/1.0.0",
+      "prefLabel": {
+        "en": "measured"
+      },
+      "definition": {
+        "en": "Measured game values and network timing samples. Damage and quantities use the source game units; timings are milliseconds. No competency assessment is implied."
+      },
+      "inlineSchema": "{\"$schema\":\"http://json-schema.org/draft-07/schema#\",\"type\":\"object\",\"additionalProperties\":false,\"properties\":{\"metrics\":{\"type\":\"object\",\"additionalProperties\":false,\"properties\":{\"damageDealt\":{\"type\":\"number\",\"minimum\":0,\"maximum\":9007199254740991},\"kills\":{\"type\":\"number\",\"minimum\":0,\"maximum\":9007199254740991},\"lootQuantity\":{\"type\":\"number\",\"minimum\":0,\"maximum\":9007199254740991},\"resourcesGathered\":{\"type\":\"number\",\"minimum\":0,\"maximum\":9007199254740991},\"teachingActions\":{\"type\":\"number\",\"minimum\":0,\"maximum\":9007199254740991},\"knowledgeConsultations\":{\"type\":\"number\",\"minimum\":0,\"maximum\":9007199254740991},\"companionsSpawned\":{\"type\":\"number\",\"minimum\":0,\"maximum\":9007199254740991},\"movements\":{\"type\":\"number\",\"minimum\":0,\"maximum\":9007199254740991}}},\"telemetry\":{\"type\":\"object\",\"additionalProperties\":false,\"properties\":{\"rttMs\":{\"type\":\"number\",\"minimum\":0,\"maximum\":9007199254740991},\"tickMs\":{\"type\":\"number\",\"minimum\":0,\"maximum\":9007199254740991},\"queueMs\":{\"type\":\"number\",\"minimum\":0,\"maximum\":9007199254740991}}}},\"required\":[\"metrics\",\"telemetry\"]}"
+    },
+    {
+      "id": "urn:interego:gaming:epistemicStatus",
+      "type": "ContextExtension",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/versions/1.0.0",
+      "prefLabel": {
+        "en": "epistemicStatus"
+      },
+      "definition": {
+        "en": "Committed activity evidence, without a learning or causal-effect interpretation."
+      },
+      "inlineSchema": "{\"$schema\":\"http://json-schema.org/draft-07/schema#\",\"const\":\"observed-activity\"}"
+    },
+    {
+      "id": "urn:interego:gaming:competencyStatus",
+      "type": "ContextExtension",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/versions/1.0.0",
+      "prefLabel": {
+        "en": "competencyStatus"
+      },
+      "definition": {
+        "en": "Ordinary committed activity is not a competency assessment."
+      },
+      "inlineSchema": "{\"$schema\":\"http://json-schema.org/draft-07/schema#\",\"const\":\"not-assessed\"}"
+    }
+  ],
+  "templates": [
+    {
+      "id": "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/templates/1.0.0/damage",
+      "type": "StatementTemplate",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/versions/1.0.0",
+      "prefLabel": {
+        "en": "damage committed record"
+      },
+      "definition": {
+        "en": "Damage accepted by the authoritative game, with the measured amount and any one credited kill."
+      },
+      "verb": "urn:interego:gaming:verbs/damage",
+      "objectActivityType": "urn:interego:gaming:CommittedGameActivity",
+      "rules": [
+        {
+          "location": "$.id",
+          "presence": "included"
+        },
+        {
+          "location": "$.actor.objectType",
+          "presence": "included",
+          "all": [
+            "Agent"
+          ]
+        },
+        {
+          "location": "$.actor.account.homePage",
+          "presence": "included",
+          "all": [
+            "urn:interego:gaming:accounts"
+          ]
+        },
+        {
+          "location": "$.actor.account.name",
+          "presence": "included"
+        },
+        {
+          "location": "$.object.objectType",
+          "presence": "included",
+          "all": [
+            "Activity"
+          ]
+        },
+        {
+          "location": "$.timestamp",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.registration",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.contextActivities.category[*].id",
+          "presence": "included",
+          "any": [
+            "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/versions/1.0.0"
+          ]
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:domain']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:gameId']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:source']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:measured']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:epistemicStatus']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:competencyStatus']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:source'].authority",
+          "presence": "included",
+          "all": [
+            "authoritative-game-log"
+          ]
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:source'].binding",
+          "presence": "included",
+          "all": [
+            "committed-log-reference"
+          ]
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:epistemicStatus']",
+          "presence": "included",
+          "all": [
+            "observed-activity"
+          ]
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:competencyStatus']",
+          "presence": "included",
+          "all": [
+            "not-assessed"
+          ]
+        },
+        {
+          "location": "$.result",
+          "presence": "excluded"
+        }
+      ]
+    },
+    {
+      "id": "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/templates/1.0.0/loot.granted",
+      "type": "StatementTemplate",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/versions/1.0.0",
+      "prefLabel": {
+        "en": "loot.granted committed record"
+      },
+      "definition": {
+        "en": "A committed loot grant, with its measured quantity."
+      },
+      "verb": "urn:interego:gaming:verbs/loot.granted",
+      "objectActivityType": "urn:interego:gaming:CommittedGameActivity",
+      "rules": [
+        {
+          "location": "$.id",
+          "presence": "included"
+        },
+        {
+          "location": "$.actor.objectType",
+          "presence": "included",
+          "all": [
+            "Agent"
+          ]
+        },
+        {
+          "location": "$.actor.account.homePage",
+          "presence": "included",
+          "all": [
+            "urn:interego:gaming:accounts"
+          ]
+        },
+        {
+          "location": "$.actor.account.name",
+          "presence": "included"
+        },
+        {
+          "location": "$.object.objectType",
+          "presence": "included",
+          "all": [
+            "Activity"
+          ]
+        },
+        {
+          "location": "$.timestamp",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.registration",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.contextActivities.category[*].id",
+          "presence": "included",
+          "any": [
+            "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/versions/1.0.0"
+          ]
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:domain']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:gameId']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:source']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:measured']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:epistemicStatus']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:competencyStatus']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:source'].authority",
+          "presence": "included",
+          "all": [
+            "authoritative-game-log"
+          ]
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:source'].binding",
+          "presence": "included",
+          "all": [
+            "committed-log-reference"
+          ]
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:epistemicStatus']",
+          "presence": "included",
+          "all": [
+            "observed-activity"
+          ]
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:competencyStatus']",
+          "presence": "included",
+          "all": [
+            "not-assessed"
+          ]
+        },
+        {
+          "location": "$.result",
+          "presence": "excluded"
+        }
+      ]
+    },
+    {
+      "id": "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/templates/1.0.0/resource.gathered",
+      "type": "StatementTemplate",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/versions/1.0.0",
+      "prefLabel": {
+        "en": "resource.gathered committed record"
+      },
+      "definition": {
+        "en": "A committed resource collection, with its measured quantity."
+      },
+      "verb": "urn:interego:gaming:verbs/resource.gathered",
+      "objectActivityType": "urn:interego:gaming:CommittedGameActivity",
+      "rules": [
+        {
+          "location": "$.id",
+          "presence": "included"
+        },
+        {
+          "location": "$.actor.objectType",
+          "presence": "included",
+          "all": [
+            "Agent"
+          ]
+        },
+        {
+          "location": "$.actor.account.homePage",
+          "presence": "included",
+          "all": [
+            "urn:interego:gaming:accounts"
+          ]
+        },
+        {
+          "location": "$.actor.account.name",
+          "presence": "included"
+        },
+        {
+          "location": "$.object.objectType",
+          "presence": "included",
+          "all": [
+            "Activity"
+          ]
+        },
+        {
+          "location": "$.timestamp",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.registration",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.contextActivities.category[*].id",
+          "presence": "included",
+          "any": [
+            "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/versions/1.0.0"
+          ]
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:domain']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:gameId']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:source']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:measured']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:epistemicStatus']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:competencyStatus']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:source'].authority",
+          "presence": "included",
+          "all": [
+            "authoritative-game-log"
+          ]
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:source'].binding",
+          "presence": "included",
+          "all": [
+            "committed-log-reference"
+          ]
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:epistemicStatus']",
+          "presence": "included",
+          "all": [
+            "observed-activity"
+          ]
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:competencyStatus']",
+          "presence": "included",
+          "all": [
+            "not-assessed"
+          ]
+        },
+        {
+          "location": "$.result",
+          "presence": "excluded"
+        }
+      ]
+    },
+    {
+      "id": "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/templates/1.0.0/teaching.delivered",
+      "type": "StatementTemplate",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/versions/1.0.0",
+      "prefLabel": {
+        "en": "teaching.delivered committed record"
+      },
+      "definition": {
+        "en": "The game accepted a requested teaching action. This does not establish learner understanding or intervention effectiveness."
+      },
+      "verb": "urn:interego:gaming:verbs/teaching.delivered",
+      "objectActivityType": "urn:interego:gaming:CommittedGameActivity",
+      "rules": [
+        {
+          "location": "$.id",
+          "presence": "included"
+        },
+        {
+          "location": "$.actor.objectType",
+          "presence": "included",
+          "all": [
+            "Agent"
+          ]
+        },
+        {
+          "location": "$.actor.account.homePage",
+          "presence": "included",
+          "all": [
+            "urn:interego:gaming:accounts"
+          ]
+        },
+        {
+          "location": "$.actor.account.name",
+          "presence": "included"
+        },
+        {
+          "location": "$.object.objectType",
+          "presence": "included",
+          "all": [
+            "Activity"
+          ]
+        },
+        {
+          "location": "$.timestamp",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.registration",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.contextActivities.category[*].id",
+          "presence": "included",
+          "any": [
+            "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/versions/1.0.0"
+          ]
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:domain']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:gameId']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:source']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:measured']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:epistemicStatus']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:competencyStatus']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:source'].authority",
+          "presence": "included",
+          "all": [
+            "authoritative-game-log"
+          ]
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:source'].binding",
+          "presence": "included",
+          "all": [
+            "committed-log-reference"
+          ]
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:epistemicStatus']",
+          "presence": "included",
+          "all": [
+            "observed-activity"
+          ]
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:competencyStatus']",
+          "presence": "included",
+          "all": [
+            "not-assessed"
+          ]
+        },
+        {
+          "location": "$.result",
+          "presence": "excluded"
+        }
+      ]
+    },
+    {
+      "id": "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/templates/1.0.0/knowledge.consulted",
+      "type": "StatementTemplate",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/versions/1.0.0",
+      "prefLabel": {
+        "en": "knowledge.consulted committed record"
+      },
+      "definition": {
+        "en": "The game accepted an explicit knowledge consultation. Consultation does not establish learning."
+      },
+      "verb": "urn:interego:gaming:verbs/knowledge.consulted",
+      "objectActivityType": "urn:interego:gaming:CommittedGameActivity",
+      "rules": [
+        {
+          "location": "$.id",
+          "presence": "included"
+        },
+        {
+          "location": "$.actor.objectType",
+          "presence": "included",
+          "all": [
+            "Agent"
+          ]
+        },
+        {
+          "location": "$.actor.account.homePage",
+          "presence": "included",
+          "all": [
+            "urn:interego:gaming:accounts"
+          ]
+        },
+        {
+          "location": "$.actor.account.name",
+          "presence": "included"
+        },
+        {
+          "location": "$.object.objectType",
+          "presence": "included",
+          "all": [
+            "Activity"
+          ]
+        },
+        {
+          "location": "$.timestamp",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.registration",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.contextActivities.category[*].id",
+          "presence": "included",
+          "any": [
+            "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/versions/1.0.0"
+          ]
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:domain']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:gameId']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:source']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:measured']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:epistemicStatus']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:competencyStatus']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:source'].authority",
+          "presence": "included",
+          "all": [
+            "authoritative-game-log"
+          ]
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:source'].binding",
+          "presence": "included",
+          "all": [
+            "committed-log-reference"
+          ]
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:epistemicStatus']",
+          "presence": "included",
+          "all": [
+            "observed-activity"
+          ]
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:competencyStatus']",
+          "presence": "included",
+          "all": [
+            "not-assessed"
+          ]
+        },
+        {
+          "location": "$.result",
+          "presence": "excluded"
+        }
+      ]
+    },
+    {
+      "id": "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/templates/1.0.0/companion.spawned",
+      "type": "StatementTemplate",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/versions/1.0.0",
+      "prefLabel": {
+        "en": "companion.spawned committed record"
+      },
+      "definition": {
+        "en": "The authoritative game created a companion body."
+      },
+      "verb": "urn:interego:gaming:verbs/companion.spawned",
+      "objectActivityType": "urn:interego:gaming:CommittedGameActivity",
+      "rules": [
+        {
+          "location": "$.id",
+          "presence": "included"
+        },
+        {
+          "location": "$.actor.objectType",
+          "presence": "included",
+          "all": [
+            "Agent"
+          ]
+        },
+        {
+          "location": "$.actor.account.homePage",
+          "presence": "included",
+          "all": [
+            "urn:interego:gaming:accounts"
+          ]
+        },
+        {
+          "location": "$.actor.account.name",
+          "presence": "included"
+        },
+        {
+          "location": "$.object.objectType",
+          "presence": "included",
+          "all": [
+            "Activity"
+          ]
+        },
+        {
+          "location": "$.timestamp",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.registration",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.contextActivities.category[*].id",
+          "presence": "included",
+          "any": [
+            "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/versions/1.0.0"
+          ]
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:domain']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:gameId']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:source']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:measured']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:epistemicStatus']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:competencyStatus']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:source'].authority",
+          "presence": "included",
+          "all": [
+            "authoritative-game-log"
+          ]
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:source'].binding",
+          "presence": "included",
+          "all": [
+            "committed-log-reference"
+          ]
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:epistemicStatus']",
+          "presence": "included",
+          "all": [
+            "observed-activity"
+          ]
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:competencyStatus']",
+          "presence": "included",
+          "all": [
+            "not-assessed"
+          ]
+        },
+        {
+          "location": "$.result",
+          "presence": "excluded"
+        }
+      ]
+    },
+    {
+      "id": "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/templates/1.0.0/movement.applied",
+      "type": "StatementTemplate",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/versions/1.0.0",
+      "prefLabel": {
+        "en": "movement.applied committed record"
+      },
+      "definition": {
+        "en": "The authoritative game applied movement. A command or animation alone is insufficient."
+      },
+      "verb": "urn:interego:gaming:verbs/movement.applied",
+      "objectActivityType": "urn:interego:gaming:CommittedGameActivity",
+      "rules": [
+        {
+          "location": "$.id",
+          "presence": "included"
+        },
+        {
+          "location": "$.actor.objectType",
+          "presence": "included",
+          "all": [
+            "Agent"
+          ]
+        },
+        {
+          "location": "$.actor.account.homePage",
+          "presence": "included",
+          "all": [
+            "urn:interego:gaming:accounts"
+          ]
+        },
+        {
+          "location": "$.actor.account.name",
+          "presence": "included"
+        },
+        {
+          "location": "$.object.objectType",
+          "presence": "included",
+          "all": [
+            "Activity"
+          ]
+        },
+        {
+          "location": "$.timestamp",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.registration",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.contextActivities.category[*].id",
+          "presence": "included",
+          "any": [
+            "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/versions/1.0.0"
+          ]
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:domain']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:gameId']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:source']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:measured']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:epistemicStatus']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:competencyStatus']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:source'].authority",
+          "presence": "included",
+          "all": [
+            "authoritative-game-log"
+          ]
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:source'].binding",
+          "presence": "included",
+          "all": [
+            "committed-log-reference"
+          ]
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:epistemicStatus']",
+          "presence": "included",
+          "all": [
+            "observed-activity"
+          ]
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:competencyStatus']",
+          "presence": "included",
+          "all": [
+            "not-assessed"
+          ]
+        },
+        {
+          "location": "$.result",
+          "presence": "excluded"
+        }
+      ]
+    },
+    {
+      "id": "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/templates/1.0.0/telemetry.sample",
+      "type": "StatementTemplate",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/versions/1.0.0",
+      "prefLabel": {
+        "en": "telemetry.sample committed record"
+      },
+      "definition": {
+        "en": "Measured network/game timing retained in the authoritative log."
+      },
+      "verb": "urn:interego:gaming:verbs/telemetry.sample",
+      "objectActivityType": "urn:interego:gaming:CommittedGameActivity",
+      "rules": [
+        {
+          "location": "$.id",
+          "presence": "included"
+        },
+        {
+          "location": "$.actor.objectType",
+          "presence": "included",
+          "all": [
+            "Agent"
+          ]
+        },
+        {
+          "location": "$.actor.account.homePage",
+          "presence": "included",
+          "all": [
+            "urn:interego:gaming:accounts"
+          ]
+        },
+        {
+          "location": "$.actor.account.name",
+          "presence": "included"
+        },
+        {
+          "location": "$.object.objectType",
+          "presence": "included",
+          "all": [
+            "Activity"
+          ]
+        },
+        {
+          "location": "$.timestamp",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.registration",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.contextActivities.category[*].id",
+          "presence": "included",
+          "any": [
+            "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/versions/1.0.0"
+          ]
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:domain']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:gameId']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:source']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:measured']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:epistemicStatus']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:competencyStatus']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:source'].authority",
+          "presence": "included",
+          "all": [
+            "authoritative-game-log"
+          ]
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:source'].binding",
+          "presence": "included",
+          "all": [
+            "committed-log-reference"
+          ]
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:epistemicStatus']",
+          "presence": "included",
+          "all": [
+            "observed-activity"
+          ]
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:competencyStatus']",
+          "presence": "included",
+          "all": [
+            "not-assessed"
+          ]
+        },
+        {
+          "location": "$.result",
+          "presence": "excluded"
+        }
+      ]
+    },
+    {
+      "id": "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/templates/1.0.0/player.joined",
+      "type": "StatementTemplate",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/versions/1.0.0",
+      "prefLabel": {
+        "en": "player.joined committed record"
+      },
+      "definition": {
+        "en": "The authoritative expedition admitted a player."
+      },
+      "verb": "urn:interego:gaming:verbs/player.joined",
+      "objectActivityType": "urn:interego:gaming:CommittedGameActivity",
+      "rules": [
+        {
+          "location": "$.id",
+          "presence": "included"
+        },
+        {
+          "location": "$.actor.objectType",
+          "presence": "included",
+          "all": [
+            "Agent"
+          ]
+        },
+        {
+          "location": "$.actor.account.homePage",
+          "presence": "included",
+          "all": [
+            "urn:interego:gaming:accounts"
+          ]
+        },
+        {
+          "location": "$.actor.account.name",
+          "presence": "included"
+        },
+        {
+          "location": "$.object.objectType",
+          "presence": "included",
+          "all": [
+            "Activity"
+          ]
+        },
+        {
+          "location": "$.timestamp",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.registration",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.contextActivities.category[*].id",
+          "presence": "included",
+          "any": [
+            "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/versions/1.0.0"
+          ]
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:domain']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:gameId']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:source']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:measured']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:epistemicStatus']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:competencyStatus']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:source'].authority",
+          "presence": "included",
+          "all": [
+            "authoritative-game-log"
+          ]
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:source'].binding",
+          "presence": "included",
+          "all": [
+            "committed-log-reference"
+          ]
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:epistemicStatus']",
+          "presence": "included",
+          "all": [
+            "observed-activity"
+          ]
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:competencyStatus']",
+          "presence": "included",
+          "all": [
+            "not-assessed"
+          ]
+        },
+        {
+          "location": "$.result",
+          "presence": "excluded"
+        }
+      ]
+    },
+    {
+      "id": "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/templates/1.0.0/encounter.started",
+      "type": "StatementTemplate",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/versions/1.0.0",
+      "prefLabel": {
+        "en": "encounter.started committed record"
+      },
+      "definition": {
+        "en": "The authoritative expedition began its next encounter. This is not a learning session lifecycle."
+      },
+      "verb": "urn:interego:gaming:verbs/encounter.started",
+      "objectActivityType": "urn:interego:gaming:CommittedGameActivity",
+      "rules": [
+        {
+          "location": "$.id",
+          "presence": "included"
+        },
+        {
+          "location": "$.actor.objectType",
+          "presence": "included",
+          "all": [
+            "Agent"
+          ]
+        },
+        {
+          "location": "$.actor.account.homePage",
+          "presence": "included",
+          "all": [
+            "urn:interego:gaming:accounts"
+          ]
+        },
+        {
+          "location": "$.actor.account.name",
+          "presence": "included"
+        },
+        {
+          "location": "$.object.objectType",
+          "presence": "included",
+          "all": [
+            "Activity"
+          ]
+        },
+        {
+          "location": "$.timestamp",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.registration",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.contextActivities.category[*].id",
+          "presence": "included",
+          "any": [
+            "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/versions/1.0.0"
+          ]
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:domain']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:gameId']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:source']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:measured']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:epistemicStatus']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:competencyStatus']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:source'].authority",
+          "presence": "included",
+          "all": [
+            "authoritative-game-log"
+          ]
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:source'].binding",
+          "presence": "included",
+          "all": [
+            "committed-log-reference"
+          ]
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:epistemicStatus']",
+          "presence": "included",
+          "all": [
+            "observed-activity"
+          ]
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:competencyStatus']",
+          "presence": "included",
+          "all": [
+            "not-assessed"
+          ]
+        },
+        {
+          "location": "$.result",
+          "presence": "excluded"
+        }
+      ]
+    },
+    {
+      "id": "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/templates/1.0.0/entity.recovered",
+      "type": "StatementTemplate",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/versions/1.0.0",
+      "prefLabel": {
+        "en": "entity.recovered committed record"
+      },
+      "definition": {
+        "en": "The authoritative expedition recovered an entity according to game rules."
+      },
+      "verb": "urn:interego:gaming:verbs/entity.recovered",
+      "objectActivityType": "urn:interego:gaming:CommittedGameActivity",
+      "rules": [
+        {
+          "location": "$.id",
+          "presence": "included"
+        },
+        {
+          "location": "$.actor.objectType",
+          "presence": "included",
+          "all": [
+            "Agent"
+          ]
+        },
+        {
+          "location": "$.actor.account.homePage",
+          "presence": "included",
+          "all": [
+            "urn:interego:gaming:accounts"
+          ]
+        },
+        {
+          "location": "$.actor.account.name",
+          "presence": "included"
+        },
+        {
+          "location": "$.object.objectType",
+          "presence": "included",
+          "all": [
+            "Activity"
+          ]
+        },
+        {
+          "location": "$.timestamp",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.registration",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.contextActivities.category[*].id",
+          "presence": "included",
+          "any": [
+            "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/versions/1.0.0"
+          ]
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:domain']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:gameId']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:source']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:measured']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:epistemicStatus']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:competencyStatus']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:source'].authority",
+          "presence": "included",
+          "all": [
+            "authoritative-game-log"
+          ]
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:source'].binding",
+          "presence": "included",
+          "all": [
+            "committed-log-reference"
+          ]
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:epistemicStatus']",
+          "presence": "included",
+          "all": [
+            "observed-activity"
+          ]
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:competencyStatus']",
+          "presence": "included",
+          "all": [
+            "not-assessed"
+          ]
+        },
+        {
+          "location": "$.result",
+          "presence": "excluded"
+        }
+      ]
+    },
+    {
+      "id": "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/templates/1.0.0/companion.nativeReferenceRegistered",
+      "type": "StatementTemplate",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/versions/1.0.0",
+      "prefLabel": {
+        "en": "companion.nativeReferenceRegistered committed record"
+      },
+      "definition": {
+        "en": "The authoritative game registered a native companion reference."
+      },
+      "verb": "urn:interego:gaming:verbs/companion.nativeReferenceRegistered",
+      "objectActivityType": "urn:interego:gaming:CommittedGameActivity",
+      "rules": [
+        {
+          "location": "$.id",
+          "presence": "included"
+        },
+        {
+          "location": "$.actor.objectType",
+          "presence": "included",
+          "all": [
+            "Agent"
+          ]
+        },
+        {
+          "location": "$.actor.account.homePage",
+          "presence": "included",
+          "all": [
+            "urn:interego:gaming:accounts"
+          ]
+        },
+        {
+          "location": "$.actor.account.name",
+          "presence": "included"
+        },
+        {
+          "location": "$.object.objectType",
+          "presence": "included",
+          "all": [
+            "Activity"
+          ]
+        },
+        {
+          "location": "$.timestamp",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.registration",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.contextActivities.category[*].id",
+          "presence": "included",
+          "any": [
+            "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/versions/1.0.0"
+          ]
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:domain']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:gameId']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:source']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:measured']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:epistemicStatus']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:competencyStatus']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:source'].authority",
+          "presence": "included",
+          "all": [
+            "authoritative-game-log"
+          ]
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:source'].binding",
+          "presence": "included",
+          "all": [
+            "committed-log-reference"
+          ]
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:epistemicStatus']",
+          "presence": "included",
+          "all": [
+            "observed-activity"
+          ]
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:competencyStatus']",
+          "presence": "included",
+          "all": [
+            "not-assessed"
+          ]
+        },
+        {
+          "location": "$.result",
+          "presence": "excluded"
+        }
+      ]
+    },
+    {
+      "id": "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/templates/1.0.0/companion.nativeAdmitted",
+      "type": "StatementTemplate",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/versions/1.0.0",
+      "prefLabel": {
+        "en": "companion.nativeAdmitted committed record"
+      },
+      "definition": {
+        "en": "The authoritative game admitted a companion using a verified native grant."
+      },
+      "verb": "urn:interego:gaming:verbs/companion.nativeAdmitted",
+      "objectActivityType": "urn:interego:gaming:CommittedGameActivity",
+      "rules": [
+        {
+          "location": "$.id",
+          "presence": "included"
+        },
+        {
+          "location": "$.actor.objectType",
+          "presence": "included",
+          "all": [
+            "Agent"
+          ]
+        },
+        {
+          "location": "$.actor.account.homePage",
+          "presence": "included",
+          "all": [
+            "urn:interego:gaming:accounts"
+          ]
+        },
+        {
+          "location": "$.actor.account.name",
+          "presence": "included"
+        },
+        {
+          "location": "$.object.objectType",
+          "presence": "included",
+          "all": [
+            "Activity"
+          ]
+        },
+        {
+          "location": "$.timestamp",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.registration",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.contextActivities.category[*].id",
+          "presence": "included",
+          "any": [
+            "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/versions/1.0.0"
+          ]
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:domain']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:gameId']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:source']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:measured']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:epistemicStatus']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:competencyStatus']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:source'].authority",
+          "presence": "included",
+          "all": [
+            "authoritative-game-log"
+          ]
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:source'].binding",
+          "presence": "included",
+          "all": [
+            "committed-log-reference"
+          ]
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:epistemicStatus']",
+          "presence": "included",
+          "all": [
+            "observed-activity"
+          ]
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:competencyStatus']",
+          "presence": "included",
+          "all": [
+            "not-assessed"
+          ]
+        },
+        {
+          "location": "$.result",
+          "presence": "excluded"
+        }
+      ]
+    },
+    {
+      "id": "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/templates/1.0.0/companion.nativeRevoked",
+      "type": "StatementTemplate",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/versions/1.0.0",
+      "prefLabel": {
+        "en": "companion.nativeRevoked committed record"
+      },
+      "definition": {
+        "en": "The authoritative game revoked a native companion relationship."
+      },
+      "verb": "urn:interego:gaming:verbs/companion.nativeRevoked",
+      "objectActivityType": "urn:interego:gaming:CommittedGameActivity",
+      "rules": [
+        {
+          "location": "$.id",
+          "presence": "included"
+        },
+        {
+          "location": "$.actor.objectType",
+          "presence": "included",
+          "all": [
+            "Agent"
+          ]
+        },
+        {
+          "location": "$.actor.account.homePage",
+          "presence": "included",
+          "all": [
+            "urn:interego:gaming:accounts"
+          ]
+        },
+        {
+          "location": "$.actor.account.name",
+          "presence": "included"
+        },
+        {
+          "location": "$.object.objectType",
+          "presence": "included",
+          "all": [
+            "Activity"
+          ]
+        },
+        {
+          "location": "$.timestamp",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.registration",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.contextActivities.category[*].id",
+          "presence": "included",
+          "any": [
+            "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/versions/1.0.0"
+          ]
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:domain']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:gameId']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:source']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:measured']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:epistemicStatus']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:competencyStatus']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:source'].authority",
+          "presence": "included",
+          "all": [
+            "authoritative-game-log"
+          ]
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:source'].binding",
+          "presence": "included",
+          "all": [
+            "committed-log-reference"
+          ]
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:epistemicStatus']",
+          "presence": "included",
+          "all": [
+            "observed-activity"
+          ]
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:competencyStatus']",
+          "presence": "included",
+          "all": [
+            "not-assessed"
+          ]
+        },
+        {
+          "location": "$.result",
+          "presence": "excluded"
+        }
+      ]
+    },
+    {
+      "id": "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/templates/1.0.0/companion.granted",
+      "type": "StatementTemplate",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/versions/1.0.0",
+      "prefLabel": {
+        "en": "companion.granted committed record"
+      },
+      "definition": {
+        "en": "The authoritative game created a companion delegation."
+      },
+      "verb": "urn:interego:gaming:verbs/companion.granted",
+      "objectActivityType": "urn:interego:gaming:CommittedGameActivity",
+      "rules": [
+        {
+          "location": "$.id",
+          "presence": "included"
+        },
+        {
+          "location": "$.actor.objectType",
+          "presence": "included",
+          "all": [
+            "Agent"
+          ]
+        },
+        {
+          "location": "$.actor.account.homePage",
+          "presence": "included",
+          "all": [
+            "urn:interego:gaming:accounts"
+          ]
+        },
+        {
+          "location": "$.actor.account.name",
+          "presence": "included"
+        },
+        {
+          "location": "$.object.objectType",
+          "presence": "included",
+          "all": [
+            "Activity"
+          ]
+        },
+        {
+          "location": "$.timestamp",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.registration",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.contextActivities.category[*].id",
+          "presence": "included",
+          "any": [
+            "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/versions/1.0.0"
+          ]
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:domain']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:gameId']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:source']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:measured']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:epistemicStatus']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:competencyStatus']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:source'].authority",
+          "presence": "included",
+          "all": [
+            "authoritative-game-log"
+          ]
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:source'].binding",
+          "presence": "included",
+          "all": [
+            "committed-log-reference"
+          ]
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:epistemicStatus']",
+          "presence": "included",
+          "all": [
+            "observed-activity"
+          ]
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:competencyStatus']",
+          "presence": "included",
+          "all": [
+            "not-assessed"
+          ]
+        },
+        {
+          "location": "$.result",
+          "presence": "excluded"
+        }
+      ]
+    },
+    {
+      "id": "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/templates/1.0.0/companion.revoked",
+      "type": "StatementTemplate",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/versions/1.0.0",
+      "prefLabel": {
+        "en": "companion.revoked committed record"
+      },
+      "definition": {
+        "en": "The authoritative game revoked a companion delegation."
+      },
+      "verb": "urn:interego:gaming:verbs/companion.revoked",
+      "objectActivityType": "urn:interego:gaming:CommittedGameActivity",
+      "rules": [
+        {
+          "location": "$.id",
+          "presence": "included"
+        },
+        {
+          "location": "$.actor.objectType",
+          "presence": "included",
+          "all": [
+            "Agent"
+          ]
+        },
+        {
+          "location": "$.actor.account.homePage",
+          "presence": "included",
+          "all": [
+            "urn:interego:gaming:accounts"
+          ]
+        },
+        {
+          "location": "$.actor.account.name",
+          "presence": "included"
+        },
+        {
+          "location": "$.object.objectType",
+          "presence": "included",
+          "all": [
+            "Activity"
+          ]
+        },
+        {
+          "location": "$.timestamp",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.registration",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.contextActivities.category[*].id",
+          "presence": "included",
+          "any": [
+            "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/versions/1.0.0"
+          ]
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:domain']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:gameId']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:source']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:measured']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:epistemicStatus']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:competencyStatus']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:source'].authority",
+          "presence": "included",
+          "all": [
+            "authoritative-game-log"
+          ]
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:source'].binding",
+          "presence": "included",
+          "all": [
+            "committed-log-reference"
+          ]
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:epistemicStatus']",
+          "presence": "included",
+          "all": [
+            "observed-activity"
+          ]
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:competencyStatus']",
+          "presence": "included",
+          "all": [
+            "not-assessed"
+          ]
+        },
+        {
+          "location": "$.result",
+          "presence": "excluded"
+        }
+      ]
+    },
+    {
+      "id": "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/templates/1.0.0/consent.changed",
+      "type": "StatementTemplate",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/versions/1.0.0",
+      "prefLabel": {
+        "en": "consent.changed committed record"
+      },
+      "definition": {
+        "en": "The authoritative game changed the owner-controlled export preference. This event never authorizes its own export."
+      },
+      "verb": "urn:interego:gaming:verbs/consent.changed",
+      "objectActivityType": "urn:interego:gaming:CommittedGameActivity",
+      "rules": [
+        {
+          "location": "$.id",
+          "presence": "included"
+        },
+        {
+          "location": "$.actor.objectType",
+          "presence": "included",
+          "all": [
+            "Agent"
+          ]
+        },
+        {
+          "location": "$.actor.account.homePage",
+          "presence": "included",
+          "all": [
+            "urn:interego:gaming:accounts"
+          ]
+        },
+        {
+          "location": "$.actor.account.name",
+          "presence": "included"
+        },
+        {
+          "location": "$.object.objectType",
+          "presence": "included",
+          "all": [
+            "Activity"
+          ]
+        },
+        {
+          "location": "$.timestamp",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.registration",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.contextActivities.category[*].id",
+          "presence": "included",
+          "any": [
+            "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/versions/1.0.0"
+          ]
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:domain']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:gameId']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:source']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:measured']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:epistemicStatus']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:competencyStatus']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:source'].authority",
+          "presence": "included",
+          "all": [
+            "authoritative-game-log"
+          ]
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:source'].binding",
+          "presence": "included",
+          "all": [
+            "committed-log-reference"
+          ]
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:epistemicStatus']",
+          "presence": "included",
+          "all": [
+            "observed-activity"
+          ]
+        },
+        {
+          "location": "$.context.extensions['urn:interego:gaming:competencyStatus']",
+          "presence": "included",
+          "all": [
+            "not-assessed"
+          ]
+        },
+        {
+          "location": "$.result",
+          "presence": "excluded"
+        }
+      ]
+    }
+  ],
+  "patterns": [
+    {
+      "id": "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/patterns/1.0.0/committed-event",
+      "type": "Pattern",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/versions/1.0.0",
+      "alternates": [
+        "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/templates/1.0.0/damage",
+        "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/templates/1.0.0/loot.granted",
+        "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/templates/1.0.0/resource.gathered",
+        "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/templates/1.0.0/teaching.delivered",
+        "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/templates/1.0.0/knowledge.consulted",
+        "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/templates/1.0.0/companion.spawned",
+        "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/templates/1.0.0/movement.applied",
+        "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/templates/1.0.0/telemetry.sample",
+        "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/templates/1.0.0/player.joined",
+        "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/templates/1.0.0/encounter.started",
+        "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/templates/1.0.0/entity.recovered",
+        "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/templates/1.0.0/companion.nativeReferenceRegistered",
+        "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/templates/1.0.0/companion.nativeAdmitted",
+        "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/templates/1.0.0/companion.nativeRevoked",
+        "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/templates/1.0.0/companion.granted",
+        "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/templates/1.0.0/companion.revoked",
+        "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/templates/1.0.0/consent.changed"
+      ]
+    },
+    {
+      "id": "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/patterns/1.0.0/committed-stream",
+      "type": "Pattern",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/versions/1.0.0",
+      "primary": true,
+      "prefLabel": {
+        "en": "Committed gameplay stream"
+      },
+      "definition": {
+        "en": "One or more supported committed events in timestamp and committed stream-version/index order, partitioned by the actual supplied run registration. No session beginning, end or outcome is inferred from a partial log window."
+      },
+      "oneOrMore": "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/patterns/1.0.0/committed-event"
+    }
+  ]
+}

@@ -1089,7 +1089,7 @@ function stepJob(dt) {
   const P = GAME.player, t = J.tree;
   if (!P || !P.alive || P.casting || P.mount || P.motion || dist(P.x, P.z, J.px, J.pz) > 0.3) { natureStopJob(P && P.alive ? 'You stop working.' : null); return; }
   if ((J.kind === 'chop' && t.felled) || (J.kind === 'split' && !t.log)) { natureStopJob(null); return; }
-  J.t += dt;
+  J.t += dt * (typeof skillWorkRate === 'function' ? skillWorkRate('woodcutting') : 1);
   P.yaw = J.yaw;
   if (J.t >= J.next && !J.hitAt) {
     J.next = J.t + 0.95;
@@ -1100,6 +1100,8 @@ function stepJob(dt) {
   if (J.hitAt && J.t >= J.hitAt) {
     J.hitAt = 0;
     J.swings++;
+    if (J.swings >= J.need && typeof netWorldPartsRequest === 'function'
+      && netWorldPartsRequest('nature.job', { kind: J.kind, id: t.i })) { natureStopJob(null); return; }
     const D = TREE_DIM[t.kind];
     const ux = Math.sin(J.yaw), uz = Math.cos(J.yaw);
     if (J.kind === 'chop') {
@@ -1112,6 +1114,7 @@ function stepJob(dt) {
         // the last blow: it goes over away from the axe
         t.notch = 1;
         fellTree(t, t.x - P.x, t.z - P.z, 30, true);
+        if (t.felled && typeof skillGain === 'function') skillGain('woodcutting', 0.5);
         netLand('fell', [t.i, netR2(t.x - P.x), netR2(t.z - P.z)]); // [net] it falls on the others' pages too (14n_net.js)
         natureStopJob(null);
         P.yaw = J.yaw;
@@ -1389,3 +1392,4 @@ const NATURE_DEBUG = {
   fires: () => NATURE.fire.size,
   tree: (i) => { const t = W.trees[i]; return t && { i: t.i, kind: t.kind, x: t.x, z: t.z, y: t.y, state: t.state, felled: !!t.felled, log: !!t.log, fire: t.fire, char: t.char, leaf: t.leaf, grow: t.grow, s: t.s, fall: t.fall && { ang: t.fall.ang, stop: t.fall.stop, done: t.fall.done, ux: t.fall.ux, uz: t.fall.uz }, coll: t.coll && { tag: t.coll.tag, r: t.coll.r, h: t.coll.h, active: t.coll.active }, logColl: t.logColl && { hx: t.logColl.hx, hz: t.logColl.hz, active: t.logColl.active, x: t.logColl.x, z: t.logColl.z } }; },
 };
+

@@ -5,6 +5,7 @@ No integration encounter is entered and no native/production write is made.
 import asyncio, json, os, pathlib, sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 import hm
+from hmlib import human_play
 from playwright.async_api import async_playwright
 
 HOOK = r"""
@@ -26,8 +27,13 @@ window.__mainAgentFixture = {
     NET.link=null;NETWS.link={kind:'ws'};openMenu('progress');return initial;
   },
   finishInitialIdentity(){netSheetToggle(false);NET.link=this.priorNetLink;NETWS.link=this.priorWsLink},
+  prerequisites(){return{native:SAVE.native,readConfirmed:SAVE.readConfirmed,bound:NATIVE_PLAYER.status?.bound,verified:NATIVE_PLAYER.status?.verified}},
+  privateRead(value){if(typeof value==='boolean'){SAVE.readConfirmed=value;marchConsultingRender()}return SAVE.readConfirmed},
   bind(){
     this.owner();NET.link={kind:'ws'};
+    // This admitted owner/grant scenario includes a confirmed private read;
+    // initialIdentity() above deliberately retains the locked title state.
+    SAVE.native=true;SAVE.readConfirmed=true;
     window.__HM_GAMING={mainWorldAgents:{enabled:true,applicationId:'did:example:hallowmarch-fixture',audience:location.origin,affordances:location.origin+'/world/native-agents'}};
     MAIN_WORLD_AGENTS.lastGeneration=1;
     netWsSend=value=>{window.__fixturePackets.push(structuredClone(value));return true};
@@ -103,7 +109,7 @@ async def main():
             async def only_panel(panel,tab=None):
                 state=await page.evaluate(r"""() => ({modal:__hm.UI.modal,
                   overlays:[...document.querySelectorAll('.overlay')].filter(e=>!e.hidden&&e.getClientRects().length).map(e=>e.id),
-                  selected:[...document.querySelectorAll('#menu-tabs [aria-checked="true"]')].map(e=>e.dataset.tab)})""")
+                  selected:[...document.querySelectorAll('#menu-tabs [role="tab"][aria-selected="true"]')].map(e=>e.dataset.tab)})""")
                 assert state['overlays']==[panel] and state['modal']==('net' if panel=='netsheet' else 'menu'),state
                 if tab:assert state['selected']==[tab],state
 
@@ -113,6 +119,9 @@ async def main():
             initial=await page.evaluate('__mainAgentFixture.initialIdentity()')
             assert initial=={'initialized':False,'sheets':0},initial
             await only_panel('menu','progress')
+            optional=page.locator('#march-progress-optional')
+            if not await optional.evaluate('(node)=>node.open'):
+                await optional.locator(':scope > summary').click()
             await page.get_by_role('button',name='Open identity settings',exact=True).click()
             await only_panel('netsheet')
             first_connect=page.locator('#netsheet-acct .native-player button').first
@@ -124,10 +133,16 @@ async def main():
             await page.evaluate('__mainAgentFixture.finishInitialIdentity()')
             print('PASS first Progress identity CTA initializes Players from the WebSocket account, focuses its existing identity button and performs no sign-in or service call',flush=True)
 
-            result=await page.evaluate(r"""() => {
-              const H=__hm,P=H.GAME.player; window.__holdFrame=true; H.UI.modal=null;
+            # A programmatic menu close does not renew the human input lease.
+            # Resume through a real trusted key before testing delegated motion.
+            await page.evaluate(r"""() => {
+              __hm.UI.modal=null;
               for(const id of ['prologue','menu','dialog']){const e=document.getElementById(id);if(e)e.hidden=true}
               __mainAgentFixture.bind();
+            }""")
+            await human_play(page)
+            result=await page.evaluate(r"""() => {
+              const H=__hm,P=H.GAME.player; window.__holdFrame=true;
               const C=window.__fixtureCompanion,body=window.__fixtureBodyId;
               const before={x:C.x,y:C.y,z:C.z},humanBefore={x:P.x,z:P.z};
               H.worldAgents.message({op:'command',requestId:'fixture-input',grantId:'fixture-grant',expiresAt:Date.now()+1500,
@@ -165,6 +180,8 @@ async def main():
             assert await page.locator('#world-agent-mount,#world-agent-controls').count()==2
             assert await page.locator('#menu-body .chron-nav').count()==0
             assert await page.locator('#menu').get_by_role('heading',name='Your companion',exact=True).count()==1
+            prerequisites=await page.evaluate('__mainAgentFixture.prerequisites()')
+            assert prerequisites=={'native':True,'readConfirmed':True,'bound':True,'verified':True},prerequisites
             focus=await page.evaluate('__mainAgentFixture.focusCheck()')
             assert focus['same'] and focus['focused'],focus
             print('PASS Companion tab owns one setup panel; access polling preserves the revoke button and keyboard focus',flush=True)
@@ -248,12 +265,20 @@ async def main():
             # Identity setup is a handoff to the existing owner controls. Focus
             # the real button, but never activate a sign-in or recovery action.
             await page.locator('#menu-tabs [data-tab="progress"]').click()
+            assert await page.get_by_role('button',name='Open identity settings',exact=True).count()==0
+            prior_read=await page.evaluate('__mainAgentFixture.privateRead()')
+            assert prior_read is True
+            await page.evaluate('__mainAgentFixture.privateRead(false)')
+            optional=page.locator('#march-progress-optional')
+            if not await optional.evaluate('(node)=>node.open'):
+                await optional.locator(':scope > summary').click()
             await page.get_by_role('button',name='Open identity settings',exact=True).click()
             await only_panel('netsheet')
             connect=page.locator('#netsheet-acct .native-player button').first
             assert await connect.is_visible()
             assert await connect.evaluate('(e)=>e===document.activeElement')
             assert await page.locator('#netsheet-acct .native-player').count()==1
+            await page.evaluate('(confirmed)=>__mainAgentFixture.privateRead(confirmed)',prior_read)
             await page.locator('#netsheet [data-act="companion"]').click()
             await only_panel('menu','companion')
             await page.wait_for_selector('#world-agent-mount #world-agent-controls')
@@ -265,3 +290,4 @@ async def main():
             print(json.dumps(result),flush=True)
         finally:await browser.close()
 if __name__=='__main__':asyncio.run(main())
+

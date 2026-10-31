@@ -25,7 +25,7 @@ async def main():
         try:
             await page.evaluate('window.__testPause=true;0')
             await page.evaluate(hud.HELP)
-            await page.evaluate("MH.scene('warrior',1);__hm.quality.scale=.5;0")
+            await page.evaluate("(async () => { await MH.scene('warrior',1);__hm.quality.scale=.5; return 0; })()")
             spot=await page.evaluate("""()=>{const H=__hm,P=H.GAME.player;
               for(let d=0;d<80;d+=4)for(let a=0;a<6.28;a+=.5){const x=P.x+Math.sin(a)*d,z=P.z+Math.cos(a)*d,y=H.fn.heightAt(x,z);
                 if([0,1,2,3,4,5,6,7,8].every(k=>H.fn.isWalkable(x,z+k)&&Math.abs(H.fn.heightAt(x,z+k)-y)<.12))return{x,z};}

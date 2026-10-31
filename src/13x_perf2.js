@@ -10,8 +10,8 @@
 //   splinters) are made the first time they show (perf2LazyMesh), not all at the boot.
 // - the terrain's 64 chunks and their coarser levels share one index each (the same grid), 16-bit (03_terrain.js,
 //   13q_lod.js).
-// - every shader of what the boot has made, shown or not (the Barrow's, the crowds' far models, fire, rubble), is asked
-//   for while the loading veil is still up (perf2Compile), not on the frame that first shows it.
+// - the visible title's shader families are drawn in separately fenced batches
+//   while loading. Hidden content is compiled on first use, not all at once.
 const PERF2 = { released: 0, releasedMB: 0, pending: 0, lazy: 0, made: 0, madeMB: 0, makeMs: 0, makeMax: 0, warmed: 0, warmMs: 0 };
 function perf2Bytes(g) {
   let b = 0;
@@ -86,6 +86,8 @@ function perf2Empty() { return look3EmptyGeo(); }
 /* the boot: each step's time (13_main.js's loadStep keeps them: the first was not timed before) */
 window.__hm.perf2 = {
   PERF2,
+  // Benchmarks request bulk preparation explicitly; the title never does.
+  compile: perf2Compile, shaders: perf2Shaders,
   release: perf2Release, releaseStatic: perf2ReleaseStatic, lazy: perf2LazyMesh,
   steps: () => BOOT_STEPS.slice(), // [name, ms, when it began (ms after the page began)]
   scriptAt: Math.round(BOOT_T0), // when the game's script began to run (ms after the page began: the page, three.js, the script's parse)
@@ -102,12 +104,10 @@ window.__hm.perf2 = {
     return { geos, released: PERF2.released, freedGeos: freed, keptMB: +(kept / 1048576).toFixed(1), releasedMB: +PERF2.releasedMB.toFixed(1), lazy: PERF2.lazy, made: PERF2.made, madeMB: +PERF2.madeMB.toFixed(2), makeMs: +PERF2.makeMs.toFixed(1), makeMax: +PERF2.makeMax.toFixed(1), warmed: PERF2.warmed, warmMs: Math.round(PERF2.warmMs) };
   },
 };
-/* shaders: asked for while the loading veil is still up */
-// three.js links a program as soon as compile() asks (compile prepares every material in the scene, hidden or not) and
-// waits for it only at its first draw: asked for once the screen is sized (a canvas resize waits for every shader asked
-// for), the GPU's process (a phone's driver, SwiftShader here) compiles them while the boot draws the map. The shadow
-// pass's own (the depth materials of what casts a shadow, shown or not) are asked for once the title is up. What is
-// made after the boot (an engine's charring, a fire's own) still compiles at its first sight.
+/* Explicit profiling helpers; ordinary boot never bulk-compiles the scene. */
+// compile() prepares hidden materials too. Keep these helpers available for a
+// deliberately requested benchmark, without queuing them at startup or idle.
+// First views of other content and shadow casters compile their visible shaders.
 function perf2Compile(shadows) {
   // Recovery compiles only what a frame draws, avoiding a burst of hidden materials.
   if (BOOT_SAFE || GRAPHICS_CONTEXT_LOST) return;
@@ -119,9 +119,9 @@ function perf2Compile(shadows) {
   gl.flush(); // (the GPU's process starts on them now)
   PERF2.warmed += renderer.info.programs.length - p0; PERF2.warmMs += performance.now() - t;
 }
-// The boot waits for the shaders with the veil counting them (where the browser tells whether a program is ready without
-// waiting for it: KHR_parallel_shader_compile, a phone's Chrome and Safari): the page stays alive and says what it is
-// doing; without it the first frame waits for them, as before. Gives up waiting after 90 s (the first frame then waits).
+// An explicit benchmark can wait for requested shaders with progress where the
+// browser supports KHR_parallel_shader_compile. This is not the startup gate:
+// ordinary readiness requires the title families' and combined view's GPU fences.
 async function perf2Shaders(f0, f1) {
   if (BOOT_SAFE || GRAPHICS_CONTEXT_LOST) {
     PERF2.shaderWait = { n: 0, ready: 0, ms: 0, ext: false, skipped: true };
@@ -145,10 +145,6 @@ async function perf2Shaders(f0, f1) {
   // the static meshes let go of their arrays once they are drawn (from right after the world is built)
   const go0 = groupOutdoors;
   groupOutdoors = function perf2GroupOutdoors() { go0(); try { perf2ReleaseStatic(); } catch (e) { reportError(e); } };
-  // the shadow pass's shaders once the title is up (once: a new character's title comes again)
-  const st0 = setupTitle;
-  let warm = false;
-  setupTitle = function perf2SetupTitle(...a) { st0.apply(this, a); if (!BOOT_SAFE && !GRAPHICS_CONTEXT_LOST && !warm) { warm = true; setTimeout(() => perf2Compile(true), 300); } };
 }
 // Static meshes may have released their CPU arrays, so a restored context needs a
 // manual reload. The early graphics loss handler keeps rendering stopped and shows

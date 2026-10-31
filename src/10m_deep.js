@@ -955,6 +955,7 @@ function look6SlabTop(S, x, z, dt = 0) {
   return y + lx * Math.sin(c) * Math.cos(a) - lz * Math.sin(a);
 }
 function deepFall(o, S, by) {
+  if (typeof netEntityRemoteFall === 'function' && netEntityRemoteFall(o, S, by)) return;
   const out = deepEdgeOut(S, o.x, o.z);
   o.l3fall = { t: 0, x: o.x, z: o.z, y0: o.y, y1: DEEP_PIT + 0.05, out, landed: false, burnT: 0, by: by ? by.id : null, S }; // [look6] S: it rides its slab down
   o.casting = null;
@@ -1063,6 +1064,7 @@ function late3Impact(x, z, kind, r = 3) {
 /* the cracked wall, the seal, the chests                               */
 /* ------------------------------------------------------------------ */
 function deepWallBreak(by) {
+  if (typeof netDungeonShared === 'function' && netDungeonShared() && !netWorldPartsCanSimulate() && !NETPARTS.replay) return;
   if (DEEP.wallBroken) return;
   DEEP.wallBroken = true;
   deepWallShow();
@@ -1086,6 +1088,7 @@ function deepWallShow() {
 }
 // Use beside the cracked wall: a few heavy blows bring it down
 function deepWallStrike() {
+  if (typeof netDungeonUseWall === 'function' && netDungeonUseWall()) return;
   const P = GAME.player;
   if (!P || DEEP.wallBroken || P.casting) return;
   setAct(P, 8, 0.9);
@@ -1100,6 +1103,7 @@ function deepWallStrike() {
   });
 }
 function late3SealOpen(quiet = false) {
+  if (typeof netDungeonUseSeal === 'function' && netDungeonUseSeal(quiet)) return;
   if (!DEEP.seal) return;
   DEEP.opened = true;
   DEEP.seal.target = 1;
@@ -1131,6 +1135,7 @@ function late3Offers(P, offer) {
   if (!DEEP.wallBroken && DEEP.wall) offer(dist(P.x, P.z, DEEP.wall.x, DEEP.wall.z), 2.9, 'Break the cracked wall', () => deepWallStrike(), 0.4);
 }
 function late3OpenChest(ch) {
+  if (typeof netDungeonUseChest === 'function' && netDungeonUseChest(ch)) return;
   const P = GAME.player;
   if (!ch.ready || ch.opened || !P) return;
   const near = ENT.some((o) => o.alive && o.faction === FACTION_MONSTER && inDungeon(o) && dist2(o.x, o.z, ch.x, ch.z) < 12 * 12 && o.threat && o.threat.has(P.id));
@@ -1174,7 +1179,7 @@ function late3WaterAt(x, z, out = _deepW) {
   return out;
 }
 function deepFloodStep(dt) {
-  const F = DEEP.flood, P = GAME.player, now = GAME.t;
+  const F = DEEP.flood, P = netEntityLivePlayers().find(p => late3Room(p.x, p.z) === DUN_ROOM.cistern && dunU(p.x) < DEEP_FLOOD.trigU), now = GAME.t;
   if (F.st === 0) {
     DEEP.wy = DEEP_FLOOD.base;
     if (P && P.alive && late3Room(P.x, P.z) === DUN_ROOM.cistern && dunU(P.x) < DEEP_FLOOD.trigU && now > F.next) {
@@ -1216,17 +1221,17 @@ function deepFloodStep(dt) {
 /* Vorlach the Ash-Crowned                                             */
 /* ------------------------------------------------------------------ */
 const DEEP_LORD_NAME = 'Vorlach the Ash-Crowned';
-const deepVetK = () => 1 + DEEP_LORD.vetK * Math.min(DEEP_LORD.vetMax, typeof LATE2 === 'object' ? LATE2.vet : 0);
 function deepSpawnLord() {
   const sp = DEEP.seat;
   const e = makeEnt({
-    kind: 'humanoid', faction: FACTION_MONSTER, role: 'dungeonBoss', mobType: 'skeleton', level: DEEP_LORD.base + barrowBoost(), baseLevel: DEEP_LORD.base, name: DEEP_LORD_NAME,
-    tweak: { hp: DEEP_LORD.hp * deepVetK(), dmg: DEEP_LORD.dmg, speed: DEEP_LORD.speed, swing: 2.4, meleeRange: 3.2 },
+    kind: 'humanoid', faction: FACTION_MONSTER, role: 'dungeonBoss', mobType: 'skeleton', level: 1, baseLevel: 1, name: DEEP_LORD_NAME,
+    tweak: { hp: DEEP_LORD.hp, dmg: DEEP_LORD.dmg, speed: DEEP_LORD.speed, swing: 2.4, meleeRange: 3.2 },
     x: sp.x, z: sp.z, y: -17.4, yaw: Math.PI / 2, scale: DEEP_LORD.scale, radius: 0.55,
     look: { tabard: [0.2, 0.05, 0.035], armor: [0.4, 0.28, 0.15], skin: 0.2, hair: 0.1, mask: WB.axe | WB.cape | WB.circlet | WB.pauldron | WB.tabard | WB.belt | WB.skirt, flags: 1 | (1 << 4) | (3 << 7), scale: DEEP_LORD.scale, outfit: OUTFIT.skeleton, emblem: 3, fem: 0, bulk: 0.15 },
     home: { x: sp.x, z: sp.z, r: 1 }, camp: null,
   });
   e.deepLord = true;
+  if (typeof worldActorDevelop === 'function') worldActorDevelop(e);
   setupStats(e);
   e.ai.awake = false;
   e.seat = { y: sp.y }; e.fixedY = -17.4;
@@ -1248,7 +1253,7 @@ function deepLordReset(e) {
   for (const id of DEEP.adds) { const o = getEnt(id); if (o && o.alive && late3Room(o.x, o.z) === DUN_ROOM.ashhall) removeEnt(o); }
   e.hp = e.maxHp; e.threat = null; e.damagers = null; e.target = null; e.casting = null; e.buffs.length = 0;
   e.ai = { think: 0, awake: false };
-  e.tweak.hp = DEEP_LORD.hp * deepVetK(); setupStats(e);
+  e.tweak.hp = DEEP_LORD.hp; setupStats(e);
   const sp = DEEP.seat;
   e.x = e.prevX = sp.x; e.z = e.prevZ = sp.z; e.y = -17.4; e.seat = { y: sp.y }; e.fixedY = -17.4; e.yaw = Math.PI / 2;
   for (const S of DEEP.slabs) if (S.hall === 'ash' && S.st !== 0) deepSlabMend(S);
@@ -1322,7 +1327,8 @@ function deepWordBroken(e) {
   if (P && late3InDeep(P)) uiLog(`The Ember Word breaks in ${DEEP_LORD_NAME}'s throat.`, 'dmg');
 }
 function late3LordThink(e, dt) {
-  const ai = e.ai, P = GAME.player, now = GAME.t;
+  const ai = e.ai, P = netEntityLivePlayers().filter(p => late3Room(p.x, p.z) === DUN_ROOM.ashhall)
+    .sort((a, b) => dist2(e.x, e.z, a.x, a.z) - dist2(e.x, e.z, b.x, b.z))[0], now = GAME.t;
   if (INDOOR.on && Math.random() < dt * (ai.enraged ? 30 : 12)) FX.trail(e.x + (Math.random() - 0.5) * 1.3, e.y + 0.5 + Math.random() * 3, e.z + (Math.random() - 0.5) * 1.3, ai.enraged ? [2.6, 0.9, 0.2] : [2.0, 0.8, 0.25], 0.12, 1.0);
   if (!ai.awake) {
     e.hp = e.maxHp;
@@ -1536,9 +1542,8 @@ function late3IndoorLight(lowQ) {
 /* each step (updateBarrow, 08e_barrow.js)                              */
 /* ------------------------------------------------------------------ */
 function late3Update(dt) {
-  late3VetStep(dt); // (the standard of your name falling or rising: 10n_veteran.js)
   if (!DEEP.built) return;
-  const P = GAME.player, now = GAME.t;
+  const now = GAME.t;
   // the seal sinking into the floor
   const S = DEEP.seal;
   if (S && S.open !== S.target) {
@@ -1547,20 +1552,14 @@ function late3Update(dt) {
     deepSealPose();
     if (INDOOR.on && Math.floor(was * 8) !== Math.floor(S.open * 8)) { sfxAt('grind', S.mesh.position.x, -6, S.mesh.position.z); cameraShake(0.06, S.mesh.position.x, S.mesh.position.z); }
   }
-  const inDeep = !!P && P.alive && late3InDeep(P);
-  if (inDeep && !DEEP.inDeep) { uiLog('You go down into the Deep Barrow, where the first kings were burned.', 'sys'); if (typeof loreNote === 'function') loreNote('l3deep'); }
-  DEEP.inDeep = inDeep;
-  if (inDeep) DEEP.lastDeep = now;
-  // the deep is drawn only from its own halls, or the Hollow King's hall above its stair (the Barrow's other halls do not
-  // pay for it: frustum culling keeps its big merged mesh in nearly every view of the Barrow)
-  if (DEEP.root) DEEP.root.visible = inDeep || (!!P && inDungeon(P) && dunU(P.x) > 160);
   DEEP.marks = DEEP.marks.filter((M) => M.until > now);
-  for (const o of ENT) if (o.l3fall && o.alive && !o.removed) deepFallStep(o, dt);
+  for (const o of ENT) if (o.l3fall && o.alive && !o.removed && o.role !== 'remote'
+    && (!netEntityPersonal(o) || netEntityOwnPet(o))) deepFallStep(o, dt);
   deepSlabStep(dt);
   deepPitchStep(dt);
   deepFloodStep(dt);
   // the deep's dead come back in time, nobody near
-  const near = (x, z, r) => P && inDungeon(P) && dist2(P.x, P.z, x, z) < r * r;
+  const near = (x, z, r) => netEntityLivePlayers().some(p => inDungeon(p) && dist2(p.x, p.z, x, z) < r * r);
   for (const pk of DEEP_PACKS) {
     for (let i = pk.respawn.length - 1; i >= 0; i--) {
       const R = pk.respawn[i];
@@ -1574,6 +1573,17 @@ function late3Update(dt) {
   if (DEEP.lordDead && now > DEEP.lordAt && !near(DEEP.throne.x, DEEP.throne.z, 60)) deepSpawnLord();
   // the chests fill again
   for (const ch of DEEP.chests) if (ch.opened && ch.id !== 'dhoard' && now > ch.refillAt && !near(ch.x, ch.z, 30)) { ch.opened = false; delete DEEP.taken[ch.id]; }
+}
+function late3LocalUpdate(dt) {
+  late3VetStep(dt); // the owner's standard and private progression
+  if (!DEEP.built) return;
+  if (typeof netEntityPrivateFallStep === 'function') netEntityPrivateFallStep(dt);
+  const P = GAME.player, now = GAME.t, inDeep = !!P && P.alive && late3InDeep(P);
+  if (inDeep && !DEEP.inDeep) { uiLog('You go down into the Deep Barrow, where the first kings were burned.', 'sys'); if (typeof loreNote === 'function') loreNote('l3deep'); }
+  DEEP.inDeep = inDeep;
+  if (inDeep) DEEP.lastDeep = now;
+  // Visibility belongs to this camera, independently of the scene keeper's location.
+  if (DEEP.root) DEEP.root.visible = inDeep || (!!P && inDungeon(P) && dunU(P.x) > 160);
   // what the field notes watch, four times a second
   DEEP.step -= dt;
   if (DEEP.step <= 0 && P) {
@@ -1633,7 +1643,7 @@ function chronDeep() {
   <li><b>The Hall of Pyres</b>: pitch runs in channels across the floor. Fire spreads along it: a fire spell lights it under your foes as surely as the pyre-keeper's Kindle lights it under you. Break the Kindle, and step out of the flames.</li>
   <li><b>The Breaking Gallery</b>: the floor is slabs over a pit of embers. Stand on one too long and it cracks and falls; a meteor or a leap strike breaks one at once. Keep moving. A cracked wall there hides a tomb the barrow forgot.</li>
   <li><b>The Ash Throne</b>: ${esc(DEEP_LORD_NAME)}, first of the barrow-kings.</li></ul>
-  <h3>The Ash-Crowned</h3><p>He keeps pace with you to level 50 and past it (a veteran finds him the stronger). Parry, shield or step out of his cleave. When he speaks the Ember Word, break it: a stun or a shield bash, a priest's Holy Fire, a mage's storm, a blunt arrow, a mace; spoken, it lights the pitch about you, burns all near him and mends him.${lordHolyText()} From two thirds of his strength he stamps, and the slabs of his hall crack and fall; he calls his ash-wardens up out of the pits, and at a third he burns with fury.</p>
+  <h3>The Ash-Crowned</h3><p>He grows through his own experience, independently of your level or veterancy. Parry, shield or step out of his cleave. When he speaks the Ember Word, break it: a stun or a shield bash, a priest's Holy Fire, a mage's storm, a blunt arrow, a mace; spoken, it lights the pitch about you, burns all near him and mends him.${lordHolyText()} From two thirds of his strength he stamps, and the slabs of his hall crack and fall; he calls his ash-wardens up out of the pits, and at a third he burns with fury.</p>
   <h3>Spoils</h3><p>The deep's chests pay above the Barrow's, and his hoard is at the top of the gear curve (item level 50, epic and legendary). His fall is a deed: the March names you Ashbane.</p>
   <p class="now">${now}${lv < DEEP_LV ? ` You are level ${lv}.` : ''}</p>`;
 }
@@ -1665,6 +1675,7 @@ LOADING_TIPS.push(
 /* the save: the seal, the lord's falls, the wall, what is taken        */
 /* ------------------------------------------------------------------ */
 function late3ApplySaved() {
+  if (typeof netDungeonRestore === 'function' && netDungeonRestore()) return;
   if (!DEEP.built) return;
   if (DEEP.opened) late3SealOpen(true);
   else { DEEP.seal.target = 0; DEEP.seal.open = 0; deepSealPose(); }
@@ -1678,6 +1689,7 @@ function late3ApplySaved() {
 }
 const DEEP_PART = {
   save() {
+    if (typeof netDungeonShared === 'function' && netDungeonShared()) return DEEP.kills ? { v: 1, k: DEEP.kills } : null;
     const taken = {};
     for (const id in DEEP.taken) { const s = Math.round(DEEP.taken[id] - GAME.t); if (s > 0 && id !== 'dhoard') taken[id] = s; }
     if (!DEEP.opened && !DEEP.kills && !DEEP.wallBroken && !Object.keys(taken).length) return null;
@@ -1685,14 +1697,15 @@ const DEEP_PART = {
   },
   load(o) {
     o = o && typeof o === 'object' && !Array.isArray(o) ? o : null;
-    DEEP.opened = !!(o && o.o);
+    const shared = typeof netDungeonShared === 'function' && netDungeonShared();
     DEEP.kills = o && Number.isFinite(+o.k) ? clamp(Math.floor(+o.k), 0, 1e6) : 0;
-    DEEP.wallBroken = !!(o && o.w);
-    DEEP.taken = {};
-    const c = o && o.c && typeof o.c === 'object' && !Array.isArray(o.c) ? o.c : {};
-    for (const id of ['dcist', 'dpyre', 'dniche']) { const s = +c[id]; if (Number.isFinite(s) && s > 0) DEEP.taken[id] = GAME.t + Math.min(s, DEEP_RESPAWN * 2); }
+    if (!shared) {
+      DEEP.opened = !!(o && o.o); DEEP.wallBroken = !!(o && o.w); DEEP.taken = {};
+      const c = o && o.c && typeof o.c === 'object' && !Array.isArray(o.c) ? o.c : {};
+      for (const id of ['dcist', 'dpyre', 'dniche']) { const s = +c[id]; if (Number.isFinite(s) && s > 0) DEEP.taken[id] = GAME.t + Math.min(s, DEEP_RESPAWN * 2); }
+    }
     if (DEEP.kills && LATE2.d.deep < DEEP.kills) { LATE2.d.deep = DEEP.kills; late2CheckNames(true); }
-    try { late3ApplySaved(); } catch (e) { reportError(e); }
+    if (!shared) try { late3ApplySaved(); } catch (e) { reportError(e); }
   },
   key: (o) => (o ? [o.o, o.k, o.w, Object.keys(o.c || {}).sort().join()] : null),
 };

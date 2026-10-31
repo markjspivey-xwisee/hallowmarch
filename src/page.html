@@ -8,8 +8,8 @@
 <style>
   /* Layout: a full-bleed 3D world; HUD panels pinned to the corners, the hotbar centred on the bottom edge. */
   :root {
-    --ink: #efe6d3; --ink-dim: rgba(239, 230, 211, 0.7); --ink-faint: rgba(239, 230, 211, 0.42);
-    --slate: rgba(15, 17, 21, 0.74); --slate-2: rgba(26, 28, 34, 0.9); --slate-solid: #121418; --void: #0b0d10;
+    --ink: #efe6d3; --ink-dim: rgba(239, 230, 211, 0.78); --ink-faint: rgba(239, 230, 211, 0.62);
+    --slate: rgba(15, 17, 21, 0.86); --slate-2: rgba(26, 28, 34, 0.9); --slate-solid: #121418; --void: #0b0d10;
     --bronze: #a9844c; --bronze-hi: #dfc188; --line: rgba(223, 193, 136, 0.26); --line-strong: rgba(223, 193, 136, 0.55);
     --hp: #c8463d; --power: #3d7fd8; --end: #d6aa3c; --xp: #9b77dc; --rp: #dcb85c; --warn: #ff9b7a; --good: #8fd88c;
     --logres: #c9483b; --eriu: #2f9a6a; --thule: #4d7fcb;
@@ -26,7 +26,8 @@
   body { margin: 0; overflow: hidden; background: var(--void); color: var(--ink); font: 15px/1.35 var(--ui); -webkit-font-smoothing: antialiased; user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; }
   #scene { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; outline: none; }
   button { font: inherit; color: inherit; touch-action: manipulation; }
-  button:focus-visible, input:focus-visible { outline: 2px solid var(--bronze-hi); outline-offset: 2px; }
+  button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, summary:focus-visible { outline: 2px solid var(--bronze-hi); outline-offset: 2px; }
+  :root[data-reduced-motion="true"] *, :root[data-reduced-motion="true"] *::before, :root[data-reduced-motion="true"] *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition: none !important; scroll-behavior: auto !important; }
   .panel { background: var(--slate); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 6px 22px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.04); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
   .caps { font-family: var(--caps); letter-spacing: 0.06em; }
   .num { font-variant-numeric: tabular-nums; }
@@ -37,7 +38,27 @@
   #loading h1 { margin: 0; font: 400 clamp(38px, 8vw, 72px)/1 var(--display); letter-spacing: 0.04em; color: var(--bronze-hi); }
   #loading .bar { width: min(320px, 70vw); height: 3px; background: rgba(255, 255, 255, 0.08); border-radius: 2px; overflow: hidden; }
   #loading .bar i { display: block; height: 100%; width: 0; background: var(--bronze-hi); transition: width 0.25s ease; }
-  #loading p { margin: 0; color: var(--ink-dim); font-family: var(--caps); letter-spacing: 0.08em; font-size: 13px; }
+  #loading .bar[aria-busy="true"] i { width: 35% !important; transition: none; animation: loading-sweep 1.6s ease-in-out infinite alternate; }
+  @keyframes loading-sweep { from { transform: translateX(0); } to { transform: translateX(200%); } }
+  @media (prefers-reduced-motion: reduce) { #loading .bar[aria-busy="true"] i { animation: none; transform: none; } }
+  #loading p { margin: 0; max-width: min(28rem, 84vw); text-align: center; overflow-wrap: anywhere; color: var(--ink-dim); font-family: var(--caps); letter-spacing: 0.08em; font-size: 13px; }
+  #loading #load-detail, #loading #load-hint { font-family: var(--ui); letter-spacing: normal; line-height: 1.45; }
+  #loading #load-detail { font-variant-numeric: tabular-nums; }
+  /* A nonmodal entry status; its transform-only sweep is decorative, not progress. */
+  #entry-feedback { position: fixed; inset: 0; height: auto; z-index: 40; display: grid; place-items: center; padding: 20px; pointer-events: none; background: rgba(11, 13, 16, 0.94); }
+  #entry-feedback .entry-inner { display: grid; justify-items: center; gap: 16px; max-width: 100%; color: var(--ink); font: 400 clamp(24px, 6vw, 34px)/1.2 var(--display); text-align: center; }
+  #entry-feedback .entry-track { display: block; width: min(240px, 70vw); height: 3px; overflow: hidden; background: rgba(239, 230, 211, 0.15); }
+  #entry-feedback .entry-track i { display: block; width: 35%; height: 100%; background: var(--bronze-hi); animation: loading-sweep 1.4s ease-in-out infinite alternate; }
+  :root[data-reduced-motion="true"] #entry-feedback i { animation: none !important; transform: none; }
+  @media (prefers-reduced-motion: reduce) { #entry-feedback i { animation: none; transform: none; } }
+  /* The early form is a draft over an opaque background, never an unfinished 3D view. */
+  body.title-preparing #title { background: var(--void); }
+  body.title-preparing #create { backdrop-filter: none; -webkit-backdrop-filter: none; }
+  body.title-preparing #loading { position: static; inset: auto; z-index: auto; background: none; transition: none; }
+  body.title-preparing #loading .inner { width: 100%; gap: 6px; }
+  body.title-preparing #loading h1, body.title-preparing #loading .lore-ltip { display: none; }
+  body.title-preparing #loading p { max-width: 100%; font-size: 12px; }
+  body.title-preparing #loading .bar { width: min(320px, 100%); }
 
   /* title & character creation */
   #title { position: fixed; inset: 0; z-index: 20; display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 470px); align-items: stretch; pointer-events: none; }
@@ -47,6 +68,7 @@
   #title .brand p span { white-space: nowrap; } /* the tagline breaks only between its phrases, never before a lone word */
   #title .card { pointer-events: auto; margin: calc(16px + var(--safe-t)) 16px calc(16px + var(--safe-b)) 0; padding: 0; display: flex; flex-direction: column; overflow: hidden; background: rgba(14, 15, 19, 0.82); min-height: 0; }
   #title .card-body { flex: 1; min-height: 0; overflow-y: auto; padding: 20px 22px 14px; display: flex; flex-direction: column; gap: 16px; }
+  #character-create-fields { display: grid; gap: 16px; }
   #title .card-foot { padding: 12px 22px 14px; display: grid; gap: 8px; border-top: 1px solid var(--line); }
   #title h2 { margin: 0; font: 400 15px/1 var(--caps); letter-spacing: 0.12em; color: var(--bronze-hi); text-transform: uppercase; }
   .step { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
@@ -78,6 +100,9 @@
   .continue { display: grid; gap: 6px; padding: 12px; border-radius: 6px; border: 1px solid var(--line-strong); background: rgba(223, 193, 136, 0.07); }
   .continue p { margin: 0; color: var(--ink-dim); font-size: 14px; }
   .fineprint { margin: 0; color: var(--ink-faint); font-size: 12px; }
+  #graphics-recovery { display: grid; gap: 4px; padding-top: 8px; border-top: 1px solid var(--line); }
+  #graphics-recovery a { display: inline-flex; align-items: center; justify-self: start; min-height: 44px; color: var(--bronze-hi); font-weight: 600; pointer-events: auto; }
+  #graphics-recovery a:focus-visible, #nogl a:focus-visible { outline: 2px solid var(--bronze-hi); outline-offset: 3px; }
 
   /* HUD */
   #hud { position: fixed; inset: 0; pointer-events: none; z-index: 5; }
@@ -103,6 +128,9 @@
   #tf .cast.on { display: block; }
 
   #topright { position: absolute; top: calc(var(--pad) + var(--safe-t)); right: var(--pad); display: grid; gap: 8px; justify-items: end; width: 186px; }
+  #btn-keep-character { position: absolute; top: calc(var(--pad) + var(--safe-t)); left: 50%; transform: translateX(-50%); min-height: 44px; max-width: 180px; touch-action: manipulation; }
+  body.touch #hud > #btn-keep-character { display: none; }
+  body.touch #mobile-tray #btn-keep-character { position: static; inset: auto; transform: none; grid-column: 1 / -1; width: 100%; min-width: 0; max-width: none; margin: 0; }
   #mmwrap { position: relative; width: 186px; height: 186px; padding: 0; overflow: hidden; }
   #minimap { width: 100%; height: 100%; display: block; }
   #mmzone { position: absolute; left: 0; right: 0; bottom: 0; padding: 3px 6px; font: 500 12px/1.2 var(--caps); letter-spacing: 0.04em; text-align: center; background: linear-gradient(transparent, rgba(0, 0, 0, 0.7)); color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -117,9 +145,9 @@
   #war .rel { display: flex; gap: 2px; }
   #war .rel i { width: 9px; height: 9px; border-radius: 50%; background: var(--rc); box-shadow: 0 0 5px var(--rc); }
   #war .me { font-weight: 700; }
-  #war .tod { display: flex; justify-content: space-between; color: var(--ink-dim); font-size: 12px; border-top: 1px solid var(--line); padding-top: 5px; margin-top: 1px; }
+  #war .tod { display: flex; justify-content: space-between; gap: 8px; color: var(--ink-dim); font-size: 12px; border-top: 1px solid var(--line); padding-top: 5px; margin-top: 1px; }
 
-  #log { position: absolute; left: var(--pad); bottom: calc(var(--pad) + var(--safe-b)); width: min(380px, 34vw); height: 168px; padding: 8px 10px; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end; gap: 1px; font-size: 13px; line-height: 1.3; -webkit-mask-image: linear-gradient(transparent, #000 22%); mask-image: linear-gradient(transparent, #000 22%); background: radial-gradient(ellipse 85% 100% at 0% 100%, rgba(10, 11, 14, 0.5), rgba(10, 11, 14, 0.22) 55%, transparent 80%); border: 0; box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; pointer-events: none; }
+  #log { position: absolute; left: var(--pad); bottom: calc(var(--pad) + var(--safe-b)); width: min(380px, 34vw); height: 168px; padding: 8px 10px; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end; gap: 1px; font-size: 13px; line-height: 1.3; -webkit-mask-image: linear-gradient(transparent, #000 22%); mask-image: linear-gradient(transparent, #000 22%); background: rgba(10, 11, 14, 0.72); border: 0; box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; pointer-events: none; }
   #log div { text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9); }
   #log .xp { color: #c8b6f0; } #log .rp { color: #f0d488; } #log .warn { color: var(--warn); } #log .level { color: #ffe08a; font-weight: 700; }
   #log .dmg { color: #e8e0d0; } #log .hurt { color: #ff9a8a; } #log .heal { color: #9be29a; } #log .sys { color: var(--ink-dim); }
@@ -213,8 +241,43 @@
   .sheet p { margin: 0; color: var(--ink-dim); }
   .seg { display: inline-flex; gap: 3px; padding: 3px; border-radius: 999px; background: rgba(0, 0, 0, 0.35); border: 1px solid var(--line); flex-wrap: wrap; }
   .seg button { border: 0; background: none; padding: 6px 12px; border-radius: 999px; cursor: pointer; color: var(--ink-dim); font-weight: 500; }
-  .seg button[aria-checked="true"] { background: var(--bronze-hi); color: #1b140b; }
-  #menu-tabs button { min-height: 44px; }
+  .seg button[aria-checked="true"], .seg button[aria-selected="true"] { background: var(--bronze-hi); color: #1b140b; }
+  /* One quiet, pinned return action; the current page owns its task action. */
+  #menu .sheet { --menu-pad: 24px; width: min(800px, 100%); height: min(820px, 100%); min-height: 0; padding: 0; gap: 0; grid-template-rows: auto auto minmax(0, 1fr); overflow: hidden; border-radius: 12px; background: #1a1c21; }
+  #menu .menu-heading { position: static; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 18px var(--menu-pad) 12px; background: transparent; }
+  #menu-title { min-width: 0; }
+  #menu-close { flex: none; min-height: 48px; font-size: 14px; }
+  #menu-tabs { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 4px; margin: 0 var(--menu-pad); padding: 0; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: none; }
+  #menu-tabs button { min-width: 0; min-height: 44px; padding: 10px 6px; border: 0; border-radius: 4px 4px 0 0; background: transparent; color: var(--ink-dim); font: 600 15px/1.2 var(--ui); overflow-wrap: anywhere; hyphens: auto; cursor: pointer; }
+  #menu-tabs button:hover { color: var(--ink); background: rgba(223, 193, 136, 0.06); }
+  #menu-tabs button[aria-selected="true"] { color: var(--bronze-hi); background: rgba(223, 193, 136, 0.1); box-shadow: inset 0 -2px var(--bronze-hi); }
+  #menu-tabs button:focus-visible { outline-offset: -3px; }
+  #menu-body { min-width: 0; min-height: 0; display: grid; align-content: start; gap: 16px; padding: 20px var(--menu-pad); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; scroll-padding-block: 16px; }
+  #menu-body > * { min-width: 0; }
+  #menu-body:focus-visible { outline: 2px solid var(--bronze-hi); outline-offset: -4px; }
+  #menu-body .seg { border-radius: 8px; }
+  #menu-body .seg button { border-radius: 4px; }
+  #menu .character-milestones { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px; }
+  #menu .menu-options { margin-top: 8px; padding-top: 12px; border-top: 1px solid var(--line); }
+  #menu .menu-options summary { display: flex; align-items: center; min-height: 48px; cursor: pointer; color: var(--ink-dim); }
+  #menu .menu-options summary::before { content: '▸'; margin-right: 8px; }
+  #menu .menu-options[open] summary::before { content: '▾'; }
+  #menu .menu-options > p { margin-block: 8px 12px; }
+  #menu .menu-confirm { display: grid; gap: 16px; max-width: 560px; }
+  .btn.danger { border-color: #ce8174; color: #ffd1c8; background: rgba(156, 51, 39, 0.16); }
+  body.touch #menu-tabs button, body.touch #menu-close { min-height: var(--mobile-target, 48px); }
+  @media (max-width: 620px) {
+    #menu .sheet { --menu-pad: 16px; }
+    #menu .menu-heading { padding-top: 12px; }
+    #menu-title { font-size: 25px; }
+    #menu-tabs { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; }
+    #menu-body { padding-block: 16px; }
+    #menu-body > .stats, #menu-body .statsum { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    #menu .menu-confirm .acts { display: grid; gap: 12px; }
+  }
+  @media (max-width: 359px) {
+    #menu-tabs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
   .setrow { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
   .keys { display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px; font-size: 14px; }
   .keys kbd { font: 700 12px var(--ui); padding: 2px 7px; border-radius: 3px; border: 1px solid var(--line-strong); background: rgba(0, 0, 0, 0.4); white-space: nowrap; }
@@ -333,6 +396,10 @@
   #fade.on { opacity: 1; pointer-events: auto; }
   #nogl span, #nogl a { display: block; margin-top: 12px; }
   #nogl a { color: var(--bronze-hi); font-weight: 600; }
+  #nogl .graphics-retry { display: flex; min-height: 48px; color: #1b120a; }
+  #nogl .graphics-technical { margin-top: 16px; border-top: 1px solid var(--line); text-align: left; }
+  #nogl summary { display: list-item; min-height: 44px; padding: 12px 0 8px; cursor: pointer; color: var(--bronze-hi); }
+  #nogl pre { max-height: 180px; margin: 4px 0 0; padding: 10px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; background: var(--void); color: var(--ink-dim); font: 12px/1.5 monospace; user-select: text; -webkit-user-select: text; }
   #nogl { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(520px, calc(100% - 32px)); max-height: calc(100% - 48px); overflow: auto; padding: 24px; border: 1px solid rgba(196, 160, 104, 0.35); border-radius: 12px; background: rgba(30, 24, 20, 0.96); color: var(--ink); text-align: center; z-index: 60; box-sizing: border-box; font-size: 16px; line-height: 1.5; }
   #nogl strong { font-size: 24px; color: var(--bronze-hi); }
   #nogl span { overflow-wrap: anywhere; }
@@ -738,7 +805,6 @@
   .chron .gd-at { border: 1px solid var(--line-strong); color: var(--ink-dim); }
   #menu-body .keys + h3, #menu-body h3 + p { margin-top: 4px; }
   #menu-body .keys kbd { align-self: start; justify-self: start; }
-  #menu .sheet > .actions { position: sticky; bottom: -20px; z-index: 4; margin: 0 -22px -20px; padding: 10px 22px 14px; background: #1a1c21; border-top: 1px solid var(--line); box-shadow: 0 -10px 18px rgba(10, 11, 14, 0.7); } /* Resume and New character in reach at the end of a long page on a phone */
   #menu-body details.gd-help { border-top: 1px solid var(--line); padding-top: 4px; }
   #menu-body details.gd-help > summary { cursor: pointer; padding: 8px 0 6px; font: 500 13px var(--caps); letter-spacing: 0.1em; text-transform: uppercase; color: var(--bronze-hi); list-style-position: inside; }
   #menu-body details.gd-help[open] > summary { color: var(--ink); }
@@ -1166,7 +1232,7 @@
   }
   body.touch #hud #tpad .cls-btn.hold.on { border-color: #fff2cc; background: #755321; box-shadow: 0 0 0 3px #fff0c8; }
   body.touch :is(button, summary, [role="button"], input):focus-visible { outline: 3px solid #fff1cb; outline-offset: 3px; }
-  body.touch #joyhint { left: 14px; right: auto; bottom: calc(8px + var(--safe-b)); width: var(--mobile-joy-hint); height: var(--mobile-joy-hint); padding: 4px; font: 600 12px/1.1 var(--ui); letter-spacing: 0; color: #fff3db; border-color: #ac9773; background: #11161d80; }
+  body.touch #joyhint { left: 14px; right: auto; bottom: calc(8px + var(--safe-b)); width: var(--mobile-joy-hint); height: var(--mobile-joy-hint); padding: 4px; font: 600 12px/1.1 var(--ui); letter-spacing: 0; color: #fff3db; border-color: #ac9773; background: #11161d80; opacity: 0.5; }
   body.touch.mobile-left-handed #hud #tpad { left: 8px; right: auto; }
   body.touch.mobile-left-handed #tpad .mobile-class { grid-column: 2; justify-content: flex-start; }
   body.touch.mobile-left-handed #hud #tpad { grid-template-columns: var(--mobile-main) minmax(0, 1fr); }
@@ -1254,9 +1320,8 @@
   }
   /* Mobile navigation and viewport: one safe rectangle in browser tabs, with
      essential destinations visible instead of nested inside the game menu. */
-  .menu-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; position: sticky; top: -20px; z-index: 5; background: #1a1c21; padding-block: 8px; }
   #mobile-nav { display: none; }
-  body.touch { --mobile-nav-h: 48px; --mobile-nav-space: calc(var(--mobile-nav-h) + 16px); }
+  body.touch { --mobile-nav-h: 64px; --mobile-nav-space: calc(var(--mobile-nav-h) + 16px); }
   body.touch #scene { height: var(--mobile-vh, 100dvh); }
   body.touch #hud #pf { top: calc(8px + var(--safe-t)); padding: 5px 8px; gap: 2px; width: min(184px, calc(100vw - var(--safe-l) - var(--safe-r) - 100px)); }
   body.touch #pf .head .nm { font-size: 13px; }
@@ -1278,6 +1343,7 @@
     color: #fff3db; background: #15191ff2; font: 700 var(--mobile-small-text)/1.1 var(--ui); touch-action: manipulation;
   }
   body.touch #mobile-nav svg { width: 20px; height: 20px; flex: none; }
+  body.touch #mobile-nav button > span:not(#mobile-notice) { display: block; flex: none; width: 100%; min-width: 0; max-width: 100%; white-space: normal; overflow-wrap: anywhere; hyphens: auto; text-align: center; }
   body.touch #hud #tpad { bottom: calc(var(--mobile-nav-space) + var(--safe-b)); }
   body.touch #joyhint { bottom: calc(var(--mobile-nav-space) + var(--safe-b)); }
   body.touch.mobile-modal-open #mobile-nav { visibility: hidden; pointer-events: none; }
@@ -1301,11 +1367,17 @@
     body.touch #hud #bottom { bottom: calc(136px + var(--safe-b)); }
     body.touch #hud #error { bottom: calc(148px + var(--safe-b)); }
   }
+  /* Construction selection is a preview, separate from a paid realm order. */
+  #rts-routes .rts-plot-preview { fill: #ffd76b38; stroke: #fff2b0; stroke-width: 4; stroke-linejoin: round; paint-order: stroke; }
+  #rts-routes .rts-preview-label { fill: #fff5ca; stroke: #151922; stroke-width: 4; paint-order: stroke; text-anchor: middle; font: 700 14px var(--ui); }
+  #rts-markers .rts-marker.plot.selected { background: #73571e; color: #fff4bd; box-shadow: 0 0 0 3px #fff0a4; }
+  #rts-content .rts-selection { padding: 10px; border: 2px solid #ffe29b; border-radius: 6px; background: #493c24; color: #fff1cb; }
 </style>
 
 <canvas id="scene" aria-label="Hallowmarch, a 3D world of three realms at war" role="img"></canvas>
 
-<div id="loading"><div class="inner"><h1>Hallowmarch</h1><div class="bar"><i id="loadbar"></i></div><p id="loadmsg">Raising the hills</p></div></div>
+<div id="loading"><div class="inner"><h1>Hallowmarch</h1><div class="bar" role="progressbar" aria-label="Loading Hallowmarch" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i id="loadbar"></i></div><p id="loadmsg" role="status" aria-live="polite" aria-atomic="true">Raising the hills</p><p id="load-detail" hidden></p><p id="load-hint" hidden>Keep this tab open while the view is prepared.</p></div></div>
+<div id="entry-feedback" class="overlay" role="status" aria-live="polite" aria-atomic="true" hidden><div class="entry-inner"><span>Entering Hallowmarch…</span><span class="entry-track" aria-hidden="true"><i></i></span></div></div>
 
 <div id="title" hidden>
   <div class="brand">
@@ -1319,7 +1391,9 @@
       <p id="continue-desc"></p>
       <p id="season-title" class="season-title"></p><!-- [loops] -->
       <button class="btn primary" id="btn-continue" type="button">Return to the march</button>
+      <p class="fineprint">To start over later, open Menu → Character → Character options.</p>
     </div>
+    <div id="character-create-fields">
     <div class="step">
       <h2>Choose your realm</h2>
       <div class="realms" role="radiogroup" aria-label="Realm" id="realm-pick"></div>
@@ -1335,21 +1409,20 @@
       <div class="namerow"><input id="name-input" maxlength="18" autocomplete="off" spellcheck="false" aria-label="Character name"><button class="btn" id="btn-dice" type="button" aria-label="Pick a random name">Random</button></div>
     </div>
     <div class="step">
-      <h2>Begin as</h2>
-      <div class="start-opts" role="radiogroup" aria-label="Starting level">
-        <button class="opt" type="button" role="radio" id="opt-recruit" aria-checked="true"><b>Recruit</b><small>Level 1, in your home realm</small></button>
-        <button class="opt" type="button" role="radio" id="opt-veteran" aria-checked="false"><b>Veteran</b><small>Level 15, ready for the frontier</small></button>
-      </div>
+      <h2>Begin as a recruit</h2>
+      <p class="blurb">Every new character starts at level 1 in their home realm.</p>
+    </div>
     </div>
     </div>
     <div class="card-foot">
-      <button class="btn primary" id="btn-begin" type="button">Enter the realm</button>
+      <button class="btn primary" id="btn-begin" type="button">Play now</button>
       <p class="fineprint" id="save-note">Progress saves automatically.</p>
     </div>
   </div>
 </div>
 
 <div id="hud" hidden>
+  <button class="btn panel" id="btn-keep-character" type="button" hidden>Keep my character</button>
   <div class="frame panel" id="pf">
     <button id="mobile-character" type="button" aria-label="Open character and full status"></button>
     <div class="head"><span class="nm" id="pf-name"></span><span class="lv" id="pf-lv"></span></div>
@@ -1399,7 +1472,7 @@
     <div id="tpad"></div>
   </div>
   <nav id="mobile-nav" aria-label="Game screens">
-    <button class="panel" id="mobile-inventory" type="button" aria-label="Open inventory"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path d="M8 8h8l3 12H5L8 8Z M9 8V6a3 3 0 0 1 6 0v2"/></svg><span>Inventory</span></button>
+    <button class="panel" id="mobile-inventory" type="button" aria-label="Open inventory"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path d="M8 8h8l3 12H5L8 8Z M9 8V6a3 3 0 0 1 6 0v2"/></svg><span>Items</span></button>
     <button class="panel" id="mobile-skills" type="button" aria-label="Open skills" aria-controls="mobile-tray"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" aria-hidden="true"><path d="m13 2-8 12h6l-1 8 9-13h-6l0-7Z"/></svg><span>Skills</span></button>
     <button class="panel" id="mobile-map" type="button" aria-label="Open map"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" aria-hidden="true"><path d="m3 6 6-2 6 2 6-2v14l-6 2-6-2-6 2V6Z M9 4v14 M15 6v14"/></svg><span>Map</span></button>
     <button class="panel" id="mobile-notes" type="button" aria-label="Read field notes"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" aria-hidden="true"><path d="M5 3h14v18H5Z M8 7h8 M8 11h8 M8 15h5"/></svg><span>Notes</span></button>
@@ -1437,18 +1510,17 @@
   </div>
 </div>
 <div class="overlay" id="menu" hidden>
-  <div class="sheet panel" role="dialog" aria-labelledby="menu-title">
-    <div class="menu-heading"><h2 id="menu-title">Hallowmarch</h2><button type="button" class="btn" id="menu-close" aria-label="Close menu">Close ×</button></div>
-    <div class="seg" role="tablist" id="menu-tabs">
-      <button type="button" data-tab="char" aria-checked="true">Character</button>
-      <button type="button" data-tab="companion" aria-checked="false">Companion</button>
-      <button type="button" data-tab="progress" aria-checked="false">Progress</button>
-      <button type="button" data-tab="chronicle" aria-checked="false">Chronicle</button>
-      <button type="button" data-tab="settings" aria-checked="false">Settings</button>
-      <button type="button" data-tab="help" aria-checked="false">How to play</button>
+  <div class="sheet panel" role="dialog" aria-modal="true" aria-labelledby="menu-title">
+    <div class="menu-heading"><h2 id="menu-title">Game menu</h2><button type="button" class="btn" id="menu-close">Back to game</button></div>
+    <div role="tablist" id="menu-tabs" aria-label="Game menu">
+      <button type="button" role="tab" id="menu-tab-char" data-tab="char" aria-controls="menu-body" aria-selected="true">Character</button>
+      <button type="button" role="tab" id="menu-tab-companion" data-tab="companion" aria-controls="menu-body" aria-selected="false" tabindex="-1">Companion</button>
+      <button type="button" role="tab" id="menu-tab-progress" data-tab="progress" aria-controls="menu-body" aria-selected="false" tabindex="-1">Progress</button>
+      <button type="button" role="tab" id="menu-tab-chronicle" data-tab="chronicle" aria-controls="menu-body" aria-selected="false" tabindex="-1">Chronicle</button>
+      <button type="button" role="tab" id="menu-tab-settings" data-tab="settings" aria-controls="menu-body" aria-selected="false" tabindex="-1">Settings</button>
+      <button type="button" role="tab" id="menu-tab-help" data-tab="help" aria-controls="menu-body" aria-selected="false" tabindex="-1">How to play</button>
     </div>
-    <div id="menu-body"></div>
-    <div class="actions"><button class="btn" id="btn-newchar" type="button">New character</button><button class="btn primary" id="btn-resume" type="button">Resume</button></div>
+    <div id="menu-body" role="tabpanel" aria-labelledby="menu-tab-char" tabindex="0"></div>
   </div>
 </div>
 <div class="overlay" id="kit" hidden>
@@ -1459,7 +1531,7 @@
   </div>
 </div>
 <div class="overlay" id="death" hidden>
-  <div class="sheet panel" role="dialog" aria-labelledby="death-title">
+  <div class="sheet panel" role="dialog" aria-modal="true" aria-labelledby="death-title">
     <h2 id="death-title">You have fallen</h2>
     <p id="death-by"></p>
     <div id="death-raise" hidden><p id="death-raise-who"></p><button class="btn" id="btn-raise" type="button">Accept the prayer</button></div><!-- [balance] an allied priest offers to raise you (07c_balance.js) -->
@@ -1467,11 +1539,47 @@
   </div>
 </div>
 <div class="overlay" id="dialog" hidden>
-  <div class="sheet panel" role="dialog" aria-labelledby="dlg-title">
+  <div class="sheet panel" role="dialog" aria-modal="true" aria-labelledby="dlg-title">
     <h2 id="dlg-title"></h2>
     <div id="dlg-body"></div>
     <div class="actions" id="dlg-actions"></div>
   </div>
 </div>
 <div id="fade"></div>
-<p id="nogl" hidden>Hallowmarch needs WebGL 2, which this browser or device has turned off.</p>
+<section id="nogl" hidden>Hallowmarch needs WebGL 2, which this browser or device has turned off.</section>
+<script>
+/* startup-file-guard: runs even when the module's graphics dependency cannot load. */
+(() => {
+  let pending = true, shown = '', heading, detail;
+  const loading = document.getElementById('loading'), notice = document.getElementById('nogl');
+  function show(failed) {
+    if (!pending || !notice || shown === 'failed' || shown === (failed ? 'failed' : 'slow')) return;
+    if (!shown) {
+      heading = document.createElement('strong');
+      detail = document.createElement('span');
+      const retry = document.createElement('button'); retry.type = 'button'; retry.className = 'btn primary'; retry.textContent = 'Retry loading';
+      retry.onclick = () => location.reload();
+      notice.replaceChildren(heading, detail, retry);
+    }
+    shown = failed ? 'failed' : 'slow';
+    loading.hidden = true;
+    notice.hidden = false;
+    notice.setAttribute('role', failed ? 'alert' : 'status');
+    heading.textContent = failed ? 'The game could not finish loading' : 'Game files are taking longer than expected';
+    detail.textContent = failed ? 'A required game file could not load. Check your connection, then try again. Your saved character is kept.'
+      : 'You can keep waiting, or check your connection and try again. Your saved character is kept.';
+  }
+  function onError(event) {
+    if (event.target?.tagName === 'SCRIPT' && event.target.type === 'module') show(true);
+  }
+  addEventListener('error', onError, true);
+  const timer = setTimeout(() => show(false), 20000);
+  window.__hmFileBoot = { ready() {
+    if (!pending) return;
+    pending = false; clearTimeout(timer); removeEventListener('error', onError, true);
+    // A slow successful download may finish after the retry notice appeared.
+    if (shown) { notice.hidden = true; loading.hidden = false; }
+  } };
+})();
+</script>
+

@@ -40,12 +40,12 @@ const LORE_CSS = `
 #lore-pro .art svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; animation: lore-art 0.7s ease both; }
 #lore-pro .art::after { content: ''; position: absolute; inset: 0; pointer-events: none; box-shadow: inset 0 0 70px rgba(0, 0, 0, 0.55), inset -1px 0 0 var(--line); }
 #lore-pro .leaf { display: flex; flex-direction: column; min-height: 0; padding: 22px 26px 18px; gap: 8px; background: linear-gradient(180deg, rgba(223, 193, 136, 0.05), transparent 45%); }
-#lore-pro .head { display: flex; align-items: center; gap: 12px; animation: lore-in 0.45s ease both; }
+#lore-pro .head { display: flex; align-items: center; gap: 12px; }
 #lore-pro .kicker { flex: 1; font: 500 12.5px/1.2 var(--caps); letter-spacing: 0.18em; text-transform: uppercase; color: var(--bronze-hi); }
 #lore-pro .skip { border: 0; background: none; padding: 6px 2px; cursor: pointer; color: var(--ink-faint); font: 500 13px var(--caps); letter-spacing: 0.08em; }
 #lore-pro .skip:hover, #lore-pro .skip:focus-visible { color: var(--ink); }
-#lore-pro h2 { margin: 2px 0 6px; font: 400 clamp(30px, 3.3vw, 42px)/1.04 var(--display); color: #fbf1dc; animation: lore-in 0.5s ease 0.05s both; }
-#lore-pro .text { flex: 1; min-height: 0; overflow-y: auto; padding-right: 6px; font-size: 16px; line-height: 1.58; color: rgba(239, 230, 211, 0.84); animation: lore-in 0.55s ease 0.1s both; }
+#lore-pro h2 { margin: 2px 0 6px; font: 400 clamp(30px, 3.3vw, 42px)/1.04 var(--display); color: #fbf1dc; }
+#lore-pro .text { flex: 1; min-height: 0; overflow-y: auto; padding-right: 6px; font-size: 16px; line-height: 1.58; color: rgba(239, 230, 211, 0.84); }
 #lore-pro .text p { margin: 0 0 0.8em; }
 #lore-pro .text p:first-child::first-letter { float: left; font: 400 3.1em/0.82 var(--display); margin: 0.06em 0.1em 0 0; color: var(--bronze-hi); }
 #lore-pro .text b { color: var(--ink); font-weight: 700; }
@@ -92,6 +92,13 @@ const LORE_CSS = `
 #lore-path.min .st { flex: 1; min-width: 0; padding: 0; border: 0; background: none; color: var(--ink); font: 700 13px/1.2 var(--ui); text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
 #lore-path.min .gem { margin: 0 2px 0 1px; }
 #lore-path.ring { animation: lore-ring 1.6s ease; }
+/* One bounty counter while the expanded path already shows the same active job.
+   Unknown :has support keeps the ordinary card. Keep the path's visibility
+   contract in sync: compact/off/folded, touch, RTS, and the narrow target rule. */
+body:not(.touch):not(.throne-rts-open):has(#hud:not([hidden]) > #lore-path[data-bounty-progress]:not([hidden]):not(.min):not(.hl-compact):not(.hl-off) > .step > .meter) #hud > #bounty.on { display: none; }
+@media (max-width: 760px), (pointer: coarse) {
+  body:not(.touch):not(.throne-rts-open):has(#hud:not([hidden]) > #tf:not([hidden]) ~ #lore-path[data-bounty-progress]:not([hidden]):not(.min):not(.hl-compact):not(.hl-off) > .step > .meter) #hud > #bounty.on { display: grid; }
+}
 #lore-path .fin { grid-column: 1 / -1; font: 400 17px/1.25 var(--display); color: #fbf1dc; }
 @media (max-width: 760px), (pointer: coarse) {
   #lore-path { width: 196px; padding: 7px 8px 8px; gap: 5px; }
@@ -128,12 +135,13 @@ const LORE_CSS = `
 #loading .lore-ltip b { display: block; margin-bottom: 5px; font: 500 11px/1 var(--caps); letter-spacing: 0.18em; text-transform: uppercase; color: var(--bronze); }
 
 /* the Chronicle tab of the menu */
-#menu .sheet:has(.chron) { width: min(840px, 100%); }
 .chron { display: grid; gap: 14px; }
-.chron-nav { position: sticky; top: -20px; z-index: 3; display: grid; gap: 7px; margin: -4px -22px 0; padding: 6px 22px 10px; background: #1a1c21; border-bottom: 1px solid var(--line); }
+.chron-nav { position: sticky; top: 0; z-index: 3; display: grid; gap: 7px; margin: -20px 0 0; padding: 12px 0 10px; background: #1a1c21; border-bottom: 1px solid var(--line); }
 .chron-grps, .chron-secs { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
 .chron-grps { gap: 2px 14px; border-bottom: 1px solid var(--line); }
 .chron-nav button { flex: none; border: 1px solid var(--line); background: rgba(255, 255, 255, 0.03); color: var(--ink-dim); border-radius: 999px; padding: 5px 11px; font: 500 13.5px var(--ui); cursor: pointer; white-space: nowrap; }
+body.touch .chron-nav button { min-height: var(--mobile-target, 44px); }
+body.touch .chron-grps { column-gap: 10px; }
 .chron-nav button:hover { color: var(--ink); border-color: var(--line-strong); }
 .chron-nav button[aria-current="true"] { background: var(--bronze-hi); border-color: var(--bronze-hi); color: #1b140b; }
 .chron-nav button[hidden] { display: none; }
@@ -210,6 +218,9 @@ const LORE_CSS = `
 .chron .steps .rw { display: inline-flex; align-items: center; gap: 5px; color: #e3c56c; font-size: 12.5px; white-space: nowrap; }
 .chron .steps .rw svg { width: 14px; height: 14px; }
 .chron .steps li.done .rw { color: var(--ink-faint); }
+.chron .steps .path-track { display: block; width: fit-content; margin-top: 7px; min-height: 40px; padding: 7px 12px; font-size: 13px; }
+.chron .steps .tracking { display: block; margin-bottom: 5px; color: var(--bronze-hi); font: 500 11px/1.3 var(--caps); letter-spacing: 0.08em; text-transform: uppercase; }
+.chron .steps li.cur:focus { outline: 2px solid var(--bronze-hi); outline-offset: 3px; }
 .chron .note { border-left: 3px solid var(--bronze); padding: 8px 12px; background: rgba(223, 193, 136, 0.06); border-radius: 0 6px 6px 0; font-size: 13.5px; line-height: 1.5; color: var(--ink-dim); }
 .chron .note b { display: block; font: 400 17px/1.25 var(--display); color: #fbf1dc; margin-bottom: 2px; }
 .chron .acts { display: flex; gap: 8px; flex-wrap: wrap; }
@@ -225,9 +236,8 @@ const LORE_CSS = `
   .chron .steps li { grid-template-columns: 24px minmax(0, 1fr); }
   .chron .steps .rw { grid-column: 2; }
 }
-@media (max-width: 520px) {
-  #menu-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border-radius: 14px; }
-  #menu-tabs button { padding: 7px 6px; }
+@media (max-width: 620px) {
+  .chron-nav { margin-top: -16px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .la-tw, .la-pulse, .la-flag, .la-rain, .la-snow, .la-bolt, .la-fire, .la-drift, .la-rise, #lore-pro .art svg, #lore-pro .head, #lore-pro h2, #lore-pro .text, .chron-body, #lore-path.ring { animation: none !important; }
@@ -244,17 +254,17 @@ const LORE_CSS = `
 /* state and small helpers                                             */
 /* ------------------------------------------------------------------ */
 const LORE = {
-  pro: null, chronSec: 'march', begin: -1e9,
+  pro: null, chronSec: 'march', begin: null,
   watchT: 0, hudT: 0, placeT: 0, hudKey: '', top: -1, min: null,
   ev: {}, bounty: null, potions: 0, carried: null, doors: new Map(), elites: new Set(), loot: new Set(),
-  queue: [], noteUntil: 0, deathShown: false,
+  queue: [], noteUntil: 0, noteActive: null, noteOwner: null, noteReplay: new Set(), deathShown: false,
 };
 const loreAn = (w) => (/^[aeiou]/i.test(w) ? 'an' : 'a');
 const homeIn = (R) => R.homeName.replace(/^The /, 'the ');
 // how to do things, in the words of the device in hand
 function LK() {
   return IS_TOUCH
-    ? { use: 'tap Use', potion: 'tap Potion', map: 'tap the map button', kit: 'tap Kit', ride: 'tap Ride', menu: 'tap the menu button' }
+    ? { use: 'tap Use', potion: 'tap Potion', map: 'tap the map button', kit: 'tap Items', ride: 'tap Ride', menu: 'tap the menu button' }
     : { use: 'press E', potion: 'press Q', map: 'press M', kit: 'press I', ride: 'press R', menu: 'press Esc' };
 }
 Object.assign(ICONS, {
@@ -283,7 +293,9 @@ const PATH_STEPS = [
     hint: (R) => `The ${R.name} Herald stands in the square of ${R.townName}, by the portal stones. Walk up to him and ${LK().use}.`,
     reward: { potions: 2 } },
   { id: 'bounty', lv: 1, old: 8, title: 'Finish a bounty', short: 'A bounty',
-    hint: (R, prog) => prog.bounty ? (prog.bounty.done ? `Done. Go back to the ${R.name} Herald for your pay.` : `Slay ${prog.bounty.need} ${pluralName(prog.bounty.name)} at the place circled on your map (${LK().map}), then go back to the herald.`) : `Take a bounty from the ${R.name} Herald in ${R.townName}, slay the creatures he names, then return to him.`,
+    hint: (R, prog) => prog.bounty ? (prog.bounty.done ? `Done. Go back to the ${R.name} Herald for your pay.` : `Slay ${prog.bounty.need} ${pluralName(prog.bounty.name)} at the place circled on your map (${LK().map}), then go back to the herald.`)
+      : bountyAvailable(GAME.player, prog) ? `Take a bounty from the ${R.name} Herald in ${R.townName}, slay the creatures he names, then return to him.`
+        : 'No suitable bounty is available right now. Gather or explore, or open Your path to track another objective. Check the herald again later.',
     meter: (prog) => (prog.bounty && !prog.bounty.done ? [prog.bounty.have / prog.bounty.need, `${prog.bounty.have} / ${prog.bounty.need} slain`] : null),
     reward: { item: { slot: 'weapon', q: 2 } } },
   { id: 'lv5', lv: 5, level: 5, title: 'Reach level 5', short: 'Level 5',
@@ -322,10 +334,10 @@ const PATH_STEPS = [
     hint: () => 'Fight down through the barrow, slay the warden of the Well of Souls to open its gate, and face the king on his throne.',
     reward: { gold: (L) => 120 + L * 8 } },
   { id: 'lv20', lv: 20, level: 20, title: 'Reach level 20', short: 'Level 20',
-    hint: () => 'Level 20 brings your seventh ability. From then on the frontier, the Barrow and Cinderwing rise to meet you.',
+    hint: () => 'Level 20 brings your seventh ability. People and creatures grow through their own work and battles; the March\'s development opens new possibilities.',
     reward: { item: { slot: 'ring', q: 3 } } },
   { id: 'champion', lv: 20, title: 'Defeat a borderland champion', short: 'A champion',
-    hint: (R) => `Out toward the wild edges of ${homeIn(R)}, named champions lead the borderland camps, from level 20 to 40.`,
+    hint: (R) => `Out toward the wild edges of ${homeIn(R)}, named champions lead the borderland camps. They begin at level 1 and develop through their own experience.`,
     reward: { item: { slot: 'charm', q: 4 } } },
   // [guide] the late game's deeds (pv 2)
   { id: 'command', lv: 20, pv: 2, title: 'Command a warband', short: 'Command a band',
@@ -345,7 +357,7 @@ const PATH_STEPS = [
     hint: () => 'The great red dragon rests on high ground between its flights: the gold gem marks it while it is in the sky. A fight for the strong, or for many.',
     reward: { item: { slot: 'legs', q: 4 } } },
   { id: 'lv40', lv: 40, level: 40, title: 'Reach level 40', short: 'Level 40',
-    hint: () => 'Rank III at 40, and the three farthest borderland camps of every homeland rise with you, each led by a risen champion.', // [late2] (10l_late.js)
+    hint: () => 'Your abilities reach rank III at 40. Risen encounters become available as the March develops; each creature grows at its own pace.', // [late2] (10l_late.js)
     reward: { item: { slot: 'chest', q: 4 } } },
   { id: 'master', lv: 40, pv: 2, title: 'Make a named masterwork', short: 'A masterwork',
     hint: () => 'A master crafter (crafting 85 and up) of level 40 makes them at the forge, the workbench, the tanning rack or the loom, from dragon scales, grave-iron from the Barrow\'s dead and champions\' trophies.',
@@ -354,7 +366,7 @@ const PATH_STEPS = [
     hint: (R) => `${R.name} wins by holding four of the six keeps for five minutes, or both enemy hallows for four. Lead its warbands and carry the hallows home.`,
     reward: { item: { slot: 'cloak', q: 5 } } },
   { id: 'lv50', lv: 50, level: 50, title: 'Reach level 50', short: 'Level 50',
-    hint: () => 'The height of your powers: rank IV, and the whole war rises to meet you. Past 50 your experience raises your veterancy.', // [late2] (10l_late.js)
+    hint: () => 'The height of your powers: rank IV. Past 50 your own experience raises your veterancy.', // [late2] (10l_late.js)
     reward: { item: { slot: 'weapon', q: 5 } } },
 ];
 const PATH_BY_ID = Object.fromEntries(PATH_STEPS.map((S, i) => { S.idx = i; return [S.id, S]; }));
@@ -362,7 +374,23 @@ const PATH_VERSION = 3; // [guide] 2: the steps of version 13 (pv 2 on a step); 
 const REWARD_SLOT_WORD = { weapon: 'weapon', cloak: 'cloak', ring: 'ring', charm: 'charm', chest: 'chest piece', head: 'helm', hands: 'pair of gloves', legs: 'pair of leggings' };
 function loreLvlFrac(prog, target) { return clamp((prog.level - 1 + (prog.level >= LEVEL_CAP ? 0 : prog.xp / xpToNext(prog.level))) / Math.max(1, target - 1), 0, 1); }
 function pathDone(id) { const L = GAME.prog && GAME.prog.lore; return !!L && L.done.includes(id); }
-function pathNext() { return PATH_STEPS.find((S) => !pathDone(S.id)) || null; }
+function pathSuggested() { return PATH_STEPS.find((S) => !pathDone(S.id)) || null; }
+function pathNext() {
+  const id = GAME.prog && GAME.prog.lore && GAME.prog.lore.track;
+  return (id && Object.hasOwn(PATH_BY_ID, id) && !pathDone(id) && PATH_BY_ID[id]) || pathSuggested();
+}
+// Choosing an objective only changes guidance. Rewards still require the real
+// deed, and completed steps cannot be selected or paid again.
+function pathTrack(id) {
+  const L = GAME.prog && GAME.prog.lore;
+  if (!L || !Object.hasOwn(PATH_BY_ID, id) || pathDone(id)) return false;
+  L.track = id;
+  GUIDE.mark = null; GUIDE.markT = 0; G2.pointT = 0;
+  LORE.hudKey = ''; LORE.hudT = 0;
+  guideUpdateMark(0); g2UpdatePointer(0); renderPathHud();
+  saveSoon(800);
+  return true;
+}
 // what a step will pay: gold at the level it is likely taken, experience as a share of a level
 const XP_SHARE = [[0.25, 'a quarter'], [1 / 3, 'a third'], [0.5, 'half']];
 function rewardLabel(S, prog, ahead = false) {
@@ -398,6 +426,7 @@ function pathComplete(S, silent = false) {
   const L = GAME.prog.lore;
   if (L.done.includes(S.id)) return;
   L.done.push(S.id);
+  if (L.track === S.id) delete L.track;
   LORE.ev[S.id] = false;
   LORE.hudKey = '';
   if (silent) return;
@@ -406,12 +435,12 @@ function pathComplete(S, silent = false) {
   const host = $('banners');
   const d = document.createElement('div');
   d.className = 'banner panel lore-step';
-  d.innerHTML = `<small>Your path · ${L.done.length} of ${PATH_STEPS.length}</small><b>${S.title}</b><span${got.col ? ` style="color:${got.col}"` : ''}>${iconSvg(got.ic, 16)}${got.t}</span>`;
+  d.innerHTML = `<small>Completed · ${L.done.length} of ${PATH_STEPS.length}</small><b>${S.title}</b><span${got.col ? ` style="color:${got.col}"` : ''}>${iconSvg(got.ic, 16)}${got.t}</span>`;
   host.appendChild(d);
   setTimeout(() => d.remove(), 6200);
   while (host.childNodes.length > 3) host.removeChild(host.firstChild);
   HUDL.k = 0; // [guide]
-  uiLog(`Your path: ${S.title}. Reward: ${got.t.replace(/<[^>]*>/g, '')}.`, 'rp');
+  uiLog(`Completed path step: ${S.title}. Reward: ${got.t.replace(/<[^>]*>/g, '')}.`, 'rp');
   sfx('fanfare');
   const el = $('lore-path');
   if (el) { el.classList.remove('ring'); void el.offsetWidth; el.classList.add('ring'); }
@@ -421,8 +450,12 @@ function pathComplete(S, silent = false) {
 /* ------------------------------------------------------------------ */
 /* field notes: first-time context, once per character                 */
 /* ------------------------------------------------------------------ */
+function loreLowHpRelevant() {
+  const P = GAME.player;
+  return !!(P?.alive && P.hp < P.maxHp * 0.35 && INV.potions > 0);
+}
 const FIELD_NOTES = {
-  start: { t: 'First steps', x: () => (IS_TOUCH ? `Drag on the ${MOBILE_PREFS.hand === 'left' ? 'right' : 'left'} of the screen to walk and on the ${MOBILE_PREFS.hand === 'left' ? 'left' : 'right'} to look around. Tap a creature to target it, then tap an ability. Your path, at the top left, shows your next step; the gold gem on the minimap marks where.` : 'WASD to walk, drag to look. Click a creature, then press 1. Your path, at the left of the screen, shows your next step; the gold gem on the minimap marks where. H shows every key.') }, // [guide] the gem
+  start: { t: 'First steps', x: () => (IS_TOUCH ? `Drag on the lower ${MOBILE_PREFS.hand === 'left' ? 'right' : 'left'} to walk and on the ${MOBILE_PREFS.hand === 'left' ? 'left' : 'right'} to look around. Open Menu → Options → How to play for all controls.` : 'WASD to walk. Drag to look around. Press H for all controls.') }, // A short control primer; the path and prompt carry the current objective.
   news: { t: 'New: the Chronicle', x: () => `The story of the March, how the war is won and what the commanders' orders mean are now in the Chronicle (${LK().menu}). Your path, at the left, shows your next step.` },
   frontier: { t: 'The frontier', x: (R) => `Here the three realms fight. Friendly names show in blue. Warbands of ${R.name} march out from the muster, and its portal stones take you home.` },
   keep: { t: 'An enemy keep', x: () => 'Its gates shut against you. Break the gate (or storm a breach), then slay the lord inside and the keep is your realm\'s. Archers on the walls and towers shoot at anyone close, so come with a warband.' }, // [guide] gates shut, breaches
@@ -432,7 +465,7 @@ const FIELD_NOTES = {
   rain: { t: 'Rain', x: () => 'Rain sweeps across the March and soaks the land, and storms bring thunder and lightning. The weather turns every few minutes.' },
   snow: { t: 'Snow', x: () => 'In Thule and up on the passes the rain falls as snow. It settles on the ground and the roofs, and melts when the weather turns.' },
   dragon: { t: 'Cinderwing', x: () => 'The great red dragon. It lands on high ground to fight: keep out of the line of its fire and away from its tail, and do not take it on alone unless you are far stronger.' },
-  lowhp: { t: 'Badly hurt', x: () => `${capFirst(LK().potion)} to drink a healing draught and win back 40% of your health. Out of a fight you heal on your own.` },
+  lowhp: { t: 'Badly hurt', x: () => `${capFirst(LK().potion)} to drink a healing draught and win back 40% of your health. Out of a fight you heal on your own.`, fight: true, ok: loreLowHpRelevant },
   carry: { t: 'Hallow-bearer', x: (R) => `You carry a hallow. You walk slowly and cannot ride or fight, and every enemy wants you dead. Get it to the ${R.templeName} with your warband around you.` },
   command: { t: 'Command', x: (R) => `You may now command the warbands of ${R.name}. Open the map (${LK().map}), choose a band, and give it a keep or temple to take, or tell it to rally to you.` },
   claim: { t: 'A claim on the March', x: () => 'A realm holds four keeps, or both enemy hallows. If it keeps them long enough it wins the campaign: watch the countdown under the minimap, and break the hold if it is not yours.' },
@@ -450,13 +483,13 @@ const LOADING_TIPS = [
   'Merchants buy what you do not need. Sell grey gear and trophies for coin.',
   'A healing draught gives back 40% of your health. It takes thirty seconds before you can drink another.',
   'A keep rebuilds a broken gate once it has been quiet for forty seconds. Take the lord before they mend it.',
-  'Past level 20 the frontier, the Barrow and Cinderwing rise to meet you.',
+  'People and creatures begin at level 1 and grow through their own work and battles. The March\'s development opens new possibilities.',
   'Every ten levels past 20 your abilities grow a rank stronger.',
   'Rain falls as snow in Thule and up on the high passes.',
   'The Hollow King\'s vault holds the best loot in the land.',
   'The warden of the Well of Souls holds the key to the Hollow King\'s gate.',
   'A realm down to its last keep musters bigger warbands, and faster.',
-  'Named champions lead the camps of the borderlands, from level 20 to 40.',
+  'Named champions lead the borderland camps. Their strength comes from their own experience.',
   'Realm points come from enemy soldiers, keeps and hallows. Each realm rank adds to your health and damage.',
   'Commanders send their warbands at near, weak keeps, and above all at keeps their own realm has lost. Every order is drawn on your map.',
   'A realm wins the campaign by holding four of the six keeps for five minutes, or both enemy hallows for four.',
@@ -942,7 +975,7 @@ function renderPrologue() {
   ov.innerHTML = `<div class="book" role="dialog" aria-modal="true" aria-labelledby="lore-pro-t" aria-describedby="lore-pro-x">
     <div class="art">${loreArt(pg.art, P.faction, P.cls)}</div>
     <div class="leaf">
-      <div class="head"><span class="kicker">${pg.k}</span><button type="button" class="skip" data-pro="skip">${S.replay ? 'Close' : 'Skip the prologue'}</button></div>
+      <div class="head"><span class="kicker">${pg.k}</span>${!last ? `<button type="button" class="skip" data-pro="skip">${S.replay ? 'Close' : 'Skip the prologue'}</button>` : ''}</div>
       <h2 id="lore-pro-t">${pg.t}</h2>
       <div class="text" id="lore-pro-x">${pg.p.map((p) => `<p>${p}</p>`).join('')}</div>
       <div class="foot"><div class="dots">${S.pages.map((q, i) => `<button type="button" data-pro="${i}" aria-label="Page ${i + 1}: ${q.t}" aria-current="${i === S.i}"></button>`).join('')}</div>
@@ -972,11 +1005,19 @@ function closePrologue() {
   if (UI.modal === 'prologue') UI.modal = null;
   if (GAME.prog && GAME.prog.lore) { GAME.prog.lore.pro = 1; saveSoon(); }
   if (S && !S.replay) loreNote('start');
+  if (S && !S.replay && typeof entryFeedbackLeavePrologue === 'function') entryFeedbackLeavePrologue();
 }
 // the prologue's keys come first, and the game never sees them
 window.addEventListener('keydown', (e) => {
   if (UI.modal !== 'prologue' || !LORE.pro) return;
+  if (typeof netHumanInput === 'function') netHumanInput(e); // window capture stops the document's trusted-input listener
   const k = e.code;
+  // Holding a page key must not run through the book or dismiss its last page.
+  if (e.repeat === true && (k === 'ArrowRight' || k === 'PageDown' || k === 'ArrowLeft' || k === 'PageUp')) {
+    e.preventDefault();
+    e.stopPropagation();
+    return;
+  }
   const onBtn = !!(document.activeElement && document.activeElement.closest && document.activeElement.closest('#lore-pro button'));
   if (k === 'Escape') { e.preventDefault(); closePrologue(); }
   else if (k === 'ArrowRight' || k === 'PageDown') { e.preventDefault(); prologueGo(1); }
@@ -986,7 +1027,7 @@ window.addEventListener('keydown', (e) => {
 }, true);
 // J opens the Chronicle
 window.addEventListener('keydown', (e) => {
-  if (e.code !== 'KeyJ' || e.repeat || !GAME.started || typing()) return;
+  if (e.code !== 'KeyJ' || e.repeat || !GAME.started || typing() || gameplayKeyIgnored(e)) return;
   if (UI.modal === 'menu' && UI.menuTab === 'chronicle') closeMenu();
   else if (!UI.modal) openChronicle(LORE.chronSec);
 });
@@ -1029,9 +1070,10 @@ function buildPathHud() {
 }
 function renderPathHud() {
   const el = $('lore-path'), P = GAME.player, prog = GAME.prog;
-  if (!el || !P || !prog || !prog.lore) return;
+  if (!el) return;
+  if (!P || !prog || !prog.lore) { el.removeAttribute('data-bounty-progress'); return; }
   const R = REALMS[P.faction], S = pathNext(), n = prog.lore.done.length, N = PATH_STEPS.length;
-  let html;
+  let html, bountyProgress = false;
   if (!S) {
     // [guide] the path walked: what to aim for now (the Chronicle's Aims page has the rest)
     const A = guideAims()[0];
@@ -1044,6 +1086,7 @@ function renderPathHud() {
   } else {
     const m = S.level ? [loreLvlFrac(prog, S.level), `Level ${prog.level} of ${S.level}`] : S.meter ? S.meter(prog) : null;
     const rw = rewardLabel(S, prog);
+    bountyProgress = S.id === 'bounty' && !!prog.bounty && !prog.bounty.done && !!m;
     html = `<div class="ph"><span class="lbl">Your path</span><span class="n">${n} / ${N}</span><button type="button" class="tog" data-act="min" aria-label="Fold your path away">${iconSvg('lminus', 12)}</button></div>`
       + `<button type="button" class="step" data-act="open" title="Open your path in the Chronicle${IS_TOUCH ? '' : ' (J)'}"><span class="gem"></span><span class="st">${S.title}</span><span class="hint">${S.hint(R, prog)}</span>`
       + (m ? `<span class="meter"><i><b style="width:${(m[0] * 100).toFixed(1)}%"></b></i>${m[1]}</span>` : '')
@@ -1052,6 +1095,7 @@ function renderPathHud() {
   }
   if (html !== LORE.hudKey) { el.innerHTML = html; LORE.hudKey = html; }
   el.classList.toggle('min', !!LORE.min);
+  el.toggleAttribute('data-bounty-progress', bountyProgress);
 }
 // sit just under the player frame, whatever its height
 function placePathHud() {
@@ -1073,17 +1117,60 @@ function openChronicle(sec) {
 /* ------------------------------------------------------------------ */
 /* watching the world for steps taken and things seen                  */
 /* ------------------------------------------------------------------ */
+const LORE_OBSERVATIONS = new WeakSet();
+function loreObservationScope(event, kind, target = null) {
+  if (typeof Event === 'undefined' || !(event instanceof Event) || event.isTrusted !== true || !event.eventPhase
+    || !GAME.ready || !GAME.started || !GAME.player?.alive || !GAME.prog?.lore || pathDone(kind)) return null;
+  const P = GAME.player, R = REALMS[P.faction];
+  if (kind === 'herald') {
+    const input = event.type === 'keydown' ? event.code === 'KeyE' && !event.repeat
+      : event.type === 'click' && event.target?.closest?.('#prompt, #t-use');
+    if (!input || UI.modal || !target || target !== R.herald || dist2(P.x, P.z, target.x, target.z) >= 4.5 ** 2) return null;
+  } else if (kind === 'draught') {
+    const control = event.type === 'click' && event.target?.closest?.('[data-buyp]');
+    if (!control || control.disabled || !control.getClientRects().length || !$('kit')?.contains(control)
+      || UI.modal !== 'kit' || UI.kitMode !== 'shop') return null;
+  } else return null;
+  const transport = typeof NETWS === 'undefined' ? null : NETWS, owner = typeof NATIVE_PLAYER === 'undefined' ? null : NATIVE_PLAYER;
+  const scope = { event, kind, target, player: P, prog: GAME.prog, realm: P.faction,
+    ref: SAVE.ref, key: SAVE.lsKey, native: SAVE.native, host: transport?.host, account: transport?.acct?.id,
+    profile: owner?.profile, potions: INV.potions, gold: INV.gold };
+  LORE_OBSERVATIONS.add(scope);
+  return scope;
+}
+function loreObservationCurrent(scope) {
+  const transport = typeof NETWS === 'undefined' ? null : NETWS, owner = typeof NATIVE_PLAYER === 'undefined' ? null : NATIVE_PLAYER;
+  return GAME.ready && GAME.started && GAME.player === scope.player && GAME.player?.alive && GAME.prog === scope.prog
+    && GAME.player.faction === scope.realm && SAVE.ref === scope.ref && SAVE.lsKey === scope.key && SAVE.native === scope.native && !SAVE.wiping
+    && transport?.host === scope.host && transport?.acct?.id === scope.account && !transport?.reload && owner?.profile === scope.profile;
+}
+function loreObservationEvidence(scope) {
+  if (scope.kind === 'herald') return UI.modal === 'dialog' && !$('dialog')?.hidden
+    && REALMS[scope.realm].herald === scope.target && $('dlg-title')?.textContent === scope.target.name
+    && dist2(scope.player.x, scope.player.z, scope.target.x, scope.target.z) < 49;
+  return UI.modal === 'kit' && UI.kitMode === 'shop' && Number.isFinite(INV.potions) && Number.isFinite(INV.gold)
+    && INV.potions > scope.potions && INV.gold < scope.gold;
+}
+function loreObserve(scope) {
+  if (!scope || !LORE_OBSERVATIONS.has(scope) || !scope.event.eventPhase || !loreObservationCurrent(scope) || !loreObservationEvidence(scope)) return false;
+  LORE_OBSERVATIONS.delete(scope);
+  // Ordinary trusted-input synchronization runs first. This records a deed,
+  // without renewing play, simulating time or paying while its window is open.
+  queueMicrotask(() => {
+    if (loreObservationCurrent(scope) && typeof netHumanLive === 'function' && netHumanLive()
+      && loreObservationEvidence(scope) && !pathDone(scope.kind)) LORE.ev[scope.kind] = true;
+  });
+  return true;
+}
 function loreWatch() {
   const P = GAME.player, prog = GAME.prog, R = REALMS[P.faction], ev = LORE.ev;
   // a bounty paid out by the herald
   const b = prog.bounty;
   if (LORE.bounty && LORE.bounty.done && b !== LORE.bounty) ev.bounty = true;
   LORE.bounty = b;
-  // a draught bought at a stall
-  if (INV.potions > LORE.potions && UI.modal === 'kit' && UI.kitMode === 'shop') ev.draught = true;
+  // Conversation/purchase evidence is latched by its actual interaction,
+  // rather than inferred from a window that a quick player may already close.
   LORE.potions = INV.potions;
-  // the herald's dialog open beside him
-  if (UI.modal === 'dialog' && R.herald && dist2(P.x, P.z, R.herald.x, R.herald.z) < 49 && $('dlg-title').textContent === R.herald.name) ev.herald = true;
   // a hallow carried all the way home
   if (P.carrying != null) LORE.carried = WAR.relics[P.carrying] || null;
   else if (LORE.carried) { const rel = LORE.carried; LORE.carried = null; if (rel.state === 'temple' && rel.at === P.faction) ev.hallow = true; }
@@ -1151,7 +1238,7 @@ function loreWatch() {
     want('rain', () => out && WEATHER.raining > 0.45 && WEATHER.snowing < 0.15);
     want('snow', () => out && WEATHER.snowing > 0.35);
     want('dragon', () => { const D = DRAGON.e; return out && !!D && D.alive && !D.removed && dist2(P.x, P.z, D.x, D.z) < 140 * 140; });
-    want('lowhp', () => P.hp < P.maxHp * 0.35 && GAME.t < P.combatUntil && INV.potions > 0);
+    want('lowhp', () => loreLowHpRelevant() && GAME.t < P.combatUntil);
     want('carry', () => P.carrying != null);
     // [campaign] (08g_campaign.js)
     want('command', () => out && cwCanCommand() && Math.hypot(P.x, P.z) < R_RING + 40);
@@ -1167,18 +1254,48 @@ function loreNote(id) {
   if (!LORE.queue.includes(id)) LORE.queue.push(id);
   return true;
 }
+// Presentation may be interrupted without undoing the note already collected
+// in the Chronicle. Only this character's attached note can be deferred.
+function loreFinishNote(note, replay = false) {
+  if (!note || LORE.noteActive !== note) return;
+  clearTimeout(note.timer);
+  note.element.remove();
+  LORE.noteActive = null;
+  if (replay && GAME.prog === note.prog && Object.hasOwn(FIELD_NOTES, note.id)) {
+    LORE.noteReplay.add(note.id);
+    if (!LORE.queue.includes(note.id)) LORE.queue.unshift(note.id);
+    LORE.noteUntil = 0;
+  }
+  HUDL.k = 0;
+}
+function loreUpdateNote() {
+  if (LORE.noteOwner !== GAME.prog) {
+    loreFinishNote(LORE.noteActive);
+    LORE.queue = LORE.queue.filter(id => !LORE.noteReplay.has(id));
+    LORE.noteReplay.clear();
+    LORE.noteOwner = GAME.prog;
+  }
+  const note = LORE.noteActive;
+  if (!note) return;
+  if (note.prog !== GAME.prog || !note.element.isConnected) { loreFinishNote(note); return; }
+  if (note.id === 'lowhp' && !loreLowHpRelevant()) { loreFinishNote(note); return; }
+  if (GAME.t < GAME.player.combatUntil && !FIELD_NOTES[note.id].fight) loreFinishNote(note, true);
+}
 function showNextNote(announce = !IS_TOUCH) {
   const prog = GAME.prog, P = GAME.player;
+  loreUpdateNote();
   const qi = guideNoteIndex(); // [guide] first steps first, not over a fight, only where it means something
   if (qi < 0) return;
   const id = LORE.queue.splice(qi, 1)[0];
-  GUIDE.stats.notesShown++;
   const N = FIELD_NOTES[id];
-  if (!N || prog.lore.seen.includes(id)) return;
-  prog.lore.seen.push(id);
+  const replay = LORE.noteReplay.delete(id), first = !prog.lore.seen.includes(id);
+  if (!N || (!first && !replay)) return;
+  GUIDE.stats.notesShown++;
+  if (first) prog.lore.seen.push(id);
   // Touch players collect the same notes without interrupting the world.
   // The Notes destination reads the complete, saved text on demand.
-  if (!announce) { saveSoon(); return; }
+  if (!announce) { if (first) saveSoon(); return; }
+  loreFinishNote(LORE.noteActive);
   const R = REALMS[P.faction], text = N.x(R);
   const host = $('banners');
   const d = document.createElement('div');
@@ -1186,14 +1303,22 @@ function showNextNote(announce = !IS_TOUCH) {
   d.setAttribute('role', 'status');
   d.title = 'Click to dismiss';
   d.innerHTML = `<small>Field note</small><b>${N.t}</b><span>${text}</span>`;
-  d.addEventListener('click', () => { const small = $('banners').classList.contains('hl-compact') || $('banners').classList.contains('hl-brief'); /* [look6] its first lines only: a tap reads it whole */ d.remove(); if (small && !UI.modal) { G2.noteFocus = id; openChronicle('notes'); } }); // [guide] shrunk to its title on a small screen: a tap reads it in the Chronicle ([guide2] on the field notes' page, itself first and open)
+  const note = { id, prog, element: d, timer: null };
+  LORE.noteActive = note;
+  d.addEventListener('click', () => {
+    if (LORE.noteActive !== note || note.prog !== GAME.prog || !d.isConnected) return;
+    const small = host.classList.contains('hl-compact') || host.classList.contains('hl-brief');
+    loreFinishNote(note);
+    // A compact note opens its full saved text; the full card only dismisses.
+    if (small && !UI.modal) { G2.noteFocus = id; openChronicle('notes'); }
+  });
   host.appendChild(d);
-  setTimeout(() => d.remove(), 11000);
+  note.timer = setTimeout(() => loreFinishNote(note), 11000);
   while (host.childNodes.length > 3) host.removeChild(host.firstChild);
-  uiLog(`${N.t}: ${text}`, 'sys');
+  if (first) uiLog(`${N.t}: ${text}`, 'sys');
   LORE.noteUntil = performance.now() + 11500;
   HUDL.k = 0; // [guide] laid out this frame: it never lies over a panel, even for a moment
-  saveSoon();
+  if (first) saveSoon();
 }
 // the death sheet carries a word of advice
 function deathNote() {
@@ -1220,32 +1345,41 @@ const CHRON_SECTIONS = [['march', 'The March'], ['realms', 'Realms'], ['callings
 function renderChronicle(body, fromNav = false) {
   if (LORE.chronSec === 'coach') { LORE.chronSec = 'path'; renderMenu('progress'); return; }
   if (!CHRON_SECTIONS.some(([k]) => k === LORE.chronSec)) LORE.chronSec = 'march';
+  const focused = document.activeElement, restoreFocus = focused !== body && body.contains(focused);
+  const focusedGroup = restoreFocus && focused.closest('[data-grp]')?.dataset.grp;
   const sec = LORE.chronSec;
   const fn = { march: chronMarch, realms: chronRealms, callings: chronClasses, gifts: chronGifts, war: chronWar, orders: chronOrders, halls: chronHalls, wilds: chronWilds, dragon: chronDragon, barrow: chronBarrow, water: chronWater, living: chronLiving, fields: chronFields, herbal: chronHerbal, animals: chronAnimals, building: chronBuilding, path: chronPath, ...CHRON_FN }[sec]; // [guide] CHRON_FN: pages added with chronAdd
   const G = chronGroupOf(sec), label = Object.fromEntries(CHRON_SECTIONS);
   // two rows: the four parts of the Chronicle, then the pages of the part you are in (every page is in the row; the
   // other parts' pages are hidden until you turn to them)
   const grps = CHRON_GROUPS.map(([gk, gl]) => `<button type="button" data-grp="${gk}" aria-current="${gk === G[0]}">${gl}</button>`).join('');
-  const secs = CHRON_GROUPS.flatMap(([gk, , ks]) => ks.filter((k) => label[k]).map((k) => `<button type="button" data-sec="${k}" aria-current="${k === sec}"${gk === G[0] ? '' : ' hidden'}>${label[k]}</button>`)).join('');
-  body.innerHTML = `<div class="chron"><nav class="chron-nav" aria-label="Chronicle"><div class="chron-grps">${grps}</div><div class="chron-secs">${secs}</div></nav><div class="chron-body">${fn()}</div></div>`;
+  // Progress has its own persistent menu tab. Keep old coach links routable,
+  // without repeating the same destination in the Chronicle's page controls.
+  const secs = CHRON_GROUPS.flatMap(([gk, , ks]) => ks.filter((k) => label[k] && k !== 'coach').map((k) => `<button type="button" data-sec="${k}" aria-current="${k === sec}"${gk === G[0] ? '' : ' hidden'}>${label[k]}</button>`)).join('');
+  body.innerHTML = `<div class="chron"><nav class="chron-nav" aria-label="Chronicle"><div class="chron-grps" role="group" aria-label="Guide sections">${grps}</div><div class="chron-secs" role="group" aria-label="Pages in this section">${secs}</div></nav><div class="chron-body">${fn()}</div></div>`;
   chronFold(sec); // [guide2] a long page folds into its summaries on a phone (10f_guide2.js)
-  const sheet = body.closest('.sheet');
   const nav = body.querySelector('.chron-nav'), row = nav.querySelector('.chron-secs'), cur = row.querySelector('[aria-current="true"]');
-  if (sheet && !fromNav) sheet.scrollTop = 0;
-  else if (sheet) {
-    const d = body.querySelector('.chron-body').getBoundingClientRect().top - sheet.getBoundingClientRect().top - nav.offsetHeight - 6;
-    if (d < 0) sheet.scrollTop += d;
+  if (!fromNav) body.scrollTop = 0;
+  else {
+    const d = body.querySelector('.chron-body').getBoundingClientRect().top - body.getBoundingClientRect().top - nav.offsetHeight - 6;
+    if (d < 0) body.scrollTop += d;
   }
   if (cur && row.scrollWidth > row.clientWidth) row.scrollLeft = cur.offsetLeft - row.clientWidth / 2 + cur.offsetWidth / 2;
   const grow = nav.querySelector('.chron-grps'), gcur = grow.querySelector('[aria-current="true"]');
   if (gcur && grow.scrollWidth > grow.clientWidth) grow.scrollLeft = gcur.offsetLeft - grow.clientWidth / 2 + gcur.offsetWidth / 2;
+  if (restoreFocus) {
+    // Navigation replaces its buttons. Keep the reader in the chosen page,
+    // never on a removed action or a different item at the old list index.
+    const group = focusedGroup && [...grow.querySelectorAll('[data-grp]')].find(button => button.dataset.grp === focusedGroup);
+    (group || cur || body).focus({ preventScroll: true });
+  }
 }
 // the Chronicle's four parts; a page no part names falls under the first
 const CHRON_GROUPS = [
-  ['land', 'The March', ['march', 'realms', 'water', 'wilds', 'dragon', 'barrow']],
-  ['you', 'Your path', ['path', 'callings']],
-  ['war', 'The war', ['war', 'orders', 'halls', 'gifts']],
-  ['life', 'Living', ['living', 'fields', 'herbal', 'animals', 'building']],
+  ['land', 'World', ['march', 'realms', 'water', 'wilds', 'dragon', 'barrow']],
+  ['you', 'Your guide', ['path', 'callings']],
+  ['war', 'Warfare', ['war', 'orders', 'halls', 'gifts']],
+  ['life', 'Life skills', ['living', 'fields', 'herbal', 'animals', 'building']],
 ];
 for (const [k] of CHRON_SECTIONS) if (!CHRON_GROUPS.some((g) => g[2].includes(k))) CHRON_GROUPS[0][2].push(k);
 // [guide] a page from any module: its key, its label, the part it belongs to ('land', 'you', 'war', 'life'), the function
@@ -1273,6 +1407,12 @@ $('menu-body').addEventListener('click', (e) => {
   const a = e.target.closest('[data-lore]');
   if (a && a.dataset.lore === 'prologue') openPrologue(true);
   else if (a && a.dataset.lore.startsWith('sec:')) { openChronicle(a.dataset.lore.slice(4)); sfx('click'); } // [guide] a page's link to another (chronLink)
+  else if (a && a.dataset.lore.startsWith('track:') && pathTrack(a.dataset.lore.slice(6))) {
+    void saveMenuEdit(e);
+    LORE.chronSec = 'path'; renderChronicle($('menu-body'));
+    $('menu-body').querySelector('.steps li.cur')?.focus({ preventScroll: true });
+    sfx('click');
+  }
 });
 
 function chronMarch() {
@@ -1482,7 +1622,7 @@ function chronOrders() {
     <ol class="how"><li><b>Retrieve</b> a hallow lying in the field or being carried off: the nearest band on the march turns round for it.</li><li><b>Patrol</b> our own temple gate while raiders are at it.</li><li><b>Defend</b> a keep of ours whose gate is badly battered or broken. When a gate falls, the nearest band on the march turns back to save it.</li><li><b>Raid</b> an enemy temple left open, to bring our own hallow home, or to take the second hallow of a claim.</li><li><b>Attack</b> the best enemy keep: one our realm built and lost, one whose gate is already down, one that would give us a fourth keep, or one held by a realm close to winning. Nearer keeps and thinner garrisons count too, and a little chance decides between keeps that score about the same.</li><li><b>Patrol</b> our most battered keep when there is nothing else to do.</li></ol>
     <h3>Spreading out</h3>
     <p>Each band leans toward one of its realm's two fronts, so a realm fights in two places at once. Two bands of one realm go after the same keep only when it is decisive: its gate is down, it is ours by right, or it wins or saves the March. A commander also keeps out of a fight two other realms are already having, so all three armies rarely meet in one place.</p>
-    <p>On the way, a band is <b>on the march</b>; at an enemy gate it <b>lays siege</b> and strikes the gate whenever no defender is in reach; once the gate falls it <b>storms the court</b>; after a capture it <b>holds</b> the keep. New bands of seven to ten soldiers gather at the muster every half minute or so, two to four at a time depending on your graphics setting. A realm down to its last keep musters bigger bands, faster, and late in a long campaign every muster sends bigger bands of veterans.</p>
+    <p>On the way, a band is <b>on the march</b>; at an enemy gate it <b>lays siege</b> and strikes the gate whenever no defender is in reach; once the gate falls it <b>storms the court</b>; after a capture it <b>holds</b> the keep. New bands of seven to ten soldiers gather at the muster every half minute or so, two to four at a time depending on your graphics setting. A realm down to its last keep musters bigger bands, faster, and late in a long campaign every muster sends larger bands of recruits.</p>
     <h3>Your orders</h3>
     <p>${cwCanCommand() ? 'You have earned the right to command.' : 'From realm rank 3 or level 20 you may command too.'} Open the map (${LK().map}), choose one of ${R.name}'s warbands, then pick a keep to attack or defend or an open temple to raid, or tell it to rally to you. A band holds your order until the deed is done, a keep taken, a siege lifted, a hallow seized or the rally over, and then its commander takes it back. You can hand it back to the commander at any time.</p>
     <h3>The warbands of ${R.name} now</h3>
@@ -1492,7 +1632,11 @@ function chronOrders() {
 const MOB_PLURAL = { wolf: 'Wolves', boar: 'Boars', bear: 'Bears', bandit: 'Outlaws', skeleton: 'Barrow dead', draugr: 'Draugr', troll: 'Trolls', wisp: 'Wisps' };
 function campSummary(realm) {
   const by = new Map();
-  for (const c of CAMPS) if (c.realm === realm && !c.elite) { const o = by.get(c.type) || [99, 0]; by.set(c.type, [Math.min(o[0], c.lmin), Math.max(o[1], c.lmax)]); }
+  for (const c of CAMPS) if (c.realm === realm && !c.elite) {
+    const levels = [...(c.members || [])].map(getEnt).filter(e => e && e.alive && !e.removed).map(e => e.level);
+    const lo = levels.length ? Math.min(...levels) : 1, hi = levels.length ? Math.max(...levels) : 1;
+    const o = by.get(c.type) || [99, 0]; by.set(c.type, [Math.min(o[0], lo), Math.max(o[1], hi)]);
+  }
   return [...by].sort((a, b) => a[1][0] - b[1][0]).map(([t, [a, b]]) => `${MOB_PLURAL[t] || t} <span class="num">${a}–${b}</span>`).join(' · ');
 }
 function chronWilds() {
@@ -1501,26 +1645,26 @@ function chronWilds() {
   const realms = REALMS.map((R) => `<dt style="color:${R.light}">${R.name}</dt><dd>${campSummary(R.id)}</dd>`).join('');
   const champs = REALMS.map((R) => {
     const list = CAMPS.filter((c) => c.realm === R.id && c.elite).map((c) => {
-      const e = getEnt(c.eliteId), B = late2Band(c); // [late2] a risen camp's band (10l_late.js)
-      return `<li>${e && e.alive ? `<b>${esc(capFirst(e.name))}</b>` : '<b class="gone">fallen, for now</b>'}<small>${MOB_PLURAL[c.type] || c.type} · ${B[0]}–${B[1]}${late2Risen(c) ? ' · risen' : ''}</small></li>`;
+      const e = getEnt(c.eliteId);
+      return `<li>${e && e.alive ? `<b>${esc(capFirst(e.name))}</b>` : '<b class="gone">fallen, for now</b>'}<small>${MOB_PLURAL[c.type] || c.type} · ${e && e.alive ? `level ${e.level}` : 'new recruits: level 1'}${late2Risen(c) ? ' · risen' : ''}</small></li>`;
     }).join('');
     return `<div class="card rcard" style="--rc:${R.color}"><div class="rhead"><span class="em">${emblemSvg(R.id, 22)}</span><b style="font-size:20px">${R.homeName}</b></div><ul class="champs">${list}</ul></div>`;
   }).join('');
-  return `<p>Every realm's homeland is full of creatures, and the farther you go from town the stronger they get. Hunting them is how a recruit grows strong enough for the frontier.</p>
+  return `<p>Every realm's homeland is full of creatures. Each starts at level 1 and grows through its own experience. Check current levels before choosing a fight.</p>
     <h3>How dangerous is it?</h3>
     <p>The colour of a creature's name shows how it measures up to you. Grey creatures give no experience at all.</p>
     <div class="cons">${cons}</div>
     <h3>Creatures of the homelands</h3>
     <dl class="facts">${realms}</dl>
-    <p class="now">The numbers are levels. Your bounty from the herald is circled on your map, and the gold gem marks your path's next step.</p>
+    <p class="now">The numbers are the current levels of living creatures, or level 1 for an empty camp's next recruits. Your bounty from the herald is circled on your map, and the gold gem marks your path's next step.</p>
     <h3>Champions of the borderlands</h3>
-    <p>Past level 20 the wild edges of each realm hold harder camps, each led by a named champion. A champion hits hard and takes a lot of killing, drops two pieces of good gear, and comes back five to seven minutes after it falls. The borderlands are for levels 20 to 40; from 40 the three farthest camps of each homeland rise with you, held by risen champions (the Deeds page).</p>
+    <p>The wild edges of each realm hold camps led by named champions. A champion hits hard and takes a lot of killing, drops two pieces of good gear, and comes back five to seven minutes after it falls. Shared world development at level 40 unlocks risen champions in the three farthest camps of each homeland (the Deeds page). It does not raise anyone's combat level.</p>
     ${champs}
-    <p class="now">${P.level < 20 ? `You are level ${P.level}: come back at 20.` : 'Champions of your level are the best hunting in the land outside the Barrow.'}</p>`;
+    <p class="now">You are level ${P.level}. Compare each champion's current level and bring allies for a difficult fight.</p>`;
 }
 function chronDragon() {
   const P = GAME.player, D = DRAGON, e = D.e;
-  const lvl = Math.max(DRAGON_LEVEL, warLevel() + 4);
+  const lvl = e?.level || DRAGON_LEVEL;
   let now;
   if (!e || !e.alive || e.removed) now = 'Cinderwing has fallen. It will return.';
   else if (D.state === 'perch') now = `Cinderwing is resting on high ground in ${zoneAt(e.x, e.z).name}.`;
@@ -1530,7 +1674,7 @@ function chronDragon() {
     <h3>How it fights</h3>
     <p>It bites whatever is in front of it, sweeps its tail at anything behind, roars, and breathes fire. Badly hurt, it takes to the air and makes a low run over the field, breathing a long line of fire, before it lands again. If no one is left fighting it, it heals and flies away.</p>
     <h3>Who should fight it</h3>
-    <p>For you it is <b>level ${lvl}</b>${P.level < lvl - 3 ? ', far beyond you alone' : ''}: a fight for the strong, or for many. Keep out of the line of its fire, keep away from its tail and keep a healer close. Past level 20 it rises with you.</p>
+    <p>Cinderwing is <b>level ${lvl}</b>${P.level < lvl - 3 ? ', far beyond you alone' : ''}: a fight for the strong, or for many. Keep out of the line of its fire, keep away from its tail and keep a healer close. It grows through its own experience, independently of your level.</p>
     <h3>What it leaves</h3>
     <p>Three pieces of rare gear or better, a dragon scale and a heap of gold. It returns about fifteen minutes after it falls.</p>
     <p class="now">Now: ${now}</p>`;
@@ -1543,7 +1687,7 @@ function chronBarrow() {
     <h3>Its dangers</h3>
     <ul class="plain"><li><b>The dead wake together.</b> Pull one pack at a time, and fall back toward the stair if a fight goes wrong.</li><li><b>The Burning Gallery</b> breathes fire from its vents in bursts. Cross between them.</li><li><b>The gate past the Well of Souls</b> opens only when its keeper, the Barrow Warden, falls.</li><li><b>The Hollow King</b> raises the dead from their tombs as you fight him. Kill what rises, or it will bury you.</li></ul>
     <h3>Who it is for</h3>
-    <p>Strong characters, around level 18 and up; past 20 the barrow rises with you. The king's vault opens when he falls and holds the best loot in the land. The dead return after six minutes, the warden after ten and the king after twelve. The stair by the mouth always leads back to the daylight.</p>
+    <p>The dead grow through their own experience. Check their current levels, face one pack at a time and bring allies for the king. The king's vault opens when he falls and holds the best loot in the land. The dead return after six minutes, the warden after ten and the king after twelve. The stair by the mouth always leads back to the daylight.</p>
     <p class="now">Now: the Barrow Warden is ${S.wardenDead ? 'fallen, for now' : 'at his post'}; the Hollow King is ${S.kingDead ? 'dust, for now' : 'waiting on his throne'}.</p>`;
 }
 function chronPath() {
@@ -1551,15 +1695,17 @@ function chronPath() {
   const row = (S) => {
     const i = S.idx, done = prog.lore.done.includes(S.id), cur = S === next;
     const rw = rewardLabel(S, prog, !cur);
-    return `<li class="${done ? 'done' : cur ? 'cur' : ''}"><span class="mk">${done ? '✓' : i + 1}</span><span><b>${S.title}</b>${cur ? `<small>${S.hint(R, prog)}</small>` : ''}</span><span class="rw">${iconSvg(rw.ic, 14)}${done ? 'Claimed' : rw.t}</span></li>`;
+    return `<li class="${done ? 'done' : cur ? 'cur' : ''}"${cur ? ' tabindex="-1"' : ''}><span class="mk">${done ? '✓' : i + 1}</span><span>${cur ? '<span class="tracking">Tracked objective</span>' : ''}<b>${S.title}</b>${cur ? `<small>${S.hint(R, prog)}</small>` : !done ? `<button type="button" class="btn path-track" data-lore="track:${S.id}" aria-label="Track: ${S.title}">Track objective</button>` : ''}</span><span class="rw">${iconSvg(rw.ic, 14)}${done ? 'Claimed' : rw.t}</span></li>`;
   };
-  // [guide2] the step at hand and the two after it; the steps walked and the rest of the way each folded under a line (a
+  // The tracked step and two suggested steps; completed deeds and the rest of
+  // the path stay folded, including when a later objective was chosen. (A
   // phone read the whole path, 1,700 px of it, to find the one step that mattered)
   const done = PATH_STEPS.filter((S) => prog.lore.done.includes(S.id)), ahead = PATH_STEPS.filter((S) => !prog.lore.done.includes(S.id));
-  const near = ahead.slice(0, 3), far = ahead.slice(3);
+  const ordered = next ? [next, ...ahead.filter((S) => S !== next)] : ahead;
+  const near = ordered.slice(0, 3), far = ordered.slice(3);
   const fold = (title, list, open = false) => `<details class="cf"${open ? ' open' : ''}><summary><h3>${title}</h3></summary><div class="cf-b"><ol class="steps">${list.map(row).join('')}</ol></div></details>`;
   const nNotes = prog.lore.seen.filter((id) => FIELD_NOTES[id]).length;
-  return `<p>${capFirst(guideNumber(PATH_STEPS.length))} steps from recruit to the height of your powers. Each pays a reward the moment you take it; the next always shows at the ${IS_TOUCH ? 'top left' : 'left'} of your screen, with a gold gem on your minimap where it is to be done. Take them in any order.</p>
+  return `<p>${capFirst(guideNumber(PATH_STEPS.length))} steps from recruit to the height of your powers. Take them in any order; each pays its reward when you complete it. Choose <b>Track objective</b> on any unfinished step to see its instructions here and follow its gold gem on the minimap.</p>
     ${done.length ? fold(`${capFirst(guideNumber(done.length))} step${done.length === 1 ? '' : 's'} walked`, done) : ''}
     ${near.length ? `<ol class="steps">${near.map(row).join('')}</ol>` : `<p class="now">Every step is walked. The Aims page says what to aim for now.</p>`}
     ${far.length ? fold(`${capFirst(guideNumber(far.length))} more step${far.length === 1 ? '' : 's'} ahead`, far) : ''}
@@ -1573,21 +1719,41 @@ function chronPath() {
 function loreSanitize(o) {
   const ids = (a, ok) => (Array.isArray(a) ? [...new Set(a.filter((x) => typeof x === 'string' && ok(x)))] : []);
   if (!o || typeof o !== 'object') return null;
-  return { done: ids(o.done, (x) => !!PATH_BY_ID[x]), seen: ids(o.seen, (x) => !!FIELD_NOTES[x]), pro: o.pro ? 1 : 0, pv: Number.isInteger(o.pv) && o.pv > 0 && o.pv <= PATH_VERSION ? o.pv : 1 }; // [guide] pv
+  const kept = { done: ids(o.done, (x) => Object.hasOwn(PATH_BY_ID, x)), seen: ids(o.seen, (x) => Object.hasOwn(FIELD_NOTES, x)), pro: o.pro ? 1 : 0, pv: Number.isInteger(o.pv) && o.pv > 0 && o.pv <= PATH_VERSION ? o.pv : 1 }; // [guide] pv
+  if (typeof o.track === 'string' && Object.hasOwn(PATH_BY_ID, o.track) && !kept.done.includes(o.track)) kept.track = o.track;
+  return kept;
 }
 function loreSaveData() {
   const L = GAME.prog && GAME.prog.lore;
-  return L ? { done: L.done.slice(), seen: L.seen.slice(), pro: L.pro ? 1 : 0, pv: L.pv || PATH_VERSION } : null; // [guide] pv
+  return L ? { done: L.done.slice(), seen: L.seen.slice(), pro: L.pro ? 1 : 0, pv: L.pv || PATH_VERSION, ...(L.track && Object.hasOwn(PATH_BY_ID, L.track) && !L.done.includes(L.track) ? { track: L.track } : {}) } : null; // [guide] pv
+}
+function loreCancelBegin() { LORE.begin = null; }
+function loreRequestBegin(save) {
+  loreCancelBegin();
+  if (GAME.started || UI.titleSave?.char || !save?.fresh) return;
+  LORE.begin = { realm: save.realm, cls: save.cls, name: save.name, request: save,
+    host: typeof NETWS === 'undefined' ? '' : NETWS.host || '' };
+}
+function loreConsumeBegin(save) {
+  const intent = LORE.begin;
+  loreCancelBegin(); // A start consumes the intent, including a recovered old character.
+  // Ownership is enforced by nativePlayerBegin/startGame's existing guards.
+  // Public onboarding follows that accepted request, including a first native
+  // bootstrap that binds its transport account after the click.
+  return !!(intent && intent.request === save && save.fresh && intent.realm === save.realm && intent.cls === save.cls
+    && (!intent.name || intent.name === save.name)
+    && intent.host === (typeof NETWS === 'undefined' ? '' : NETWS.host || ''));
 }
 // called at the end of startGame with what it was started from
 function loreOnStart(save) {
   const prog = GAME.prog;
+  loreFinishNote(LORE.noteActive);
   const kept = loreSanitize(save.lore);
   const old = !kept && !save.fresh;
   prog.lore = kept || { done: [], seen: [], pro: 0, pv: PATH_VERSION };
   const pv0 = prog.lore.pv || 1; // [guide] the path a character's save knew: steps added since are new to it
   prog.lore.pv = PATH_VERSION;
-  Object.assign(LORE, { ev: {}, bounty: prog.bounty, potions: INV.potions, carried: null, doors: new Map(), elites: new Set(), loot: new Set(LOOT), queue: [], noteUntil: 0, deathShown: false, watchT: 0, hudKey: '', fresh: !!save.fresh, keepRealm: null, dragonHit: 0, dragonLast: -99, campN: null }); // [guide] ([guide2] dragonHit: your share of its harm)
+  Object.assign(LORE, { ev: {}, bounty: prog.bounty, potions: INV.potions, carried: null, doors: new Map(), elites: new Set(), loot: new Set(LOOT), queue: [], noteUntil: 0, noteActive: null, noteOwner: prog, noteReplay: new Set(), deathShown: false, watchT: 0, hudKey: '', fresh: !!save.fresh, keepRealm: null, dragonHit: 0, dragonLast: -99, campN: null }); // [guide] ([guide2] dragonHit: your share of its harm)
   GUIDE.made.length = 0; GUIDE.wallSeen = false; GUIDE.mark = null; GUIDE.markT = 0;
   for (const S of PATH_STEPS) {
     // steps already behind you are marked off quietly: levels you have, and for characters
@@ -1596,19 +1762,23 @@ function loreOnStart(save) {
     if ((S.level && prog.level >= S.level) || (old && S.old && prog.level >= S.old) || (S.pv > pv0 && S.old && prog.level >= S.old)) pathComplete(S, true);
   }
   buildPathHud();
-  const fromTitle = performance.now() - LORE.begin < 4000;
-  LORE.begin = -1e9;
+  // The user's Begin intent survives slow graphics/native startup. A clock
+  // deadline skipped the prologue on slower devices; matching and consuming
+  // the actual character/owner intent avoids replaying it on another start.
+  const fromTitle = loreConsumeBegin(save);
   if (save.fresh && fromTitle) openPrologue(false);
   else if (save.fresh) setTimeout(() => { if (GAME.prog === prog) loreNote('start'); }, 1600);
   else if (old) setTimeout(() => { if (GAME.prog === prog) loreNote('news'); }, 2500);
   else if (kept && pv0 < PATH_VERSION) setTimeout(() => { if (GAME.prog === prog) loreNote('pathnew'); }, 2500); // [guide] what the path gained since the save was made
 }
 // the title screen's "Enter the realm" means a new character: it gets the prologue
-$('btn-begin').addEventListener('click', () => { if (!GAME.started) LORE.begin = performance.now(); }, true);
+for (const id of ['realm-pick', 'class-pick', 'btn-dice', 'btn-continue']) $(id).addEventListener('click', loreCancelBegin, true);
+$('name-input').addEventListener('input', loreCancelBegin);
 
 function updateLore(dt) {
   const prog = GAME.prog;
   if (!prog || !prog.lore || !GAME.player) return;
+  loreUpdateNote();
   LORE.watchT -= dt;
   if (UI.modal !== 'prologue' && LORE.watchT <= 0) {
     LORE.watchT = 0.25;
@@ -1634,7 +1804,6 @@ function updateLore(dt) {
   if (!inner) return;
   const el = document.createElement('div');
   el.className = 'lore-ltip';
-  el.setAttribute('aria-live', 'polite');
   inner.appendChild(el);
   const order = shuffle(Math.random, LOADING_TIPS.slice());
   let i = 0;

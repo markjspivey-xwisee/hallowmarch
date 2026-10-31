@@ -3,9 +3,13 @@
  * claims that an HTTP document has acquired native authorship or persistence.
  */
 const DRAFT = 'https://json-schema.org/draft/2020-12/schema';
-const DEFAULT_PATHS = Object.freeze({ start: '/gaming/identity/start', status: '/gaming/identity/status',
+const DEFAULT_PATHS = Object.freeze({ start: '/gaming/identity/start', status: '/gaming/identity/status', recoveryStatus: '/gaming/identity/recovery-status',
   claim: '/gaming/identity/claim', recordLink: '/gaming/identity/record-link',
   callback: '/gaming/identity/callback', clientMetadata: '/gaming/identity/client.json',
+  playChallenge: '/gaming/identity/play/challenge', playComplete: '/gaming/identity/play/complete',
+  claimChallenge: '/gaming/identity/play/claim-challenge', claimComplete: '/gaming/identity/play/claim-complete',
+  claimRecoveryChallenge: '/gaming/identity/play/claim-recovery-challenge',
+  claimOwnerStart: '/gaming/identity/claim-owner/start', claimOwnerClaim: '/gaming/identity/claim-owner/claim',
   affordances: '/gaming/identity/affordances', schemas: '/gaming/identity/schemas' });
 const literal = value => JSON.stringify(value);
 const freeze = value => {
@@ -29,8 +33,10 @@ export function nativeIdentityDescription({ publicOrigin, paths: supplied = {}, 
   const account = { type: 'object', required: ['id', 'name', 'guest'], properties: {
     id: text(256), name: text(128), guest: { type: 'boolean' }, nativeBound: { type: 'boolean' } }, additionalProperties: false };
   const binding = { type: 'object', required: ['subjectDid', 'podUrl', 'webId', 'userId', 'authenticatedAgentDid', 'verifiedAt', 'issuer', 'verificationMethod'],
-    properties: Object.fromEntries(['subjectDid', 'podUrl', 'webId', 'userId', 'authenticatedAgentDid', 'authenticatedAgentId', 'verifiedAt', 'issuer', 'verificationMethod']
-      .map(key => [key, key === 'verifiedAt' ? { type: 'string', format: 'date-time' } : text()])), additionalProperties: false };
+    properties: { ...Object.fromEntries(['subjectDid', 'podUrl', 'webId', 'userId', 'authenticatedAgentDid', 'authenticatedAgentId', 'verifiedAt', 'issuer', 'verificationMethod']
+      .map(key => [key, key === 'verifiedAt' ? { type: 'string', format: 'date-time' } : text()])),
+      provisional: { const: true }, expiresAt: { type: 'string', format: 'date-time' }, proofKeyThumbprint: text(43),
+      capabilities: { const: ['human-play', 'own-pod-checkpoint'] } }, additionalProperties: false };
   const pointer = { type: 'object', required: ['kind', 'graphIri', 'descriptorUrl'], properties: {
     kind: { const: 'character' }, graphIri: { type: 'string', pattern: '^urn:graph:[^\\s]+$', maxLength: 1024 },
     descriptorUrl: { ...text(), format: 'uri', description: 'Concrete descriptor inside the authenticated owner pod, verified server-side; not fetched by this endpoint.' },
@@ -38,9 +44,37 @@ export function nativeIdentityDescription({ publicOrigin, paths: supplied = {}, 
   const intent = { type: 'object', properties: { ownerPodWriteAccess: { type: 'boolean', default: false } },
     additionalProperties: true, description: 'Only ownerPodWriteAccess is an input. Account and native owner labels cannot select an identity.' };
   const rawSchemas = {
+    PlayChallengeRequest: { type: 'object', required: ['publicKeyJwk'], properties: { publicKeyJwk: { type: 'object',
+      description: 'Public P-256 browser proof key only; private JWK fields are refused.' } }, additionalProperties: false },
+    PlayChallengeResponse: { type: 'object', required: ['audience', 'challenge', 'issuer', 'relayUrl', 'provisionalEndpoint', 'expiresAt', 'playGrant'], properties: {
+      audience: text(), challenge: text(128), issuer: text(), relayUrl: text(), provisionalEndpoint: text(), verificationEndpoint: text(),
+      expiresAt: { type: 'string', format: 'date-time' }, playGrant: { type: 'object', required: ['_signed_payload', '_signature'],
+        properties: { _signed_payload: text(16384), _signature: text(1024) }, additionalProperties: false } }, additionalProperties: false },
+    PlayProofRequest: { type: 'object', required: ['attestation', 'challenge', 'proof'], properties: {
+      attestation: text(16384), challenge: text(128), proof: text(86) }, additionalProperties: false },
+    PlayCompleteResponse: { type: 'object', required: ['appSession', 'binding', 'provisional'], properties: { binding,
+      provisional: { const: true }, appSession: { type: 'object', description: 'Short host-signed provisional human-play session; never canonical agent authority.' } }, additionalProperties: false },
+    ClaimChallengeRequest: { type: 'object', additionalProperties: false },
+    ClaimChallengeResponse: { type: 'object', required: ['challenge', 'audience', 'expiresAt'], properties: {
+      challenge: text(128), audience: text(), expiresAt: { type: 'string', format: 'date-time' } }, additionalProperties: false },
+    ClaimOwnerStartRequest: { type: 'object', required: ['attestation', 'challenge', 'proof', 'ownerPodWriteAccess'], properties: {
+      attestation: text(16384), challenge: text(128), proof: text(86), ownerPodWriteAccess: { const: true } }, additionalProperties: false },
+    ClaimOwnerResponse: { type: 'object', required: ['binding', 'nativeSession', 'appSession'], properties: { binding,
+      nativeSession: { type: 'object', description: 'One-use same-browser canonical owner write grant; sealed in browser before transition.' },
+      appSession: { type: 'object', required: ['purpose', 'claimOperationId', 'guestOwnerDid', 'targetOwnerDid', 'audience', 'sourceChallenge', 'expiresAt'], properties: {
+        purpose: { const: 'character-claim-target' }, claimOperationId: text(128), guestOwnerDid: text(), targetOwnerDid: text(), audience: text(),
+        sourceChallenge: text(128), expiresAt: { type: 'string', format: 'date-time' }, existingRecord: { anyOf: [pointer, { type: 'null' }] } }, additionalProperties: false } }, additionalProperties: false },
+    ClaimCompleteRequest: { type: 'object', required: ['claimOperationId', 'attestation', 'proof', 'targetRecord', 'readConfirmed'], properties: {
+      claimOperationId: text(128), attestation: text(16384), proof: text(86), readConfirmed: { const: true }, recoveryChallenge: text(128),
+      selection: { enum: ['copy-guest', 'use-existing'] }, targetRecord: { type: 'object', required: ['kind', 'graphIri', 'descriptorUrl', 'cid', 'nativeRevision', 'recordCid', 'digest', 'proofKind'],
+        properties: { ...pointer.properties, bindingCid: text(256), nativeRevision: { type: 'string', pattern: '^sha256:[a-f0-9]{64}$' }, recordCid: text(256), digest: text(256),
+          proofKind: { const: 'owner-key-authenticated-checkpoint' } }, additionalProperties: false } }, additionalProperties: false },
+    ClaimCompleteResponse: { type: 'object', required: ['appSession', 'binding', 'provisional', 'claimed', 'claimOperationId', 'pointer'], properties: {
+      appSession: { type: 'object', description: 'Canonical game session issued only after native claim CAS readback.' }, binding, provisional: { const: false },
+      claimed: { const: true }, claimOperationId: text(128), pointer }, additionalProperties: false },
     StartRequest: intent,
     StartResponse: { type: 'object', required: ['authorizationUrl', 'expiresAt', 'ownerPodWriteAccess'], properties: {
-      authorizationUrl: { type: 'string', format: 'uri' }, expiresAt: { type: 'string', format: 'date-time' }, ownerPodWriteAccess: { type: 'boolean' } }, additionalProperties: false },
+      authorizationUrl: { type: 'string', format: 'uri' }, expiresAt: { type: 'string', format: 'date-time' }, ownerPodWriteAccess: { type: 'boolean' }, browserCeremony: text(43) }, additionalProperties: false },
     ClaimRequest: { ...intent, description: intent.description + ' The same explicit ownerPodWriteAccess:true intent is required again to claim an owner write grant; false or absent is for a read-only ceremony.' },
     ClaimResponse: { type: 'object', required: ['binding'], properties: { binding,
       appSession: { type: 'object', required: ['token', 'acct', 'nativeVerifiedUntil'], properties: {
@@ -53,13 +87,35 @@ export function nativeIdentityDescription({ publicOrigin, paths: supplied = {}, 
       enabled: { const: true }, status: { enum: ['verified', 'native_identity_required', 'native_signin_required'] }, account,
       bound: { type: 'boolean' }, verified: { type: 'boolean' }, binding: { anyOf: [binding, { type: 'null' }] },
       recordLinks: { type: 'object', properties: { character: pointer }, additionalProperties: false }, legacyImportAvailable: { type: 'boolean' },
+      provisional: { type: 'boolean' }, provisionalPlay: { type: 'object', required: ['enabled', 'relayUrl', 'audience'], properties: {
+        enabled: { type: 'boolean' }, relayUrl: text(), audience: text() }, additionalProperties: false },
       saveAuthority: { enum: ['player-pod', 'legacy-server'] } }, additionalProperties: false },
+    RecoveryStatusResponse: { type: 'object', required: ['readOnly', 'owner', 'legacySave', 'nativeRecord'], properties: {
+      readOnly: { const: true }, owner: { type: 'object', required: ['accountId', 'subjectDid', 'podUrl'], properties: {
+        accountId: text(256), subjectDid: text(), podUrl: { ...text(), format: 'uri' } }, additionalProperties: false },
+      legacySave: { type: 'object', required: ['exists', 'hasCharacter', 'character', 'savedAt', 'digest', 'digestFormat', 'source', 'authoritative'], properties: {
+        exists: { type: 'boolean' }, hasCharacter: { type: 'boolean', description: 'A nonempty legacy char object is present; this is not complete import validation.' },
+        character: { anyOf: [{ type: 'object', required: ['name', 'level', 'class', 'realm'], properties: {
+          name: { anyOf: [text(128), { type: 'null' }] }, class: { anyOf: [text(64), { type: 'null' }] },
+          level: { anyOf: [{ type: 'integer', minimum: 1, maximum: 50 }, { type: 'null' }] },
+          realm: { anyOf: [{ type: 'integer', minimum: 0, maximum: 2 }, { type: 'null' }] } }, additionalProperties: false }, { type: 'null' }] },
+        savedAt: { anyOf: [{ type: 'integer', minimum: 0 }, { type: 'null' }] },
+        digest: { anyOf: [{ type: 'string', pattern: '^sha256:[a-f0-9]{64}$' }, { type: 'null' }] },
+        digestFormat: { const: 'json-stringify-sha256', description: 'SHA-256 of JSON.stringify of the complete legacy JSON value, not original file bytes.' },
+        source: { const: 'legacy-server' }, authoritative: { const: false } }, additionalProperties: false },
+      nativeRecord: { type: 'object', required: ['pointer', 'hintOnly', 'verified'], properties: {
+        pointer: { anyOf: [pointer, { type: 'null' }] }, hintOnly: { const: true }, verified: { const: false } }, additionalProperties: false,
+      description: 'Existing owner-asserted pointer only. The descriptor is not fetched, decrypted or verified, and absence is not evidence that the owner pod has no saved character.' },
+    }, additionalProperties: false },
     RecordLinkRequest: { ...pointer, additionalProperties: true,
       description: 'Only kind, graphIri, descriptorUrl and cid are retained. All other fields are ignored; no save body, claimed owner, or credential is persisted.' },
     RecordLinkResponse: { type: 'object', required: ['ok', 'pointer', 'version'], properties: {
       ok: { const: true }, pointer, version: { type: 'integer', minimum: 0 } }, additionalProperties: false },
     ErrorResponse: { type: 'object', required: ['error'], properties: { error: text(128) }, additionalProperties: false },
   };
+  rawSchemas.ClaimRecoveryChallengeRequest = { type: 'object', required: ['claimOperationId', 'targetRecord', 'readConfirmed'],
+    properties: Object.fromEntries(['claimOperationId', 'targetRecord', 'readConfirmed', 'selection']
+      .map(key => [key, rawSchemas.ClaimCompleteRequest.properties[key]])), additionalProperties: false };
   const schemas = { $schema: DRAFT, $id: uri('schemas'), $defs: Object.fromEntries(Object.entries(rawSchemas)
     .map(([name, value]) => [name, { $anchor: name, ...value }])) };
   const requirements = {
@@ -75,16 +131,34 @@ export function nativeIdentityDescription({ publicOrigin, paths: supplied = {}, 
     'dct:requires': auth.map(key => ({ '@id': id + '/auth/' + key })), 'hydra:description': description,
   });
   const operations = [
+    operation('playChallenge', 'POST', 'PlayChallengeRequest', 'PlayChallengeResponse', ['account', 'origin'],
+      'Create a short browser-key-bound native service grant for a provisional owner and owner pod. No native owner credential enters the game server.'),
+    operation('playComplete', 'POST', 'PlayProofRequest', 'PlayCompleteResponse', ['account', 'origin'],
+      'Verify the provider attestation and browser key proof, then confirm a native ownership ledger entry before issuing human-only provisional play.'),
+    operation('claimChallenge', 'POST', 'ClaimChallengeRequest', 'ClaimChallengeResponse', ['account', 'origin', 'native'],
+      'Begin an explicit character claim using the current provisional native human session. This does not change its owner.'),
+    operation('claimOwnerStart', 'POST', 'ClaimOwnerStartRequest', 'StartResponse', ['account', 'origin', 'native'],
+      'Require guest key proof before a separate canonical OAuth ceremony. The generic owner reconnect remains restricted to its original owner.'),
+    operation('claimOwnerClaim', 'POST', 'ClaimRequest', 'ClaimOwnerResponse', ['account', 'origin', 'ceremony'],
+      'Consume a purpose-limited canonical target grant. Its public claim lease contains no game token; provisional play authority is not upgraded here.'),
+    operation('claimComplete', 'POST', 'ClaimCompleteRequest', 'ClaimCompleteResponse', ['account', 'origin', 'native'],
+      'Require fresh guest proof bound to the canonical target and owner-key target checkpoint readback acknowledgement. Atomically retire provisional participation after native ledger readback. This personal-save acknowledgement is not proof for authoritative rewards or loot.'),
+    operation('claimRecoveryChallenge', 'POST', 'ClaimRecoveryChallengeRequest', 'ClaimChallengeResponse', ['account', 'origin'],
+      'Read the exact completed native claim marker and issue a two-minute random challenge bound to this host session and immutable receipt. A fresh source-key signature may recover only its canonical game admission; it creates no checkpoint, key or native mutation. Replaying a consumed nonce returns only its original answer.'),
     operation('start', 'POST', 'StartRequest', 'StartResponse', ['account', 'origin'],
       'Begin a new, non-idempotent hosted owner authentication ceremony. Default scope is mcp:read and that native grant is discarded after owner verification. An enabled ownerPodWriteAccess:true request asks the provider for mcp:write; this is not learning consent.'),
     operation('status', 'GET', null, 'StatusResponse', ['account'],
       'Read own participation status without mutation. Owner identity and record links are returned only with fresh matching native proof. Native storage unavailability returns 503.'),
+    operation('recoveryStatus', 'GET', null, 'RecoveryStatusResponse', ['account', 'native'],
+      'Read only the authenticated native owner account\'s legacy save presence, bounded character summary and JSON digest. Creates no key, import, checkpoint or save mutation. Any native record pointer is an unverified hint; a missing pointer or legacy character does not prove the owner pod has no saved character.'),
     operation('claim', 'POST', 'ClaimRequest', 'ClaimResponse', ['account', 'origin', 'ceremony'],
       'Consume a same-browser, same-account result once within at most 30 seconds. This is non-idempotent: a second claim is refused. Application credentials and any explicit owner write access token appear only in this no-store response, never in URLs. No refresh token is returned.'),
     operation('recordLink', 'POST', 'RecordLinkRequest', 'RecordLinkResponse', ['account', 'origin', 'native'],
       'Idempotently register an owner-asserted descriptor pointer within the proven owner pod in the application-owned participation ledger. Does not fetch the descriptor or prove its existence, content or authorship; does not upload a personal save body.'),
   ];
   const boundaries = [
+    'Provisional owners retain browser proof keys and private character checkpoints in their own native pods. Provisional game sessions authorize human live play and own-record linking only; they do not authorize companion agents or canonical owner operations.',
+    'Claiming requires fresh source key proof, independently canonical OAuth identity and owner-key checkpoint readback. A distinct existing canonical character is preserved; no authoritative multiplayer progress is merged. Native claim retirement markers prevent old guest credentials acquiring canonical authority.',
     'Personal records are sealed and published by the owner browser to the owner pod; the application backend holds no persistent native player bearer or private key.',
     'The application-owned native participation ledger holds owner-to-account bindings and owner record pointers only. Existing personal files remain read-only import sources for native-bound accounts.',
     'The existing legacy world, realm, season and team state is not migrated by this owner bridge. Agent delegation and team-owned pods require separate capabilities.',
@@ -148,3 +222,4 @@ export function nativeIdentityDescription({ publicOrigin, paths: supplied = {}, 
       ownerBrowserWriteHandoff: allowOwnerBrowserHandoff === true, nativePublication: 'requires-verified-owned-descriptor',
       personalStateAuthority: 'owner-pod', legacyWorldMigration: false, nativeTeamMigration: false, nativeAgentDelegation: false } });
 }
+

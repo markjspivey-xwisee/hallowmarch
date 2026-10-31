@@ -38,12 +38,16 @@ window.G2T = {
   lay() { const L = this.H.hud.HUDL; L.k = 0; L.t = 0; this.H.guide2.G2.tap.until = 0; this.H.hud.hudLayout(1); return 0; },
   // every page of the Chronicle: its natural height, folded, the sheet's, and what runs past the sheet
   pages() {
-    const H = this.H, out = {}; H.LORE.openChronicle('march');
-    const keys = [...document.querySelectorAll('.chron-nav [data-sec]')].map((b) => b.dataset.sec);
+    const H = this.H, out = {};
+    H.LORE.openChronicle('coach');
+    if (H.UI.menuTab !== 'progress' || !document.querySelector('#march-coach-mount')) throw Error('Coach must redirect to the Progress tab');
+    H.LORE.openChronicle('march');
+    const keys = [...document.querySelectorAll('.chron-nav [data-sec]')].map((b) => b.dataset.sec).filter((k) => k !== 'coach');
     for (const k of keys) {
       H.LORE.openChronicle(k);
-      const s = document.querySelector('#menu .sheet'), bd = document.querySelector('.chron-body'), st = H.guide2.G2.stats.pages[k] || {};
-      out[k] = { h0: st.h0 || 0, h: Math.round(bd.getBoundingClientRect().height), vh: s.clientHeight, ov: s.scrollWidth - s.clientWidth, folds: bd.querySelectorAll('details.cf').length };
+      const s = document.querySelector('#menu .sheet'), content = document.querySelector('#menu-body'), bd = document.querySelector('.chron-body'), st = H.guide2.G2.stats.pages[k] || {};
+      if (!bd) throw Error('Missing Chronicle body for ' + k);
+      out[k] = { h0: st.h0 || 0, h: Math.round(bd.getBoundingClientRect().height), vh: s.clientHeight, contentVh: content.clientHeight, ov: content.scrollWidth - content.clientWidth, folds: bd.querySelectorAll('details.cf').length };
     }
     return out;
   },
@@ -90,7 +94,7 @@ async def phone(p):
     cdp = await page.context.new_cdp_session(page)
     await ev(page, HELP)
     await ev(page, HOLD)
-    await ev(page, "__hm.start({ realm: 1, cls: 'priest', level: 24 }); __hm.setTod(0.45); __hm.dbg.WEATHER.mode = 'clear'; G2T.calm(); __hm.simulate(0.3); __hm.GAME.prog.lore.seen.push('start'); __hm.LORE.state.queue.length = 0; __hm.LORE.state.noteUntil = performance.now() + 1e9; __hm.frame(1/30); 0")
+    await ev(page, "(async () => { await __hm.start({ realm: 1, cls: 'priest', level: 24 }); __hm.setTod(0.45); __hm.dbg.WEATHER.mode = 'clear'; G2T.calm(); __hm.simulate(0.3); __hm.GAME.prog.lore.seen.push('start'); __hm.LORE.state.queue.length = 0; __hm.LORE.state.noteUntil = performance.now() + 1e9; __hm.frame(1/30); return 0; })()")
     print(f'  started ({time.time() - T0:.0f}s)', flush=True)
 
     # ---- every page of the Chronicle, on three phones ----
@@ -200,7 +204,7 @@ async def phone(p):
         await shot(page, 'guide2_phone_notes')
     else:
         check(ok, f'the note shows whole on a 360x640 phone and a tap takes it away ({r2})')
-    await ev(page, "(() => { if (!document.getElementById('menu').hidden) document.getElementById('btn-resume').click(); __hm.UI.modal = null; for (const d of [...document.querySelectorAll('#banners > *')]) d.parentNode.removeChild(d); return 0; })()")  # (the note kept for the tap goes: a note up makes room for itself and the war panel waits)
+    await ev(page, "(() => { if (!document.getElementById('menu').hidden) document.getElementById('menu-close').click(); __hm.UI.modal = null; for (const d of [...document.querySelectorAll('#banners > *')]) d.parentNode.removeChild(d); return 0; })()")  # (the note kept for the tap goes: a note up makes room for itself and the war panel waits)
     await page.set_viewport_size({'width': 390, 'height': 780})
     await page.wait_for_timeout(250)
 
@@ -235,7 +239,7 @@ async def phone(p):
     ok = await tap(page, '#war')
     r2 = await ev(page, "({ modal: __hm.UI.modal, sec: __hm.LORE.state.chronSec })")
     check(ok and r2['modal'] == 'menu' and r2['sec'] in ('path', 'goals'), f'a tap on the war panel opens it in the Chronicle ({r2})')
-    await ev(page, "(() => { if (!document.getElementById('menu').hidden) document.getElementById('btn-resume').click(); __hm.UI.modal = null; return 0; })()")
+    await ev(page, "(() => { if (!document.getElementById('menu').hidden) document.getElementById('menu-close').click(); __hm.UI.modal = null; return 0; })()")
 
     # ---- Cinderwing: a real share, not a single arrow from afar ----
     r = await ev(page, """(() => { const H = __hm, P = G2T.P(), L = H.LORE, Dg = H.guide.dragon(); if (!H.guide.dragon()) return 'no dragon'; const out = {}; const lore = H.GAME.prog.lore; lore.done = lore.done.filter((x) => x !== 'dragon');
@@ -275,7 +279,7 @@ async def desk(p):
     page.set_default_timeout(300000)
     await ev(page, HELP)
     await ev(page, HOLD)
-    await ev(page, "__hm.start({ realm: 0, cls: 'warrior', level: 22 }); __hm.setTod(0.45); __hm.dbg.WEATHER.mode = 'clear'; G2T.calm(); __hm.simulate(0.3); __hm.LORE.state.noteUntil = performance.now() + 1e9; __hm.frame(1/30); 0")
+    await ev(page, "(async () => { await __hm.start({ realm: 0, cls: 'warrior', level: 22 }); __hm.setTod(0.45); __hm.dbg.WEATHER.mode = 'clear'; G2T.calm(); __hm.simulate(0.3); __hm.LORE.state.noteUntil = performance.now() + 1e9; __hm.frame(1/30); return 0; })()")
     await page.keyboard.press('KeyJ')
     await ev(page, "document.querySelector('.chron-nav [data-grp=\"you\"]').click(); document.querySelector('.chron-nav [data-sec=\"callings\"]').click(); 0")
     r = await ev(page, "(() => { const st = __hm.guide2.G2.stats.pages.callings; return { st, folds: document.querySelectorAll('.chron-body details.cf').length, all: !!document.querySelector('.chron-body .cf-all') }; })()")

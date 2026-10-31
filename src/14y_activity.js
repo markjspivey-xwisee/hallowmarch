@@ -67,7 +67,10 @@ function activityRecord(type, objectId, quantity = 1, options = {}) {
   const scope = activityScope(), entity = options.entity || GAME.player, body = activityOwnedBody(entity);
   if (!scope || !body) return null;
   if (!activityHasSecureCrypto()) return null;
-  const input = { type, body, actor: options.actor || { kind: 'unattributed' },
+  // Capture identity/time before the lazy module load so early actions keep
+  // their actual observation order and the same statement on every retry.
+  const input = { type, id: 'urn:uuid:' + globalThis.crypto.randomUUID(), observedAt: new Date().toISOString(),
+    body, actor: options.actor || { kind: 'unattributed' },
     object: { id: String(objectId || type).slice(0, 128), kind: options.kind || type.split('.')[0] },
     result: { ...(quantity !== null ? { quantity: Math.max(0, Math.min(1e9, +quantity || 0)) } : {}),
       ...(options.success !== undefined ? { success: !!options.success } : {}), ...(options.reason ? { reason: options.reason } : {}) },
@@ -92,7 +95,8 @@ function activitySnapshot() {
   const profile = activityEnsure();
   const snapshot = profile ? profile.snapshot() : { revision: 0, eventCount: 0, lastEventAt: null, milestones: [], current: null,
     history: { recent: [], pendingEvents: 0, complete: false }, summary: { counters: {}, observationAuthority: 'owner-browser-observation', competencyStatus: 'not-assessed' } };
-  const path = GAME.started && GAME.prog?.lore && typeof pathNext === 'function' ? pathNext() : null;
+  const path = GAME.started && GAME.prog?.lore && typeof pathNext === 'function'
+    ? (typeof pathSuggested === 'function' ? pathSuggested() : pathNext()) : null;
   return { ...snapshot, available: !!profile, blocked: GAME_ACTIVITY.blocked, code: GAME_ACTIVITY.code,
     nativeOwned: !!GAME_ACTIVITY.scope?.native, canonicalPath: path ? { id: path.id, title: path.title } : null,
     archive: { pending: !!GAME_ACTIVITY.archivePage || GAME_ACTIVITY.archiveNeedsSave, busy: !!GAME_ACTIVITY.archiveFlight,
@@ -140,6 +144,7 @@ async function activityArchiveFlush() {
 }
 registerSavePart('char', 'activity', { save: () => GAME_ACTIVITY.profile?.save() || GAME_ACTIVITY.stored || null,
   load(value) {
+    if (typeof activityDashboardInvalidate === 'function') activityDashboardInvalidate();
     GAME_ACTIVITY.archive?.close(); GAME_ACTIVITY.archive = null; GAME_ACTIVITY.archivePage = null; GAME_ACTIVITY.archiveNeedsSave = false;
     GAME_ACTIVITY.profile = null; GAME_ACTIVITY.stored = value; GAME_ACTIVITY.scope = null; GAME_ACTIVITY.blocked = false; GAME_ACTIVITY.code = null; GAME_ACTIVITY.queue = []; GAME_ACTIVITY.preloadDropped = 0;
   }, key: value => value ? [value.schema, value.revision, value.eventCount, value.archiveHead] : null });
@@ -148,6 +153,28 @@ registerSavePart('char', 'activity', { save: () => GAME_ACTIVITY.profile?.save()
 // archive pages are an explicit diagnostic/export operation only.
 window.addEventListener('pagehide', () => { GAME_ACTIVITY.archive?.close(); });
 window.__hm.activity = Object.freeze({ snapshot: activitySnapshot, record: activityRecord, interventionStart: activityInterventionStart,
+  // Explicit analyst views reuse the retained private window. They perform no
+  // publication or delivery and never promote observations into competencies.
+  semanticGraph: async () => {
+    const profile = GAME_ACTIVITY.profile, scope = GAME_ACTIVITY.scope, owner = scope?.ownerDid;
+    if (!profile || !owner?.startsWith('did:') || !activityCurrent(scope)) return null;
+    const module = await import('/gaming/identity/assets/gameplay-semantics.mjs');
+    if (!activityCurrent(scope) || GAME_ACTIVITY.profile !== profile) return null;
+    return module.gameplayEvidenceGraph(profile.save().recent, owner);
+  },
+  patterns: async () => {
+    const profile = GAME_ACTIVITY.profile, scope = GAME_ACTIVITY.scope, owner = scope?.ownerDid;
+    if (!profile || !owner?.startsWith('did:') || !activityCurrent(scope)) return null;
+    const events = profile.save().recent;
+    const [module, ...profiles] = await Promise.all([
+      import('/gaming/identity/assets/gameplay-patterns.mjs'),
+      ...['1.1.0', '1.0.0'].map(version => fetch('/gaming/activity-profile.jsonld/versions/' + version)
+        .then(response => { if (!response.ok) throw new Error('Gameplay profile unavailable.'); return response.json(); }))
+    ]);
+    if (!activityCurrent(scope) || GAME_ACTIVITY.profile !== profile) return null;
+    return { ...module.analyzeGameplayPatterns(events.map(event => GAME_ACTIVITY.module.gameplayActivityStatement(event, owner)), profiles),
+      coverage: 'Retained recent observations only; unmatched or incomplete motifs do not establish failure or a complete session.' };
+  },
   observeCriterion: criterion => activityEnsure()?.observeCriterion(criterion) || null,
   resource: id => activityEnsure()?.resource(id) || null, archive: activityArchiveFlush,
   statements: () => { const profile = activityEnsure(), owner = GAME_ACTIVITY.scope?.ownerDid;

@@ -8,7 +8,7 @@ in snow (water2_*.png).
 usage: python3 tools/tests/water2.py [noshots] [shotsonly] [only=dive,ice,finds,boats,fisher,tracks] [shots=under,boat,river,tracks,drift,ice] [medium] [small]"""
 import json, asyncio, sys, pathlib, time, math
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
-from hmlib import setup, OUT
+from hmlib import setup, OUT, human_play
 from playwright.async_api import async_playwright
 FAILS = []
 T0 = time.time()
@@ -24,8 +24,14 @@ def check(cond, what):
     if not cond: FAILS.append(what)
 
 async def ev(page, label, js):
+    await human_play(page)
     r = await page.evaluate(js)
     print(f'{label} [{time.time() - T0:.0f}s]', json.dumps(r)[:1800], flush=True)
+    if label == 'aground' and isinstance(r, dict) and 'trace' in r:
+        probe_path = pathlib.Path(OUT) / 'water2-aground-probe.json'
+        probe_path.write_text(json.dumps(r, indent=2), encoding='utf-8')
+        print('shore-contact', json.dumps({k: v for k, v in r['trace'].items() if k != 'samples'}), flush=True)
+        print('shore-contact trace', str(probe_path), flush=True)
     return r
 
 HELPERS = r"""
@@ -38,7 +44,7 @@ window.W2 = {
   lakeSpot(realm, minD, maxD = 99) { const L = this.H.dbg.LAKES.find((l) => l.realm === realm); for (let r = 0; r < 40; r += 0.5) for (let a = 0; a < 12; a++) { const x = L.x + Math.cos(a * 0.52) * r, z = L.z + Math.sin(a * 0.52) * r, w = this.Wt.waterAt(x, z); if (w && w.depth >= minD && w.depth <= maxD && Math.hypot(w.fx, w.fz) < 0.05) return { x, z, depth: w.depth, surf: w.y }; } return null; },
   // put the player swimming at (x, z)
   swimAt(x, z) { const H = this.H, P = H.GAME.player; if (P.boat) this.Wt.boats.leave(); if (P.dive) this.Wt.dive.end(); P.mount = null; H.teleport(x, z); const w = this.Wt.waterAt(x, z); if (w) P.y = w.y - 1.3; H.simulate(0.4); return this.Wt.state(P.id); },
-  keys(list, sec, dt = 0.05) { const H = this.H; const m = H.UI.modal; H.UI.modal = null; for (let t = 0; t < sec; t += dt) { for (const k of list) H.INPUT.keys.add(k); H.simulate(dt, dt); } for (const k of list) H.INPUT.keys.delete(k); H.UI.modal = m; },
+  keys(list, sec, dt = 0.05, onStep = null) { const H = this.H; const m = H.UI.modal; H.UI.modal = null; let step = 0; for (let t = 0; t < sec; t += dt) { for (const k of list) H.INPUT.keys.add(k); H.simulate(dt, dt); if (onStep) onStep(++step, t + dt); } for (const k of list) H.INPUT.keys.delete(k); H.UI.modal = m; },
   offers() { const L = []; const H = this.H, P = H.GAME.player; this.Wt.waterOffers(P, (d, r, label, act) => { if (d < r) L.push(label); }); return L; },
   offer(prefix) { let f = null; const P = this.H.GAME.player; this.Wt.waterOffers(P, (d, r, label, act) => { if (d < r && label.startsWith(prefix) && !f) f = act; }); if (f) { f(); return true; } return false; },
   cam(c, l) { const H = this.H; H.UI.modal = 'menu'; H.CAM.mode = 'fixed'; document.getElementById('hud').hidden = true; const cm = H.camera; cm.position.set(c[0], c[1], c[2]); cm.lookAt(l[0], l[1], l[2]); cm.updateMatrixWorld(); },
@@ -57,7 +63,7 @@ async def main():
         W, Hh = (960, 540) if SHOTS and 'small' not in sys.argv else (640, 360)
         b, page, logs = await setup(p, w=W, h=Hh)
         await page.evaluate(HELPERS)
-        r = await ev(page, 'boot', """(() => { const H = __hm; H.start({ realm: 0, cls: 'warrior', level: 24 }); W2.safe();
+        r = await ev(page, 'boot', """(async () => { const H = __hm; await H.start({ realm: 0, cls: 'warrior', level: 24 }); W2.safe();
           return { errors: H.errors.slice(0, 3), finds: H.water.dive.finds().length, kinds: [...new Set(H.water.dive.finds().map((f) => f.kind))], boats: H.water.boats.list().length, jetties: H.water.boats.jetties().length, drifts: H.water.tracks.drifts(), where: { jetties: H.water.boats.jetties().map((j) => [j.realm, Math.round(j.x0), Math.round(j.z0), Math.round(j.end.x), Math.round(j.end.z)]), boats: H.water.boats.list().map((q) => [q.realm, Math.round(q.x), Math.round(q.z), q.st]) } }; })()""")
         check(not r['errors'], 'boots without errors')
         check(r['finds'] >= 12 and 'chest' in r['kinds'], 'finds lie on the beds (%d, %s)' % (r['finds'], r['kinds']))
@@ -207,13 +213,28 @@ async def main():
               const s = Bt.state(i); let best = null;
               for (let a = 0; a < 32; a++) { const ang = a / 32 * Math.PI * 2; for (let r = 1; r < 60; r += 0.5) { const w = Wt.waterAt(s.x + Math.sin(ang) * r, s.z + Math.cos(ang) * r); if (!w) { if (!best || r < best.r) best = { r, ang }; break; } } }
               const B = Wt.boats.BOATS.list[i]; B.yaw = best.ang; B.vx = B.vz = B.wr = 0; H.CAM.yaw = best.ang;
-              W2.keys(['KeyW'], Math.min(30, best.r / 1.2 + 6));
+              const duration = Math.min(30, best.r / 1.2 + 6);
+              const trace = { initial: Bt.state(i), duration, dt: 0.05, gameTime: H.GAME.t,
+                wind: { speed: H.dbg.U.uWind.value, x: H.dbg.U.uWindDir.value.x, z: H.dbg.U.uWindDir.value.y },
+                maxGrounded: 0, contactCount: 0, lastContactStep: null, centreAlwaysWater: true, samples: [] };
+              // Observe each existing physics step: grounded is set to exactly 1 on a shore contact,
+              // then fades during free motion. A final snapshot alone loses that contact history.
+              W2.keys(['KeyW'], duration, 0.05, (step, time) => {
+                const ground = B.grounded, centreWater = !!Wt.waterAt(B.x, B.z), contact = ground === 1;
+                trace.maxGrounded = Math.max(trace.maxGrounded, ground);
+                if (contact) { trace.contactCount++; trace.lastContactStep = step; }
+                trace.centreAlwaysWater = trace.centreAlwaysWater && centreWater;
+                trace.samples.push({ step, time, x: B.x, z: B.z, grounded: ground, contact, centreWater });
+              });
               const s2 = Bt.state(i); const land = Wt.waterAt(s2.x + Math.sin(s2.yaw) * 2.6, s2.z + Math.cos(s2.yaw) * 2.6);
               const hit = Bt.hit(i); const offers = W2.offers();
               const ashore = W2.offer('Step ashore'); const after = { boat: !!P.boat, swim: !!P.swim, x: P.x, z: P.z, walk: H.fn.isWalkable(P.x, P.z) };
-              return { best, s2, ground: s2.grounded, landAhead: !land, hit, offers, ashore, after, centreWater: !!Wt.waterAt(s2.x, s2.z), errors: H.errors.slice(0, 3) }; })(%d)""" % bi)
-            # (rowed into the shore at a slant she rubs along it: grounded is 1 at each touch and fades between them)
-            check(r['ground'] > 0.3 and r['landAhead'] and r['centreWater'], 'rowed at the shore she runs aground and stays afloat (grounded %.2f)' % r['ground'])
+              return { best, s2, ground: s2.grounded, landAhead: !land, hit, offers, ashore, after, centreWater: !!Wt.waterAt(s2.x, s2.z), errors: H.errors.slice(0, 3), trace }; })(%d)""" % bi)
+            # A shore contact can rebound and grounded fades to zero before the next oar stroke.
+            # Require an observed contact and continuous flotation, rather than a recent endpoint touch.
+            contact = r['trace']
+            check(contact['maxGrounded'] > 0.3 and contact['contactCount'] > 0 and contact['centreAlwaysWater'] and r['landAhead'] and r['centreWater'],
+                  'rowed at the shore she runs aground and stays afloat (peak %.2f, final %.2f, %d contact steps)' % (contact['maxGrounded'], r['ground'], contact['contactCount']))
             check(r['ashore'] and not r['after']['boat'] and not r['after']['swim'], 'the rower steps ashore (%s)' % r['offers'])
             r = await ev(page, 'nocross', """((i) => { const H = __hm, Wt = H.water, Bt = Wt.boats, P = H.GAME.player;
               // no boat crosses land: try to move her through the shore by brute force
@@ -386,6 +407,7 @@ async def main():
     print('FAILS', FAILS, flush=True)
 
 async def snap(page, name):
+    await human_play(page)
     # one frame rendered and read straight off the canvas (a page screenshot waits on the compositor, which under
     # SwiftShader on a busy machine can take longer than any timeout)
     import base64

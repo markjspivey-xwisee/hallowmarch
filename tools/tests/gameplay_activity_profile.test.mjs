@@ -2,15 +2,20 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
+import { createHash } from 'node:crypto';
+import { analyzeGameplayPatterns } from '../../client/native-pod/gameplay-patterns.mjs';
 
 const require = createRequire(import.meta.url), Ajv = require('ajv');
 const profile = JSON.parse(await readFile(new URL('../../server/gaming/gameplay-activity-profile.jsonld', import.meta.url), 'utf8'));
+const legacyBytes = await readFile(new URL('../../server/gaming/gameplay-activity-profile-1.0.0.jsonld', import.meta.url));
+const legacy = JSON.parse(legacyBytes);
 const source = process.env.HM_GAMEPLAY_ACTIVITY_MODULE || new URL('../../client/native-pod/gameplay-activity.mjs', import.meta.url).href;
 const core = await import(source);
 const NS = 'urn:interego:gaming:activity:', DID = 'did:web:identity.interego.xwisee.com:users:synthetic-profile-test';
 const UUID = '8bb38ad2-c605-4ba6-956c-168fa3c825df', VERSION = profile.versions[0].id;
 const ajv = new Ajv({ allErrors: true });
-const extensionValidators = Object.fromEntries(profile.concepts.filter(c => c.inlineSchema).map(c => [c.id, ajv.compile(JSON.parse(c.inlineSchema))]));
+const validators = selected => Object.fromEntries(selected.concepts.filter(c => c.inlineSchema).map(c => [c.id, ajv.compile(JSON.parse(c.inlineSchema))]));
+const extensionValidators = new Map([[profile, validators(profile)], [legacy, validators(legacy)]]);
 
 // These are the JSONPath forms actually used by this profile, not an xAPI validator.
 function located(statement, location) {
@@ -20,21 +25,22 @@ function located(statement, location) {
     : value && Object.hasOwn(value, token) ? [value[token]] : []);
   return values;
 }
-function checkStatement(statement) {
-  const template = profile.templates.find(t => t.verb === statement.verb.id);
+function checkStatement(statement, selected = profile) {
+  const template = selected.templates.find(t => t.verb === statement.verb.id);
   assert.ok(template, 'known observed verb');
   assert.equal(statement.object.definition.type, template.objectActivityType);
   for (const rule of template.rules) {
     const found = located(statement, rule.location);
     if (rule.presence === 'included') assert.ok(found.length, rule.location);
     if (rule.presence === 'excluded') assert.equal(found.length, 0, rule.location);
-    if (rule.all) for (const value of rule.all) assert.ok(found.some(item => JSON.stringify(item) === JSON.stringify(value)), rule.location);
+    if (rule.all) for (const item of found) assert.ok(rule.all.some(value => JSON.stringify(item) === JSON.stringify(value)), rule.location);
     if (rule.any) assert.ok(found.some(item => rule.any.some(value => JSON.stringify(item) === JSON.stringify(value))), rule.location);
   }
   for (const [kind, location] of [['ContextExtension', statement.context.extensions], ['ResultExtension', statement.result.extensions]]) {
-    for (const concept of profile.concepts.filter(c => c.type === kind)) {
+    for (const concept of selected.concepts.filter(c => c.type === kind)) {
       assert.ok(Object.hasOwn(location, concept.id));
-      assert.equal(extensionValidators[concept.id](location[concept.id]), true, JSON.stringify(extensionValidators[concept.id].errors));
+      const validate = extensionValidators.get(selected)[concept.id];
+      assert.equal(validate(location[concept.id]), true, JSON.stringify(validate.errors));
     }
   }
 }
@@ -56,6 +62,22 @@ test('Profile metadata, native module constants and all emitted vocabulary agree
   assert.ok(Number.isFinite(Date.parse(profile.versions[0].generatedAtTime)));
   assert.deepEqual(profile.concepts.filter(c => c.type === 'Verb').map(c => c.id).sort(), core.GAMEPLAY_EVENT_TYPES.map(k => NS + 'verb:' + k).sort());
   assert.equal(profile.templates.length, core.GAMEPLAY_EVENT_TYPES.length);
+});
+
+test('1.0.0 stays unchanged across platform line endings and old stored events keep their exact historical category', () => {
+  assert.equal(createHash('sha256').update(legacyBytes.toString('utf8').replace(/\r\n/g, '\n')).digest('hex'), 'c74b4a9bb66b6643aca8bb34707d1ce2f88080c4e26de329e4c78c21780139ac');
+  assert.deepEqual(profile.versions[0].wasRevisionOf, [legacy.versions[0].id]);
+  assert.equal(legacy.versions[0].id, core.GAMEPLAY_ACTIVITY_PROFILE_LEGACY_VERSION);
+  const original = event('resource.gathered'); original.schema = core.GAMEPLAY_EVENT_LEGACY_SCHEMA;
+  const statement = core.gameplayActivityStatement(original, DID);
+  checkStatement(statement, legacy);
+  assert.equal(statement.context.contextActivities.category[0].id, legacy.versions[0].id);
+  const fresh = core.gameplayActivityStatement(event('resource.gathered'), DID);
+  assert.deepEqual({ ...statement, context: { ...statement.context, contextActivities: fresh.context.contextActivities } }, fresh);
+  const semantics = selected => selected.concepts.map(({ inScheme, ...concept }) => concept);
+  assert.deepEqual(semantics(profile), semantics(legacy), 'concept meanings and extension schemas stay stable');
+  assert.ok(profile.templates.every(template => !legacy.templates.some(previous => previous.id === template.id)));
+  assert.ok(profile.patterns.every(pattern => !legacy.patterns.some(previous => previous.id === pattern.id)));
 });
 
 test('All references resolve in one immutable version and the pattern graph is acyclic', () => {
@@ -88,6 +110,20 @@ test('Every actual module projection satisfies its template and draft-07 extensi
     actor: { kind: 'agent', id: 'did:web:identity.interego.xwisee.com:agents:synthetic-agent', grantId: 'urn:uuid:' + UUID },
     result: { quantity: 1, success: true }, context: { party: true, realm: 2, level: 50, attemptId: UUID, interventionId: 'one-foe-practice' }
   }), DID));
+});
+
+test('real ordered observation sequences validate both immutable versions and current secondary motifs', () => {
+  const previous = event('craft.refused', { ordinal: 1 });
+  const next = event('craft.completed', { id: 'urn:uuid:8bb38ad2-c605-4ba6-956c-168fa3c825d0', ordinal: 2 });
+  const statements = [next, previous].map(value => core.gameplayActivityStatement(value, DID));
+  const result = analyzeGameplayPatterns(statements, [profile, legacy]);
+  assert.equal(result.status, 'matched');
+  assert.equal(result.partitions[0].primary.status, 'matched');
+  assert.equal(result.partitions[0].motifs.find(pattern => pattern.id.endsWith('/craft-recovery')).status, 'matched');
+  next.schema = core.GAMEPLAY_EVENT_LEGACY_SCHEMA;
+  const split = analyzeGameplayPatterns([core.gameplayActivityStatement(previous, DID), core.gameplayActivityStatement(next, DID)], [profile, legacy]);
+  assert.equal(split.partitions.length, 2);
+  assert.equal(split.partitions[0].motifs.find(pattern => pattern.id.endsWith('/craft-recovery')).status, 'incomplete');
 });
 
 test('Wrong event, provenance, level, controller identity and added secret fields fail the profile schemas', () => {

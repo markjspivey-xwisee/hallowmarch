@@ -253,7 +253,9 @@ async def main():
         await shot(page, 'wall_after', VIEW_WALL)
         # the character continues from the save ([heights] the camera is set to play in the same call as the click: a frame
         # drawn between two calls found the camera playing and no player yet, and updateCamera threw)
-        r = await ev(page, 'continue', "(() => { T.play(); document.getElementById('btn-continue').click(); return { started: __hm.GAME.started, lvl: __hm.GAME.prog && __hm.GAME.prog.level, errors: __hm.errors.slice(0, 3) }; })()")
+        await page.evaluate("() => { if (!__hm.UI.titleSave?.char) throw new Error('Reload must offer the retained character.'); T.play(); document.getElementById('btn-begin').click(); }")
+        await page.wait_for_function("() => { const H=__hm, S=window.__hmStartup; if(S?.stopped || S?.titleError || H.errors.length) throw new Error(S?.titleError || H.errors.join('; ') || 'Graphics stopped before entry'); return H.GAME.started && H.GAME.player; }", timeout=180000, polling=100)
+        r = await ev(page, 'continue', "(() => { return { started: __hm.GAME.started, lvl: __hm.GAME.prog && __hm.GAME.prog.level, errors: __hm.errors.slice(0, 3) }; })()")
         check(r['started'] and r['lvl'] == 35 and not r['errors'], 'the character continues in the remembered world')
         r = await ev(page, 'runs on', "(() => { const s = T.sim(20); return { errors: s.errors, nonFinite: s.nonFinite }; })()")
         check(not r['errors'] and r['nonFinite'] == 0, 'twenty seconds on: no errors, nothing non-finite')
@@ -264,7 +266,10 @@ async def main():
         r = await ev(page, 'old save', """(() => { const N = __hm.nature.NATURE; return { errors: __hm.errors.slice(0, 4), restored: __hm.land.LAND.restored, felled: N.felled.length, craters: N.craters.length, fires: N.fire.size, tiles: N.tileKeys.length,
           houses: __hm.HOUSES.filter((h) => h.state !== 'whole').length, walls: __hm.fn.castles().reduce((a, C) => a + (C.sections || []).filter((w) => w.state !== 'whole' || w.wear > 0).length, 0), char: !!(__hm.SAVE.loaded && __hm.SAVE.loaded.char) }; })()""")
         check(not r['errors'] and r['restored'] is None and r['felled'] == 0 and r['craters'] == 0 and r['fires'] == 0 and r['tiles'] == 0 and r['houses'] == 0 and r['walls'] == 0, 'an old save loads into an untouched world')
-        r = await ev(page, 'old continue', "(() => { document.getElementById('btn-continue').click(); const s = __hm.simulate(5); return { started: __hm.GAME.started, errors: s.errors }; })()")
+        assert await page.evaluate('!!__hm.UI.titleSave?.char'), 'The old save must still offer its retained character.'
+        await page.locator('#btn-begin').click()
+        await page.wait_for_function("() => { const H=__hm, S=window.__hmStartup; if(S?.stopped || S?.titleError || H.errors.length) throw new Error(S?.titleError || H.errors.join('; ') || 'Graphics stopped before entry'); return H.GAME.started && H.GAME.player; }", timeout=180000, polling=100)
+        r = await ev(page, 'old continue', "(() => { const s = __hm.simulate(5); return { started: __hm.GAME.started, errors: s.errors }; })()")
         check(r['started'] and not r['errors'], 'and its character plays on')
         # a land record from the future (or damaged) is dropped, not trusted
         await page.evaluate("""(() => { __hm.SAVE.wiping = true; const s = JSON.parse(localStorage.getItem('hallowmarch.save.v1') || '{}'); s.world = s.world || {}; s.world.keeps = s.world.keeps || [0,0,1,1,2,2]; s.world.land = { v: 1, fel: [[999999, 3, 'x', null]], cr: [[1, 2, 3]], map: { t: [5], d: '!!!' }, hs: [[-4, 9]], ws: [[99, 99, 1]] }; localStorage.setItem('hallowmarch.save.v1', JSON.stringify(s)); })()""")

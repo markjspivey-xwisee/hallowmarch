@@ -8,6 +8,7 @@ private record, consent, service call or gameplay improvement is claimed.
 import asyncio, json, os, pathlib, sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 import hm
+from hmlib import human_play
 from playwright.async_api import async_playwright
 
 QA_OUT=pathlib.Path(os.environ.get('HM_COACH_QA_OUT',str(hm.OUT)))
@@ -15,6 +16,7 @@ QA_OUT.mkdir(parents=True,exist_ok=True)
 
 HOOK = r"""
 window.__consultingFixture={
+  realDate:Date,
   realNow:Date.now.bind(Date),
   reset({restore=false}={}){
     marchConsultingClose();Object.assign(MARCH_CONSULTING,{busy:false,note:'',ownerKey:'',snoozeUntil:0,lastTip:''});
@@ -31,14 +33,22 @@ window.__consultingFixture={
     // The normal title above created a local character. Bind its explicit test
     // native profile before observing it; a live helper never resets this state.
     if(!restore)Object.assign(GAME_ACTIVITY,{profile:null,stored:undefined,scope:null,blocked:false,queue:[],preloadDropped:0,code:null});
-    Date.now=()=>this.clock;
+    // Both capture-time observations (new Date()) and age/expiry checks
+    // (Date.now()) must share this explicit fixture clock. Preserve normal
+    // parsing, explicit constructor arguments, prototypes and Date() calls.
+    const f=this,NativeDate=this.realDate;
+    function FixtureDate(...args){
+      if(!new.target)return new NativeDate(f.clock).toString();
+      return Reflect.construct(NativeDate,args.length?args:[f.clock],new.target);
+    }
+    Object.setPrototypeOf(FixtureDate,NativeDate);FixtureDate.prototype=NativeDate.prototype;
+    FixtureDate.now=()=>f.clock;window.Date=FixtureDate;
     NETWS.state='on';NETWS.acct={id:'fixture-player'};NETWS.worldRoom='march';NETWS.generation ||=1;NETWS.token='fixture-app-token';
     Object.assign(SAVE,{native:true,readConfirmed:true,nativeFlight:null,nativePaused:false,pending:null,chain:Promise.resolve(),lastBody:'',lastCore:''});
     NATIVE_PLAYER.status={bound:true,verified:true,account:{id:'fixture-player'},binding:{subjectDid:'did:example:self',podUrl:'https://pods.example/self/',authenticatedAgentDid:'did:example:delegate'}};
     nativePlayerRequest=async()=>structuredClone(NATIVE_PLAYER.status);
     nativePlayerModules=async()=>{NATIVE_PLAYER.cache={list:async()=>[{ownerDid:'did:example:self',podUrl:'https://pods.example/self/',expiresAt:Date.now()+3600000,relayUrl:'https://relay.example'}],
       get:async()=>({credential:{kind:'relay-oauth-bearer',accessToken:'FIXTURE-PRIVATE-NATIVE-TOKEN',expiresAt:Date.now()+3600000}})}};
-    const f=this;
     SAVE.ref={native:true,async get(){return{exists:!!f.character,data:()=>structuredClone(f.character)}},async set(value){
       f.calls.push('character-save');f.characterWrites.push(structuredClone(value));f.character=structuredClone(value);
       if(f.characterUnconfirmed)throw Object.assign(Error('fixture unknown character ACK'),{code:'pod_pending'});
@@ -155,7 +165,7 @@ async def main():
             async def destination(tab):
                 state=await page.evaluate(r"""() => ({tab:__hm.UI.menuTab,modal:__hm.UI.modal,
                   overlays:[...document.querySelectorAll('.overlay')].filter(e=>!e.hidden&&e.getClientRects().length).map(e=>e.id),
-                  selected:[...document.querySelectorAll('#menu-tabs [aria-checked="true"]')].map(e=>e.dataset.tab)})""")
+                  selected:[...document.querySelectorAll('#menu-tabs [role="tab"][aria-selected="true"]')].map(e=>e.dataset.tab)})""")
                 assert state=={'tab':tab,'modal':'menu','overlays':['menu'],'selected':[tab]},state
 
             async def navigation_only():
@@ -165,8 +175,8 @@ async def main():
                 assert state=={'external':0,'requests':0,'journalCreations':0,'enabled':False,'writes':[]},state
                 assert not port_writes,port_writes
 
-            # These Character links live outside .chron. Exercise their real
-            # click handlers so an inert shortcut cannot pass via a direct API.
+            # Character opens Progress, whose primary action opens the path.
+            # Exercise the real buttons instead of bypassing navigation by API.
             await page.locator('#btn-menu').click()
             await page.locator('#menu-body [data-lore="sec:coach"]').click()
             await destination('progress')
@@ -175,7 +185,9 @@ async def main():
             assert await page.locator('#march-coach-mount').count()==1
             await navigation_only()
             await page.locator('#menu-tabs [data-tab="char"]').click()
-            await page.locator('#menu-body [data-lore="sec:path"]').click()
+            await page.get_by_role('button',name='View progress',exact=True).click()
+            await destination('progress')
+            await page.get_by_role('button',name='View objectives',exact=True).click()
             await destination('chronicle')
             assert await page.evaluate('__hm.LORE.state.chronSec')=='path'
             assert await page.locator('.chron-nav [data-sec="path"][aria-current="true"]').is_visible()
@@ -195,12 +207,24 @@ async def main():
             await destination('progress')
             assert not await page.locator('#netsheet').is_visible()
             await navigation_only()
-            print('PASS Character progress/path links and Players→Progress use real routes without stacked panels, automatic Enable, consent or delivery',flush=True)
+            print('PASS Character→Progress→Path and Players→Progress use real routes without stacked panels, automatic Enable, consent or delivery',flush=True)
             await page.wait_for_function('__hm.activity.snapshot().current',timeout=30000)
             assert await page.locator('#march-consulting input,#march-consulting textarea,#march-consulting form').count()==0
-            assert await page.locator('#march-coach-interventions button').count()>=2
-            assert 'No LLM setup or API key is needed.' in await page.locator('#march-consulting').inner_text()
-            assert await page.get_by_role('heading',name='Foxxi guidance',exact=True).is_visible()
+            current=await page.evaluate('__hm.activity.snapshot().current')
+            assert current['id']=='gather-one' and current['title']=='Collect a resource',current
+            rendered_aids=await page.locator('#march-coach-interventions button').all_text_contents()
+            assert rendered_aids==[aid['title'] for aid in current['interventions']],rendered_aids
+            assert await page.get_by_role('button',name='Find materials nearby',exact=True).count()==1
+            assert await page.get_by_role('button',name='Find materials nearby',exact=True).is_visible()
+            assert await page.locator('#march-coach-interventions').get_by_role('button',name='View objectives',exact=True).count()==0
+            assert 'Open your guided objective list in the Chronicle, review what happened' in await page.locator('#march-consulting').inner_text()
+            assert await page.locator('#march-consulting .btn.primary:visible').count()==1
+            assert await page.locator('#march-consulting .btn.primary:visible').inner_text()=='View objectives'
+            assert await page.locator('#march-progress-path').is_enabled()
+            assert await page.get_by_role('button',name='View activity history',exact=True).is_visible()
+            assert not await page.locator('#march-progress-optional').evaluate('(e)=>e.open')
+            await page.locator('#march-progress-optional > summary').click()
+            assert await page.get_by_role('heading',name='Gameplay guidance',exact=True).is_visible()
             assert await page.get_by_role('heading',name='Private learning record',exact=True).is_visible()
             assert await page.evaluate('document.getElementById("march-learning-record").parentElement===document.getElementById("march-coach-guidance").parentElement&&!document.getElementById("march-coach-options").contains(document.getElementById("march-learning-record"))')
             assert await page.locator('#march-learning-enable').is_visible()
@@ -225,10 +249,10 @@ async def main():
             assert not await page.locator('#march-coach-options').evaluate('(e)=>e.open')
             assert not await page.locator('#march-coach-preview').is_visible()
             discover=page.locator('#march-coach-options > summary')
-            assert await discover.inner_text()=='Set up Foxxi guidance'
+            assert await discover.inner_text()=='Guidance privacy and options'
             await discover.click()
             assert await page.locator('#march-coach-options').evaluate('(e)=>e.open')
-            assert await page.get_by_role('button',name='Enable Foxxi guidance · 15 minutes',exact=True).is_visible()
+            assert await page.get_by_role('button',name='Start guidance · 15 minutes',exact=True).is_visible()
             assert not await page.locator('#march-coach-preview').is_visible()
             assert await page.locator('#march-learning-enable').is_visible()
             assert await page.evaluate("__consultingFixture.external===0&&__consultingFixture.requests===0&&__consultingFixture.journalCreations===0&&!__consultingFixture.calls.some(x=>x.startsWith('consent:')||x==='foxxi-delivery')")
@@ -241,6 +265,7 @@ async def main():
             print('PASS actual Progress tab shows observed milestones and a working local action card without forms, consent or planner I/O',flush=True)
 
             async def options():
+                await page.locator('#march-progress-optional').evaluate('(e)=>e.open=true')
                 await page.locator('#march-coach-options').evaluate('(e)=>e.open=true')
             async def enable():
                 await options();await page.locator('#march-consulting-connect').click()
@@ -270,7 +295,13 @@ async def main():
             assert await page.get_by_text('Fixture coach: use the current field guide, then try one legal task.',exact=True).is_visible()
             print('PASS one explicit Enable persists exact private delivery intent before one fixture Foxxi plan and exact private history',flush=True)
 
-            await page.evaluate('__consultingFixture.leave();__consultingFixture.record();__consultingFixture.advance(120001);__consultingFixture.step()')
+            # Closing a fixture menu does not count as human activity. Use a
+            # trusted browser gesture before each automatic scheduling scenario.
+            async def resume_play():
+                await page.evaluate('__consultingFixture.leave()')
+                await human_play(page)
+            await resume_play()
+            await page.evaluate('__consultingFixture.record();__consultingFixture.advance(120001);__consultingFixture.step()')
             await page.wait_for_function('__consultingFixture.external===2&&!__hm.consulting.status.busy')
             assert await page.evaluate('__consultingFixture.lastInput.focus.title')=='Complete a recipe'
             assert await page.evaluate('__consultingFixture.history.observations.length')==2
@@ -280,8 +311,10 @@ async def main():
             await page.evaluate('__consultingFixture.record("ability.executed","fixture-ability");__consultingFixture.advance(120001);__hm.GAME.player.combatUntil=__hm.GAME.t+10;__consultingFixture.step()')
             await page.wait_for_timeout(50);assert await page.evaluate('__consultingFixture.external')==2
             await page.evaluate('__hm.GAME.player.combatUntil=-1;__consultingFixture.open()')
+            await options()
             await page.get_by_role('button',name='Quiet for 10 minutes',exact=True).click()
-            await page.evaluate('__consultingFixture.leave();__consultingFixture.advance(120001);__consultingFixture.step()')
+            await resume_play()
+            await page.evaluate('__consultingFixture.advance(120001);__consultingFixture.step()')
             await page.wait_for_timeout(50);assert await page.evaluate('__consultingFixture.external')==2
             print('PASS later observed milestone schedules a new bounded plan; archive-only revisions, combat and snooze suppress automatic requests (fixture clock only)',flush=True)
 
@@ -292,7 +325,8 @@ async def main():
             await page.get_by_role('button',name='Review your calling',exact=True).click()
             await page.evaluate('__consultingFixture.record("ability.executed","human-only-ability")')
             assert await page.evaluate('__consultingFixture.criterionCurrent()')==0
-            await page.evaluate('__consultingFixture.recordUnit("ability.executed");__consultingFixture.record("resource.gathered","fixture-ore");__consultingFixture.leave();__consultingFixture.advance(120001);__consultingFixture.step()')
+            await resume_play()
+            await page.evaluate('__consultingFixture.recordUnit("ability.executed");__consultingFixture.record("resource.gathered","fixture-ore");__consultingFixture.advance(120001);__consultingFixture.step()')
             await page.wait_for_function('__consultingFixture.history.evaluations.length===1&&!__hm.consulting.status.busy')
             comparison=await page.evaluate('__consultingFixture.history.evaluations[0]')
             assert comparison['consultationId']==before['plan']
@@ -353,15 +387,26 @@ async def main():
             # save queue above still confirmed the exact actual character body.
             await page.add_init_script('localStorage.setItem("hallowmarch.save.v1",'+json.dumps(json.dumps(persisted['character']))+');')
             await page.reload(wait_until='commit');await page.wait_for_function('window.__hm?.ready',timeout=300000,polling=500)
-            await page.locator('#btn-continue').click();await page.wait_for_function('__hm.GAME.started',timeout=30000)
+            assert await page.evaluate('!!__hm.UI.titleSave?.char'), 'Reload must offer the saved fixture character.'
+            await page.locator('#btn-begin').click();await page.wait_for_function('__hm.GAME.started',timeout=30000)
             await page.evaluate('window.__holdFrame=true;Object.assign(__consultingFixture,__coachFixtureRestore);__consultingFixture.bind({restore:true}).then(()=>__consultingFixture.open())')
             await page.wait_for_selector('#march-consulting');assert await page.evaluate('!!__consultingFixture.info().privateIntent&&!__hm.consulting.status.enabled')
             assert await page.evaluate('__consultingFixture.external')==1
-            await enable();await settled();assert await page.evaluate('__consultingFixture.external===1&&__consultingFixture.requests===1')
+            await options()
+            assert await page.locator('#march-consulting-connect').is_disabled()
+            assert await page.locator('#march-coach-recovery').is_visible()
+            blocked_before=await page.evaluate('({intent:__consultingFixture.info().privateIntent,calls:[...__consultingFixture.calls],enabled:__hm.consulting.status.enabled,reviewed:__hm.consulting.status.reviewed})')
+            # A synthetic direct invocation also exercises Enable's pending fence;
+            # a real user cannot click this disabled Start control.
+            await page.locator('#march-consulting-connect').evaluate('(button)=>button.onclick()')
+            await settled()
+            assert await page.evaluate('__consultingFixture.external===1&&__consultingFixture.requests===1')
+            assert await page.evaluate('({intent:__consultingFixture.info().privateIntent,calls:[...__consultingFixture.calls],enabled:__hm.consulting.status.enabled,reviewed:__hm.consulting.status.reviewed})')==blocked_before
             await page.locator('#march-coach-close-pending').click();await settled()
             assert await page.evaluate('!__consultingFixture.info().privateIntent&&!__hm.consulting.status.enabled')
             print('PASS actual page reload retains unknown delivery intent, never resends it automatically, and explicit close retires it without replay',flush=True)
 
+            await resume_play()
             assert await page.evaluate('__consultingFixture.changeOwner()')
             assert await page.evaluate('!__hm.consulting.status.hasPlan&&!__hm.consulting.status.enabled&&!__hm.consulting.status.reviewed')
             assert not errors,errors
@@ -371,3 +416,4 @@ async def main():
             print(json.dumps({'pageErrors':errors,'plannerCalls':'fixture only','unknownDeliveryReplayed':False}),flush=True)
         finally:await browser.close()
 if __name__=='__main__':asyncio.run(main())
+
