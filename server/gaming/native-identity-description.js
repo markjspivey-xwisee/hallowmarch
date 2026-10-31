@@ -3,7 +3,7 @@
  * claims that an HTTP document has acquired native authorship or persistence.
  */
 const DRAFT = 'https://json-schema.org/draft/2020-12/schema';
-const DEFAULT_PATHS = Object.freeze({ start: '/gaming/identity/start', status: '/gaming/identity/status',
+const DEFAULT_PATHS = Object.freeze({ start: '/gaming/identity/start', status: '/gaming/identity/status', recoveryStatus: '/gaming/identity/recovery-status',
   claim: '/gaming/identity/claim', recordLink: '/gaming/identity/record-link',
   callback: '/gaming/identity/callback', clientMetadata: '/gaming/identity/client.json',
   playChallenge: '/gaming/identity/play/challenge', playComplete: '/gaming/identity/play/complete',
@@ -90,6 +90,23 @@ export function nativeIdentityDescription({ publicOrigin, paths: supplied = {}, 
       provisional: { type: 'boolean' }, provisionalPlay: { type: 'object', required: ['enabled', 'relayUrl', 'audience'], properties: {
         enabled: { type: 'boolean' }, relayUrl: text(), audience: text() }, additionalProperties: false },
       saveAuthority: { enum: ['player-pod', 'legacy-server'] } }, additionalProperties: false },
+    RecoveryStatusResponse: { type: 'object', required: ['readOnly', 'owner', 'legacySave', 'nativeRecord'], properties: {
+      readOnly: { const: true }, owner: { type: 'object', required: ['accountId', 'subjectDid', 'podUrl'], properties: {
+        accountId: text(256), subjectDid: text(), podUrl: { ...text(), format: 'uri' } }, additionalProperties: false },
+      legacySave: { type: 'object', required: ['exists', 'hasCharacter', 'character', 'savedAt', 'digest', 'digestFormat', 'source', 'authoritative'], properties: {
+        exists: { type: 'boolean' }, hasCharacter: { type: 'boolean', description: 'A nonempty legacy char object is present; this is not complete import validation.' },
+        character: { anyOf: [{ type: 'object', required: ['name', 'level', 'class', 'realm'], properties: {
+          name: { anyOf: [text(128), { type: 'null' }] }, class: { anyOf: [text(64), { type: 'null' }] },
+          level: { anyOf: [{ type: 'integer', minimum: 1, maximum: 50 }, { type: 'null' }] },
+          realm: { anyOf: [{ type: 'integer', minimum: 0, maximum: 2 }, { type: 'null' }] } }, additionalProperties: false }, { type: 'null' }] },
+        savedAt: { anyOf: [{ type: 'integer', minimum: 0 }, { type: 'null' }] },
+        digest: { anyOf: [{ type: 'string', pattern: '^sha256:[a-f0-9]{64}$' }, { type: 'null' }] },
+        digestFormat: { const: 'json-stringify-sha256', description: 'SHA-256 of JSON.stringify of the complete legacy JSON value, not original file bytes.' },
+        source: { const: 'legacy-server' }, authoritative: { const: false } }, additionalProperties: false },
+      nativeRecord: { type: 'object', required: ['pointer', 'hintOnly', 'verified'], properties: {
+        pointer: { anyOf: [pointer, { type: 'null' }] }, hintOnly: { const: true }, verified: { const: false } }, additionalProperties: false,
+      description: 'Existing owner-asserted pointer only. The descriptor is not fetched, decrypted or verified, and absence is not evidence that the owner pod has no saved character.' },
+    }, additionalProperties: false },
     RecordLinkRequest: { ...pointer, additionalProperties: true,
       description: 'Only kind, graphIri, descriptorUrl and cid are retained. All other fields are ignored; no save body, claimed owner, or credential is persisted.' },
     RecordLinkResponse: { type: 'object', required: ['ok', 'pointer', 'version'], properties: {
@@ -132,6 +149,8 @@ export function nativeIdentityDescription({ publicOrigin, paths: supplied = {}, 
       'Begin a new, non-idempotent hosted owner authentication ceremony. Default scope is mcp:read and that native grant is discarded after owner verification. An enabled ownerPodWriteAccess:true request asks the provider for mcp:write; this is not learning consent.'),
     operation('status', 'GET', null, 'StatusResponse', ['account'],
       'Read own participation status without mutation. Owner identity and record links are returned only with fresh matching native proof. Native storage unavailability returns 503.'),
+    operation('recoveryStatus', 'GET', null, 'RecoveryStatusResponse', ['account', 'native'],
+      'Read only the authenticated native owner account\'s legacy save presence, bounded character summary and JSON digest. Creates no key, import, checkpoint or save mutation. Any native record pointer is an unverified hint; a missing pointer or legacy character does not prove the owner pod has no saved character.'),
     operation('claim', 'POST', 'ClaimRequest', 'ClaimResponse', ['account', 'origin', 'ceremony'],
       'Consume a same-browser, same-account result once within at most 30 seconds. This is non-idempotent: a second claim is refused. Application credentials and any explicit owner write access token appear only in this no-store response, never in URLs. No refresh token is returned.'),
     operation('recordLink', 'POST', 'RecordLinkRequest', 'RecordLinkResponse', ['account', 'origin', 'native'],

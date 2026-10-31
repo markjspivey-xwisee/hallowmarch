@@ -1,9 +1,10 @@
 /** Owner-side Interego records. No game engine, bearer persistence or server decryption. */
-import { ClientKeyVault, RelayMcpTransport, canonicalGraphDigest, parseTrig,
+import { RelayMcpTransport, canonicalGraphDigest, parseTrig,
   turtleIriRef, escapeTurtleLiteral } from './vendor/interego-browser.mjs';
 import { computeCid, parseAuthorshipProofFromDescriptorTurtle } from './vendor/interego-public-browser.mjs';
 import { createNativeResourceClient } from './vendor/interego-native-resource-browser.mjs';
 import { createOwnerCheckpointStore, CHECKPOINT_BINDING_SCHEMA, CHECKPOINT_MAX_BYTES } from './checkpoint.mjs';
+import { createOwnerKeyVault } from './key-scope.mjs';
 
 const IEP = 'https://markjspivey-xwisee.github.io/interego/ns/iep#';
 const RDF_VALUE = 'http://www.w3.org/1999/02/22-rdf-syntax-ns#value';
@@ -57,23 +58,47 @@ export function indexedDbKeyStorage({ indexedDB = globalThis.indexedDB, name = '
     });
     return opening;
   };
-  async function transact(scope, candidate) {
+  async function transact(scope, candidate, { signal, isCurrent = () => true, absentKeys = [] } = {}) {
+    const allowed = () => !signal?.aborted && isCurrent();
+    if (!Array.isArray(absentKeys) || absentKeys.length > 4 || absentKeys.some(key => typeof key !== 'string' || key.length > 8192)) {
+      fail('invalid_input', 'The browser key transaction guard is invalid.');
+    }
+    if (!allowed()) fail('cancelled', 'The recovery request was cancelled. Existing keys were kept.');
     const db = await database();
     return new Promise((resolve, reject) => {
+      if (!allowed()) { reject(new NativePodError('cancelled', 'The recovery request was cancelled.')); return; }
       const tx = db.transaction('keys', candidate ? 'readwrite' : 'readonly');
-      const store = tx.objectStore('keys'); let value;
+      const store = tx.objectStore('keys'); let value, scopeChanged = false;
+      const abort = () => { try { tx.abort(); } catch { /* transaction already settled */ } };
+      signal?.addEventListener('abort', abort, { once: true });
+      const cleanup = () => signal?.removeEventListener('abort', abort);
       const request = store.get(scope);
-      request.onsuccess = () => { value = request.result || null; if (!value && candidate) { value = candidate; store.add(candidate, scope); } };
-      tx.oncomplete = () => resolve(value);
-      tx.onabort = tx.onerror = () => reject(new NativePodError('key_storage_unavailable', 'The browser key transaction did not complete.'));
+      request.onsuccess = () => {
+        if (!allowed()) { abort(); return; }
+        value = request.result || null;
+        if (value || !candidate) return;
+        const insert = () => { if (!allowed()) abort(); else { value = candidate; store.add(candidate, scope); } };
+        if (!absentKeys.length) { insert(); return; }
+        let remaining = absentKeys.length;
+        for (const key of absentKeys) {
+          const guard = store.get(key);
+          guard.onsuccess = () => {
+            if (!allowed()) { abort(); return; }
+            if (guard.result) { scopeChanged = true; abort(); return; }
+            if (--remaining === 0) insert();
+          };
+        }
+      };
+      tx.oncomplete = () => { cleanup(); resolve(value); };
+      tx.onabort = tx.onerror = () => { cleanup(); reject(new NativePodError(!allowed() ? 'cancelled' : scopeChanged ? 'key_scope_changed' : 'key_storage_unavailable', 'The browser key transaction did not complete.')); };
     });
   }
-  return Object.freeze({ load: scope => transact(scope), create: (scope, record) => transact(scope, record),
+  return Object.freeze({ load: scope => transact(scope), create: (scope, record, context) => transact(scope, record, context),
     async close() { if (opening) (await opening).close(); opening = null; } });
 }
 
 export function createNativePodClient({ relayUrl, credential, ownerDid, podUrl, transport,
-  keyStorage = indexedDbKeyStorage(), crypto = globalThis.crypto, now = Date.now,
+  keyStorage = indexedDbKeyStorage(), vault: suppliedVault = null, crypto = globalThis.crypto, now = Date.now,
   fetch: nativeFetch = globalThis.fetch?.bind(globalThis), resourceClientFactory = createNativeResourceClient } = {}) {
   const relay = new URL(relayUrl);
   if (relay.protocol !== 'https:' || relay.username || relay.password || relay.search || relay.hash || relay.pathname !== '/') {
@@ -89,7 +114,9 @@ export function createNativePodClient({ relayUrl, credential, ownerDid, podUrl, 
   const authenticatedRoots = [new URL(podUrl)];
   // Scope is stable across browsers and relay sessions so encrypted recovery works.
   const scope = JSON.stringify(['interego-client-key/v1', relay.origin, ownerDid, podName]);
-  const vault = new ClientKeyVault(scope, keyStorage, crypto);
+  // Recovery probes supply a read-only vault port. Normal sessions retain the
+  // original owner-scoped key custody and every native record proof below.
+  const vault = suppliedVault || createOwnerKeyVault({ scope, keyStorage, crypto });
   let connected = false, closed = false, registered = false, recipientId = null, sessionAgent = null;
   const pending = new Map(); let queue = Promise.resolve();
   function active() { if (closed || !connected) fail('not_connected', 'Reconnect your Interego identity before accessing its pod.'); }
@@ -351,8 +378,8 @@ export function createNativePodClient({ relayUrl, credential, ownerDid, podUrl, 
   }
   function serialized(run) { const next = queue.then(run); queue = next.catch(() => {}); return next; }
   return Object.freeze({ connect, load, registerKey, confirm,
-    // Metadata can be read before decryption-key recovery. It checks the
-    // authenticated owner/pod and refuses forks; no plaintext is returned.
+    // Plain graph heads are metadata-only. Checkpoint heads authenticate the
+    // encrypted binding and therefore require the original character key.
     currentHead({ graphIri, checkpoint }) { return checkpoint ? checkpoints.currentHead(graphIri, checkpoint) : head(graphIri); },
     reconcileCheckpoint({ graphIri, checkpoint }) { return serialized(() => checkpoints.reconcile(graphIri, checkpoint)); },
     async keyStatus() { active(); return { keyPresent: !!await vault.publicKey(), keyRegistered: registered, agentId: recipientId }; },
