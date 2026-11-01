@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import fs, { readFileSync } from 'node:fs';
 import { createPlayerIdentityBridge } from './player-identity.js';
 import { createPlayerBrowserAssets } from './player-browser-assets.js';
 
@@ -521,8 +521,18 @@ function assertBrowserFailureHeaders(response) {
   assert.equal(response.headers.get('pragma'), 'no-cache');
   assert.equal(response.headers.get('referrer-policy'), 'no-referrer');
   assert.equal(response.headers.get('x-content-type-options'), 'nosniff');
+  const hash = createHash('sha256').update(fixedFinishBootstrap()).digest('base64');
   assert.equal(response.headers.get('content-security-policy'),
-    "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'");
+    "default-src 'none'; script-src 'self' 'sha256-" + hash + "'; style-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'");
+}
+function fixedFinishBootstrap() {
+  return readFileSync(new URL('../../client/native-pod/finish-bootstrap.js', import.meta.url), 'utf8').replace(/\r\n?/g, '\n');
+}
+function assertFixedFinishBootstrap(html) {
+  const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)];
+  assert.equal(scripts.length, 1); assert.equal(scripts[0][1], fixedFinishBootstrap());
+  assert.equal([...html.matchAll(/<script[^>]*\bsrc=/g)].length, 0);
+  assert(html.indexOf(scripts[0][0]) < html.indexOf('<link rel="stylesheet"'));
 }
 
 test('a trusted HTML success renderer serves the exact fixed finish page after proof and preserves the one-use claim', async t => {
@@ -534,7 +544,9 @@ test('a trusted HTML success renderer serves the exact fixed finish page after p
   const flow = await f.start(); const response = await f.callback(flow, {}, { accept: 'text/html,application/xhtml+xml' });
   assert.equal(response.status, 200); assertBrowserFailureHeaders(response);
   assert.match(response.headers.get('set-cookie'), /HttpOnly; SameSite=Lax; Max-Age=30/);
-  assert.equal(await response.text(), readFileSync(new URL('../../client/native-pod/finish.html', import.meta.url), 'utf8'));
+  const html = await response.text(); assertFixedFinishBootstrap(html);
+  assert.equal(html, readFileSync(new URL('../../client/native-pod/finish.html', import.meta.url), 'utf8')
+    .replace('<!--hallowmarch-finish-metadata-->', '').replace('<!--hallowmarch-finish-bootstrap-->', '<script>' + fixedFinishBootstrap() + '</script>'));
   assert.equal(renders, 1);
   const claim = () => f.request(f.bridge.paths.claim, { method: 'POST', body: proofBody, cookie: flow.cookie });
   assert.equal((await claim()).status, 200); assert.equal((await claim()).status, 404);
@@ -587,7 +599,7 @@ test('a browser owner mismatch returns a bound error page without host binding, 
   assert(html.includes('<meta name="hallowmarch-identity-ceremony" content="' + flow.payload.browserCeremony + '">'));
   assert(html.includes('Your character has not been switched.'));
   assert(html.includes('href="/gaming/identity/assets/finish.css"'));
-  assert.deepEqual(html.match(/<script[^>]*>/g), ['<script type="module" src="/gaming/identity/assets/finish.mjs">']);
+  assertFixedFinishBootstrap(html);
   for (const privateValue of [code, flow.authorization.searchParams.get('state'), flow.cookie, 'local-alice', 'u-pk-original', 'u-pk-player', PUBLIC_ORIGIN, RELAY_ORIGIN]) {
     assert(!html.includes(privateValue), 'browser page does not disclose callback, account or owner data');
   }
@@ -596,7 +608,7 @@ test('a browser owner mismatch returns a bound error page without host binding, 
   assert.equal((await f.request(f.bridge.paths.claim, { method: 'POST', body: proofBody, cookie: flow.cookie })).status, 404);
   const replay = await f.callback(flow, {}, { accept: 'text/html' });
   assert.equal(replay.status, 401); assertBrowserFailureHeaders(replay);
-  assert(!(await replay.text()).includes('hallowmarch-identity-ceremony'));
+  assert.doesNotMatch(await replay.text(), /<meta\b[^>]*\bname=["']hallowmarch-identity-ceremony["']/);
   assert.equal(tokenRequests(f).length, 1);
 });
 
@@ -635,14 +647,39 @@ test('invalid browser callbacks never disclose ceremony evidence or consume the 
     assert.equal(response.status, status); assertBrowserFailureHeaders(response);
     const html = await response.text();
     assert(html.includes('content="identity_connection_failed"'));
-    assert(!html.includes('hallowmarch-identity-ceremony')); assert(!html.includes(flow.payload.browserCeremony));
+    assert.doesNotMatch(html, /<meta\b[^>]*\bname=["']hallowmarch-identity-ceremony["']/); assert(!html.includes(flow.payload.browserCeremony));
     assert(!html.includes('private-code')); assert(!html.includes(state));
   }
   assert.equal(f.bridge.status().pending, 1); assert.equal(tokenRequests(f).length, 0); assert.equal(f.verified.length, 0);
   f.advance(300_001);
   const expired = await f.callback(flow, {}, { accept: 'text/html' });
-  assert.equal(expired.status, 401); assert(!(await expired.text()).includes('hallowmarch-identity-ceremony'));
+  assert.equal(expired.status, 401); assert.doesNotMatch(await expired.text(), /<meta\b[^>]*\bname=["']hallowmarch-identity-ceremony["']/);
   assert.equal(tokenRequests(f).length, 0);
+});
+
+test('missing fixed return assets yield a contained no-script failure without throwing into the host', async t => {
+  for (const name of ['finish-bootstrap.js', 'finish.html']) {
+    const f = await fixture(t, { expectedSubjectDid: 'did:web:identity.interego.xwisee.com:users:u-pk-original' });
+    const flow = await f.start();
+    const original = fs.readFileSync;
+    const missing = t.mock.method(fs, 'readFileSync', function (file, ...args) {
+      const pathname = String(file instanceof URL ? file.pathname : file).replace(/\\/g, '/');
+      if (pathname.endsWith('/' + name)) throw new Error('private-fixture-unreadable-return-asset');
+      return original.call(this, file, ...args);
+    });
+    let response;
+    try { response = await f.callback(flow, {}, { accept: 'text/html' }); } finally { missing.mock.restore(); }
+    assert.equal(response.status, 503);
+    const html = await response.text();
+    assert.match(html, /Sign-in did not finish/);
+    assert(!html.includes('<script')); assert(!html.includes('<meta name="hallowmarch-identity-ceremony"'));
+    assert(!html.includes('private-fixture-unreadable-return-asset')); assert(!html.includes(flow.payload.browserCeremony));
+    assertNoTokens(html); assertNoTokens(Object.fromEntries(response.headers));
+    assert.equal(response.headers.get('cache-control'), 'no-store'); assert.equal(response.headers.get('referrer-policy'), 'no-referrer');
+    assert.match(response.headers.get('content-security-policy'), /default-src 'none'/);
+    assert(!response.headers.get('content-security-policy').includes('unsafe-inline'));
+    assert.equal(f.verified.length, 0); assert.equal(f.bridge.status().readyHandoffs, 0);
+  }
 });
 
 test('callbacks retain exact JSON errors unless HTML is explicitly accepted with nonzero quality', async t => {

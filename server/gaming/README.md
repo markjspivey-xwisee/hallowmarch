@@ -282,3 +282,29 @@ receipt. Background delivery therefore has a 90-second deadline and preserves
 pending observations after uncertainty. Fresh production identities are generated
 inside the serving process by `HM_GAMING_BOOTSTRAP=1`; their private keys stay on
 the existing persistent data volume and are never sent through deployment tools.
+
+## Owner browser sign-in return (2026-11-01)
+
+The fixed identity return page starts its one-use claim in a classic inline
+bootstrap before loading its stylesheet or external JavaScript. The server
+hashes the exact LF-normalized source bytes into Content Security Policy; it
+does not allow arbitrary inline scripts or interpolate credentials into code.
+Ceremony and claim results stay in the bootstrap's private scope. After the
+claim succeeds, the existing module verifies the expected account and pod,
+caches the browser grant, and notifies the game.
+
+The server's 30-second handoff, browser cookie, game-session proof, OAuth
+state/PKCE, owner checks and one-use consumption are unchanged. There is no
+automatic claim retry. An unsuccessful claim says that sign-in did not finish
+and the saved character has not changed, with the existing Return to the game
+action. It does not classify every refusal as an expired credential.
+If the fixed return-page source is unavailable, a bounded 503 page contains no
+scripts, claim action, credentials or internal error details.
+
+The isolated HTTPS regression deliberately holds the finish stylesheet and
+module beyond its two-second fixture handoff. It verifies that the claim has
+already succeeded before those assets are released, then checks the ordinary
+cache and notification flow. This demonstrates resilience to delayed external
+assets. It does not establish why an observed Chrome callback waited to request
+its assets, or guarantee success if document delivery, parsing or JavaScript
+execution itself is paused beyond the unchanged handoff lifetime.
