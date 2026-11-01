@@ -118,6 +118,9 @@ jobs:
               node --test server/gaming/*.test.mjs tools/tests/gaming_live.test.mjs
               node --test client/native-pod/client.test.mjs client/native-pod/profile.test.mjs client/native-pod/public-record.test.mjs client/native-pod/owner-agent-grant.test.mjs client/native-pod/native-load.test.mjs client/native-pod/performance-consultation.test.mjs client/native-pod/foxxi-consulting*.test.mjs client/native-pod/agent-own-session.test.mjs
               node --test client/native-pod/recovery.test.mjs client/native-pod/key-scope.test.mjs
+              node --test tools/offline-character-recovery/server.test.mjs tools/offline-character-recovery/recovery-core.test.mjs
+              node tools/node_modules/eslint/bin/eslint.js --no-eslintrc --env browser,node,es2022 --parser-options=ecmaVersion:2022,sourceType:module --rule '{"no-undef":"error","no-redeclare":"error","no-dupe-keys":"error","no-unreachable":"error","no-const-assign":"error"}' tools/offline-character-recovery/*.mjs
+              HM_PLAYWRIGHT_MODULE="$PWD/tools/node_modules/playwright/index.mjs" node --test tools/offline-character-recovery/offline-recovery.browser.test.mjs
               node --test client/native-pod/checkpoint*.test.mjs client/native-pod/provisional-*.test.mjs
               node --test client/native-pod/signing-delegation.test.mjs client/native-pod/agent-gameplay-performance.test.mjs
               node --test client/native-pod/agent-directory.test.mjs
