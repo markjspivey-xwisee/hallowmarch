@@ -1,13 +1,17 @@
 /* ================================================================== */
 /* saves: a private per-player document, or this browser as fallback   */
 /* ================================================================== */
-const SAVE = { ref: null, backend: 'local', lsKey: 'hallowmarch.save.v1', timer: 0, chain: Promise.resolve(), lastBody: '', lastCore: '', loaded: null, wiping: false, native: false, pending: null, readConfirmed: false, nativeFlight: null, nativePaused: false, loading: null };
+const SAVE = { ref: null, backend: 'local', lsKey: 'hallowmarch.save.v1', timer: 0, chain: Promise.resolve(), lastBody: '', lastCore: '', loaded: null, wiping: false, native: false, pending: null, readConfirmed: false, nativeFlight: null, nativePaused: false, nativeFinal: null, loading: null, guestWriteAt: 0, guestTimer: 0, menuFallback: null };
+const SAVE_MENU_REQUESTS = new WeakSet();
 
 const withTimeout = (p, ms) => Promise.race([p, new Promise((res) => setTimeout(() => res(null), ms))]);
 async function initSaveBackend(initialization) {
   const native = await nativePlayerSaveRef(initialization);
   if (!initialization.active) return null;
   if (native) return native;
+  // A confirmed legacy policy must not open a presence socket merely to probe
+  // another account when this browser already has a valid local character.
+  if (validSave(readLocal())?.char) return null;
   try { const srv = await netServerSaveRef(); if (!initialization.active) return null; if (srv) return { ...srv, server: true }; } catch (e) { /* no server: the artifact's db, or this browser */ } // [net] the March's own server holds the save when the page is linked to one (14p_netws.js)
   try {
     const C = window.claude;
@@ -110,7 +114,7 @@ function graphicsSaveSettings() {
   const stored = SAVE.loaded && SAVE.loaded.settings;
   const storedLevel = stored && Object.hasOwn(QUALITY_PRESETS, stored.quality) ? stored.quality : null;
   return {
-    quality: recovery ? storedLevel || phoneQualityPick(true) || (IS_TOUCH ? 'medium' : 'high') : quality.level,
+    quality: recovery ? storedLevel || phoneQualityPick(true) || 'medium' : quality.level,
     auto: recovery ? storedLevel ? stored.auto !== false : true : quality.auto !== false,
   };
 }
@@ -125,6 +129,9 @@ function buildSave() {
     relics: WAR.relics.map((r) => (r.state === 'temple' ? { at: r.at, slot: r.slot } : null)),
     campaign: campaignSaveData(), // [campaign] the campaign's number, clock and history (08g_campaign.js)
   };
+  if (typeof netSharedWorldRequired === 'function' && netSharedWorldRequired() && NETWS.worldInitialized) {
+    const admission = netCurrentWorldAdmission(); if (admission) world.sharedWorld = { ...admission };
+  }
   const land = landSave(); // [worldstate] felled trees, burnt ground, craters, burnt houses, breached walls (12b_worldstate.js)
   if (land) world.land = land;
   const wx = savePartsData('world'); // other systems' records of the world (06d_goods.js)
@@ -170,24 +177,94 @@ function coreKey(s) {
   return JSON.stringify([c && [c.name, c.realm, c.cls, c.level, c.xp, c.rp, c.kills, c.realmKills, c.deaths, c.bounty, c.gold, c.potions, (c.bag || []).map((i) => i.id + (i.n || '')), Object.values(c.eq || {}).map((i) => i.id + ':' + Math.ceil((i.dur ?? 100) / 10)), c.lore, savePartsKey(c.x, 'char')], s.settings, w]);
 }
 function saveSoon(delay = 2500) {
-  if (SAVE.wiping) return;
+  if (SAVE.wiping || typeof netHumanLive === 'function' && !netHumanLive()) return;
   clearTimeout(SAVE.timer);
-  SAVE.timer = setTimeout(() => saveNow(), delay);
+  SAVE.timer = setTimeout(() => { if (typeof netHumanLive !== 'function' || netHumanLive()) void saveNow(); }, delay);
+}
+function saveMenuEditOwned(request, allowExpired = false) {
+  // Expiry fences submission; an already-sent write can confirm its same owner later.
+  if (!request || !SAVE_MENU_REQUESTS.has(request) || (!allowExpired && performance.now() >= request.until)
+    || SAVE.wiping || SAVE.nativePaused || !GAME.ready || !GAME.started || !GAME.player || GAME.player !== request.player
+    || SAVE.lsKey !== request.lsKey || SAVE.native !== request.native) return false;
+  const fallback = SAVE.menuFallback;
+  // Only a terminal failure of this same owned legacy reference can hand an
+  // already-authorized queued edit to the browser checkpoint. Old receipts
+  // cannot bless a later arbitrary reference removal.
+  const movedLocal = !request.native && SAVE.ref === null && fallback && fallback !== request.fallback
+    && SAVE_MENU_REQUESTS.has(fallback) && fallback.ref === request.ref && fallback.player === request.player
+    && fallback.lsKey === request.lsKey && fallback.profile === request.profile
+    && fallback.host === request.host && fallback.account === request.account && !fallback.native;
+  if (SAVE.ref !== request.ref && !movedLocal) return false;
+  const transport = typeof NETWS === 'undefined' ? null : NETWS;
+  const owner = typeof NATIVE_PLAYER === 'undefined' ? null : NATIVE_PLAYER;
+  if (transport?.reload || transport?.host !== request.host || transport?.acct?.id !== request.account
+    || owner?.profile !== request.profile || owner?.switching || owner?.busy
+    || owner?.claimConfirmationPending || owner?.openExistingPending) return false;
+  return !request.native || !!(SAVE.readConfirmed && SAVE.ref && !SAVE.ref.blocked && owner?.profile && owner.status?.verified);
+}
+function saveMenuEdit(event) {
+  // A manual menu edit is one checkpoint, not a live-play or idle-work lease.
+  if (!(event instanceof Event) || event.isTrusted !== true || !['click', 'input', 'change'].includes(event.type)
+    || document.hidden || !document.hasFocus() || UI.modal !== 'menu' || CAPTURE.on) return Promise.resolve();
+  const control = event.target?.closest?.('button, input, select, textarea');
+  if (!control || control.disabled || control.closest('[hidden], [inert]') || !control.getClientRects().length
+    || !document.getElementById('menu')?.contains(control)) return Promise.resolve();
+  const transport = typeof NETWS === 'undefined' ? null : NETWS;
+  const owner = typeof NATIVE_PLAYER === 'undefined' ? null : NATIVE_PLAYER;
+  const request = { player: GAME.player, ref: SAVE.ref, lsKey: SAVE.lsKey, native: SAVE.native,
+    host: transport?.host, account: transport?.acct?.id, profile: owner?.profile, fallback: SAVE.menuFallback, until: performance.now() + 10000 };
+  SAVE_MENU_REQUESTS.add(request);
+  if (!saveMenuEditOwned(request)) return Promise.resolve();
+  return saveNow({ final: true, menuEdit: request });
 }
 // Native saves retain one active publication and the latest unsaved state. A
 // stalled grant cannot queue an unbounded list of complete character copies.
-function nativeSavePending() {
+function nativeSavePending({ immediate = false, menuEdit = null } = {}) {
+  const now = () => typeof performance !== 'undefined' && typeof performance.now === 'function'
+    ? performance.now() : Date.now();
+  if (immediate) {
+    // A final request authorizes this exact body and owner reference, including
+    // when an older publication is still in flight. It never drains later idle work.
+    SAVE.nativeFinal = SAVE.pending ? { body: SAVE.pending, ref: SAVE.ref, until: now() + 10000, menuEdit } : null;
+    clearTimeout(SAVE.guestTimer); SAVE.guestTimer = 0;
+  }
   if (SAVE.nativeFlight) return SAVE.nativeFlight;
   if (SAVE.nativePaused || !SAVE.pending) return SAVE.chain;
+  const finalReady = () => !!SAVE.nativeFinal && SAVE.nativeFinal.body === SAVE.pending && SAVE.nativeFinal.ref === SAVE.ref
+    && now() < SAVE.nativeFinal.until && (!SAVE.nativeFinal.menuEdit || saveMenuEditOwned(SAVE.nativeFinal.menuEdit));
+  const idleUntil = now() + 10000;
+  const initialBody = SAVE.pending, initialRef = SAVE.ref;
   const flight = SAVE.chain.catch(() => {}).then(async () => {
-    while (SAVE.pending && !SAVE.nativePaused) {
+    let first = true;
+    while (SAVE.pending && !SAVE.nativePaused && (first || typeof netHumanLive !== 'function' || netHumanLive() || finalReady())) {
+      // A queued explicit/final save cannot become a fresh idle write long
+      // after its request. Keep the exact pending body for the next live session.
+      if (first && typeof netHumanLive === 'function' && !netHumanLive() && !finalReady()
+        && (SAVE.pending !== initialBody || SAVE.ref !== initialRef || now() >= idleUntil)) break;
+      const provisional = typeof nativePlayerIsProvisional === 'function' && nativePlayerIsProvisional();
+      const wait = provisional && !finalReady() ? SAVE.guestWriteAt - Date.now() : 0;
+      if (wait > 0) {
+        if (!SAVE.guestTimer) SAVE.guestTimer = setTimeout(() => {
+          SAVE.guestTimer = 0;
+          if (typeof netHumanLive !== 'function' || netHumanLive()) void nativeSavePending();
+        }, Math.min(wait, 30000));
+        break; // Keep the latest dirty character; a paced save is not an acknowledgement.
+      }
+      first = false;
       const s = SAVE.pending, body = JSON.stringify({ ...s, savedAt: 0 });
+      const edit = SAVE.nativeFinal?.body === s ? SAVE.nativeFinal.menuEdit : null;
+      if (edit && !saveMenuEditOwned(edit)) break;
+      if (SAVE.nativeFinal?.body === s) SAVE.nativeFinal = null;
       try {
         if (!SAVE.ref) throw nativePlayerError('native_signin_required', 'Reconnect your identity before saving.');
         await SAVE.ref.set(s);
+        if (edit && !saveMenuEditOwned(edit, true)) break;
+        if (provisional) SAVE.guestWriteAt = Date.now() + 30000;
         SAVE.lastBody = body; SAVE.lastCore = coreKey(s);
         if (SAVE.pending === s) SAVE.pending = null;
+        if (SAVE.nativeFinal?.body === s) SAVE.nativeFinal = null;
       } catch (error) {
+        if (edit && !saveMenuEditOwned(edit, true)) break;
         NATIVE_PLAYER.state = error.code || 'uncertain'; nativePlayerRender();
         break; // Keep the latest progress; a later explicit retry resumes it.
       }
@@ -198,49 +275,70 @@ function nativeSavePending() {
   return flight;
 }
 function saveNow() {
+  const final = arguments[0]?.final === true;
+  const menuEdit = arguments[0]?.menuEdit;
+  if (menuEdit && !saveMenuEditOwned(menuEdit)) return Promise.resolve();
   clearTimeout(SAVE.timer);
   // nothing to keep until a character is in the world (and never overwrite one from the title screen)
   if (SAVE.wiping || !GAME.ready || !GAME.player) return Promise.resolve();
   if (CAPTURE.on) return Promise.resolve(); // [capture] nothing is saved while the capture build stages its shots (14_capture.js)
   const s = buildSave();
   const body = JSON.stringify({ ...s, savedAt: 0 });
-  if (body === SAVE.lastBody && !(SAVE.native && SAVE.pending)) return Promise.resolve();
-  if (!SAVE.native) { SAVE.lastBody = body; SAVE.lastCore = coreKey(s); }
-  else SAVE.pending = s;
+  if (body === SAVE.lastBody && !(SAVE.native && SAVE.pending) && !(final && SAVE.server)) return Promise.resolve();
+  if (!SAVE.native) {
+    if (!menuEdit) { SAVE.lastBody = body; SAVE.lastCore = coreKey(s); }
+  }
+  else { SAVE.pending = s; SAVE.nativeFinal = null; }
   s.savedAt = Date.now();
-  if (SAVE.native) return nativeSavePending();
+  if (SAVE.native) return nativeSavePending({ immediate: final, menuEdit });
+  // One departing legacy save may follow its withdrawal, within the same bounded
+  // final-save window. An old queue must never dispatch it later from standby.
+  const finalUntil = final ? Date.now() + 10000 : 0;
+  const editRef = menuEdit && SAVE.ref, editKey = menuEdit && SAVE.lsKey;
   // one write at a time: queue behind any write still in flight
   SAVE.chain = SAVE.chain.then(async () => {
-    if (SAVE.ref) {
+    if (menuEdit && !saveMenuEditOwned(menuEdit)) return;
+    if (SAVE.ref && (final ? Date.now() <= finalUntil : typeof netHumanLive !== 'function' || netHumanLive())) {
       try {
-        await SAVE.ref.set(s);
+        await (menuEdit ? editRef : SAVE.ref).set(s, { final });
+        if (menuEdit && !saveMenuEditOwned(menuEdit, true)) return;
+        if (menuEdit) { SAVE.lastBody = body; SAVE.lastCore = coreKey(s); }
         if (SAVE.native) {
           SAVE.lastBody = body; SAVE.lastCore = coreKey(s);
           if (SAVE.pending === s) SAVE.pending = null;
         }
         return;
       } catch (e) {
+        if (menuEdit && !saveMenuEditOwned(menuEdit, true)) return;
         if (SAVE.native) {
           NATIVE_PLAYER.state = e.code || 'uncertain'; nativePlayerRender();
           return;
         }
-        if (e && (e.code === 'revoked' || e.code === 'not_granted' || e.code === 'invalid_argument' || e.code === 'capability_disabled')) { SAVE.ref = null; SAVE.backend = 'local'; }
-        else { await new Promise((r) => setTimeout(r, 600 + Math.random() * 600)); try { await SAVE.ref.set(s); return; } catch (e2) { /* fall through */ } }
+        if (e && (e.code === 'revoked' || e.code === 'not_granted' || e.code === 'invalid_argument' || e.code === 'capability_disabled')) {
+          const receipt = menuEdit ? { ...menuEdit, fallback: null } : null;
+          if (receipt) SAVE_MENU_REQUESTS.add(receipt);
+          SAVE.menuFallback = receipt;
+          SAVE.ref = null; SAVE.backend = 'local';
+        }
+        else if (!final && (typeof netHumanLive !== 'function' || netHumanLive())) { await new Promise((r) => setTimeout(r, 600 + Math.random() * 600)); if (typeof netHumanLive !== 'function' || netHumanLive()) try { await SAVE.ref.set(s); return; } catch (e2) { /* fall through */ } }
       }
     }
+    if (menuEdit && !saveMenuEditOwned(menuEdit)) return;
     if (SAVE.native) { NATIVE_PLAYER.state = 'native_signin_required'; nativePlayerRender(); return; }
-    try { localStorage.setItem(SAVE.lsKey, JSON.stringify(s)); } catch (e) { /* storage may be blocked */ }
+    try {
+      localStorage.setItem(menuEdit ? editKey : SAVE.lsKey, JSON.stringify(s));
+      if (menuEdit) { SAVE.lastBody = body; SAVE.lastCore = coreKey(s); }
+    } catch (e) { /* storage may be blocked */ }
   });
   return SAVE.chain;
 }
 // a slow heartbeat: writes only when something meaningful changed since the last write
 setInterval(() => {
-  if (!GAME.ready || !GAME.player || SAVE.wiping) return;
+  if (!GAME.ready || !GAME.player || SAVE.wiping || typeof netHumanLive === 'function' && !netHumanLive()) return;
   const s = buildSave();
   if (coreKey(s) !== SAVE.lastCore) saveNow();
 }, 40000);
-window.addEventListener('pagehide', () => { if (GAME.player) saveNow(); });
-document.addEventListener('visibilitychange', () => { if (document.hidden && GAME.player) saveNow(); });
+// netHumanPublish owns the single final save when a live session pauses.
 
 function wipeSave() {
   SAVE.wiping = true;
@@ -254,35 +352,42 @@ function wipeSave() {
 /* restores the state of the war from a save (keep owners, hallows at rest) */
 function applyWorldSave(w) {
   if (!w || !Array.isArray(w.keeps)) return;
-  WAR.keeps.forEach((K, i) => {
-    const r = w.keeps[i];
-    if (!(r >= 0 && r <= 2) || r === K.realm) return;
-    for (const id of K.guards) { const g = getEnt(id); if (g) removeEnt(g); }
-    K.guards.clear();
-    const L = getEnt(K.lord);
-    if (L) removeEnt(L);
-    K.lord = null;
-    K.realm = r;
-    setDoorState(K.door, true, 1);
-    setSiteBanners(K.site, r);
-    fillGarrison(K, true);
-  });
-  if (Array.isArray(w.relics)) {
-    const used = new Set();
-    WAR.relics.forEach((rel, i) => {
-      const s = w.relics[i];
-      if (!s || !(s.at >= 0 && s.at <= 2)) return;
-      const slot = s.at === rel.realm ? 'home' : (s.slot === 't0' || s.slot === 't1' ? s.slot : 't0');
-      const key = s.at + ':' + slot;
-      if (used.has(key)) return;
-      used.add(key);
-      rel.state = 'temple'; rel.at = s.at; rel.from = s.at; rel.slot = slot; rel.carrier = null;
-    });
+  if (typeof netSharedWorldRequired === 'function' && netSharedWorldRequired()) {
+    const admission = netCurrentWorldAdmission();
+    if (NETWS.worldInitialized || !netSameWorldAdmission(netWorldAdmissionRead(w.sharedWorld), admission)) return;
   }
-  updateRelicBonuses();
-  applyCampaignSave(w.campaign); // [campaign] older saves have none: the first campaign starts fresh
-  landApply(w.land); // [worldstate] older saves have none: the land starts untouched (12b_worldstate.js)
-  savePartsLoad('world', w.x); // other systems' records of the world (06d_goods.js)
+  const restoreCanonical = typeof netWorldPartsProtectPrivateRestore === 'function' ? netWorldPartsProtectPrivateRestore() : null;
+  try {
+    WAR.keeps.forEach((K, i) => {
+      const r = w.keeps[i];
+      if (!(r >= 0 && r <= 2) || r === K.realm) return;
+      for (const id of K.guards) { const g = getEnt(id); if (g) removeEnt(g); }
+      K.guards.clear();
+      const L = getEnt(K.lord);
+      if (L) removeEnt(L);
+      K.lord = null;
+      K.realm = r;
+      setDoorState(K.door, true, 1);
+      setSiteBanners(K.site, r);
+      fillGarrison(K, true);
+    });
+    if (Array.isArray(w.relics)) {
+      const used = new Set();
+      WAR.relics.forEach((rel, i) => {
+        const s = w.relics[i];
+        if (!s || !(s.at >= 0 && s.at <= 2)) return;
+        const slot = s.at === rel.realm ? 'home' : (s.slot === 't0' || s.slot === 't1' ? s.slot : 't0');
+        const key = s.at + ':' + slot;
+        if (used.has(key)) return;
+        used.add(key);
+        rel.state = 'temple'; rel.at = s.at; rel.from = s.at; rel.slot = slot; rel.carrier = null;
+      });
+    }
+    updateRelicBonuses();
+    applyCampaignSave(w.campaign); // [campaign] older saves have none: the first campaign starts fresh
+    landApply(w.land); // [worldstate] older saves have none: the land starts untouched (12b_worldstate.js)
+    savePartsLoad('world', w.x); // other systems' records of the world (06d_goods.js)
+  } finally { if (restoreCanonical) restoreCanonical(); }
 }
 function applySettings(st) {
   if (!st) return;
@@ -297,3 +402,4 @@ function applySettings(st) {
   soundApplySettings(st); // [audio2] Volume, Effects, Ambience: older saves have none, Medium stays (11c_sound.js)
   if (st.weather === 'clear' || st.weather === 'auto') setWeatherMode(st.weather);
 }
+

@@ -59,9 +59,9 @@ async def run(p, mode):
     await page.emulate_media(reduced_motion='reduce')  # the Chronicle's page fades in; a picture is taken at once
     try:
         await page.evaluate(HOLD)  # the page's own frames held (the kit is a page over the game; the game's frames only slow the test)
-        await page.evaluate("""(() => { __hm.start({ realm: 0, cls: 'warrior', level: 30 }); __hm.bal.applyFairGear(__hm.GAME.player, 30);
+        await page.evaluate("""(async () => { await __hm.start({ realm: 0, cls: 'warrior', level: 30 }); __hm.bal.applyFairGear(__hm.GAME.player, 30);
           const it = __hm.fn.makeItem({ slot: 'ring', q: 3, lvl: 30, cls: 'warrior' }); __hm.INV.bag.push(it);
-          __hm.simulate(0.5); __hm.CAM.mode = 'fixed'; __hm.fn.openKit('kit'); })(), 0""")
+          __hm.simulate(0.5); __hm.CAM.mode = 'fixed'; __hm.fn.openKit('kit'); return 0; })()""")
         await page.wait_for_timeout(400)
         cells = await page.evaluate("""[...document.querySelectorAll('#kit .statsum [data-stat]')].map((e) => { const r = e.getBoundingClientRect();
           return { k: e.dataset.stat, h: Math.round(r.height), w: Math.round(r.width), why: (e.querySelector('i') || {}).textContent || '' }; })""")

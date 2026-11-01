@@ -410,7 +410,7 @@ async def main():
         b, page, logs = await setup(p, w=w, h=h)
         page.set_default_timeout(900000)
         await page.evaluate("() => {" + HELPERS + "; return 0; }")
-        await ev(page, 'start', "(() => { __hm.start({ realm: 0, cls: 'warrior', level: 30 }); __hm.UI.modal = null; __hm.setTod(0.45); __hm.simulate(0.5); T.dry(); T.calm(); return { errors: __hm.errors.length }; })()")
+        await ev(page, 'start', "(async () => { await __hm.start({ realm: 0, cls: 'warrior', level: 30 }); __hm.UI.modal = null; __hm.setTod(0.45); __hm.simulate(0.5); T.dry(); T.calm(); return { errors: __hm.errors.length }; })()")
         for name, fn in (('nature', nature_tests), ('birds', bird_tests), ('craft', craft_tests), ('build', build_tests), ('animals', animal_tests)):
             if not on(name) or SHOTSONLY: continue
             try: await fn(page)

@@ -51,6 +51,17 @@ test('title, static diagnostics and capture mode never import activity assets or
   }
 });
 
+test('choosing a tracked objective cannot rewrite canonical progress or invent learning events', async () => {
+  const f = await adapter(), before = f.api.snapshot();
+  f.context.pathSuggested = () => ({id:'canonical-path',title:'Existing path objective'});
+  f.context.pathNext = () => ({id:'cook',title:'Cook a meal'});
+  f.context.GAME.prog.lore.track = 'cook';
+  const after = f.api.snapshot();
+  assert.equal(after.canonicalPath.id,'canonical-path');
+  assert.equal(after.eventCount,before.eventCount);
+  assert.deepEqual(copy(after.summary.counters),copy(before.summary.counters));
+});
+
 test('ordinary insecure HTTP without randomUUID cannot crash gameplay or fetch activity assets', async () => {
   for (const browserCrypto of [{}, undefined]) {
     // Use null for a missing browser crypto object; undefined would otherwise

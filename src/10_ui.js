@@ -2,7 +2,8 @@
 /* UI: title, HUD, map, menus, feedback                                */
 /* ================================================================== */
 const $ = (id) => document.getElementById(id);
-const UI = { modal: null, realm: 0, cls: 'warrior', start: 'recruit', frame: 0, npPool: [], flPool: [], floaters: [], mapImg: null, logOpen: true, errorT: 0 };
+const UI = { modal: null, realm: 0, cls: 'warrior', frame: 0, npPool: [], flPool: [], floaters: [], mapImg: null, logOpen: true, errorT: 0 };
+let TITLE_DRAFT = null; // Private owner/session bindings never belong to the public UI/debug state.
 const REALM_BLURB = [
   'Stone keeps and slate roofs on rolling downs and wheat fields. Its knights guard the Grail.',
   'Green glens, standing stones and ringforts of mossy stone. Its people keep Lia Fáil, the stone that names kings.',
@@ -12,43 +13,191 @@ const REALM_BLURB = [
 /* ------------------------------------------------------------------ */
 /* title screen                                                        */
 /* ------------------------------------------------------------------ */
+function titleEntryBlocked() {
+  return !GAME.ready || (typeof GRAPHICS_CONTEXT_LOST !== 'undefined' && GRAPHICS_CONTEXT_LOST)
+    || (typeof GRAPHICS_STARTUP !== 'undefined' && GRAPHICS_STARTUP.stopped);
+}
+function titleDraftScope() {
+  return { ref: SAVE.ref, key: SAVE.lsKey, native: SAVE.native, save: SAVE.loaded, char: SAVE.loaded?.char,
+    host: NETWS.host, account: NETWS.acct?.id, profile: NATIVE_PLAYER.profile,
+    did: NATIVE_PLAYER.status?.binding?.subjectDid, pod: NATIVE_PLAYER.status?.binding?.podUrl, preview: NATIVE_PLAYER.draftPreview };
+}
+function titleDraftPreviewCurrent() {
+  const p = NATIVE_PLAYER.draftPreview;
+  const current = !!(p && p.initialization === SAVE.loading && p.initialization.settled && !p.initialization.timedOut
+    && p.session === NATIVE_PLAYER.provisional && p.context === NATIVE_PLAYER.provisionalContext
+    && p.host === NETWS.host && p.account === NETWS.acct?.id && p.status === NATIVE_PLAYER.status
+    && !NETWS.reload && !SAVE.loaded && !SAVE.readConfirmed && !NATIVE_PLAYER.profile
+    && !NATIVE_PLAYER.claimConfirmationPending && !NATIVE_PLAYER.openExistingPending && !NATIVE_PLAYER.claimPendingResume
+    && !p.status.bound && p.status.provisional !== true && nativePlayerCanPlayNow());
+  if (p && !current) NATIVE_PLAYER.draftPreview = null;
+  return current;
+}
+function titleDraftEligible(save) {
+  if (GAME.started || save !== SAVE.loaded || !SAVE.loading?.settled || !saveLoadOwned(SAVE.loading)) return false;
+  // An unbound preview is not a private-absence or admission receipt.
+  if (SAVE.native && titleDraftPreviewCurrent()) return true;
+  if (SAVE.native && (!SAVE.readConfirmed || !NATIVE_PLAYER.status?.verified || NATIVE_PLAYER.switching
+    || NATIVE_PLAYER.claimConfirmationPending || NATIVE_PLAYER.openExistingPending || nativePlayerGuestExpired() || NATIVE_PLAYER.expiredAdventure)) return false;
+  const profile = NATIVE_PLAYER.profile?.status();
+  return !SAVE.native || nativePlayerCanPlayNow() || !!(profile && (!profile.hasRecord || profile.keyPresent && save?.char));
+}
+function titleDraftCurrent(draft) {
+  if (!draft || !titleDraftEligible(draft.scope.save)) return false;
+  const scope = titleDraftScope();
+  return Object.keys(scope).every(key => scope[key] === draft.scope[key]);
+}
+function titleDraftRestore(draft) {
+  draft.stopLayout?.();
+  if (draft.next?.parentNode === draft.parent) draft.parent.insertBefore(draft.loading, draft.next);
+  else draft.parent.appendChild(draft.loading);
+  document.body.classList.remove('title-preparing');
+}
+function titleDraftCancel() {
+  const draft = TITLE_DRAFT;
+  if (!draft) return;
+  TITLE_DRAFT = null;
+  titleDraftRestore(draft);
+  UI.realm = draft.realm; UI.cls = draft.cls;
+  UI.titleSave = null; UI.nameTouched = false;
+  $('name-input').value = '';
+  $('character-create-fields').hidden = true;
+  $('continue').hidden = true;
+  $('title').hidden = true;
+}
+function titleDraftSync() {
+  if (TITLE_DRAFT && (!titleDraftCurrent(TITLE_DRAFT)
+    || (typeof GRAPHICS_CONTEXT_LOST !== 'undefined' && GRAPHICS_CONTEXT_LOST)
+    || (typeof GRAPHICS_STARTUP !== 'undefined' && GRAPHICS_STARTUP.stopped))) titleDraftCancel();
+}
+function titleDraftActive() { return !!TITLE_DRAFT; }
+function titleDraftEditable() {
+  titleDraftSync();
+  return !titleEntryBlocked() || !!(TITLE_DRAFT && titleDraftCurrent(TITLE_DRAFT) && !UI.titleSave?.char);
+}
+function titleDraftObserveLayout(draft) {
+  if (!draft || TITLE_DRAFT !== draft || GAME.ready) return;
+  titleDraftSync();
+  if (TITLE_DRAFT !== draft) return;
+  const field = $('name-input'), viewport = window.visualViewport;
+  let frame = null;
+  const reveal = () => {
+    if (TITLE_DRAFT !== draft || GAME.ready || document.activeElement !== field || field.disabled || field.readOnly || UI.titleSave?.char) return;
+    if (frame !== null) return;
+    frame = requestAnimationFrame(() => {
+      frame = null;
+      titleDraftSync();
+      if (TITLE_DRAFT !== draft || GAME.ready || document.activeElement !== field || field.disabled || field.readOnly) return;
+      const panel = document.querySelector('#create .card-body');
+      if (!panel?.contains(field) || !field.getClientRects().length) return;
+      const box = panel.getBoundingClientRect(), input = field.getBoundingClientRect();
+      const offset = Number.isFinite(viewport?.offsetTop) ? viewport.offsetTop : 0;
+      const height = Number.isFinite(viewport?.height) && viewport.height > 0 ? viewport.height : window.innerHeight;
+      const top = Math.max(box.top, offset) + 8, bottom = Math.min(box.bottom, offset + height) - 8;
+      if (bottom <= top) return;
+      const delta = input.top < top || input.height > bottom - top ? input.top - top : input.bottom > bottom ? input.bottom - bottom : 0;
+      if (delta) panel.scrollTop += delta;
+    });
+  };
+  window.addEventListener('resize', reveal, { passive: true });
+  viewport?.addEventListener('resize', reveal, { passive: true });
+  field.addEventListener('focusin', reveal);
+  draft.stopLayout = () => {
+    window.removeEventListener('resize', reveal);
+    viewport?.removeEventListener('resize', reveal);
+    field.removeEventListener('focusin', reveal);
+    if (frame !== null) cancelAnimationFrame(frame);
+    frame = null;
+  };
+}
+function prepareTitleDraft(save) {
+  if (GAME.ready || TITLE_DRAFT || !titleDraftEligible(save)) return false;
+  if (typeof loreCancelBegin === 'function') loreCancelBegin();
+  if (!UI.titleBound) bindTitle();
+  const loading = $('loading'), parent = loading.parentNode;
+  const draft = { scope: titleDraftScope(), loading, parent, next: loading.nextSibling, realm: UI.realm, cls: UI.cls };
+  TITLE_DRAFT = draft;
+  UI.titleSave = save?.char ? save : null; UI.nameTouched = false;
+  $('name-input').value = ''; // The original default-name draw stays at Ready.
+  if (save?.char) {
+    const c = save.char;
+    UI.realm = c.realm; UI.cls = c.cls;
+    $('continue-desc').textContent = `${c.name}, level ${c.level} ${CLASSES[c.cls].name} of ${REALMS[c.realm].name}. Realm rank ${realmRank(c.rp || 0)}.`;
+    if ($('season-title')) $('season-title').textContent = ''; // Its offline-season calculation stays at Ready.
+  }
+  $('continue').hidden = !save?.char;
+  $('character-create-fields').hidden = !!save?.char;
+  $('btn-dice').disabled = true;
+  document.querySelector('#create .card-foot').prepend(loading);
+  document.body.classList.add('title-preparing');
+  nativePlayerRender();
+  titleDraftSync();
+  if (TITLE_DRAFT !== draft) return false;
+  syncTitle(); $('title').hidden = false;
+  titleDraftObserveLayout(draft);
+  return TITLE_DRAFT === draft;
+}
+function finishTitleDraft() {
+  const draft = TITLE_DRAFT;
+  if (!draft || !titleDraftCurrent(draft)) { titleDraftCancel(); return false; }
+  if (typeof loreCancelBegin === 'function') loreCancelBegin();
+  if (UI.titleSave?.char && $('season-title')) $('season-title').textContent = seasonTitleText(UI.titleSave);
+  const name = randomName(UI.realm); // Same one draw at the original Ready boundary, even for a typed name.
+  if (!UI.nameTouched) $('name-input').value = name;
+  TITLE_DRAFT = null; titleDraftRestore(draft);
+  $('btn-dice').disabled = false;
+  nativePlayerRender(); syncTitle(); $('title').hidden = false;
+  return true;
+}
 function syncTitle() {
-  $('realm-pick').querySelectorAll('.realm-card').forEach((b) => b.setAttribute('aria-checked', String(+b.dataset.realm === UI.realm)));
-  $('class-pick').querySelectorAll('.class-card').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.cls === UI.cls)));
+  $('realm-pick').querySelectorAll('.realm-card').forEach((b) => { const selected = +b.dataset.realm === UI.realm; b.setAttribute('aria-checked', String(selected)); b.tabIndex = selected ? 0 : -1; });
+  $('class-pick').querySelectorAll('.class-card').forEach((b) => { const selected = b.dataset.cls === UI.cls; b.setAttribute('aria-checked', String(selected)); b.tabIndex = selected ? 0 : -1; });
   $('realm-blurb').textContent = REALM_BLURB[UI.realm];
   $('class-blurb').textContent = CLASSES[UI.cls].blurb;
-  $('opt-recruit').setAttribute('aria-checked', String(UI.start === 'recruit'));
-  $('opt-veteran').setAttribute('aria-checked', String(UI.start === 'veteran'));
 }
 function bindTitle() {
   const rp = $('realm-pick'), cp = $('class-pick');
   rp.innerHTML = REALMS.map((R) => `<button class="realm-card" type="button" role="radio" data-realm="${R.id}" style="--rc:${R.color}" aria-checked="false"><span class="em">${emblemSvg(R.id, 30)}</span><b>${R.name}</b><small>${['Arthurian', 'Celtic', 'Norse'][R.id]}</small></button>`).join('');
   cp.innerHTML = Object.entries(CLASSES).map(([k, C]) => `<button class="class-card" type="button" role="radio" data-cls="${k}" aria-checked="false"><span class="row">${iconSvg(C.icon, 20)}<b>${C.name}</b></span><span class="role">${C.role}</span></button>`).join('');
-  rp.addEventListener('click', (e) => { const b = e.target.closest('.realm-card'); if (!b) return; audioUnlock(); UI.realm = +b.dataset.realm; if (!UI.nameTouched) $('name-input').value = randomName(UI.realm); syncTitle(); sfx('click'); });
-  cp.addEventListener('click', (e) => { const b = e.target.closest('.class-card'); if (!b) return; audioUnlock(); UI.cls = b.dataset.cls; syncTitle(); sfx('click'); });
-  $('opt-recruit').onclick = () => { UI.start = 'recruit'; syncTitle(); };
-  $('opt-veteran').onclick = () => { UI.start = 'veteran'; syncTitle(); };
-  $('btn-dice').onclick = () => { $('name-input').value = randomName(UI.realm); UI.nameTouched = false; };
-  $('name-input').addEventListener('input', () => { UI.nameTouched = true; });
-  $('name-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('btn-begin').click(); });
+  rp.addEventListener('click', (e) => { const b = e.target.closest('.realm-card'); if (!b || !titleDraftEditable()) return; if (GAME.ready) audioUnlock(); UI.realm = +b.dataset.realm; if (GAME.ready && !UI.nameTouched) $('name-input').value = randomName(UI.realm); syncTitle(); if (GAME.ready) sfx('click'); });
+  cp.addEventListener('click', (e) => { const b = e.target.closest('.class-card'); if (!b || !titleDraftEditable()) return; if (GAME.ready) audioUnlock(); UI.cls = b.dataset.cls; syncTitle(); if (GAME.ready) sfx('click'); });
+  rp.addEventListener('keydown', menuRadioKey);
+  cp.addEventListener('keydown', menuRadioKey);
+  $('btn-dice').onclick = () => { if (titleEntryBlocked()) return; $('name-input').value = randomName(UI.realm); UI.nameTouched = false; };
+  $('name-input').addEventListener('input', () => { if (titleDraftEditable()) UI.nameTouched = true; });
+  $('name-input').addEventListener('keydown', (e) => {
+    if (e.isComposing || e.keyCode === 229) return;
+    if (e.key === 'Enter') $('btn-begin').click();
+  });
   $('btn-begin').onclick = () => {
-    if (GAME.started) return;
+    if (GAME.started || titleEntryBlocked()) return;
+    if (UI.titleSave?.char) {
+      audioUnlock();
+      void nativePlayerBegin({ ...UI.titleSave.char, fresh: false });
+      return;
+    }
     const name = ($('name-input').value || '').trim().replace(/\s+/g, ' ').slice(0, 18) || randomName(UI.realm);
     audioUnlock();
-    startGame({ v: 1, name, realm: UI.realm, cls: UI.cls, level: UI.start === 'veteran' ? 15 : 1, xp: 0, rp: 0, fresh: true });
+    const request = { v: 1, name, realm: UI.realm, cls: UI.cls, level: 1, xp: 0, rp: 0, fresh: true };
+    if (typeof loreRequestBegin === 'function') loreRequestBegin(request);
+    void nativePlayerBegin(request);
   };
   $('btn-continue').onclick = () => {
     const s = UI.titleSave;
-    if (GAME.started || !s || !s.char) return;
+    if (GAME.started || titleEntryBlocked() || !s || !s.char) return;
     audioUnlock();
-    startGame({ ...s.char });
+    void nativePlayerBegin({ ...s.char, fresh: false });
   };
   UI.titleBound = true;
 }
 function setupTitle(save) {
+  if (typeof entryFeedbackCancel === 'function') entryFeedbackCancel();
+  titleDraftCancel();
+  if (typeof loreCancelBegin === 'function') loreCancelBegin(); // A title/account reset cancels the old character's Begin intent.
   if (!UI.titleBound) bindTitle();
   UI.titleSave = save && save.char ? save : null;
   UI.nameTouched = false;
+  $('character-create-fields').hidden = !!UI.titleSave;
   if (UI.titleSave) {
     const c = save.char;
     $('continue').hidden = false;
@@ -57,6 +206,7 @@ function setupTitle(save) {
     UI.realm = c.realm; UI.cls = c.cls;
   } else $('continue').hidden = true;
   $('name-input').value = randomName(UI.realm);
+  $('btn-dice').disabled = false;
   $('save-note').textContent = nativePlayerSaveMessage();
   nativePlayerRender();
   syncTitle();
@@ -89,7 +239,7 @@ function bindHUD() {
     if (!P || UI.modal) return;
     const id = e.target.closest('button')?.id;
     if (id === 't-target') cycleTarget();
-    if (id === 't-use') playerInteract();
+    if (id === 't-use') playerInteract(e);
     if (id === 't-jump' && P.onGround && P.alive && !isRooted(P)) { P.vy = P.mount ? 7.0 : 6.2; P.onGround = false; }
     if (id === 't-ride') toggleMount();
     if (id === 't-potion') usePotion();
@@ -99,7 +249,7 @@ function bindHUD() {
   $('btn-kit').onclick = () => toggleKit();
   $('btn-menu').onclick = () => openMenu('char');
   $('btn-log').onclick = () => toggleLog();
-  $('prompt').onclick = () => playerInteract();
+  $('prompt').onclick = (e) => playerInteract(e);
   UI.hudBound = true;
   mobileBind();
 }
@@ -109,7 +259,76 @@ function buildHUD() {
   if (IS_TOUCH) document.body.classList.add('touch');
   $('log').innerHTML = '';
   $('hud').hidden = false;
+  UI.mmSize = null; UI.mmViewport = null;
+  minimapObserveSize();
   updateWarPanel();
+}
+// Entry presentation owns no input lease, modal, clock or game work. The first
+// eligible frame gives this status a paint opportunity; the next runs normally.
+let ENTRY_FEEDBACK = null, ENTRY_FEEDBACK_BOUND = false;
+function entryFeedbackScope() {
+  return { host: NETWS.host, account: NETWS.acct?.id, profile: NATIVE_PLAYER.profile,
+    ref: SAVE.ref, key: SAVE.lsKey, native: SAVE.native };
+}
+function entryFeedbackCancel() {
+  const record = ENTRY_FEEDBACK;
+  ENTRY_FEEDBACK = null;
+  if (record) record.element.hidden = true;
+}
+function entryFeedbackCurrent(record) {
+  if (!record || ENTRY_FEEDBACK !== record || !GAME.started || !GAME.ready
+    || GAME.player !== record.player || GAME.prog !== record.prog
+    || !record.element.isConnected || $('entry-feedback') !== record.element
+    || GRAPHICS_CONTEXT_LOST || GRAPHICS_STARTUP.stopped || NETWS.reload || NETWS.worldReloadRequired
+    || NATIVE_PLAYER.switching || NATIVE_PLAYER.claimConfirmationPending || NATIVE_PLAYER.openExistingPending
+    || SAVE.native && (!SAVE.readConfirmed || !NATIVE_PLAYER.status?.verified)) return false;
+  const scope = record.scope;
+  return NETWS.host === scope.host && NETWS.acct?.id === scope.account && NATIVE_PLAYER.profile === scope.profile
+    && SAVE.ref === scope.ref && SAVE.lsKey === scope.key && SAVE.native === scope.native;
+}
+function entryFeedbackSync() {
+  const record = ENTRY_FEEDBACK;
+  if (!record) return;
+  if (!entryFeedbackCurrent(record) || document.hidden || !document.hasFocus()
+    || (record.phase === 'prologue' ? UI.modal !== 'prologue' : !!UI.modal)) entryFeedbackCancel();
+}
+function entryFeedbackPrepare() {
+  if (entryFeedbackCurrent(ENTRY_FEEDBACK)) { entryFeedbackSync(); if (ENTRY_FEEDBACK) return; }
+  entryFeedbackCancel();
+  const element = $('entry-feedback');
+  if (!element || !element.isConnected || !GAME.started || !GAME.player || !GAME.prog
+    || UI.modal && UI.modal !== 'prologue') return;
+  ENTRY_FEEDBACK = { element, player: GAME.player, prog: GAME.prog, scope: entryFeedbackScope(),
+    phase: UI.modal === 'prologue' ? 'prologue' : 'pending' };
+  entryFeedbackSync();
+  if (!ENTRY_FEEDBACK || ENTRY_FEEDBACK_BOUND) return;
+  ENTRY_FEEDBACK_BOUND = true;
+  document.addEventListener('visibilitychange', () => { if (document.hidden) entryFeedbackCancel(); });
+  window.addEventListener('blur', entryFeedbackCancel);
+  window.addEventListener('pagehide', entryFeedbackCancel);
+  canvas.addEventListener('webglcontextlost', entryFeedbackCancel);
+}
+function entryFeedbackLeavePrologue() {
+  const record = ENTRY_FEEDBACK;
+  if (record?.phase !== 'prologue') return;
+  if (!entryFeedbackCurrent(record) || UI.modal) { entryFeedbackCancel(); return; }
+  record.phase = 'pending';
+}
+function entryFeedbackBeforeFrame(live) {
+  entryFeedbackSync();
+  const record = ENTRY_FEEDBACK;
+  if (!record || record.phase === 'prologue') return false;
+  if (!live) { entryFeedbackCancel(); return false; }
+  if (record.phase === 'pending') {
+    record.element.hidden = false;
+    record.phase = 'paint';
+    return true;
+  }
+  record.phase = 'rendering';
+  return false;
+}
+function entryFeedbackComplete() {
+  if (ENTRY_FEEDBACK?.phase === 'rendering') entryFeedbackCancel();
 }
 // the ability bar, rebuilt on level-ups so ranks and new abilities show
 function buildHotbar() {
@@ -147,6 +366,7 @@ function buffsHTML(e) {
 }
 function unitSub(e, viewer) {
   if (e.siegeEngine) return 'Siege engine'; // [siege] (04h_siege.js)
+  if (farmSeedSeller(e)) return 'Farmer · Seeds & tools';
   if (e.kind === 'door') return e.keepRef ? `Gate of ${e.keepRef.site.name}` : `Gate of ${e.templeRef.site.name}`;
   if (e.role === 'dungeonBoss') return 'Undead · lord of the barrow';
   if (e.role === 'mob') return `${e.mobType === 'wisp' ? 'Spirit' : e.kind === 'humanoid' ? (e.mobType === 'skeleton' || e.mobType === 'draugr' ? 'Undead' : 'Hostile') : 'Beast'}${e.l2risen ? ' · risen champion' /* [late2] 10l_late.js */ : e.elite ? ' · elite' : ''} · ${CON[conIndex(e.level, viewer.level)].name} to you`;
@@ -165,6 +385,7 @@ function nameColor(e, P) {
   return REALMS[e.faction].light;
 }
 function updateHUD(dt) {
+  if (UI.confirmNew) menuReplacementSync();
   const P = GAME.player, prog = GAME.prog;
   UI.frame++;
   // player frame
@@ -266,61 +487,116 @@ function updateWarPanel() {
 /* map image (rendered once from the world data)                       */
 /* ------------------------------------------------------------------ */
 function buildMapImage() {
+  const work = buildMapImageChunks();
+  while (!work.next().done) { /* synchronous callers drain the same pixel/draw order */ }
+}
+function* buildMapImageChunks() {
   const S = 512;
   const c = document.createElement('canvas');
   c.width = S; c.height = S;
   const ctx = c.getContext('2d');
   const img = ctx.createImageData(S, S);
   const rcols = REALMS.map((R) => hex3(R.color));
+  // Pin the original call's terrain/tree state across paint/input yields.
+  // Masks and water grids are immutable after world construction; capture their references.
+  const H = W.H.slice(), rock = W.rock, road = W.road, field = W.field;
+  const trees = new Float64Array(W.trees.length * 2), bearings = REALMS.map(R => R.bearing);
+  for (let i = 0; i < W.trees.length; i++) { trees[i * 2] = W.trees[i].x; trees[i * 2 + 1] = W.trees[i].z; }
+  // All map samples, including the +/-2 slope offsets, are inside the overworld.
+  const height = (x, z) => sampleGrid(H, x, z);
+  const realm = (x, z) => {
+    const b = bearingOf(x, z), r = Math.hypot(x, z);
+    const w = bearings.map(bearing => Math.pow(Math.max(0, Math.cos(angDiff(b, bearing) * 0.75)), 6));
+    const blend = sstep(10, 60, r);
+    let s = 0;
+    for (let k = 0; k < 3; k++) { w[k] = lerp(1 / 3, w[k], blend); s += w[k]; }
+    for (let k = 0; k < 3; k++) w[k] /= s || 1;
+    return w;
+  };
+  const surface = WATERGRID.surf, flowX = WATERGRID.fx, flowZ = WATERGRID.fz, out = { y: 0, depth: 0, fx: 0, fz: 0 };
+  const water = (x, z) => {
+    if (!surface || Math.abs(x) > HALF - 2 || Math.abs(z) > HALF - 2) return null;
+    const gx = (x + HALF) / HS, gz = (z + HALF) / HS, i = Math.floor(gx), j = Math.floor(gz), u = gx - i, v = gz - j;
+    let y = 0, w = 0, fx = 0, fz = 0;
+    for (let q = 0; q < 4; q++) {
+      const ii = i + (q & 1), jj = j + (q >> 1), k = jj * HN + ii, s = surface[k];
+      if (isNaN(s)) continue;
+      const ww = ((q & 1) ? u : 1 - u) * ((q >> 1) ? v : 1 - v) + 1e-4;
+      y += s * ww; fx += flowX[k] * ww; fz += flowZ[k] * ww; w += ww;
+    }
+    if (!w) return null;
+    y /= w;
+    const g = height(x, z);
+    if (y <= g + 0.01) return null;
+    out.y = y; out.depth = y - g; out.fx = fx / w; out.fz = fz / w;
+    return out;
+  };
   for (let py = 0; py < S; py++) {
     for (let px = 0; px < S; px++) {
       const x = -HALF + (px + 0.5) * (WSIZE / S), z = -HALF + (py + 0.5) * (WSIZE / S);
-      const h = heightAt(x, z);
-      const hx = heightAt(x + 2, z) - heightAt(x - 2, z), hz = heightAt(x, z + 2) - heightAt(x, z - 2);
+      const h = height(x, z);
+      const hx = height(x + 2, z) - height(x - 2, z), hz = height(x, z + 2) - height(x, z - 2);
       const shade = clamp(0.78 + (-hx * 0.55 - hz * 0.55) * 0.12, 0.45, 1.2);
-      const rw = realmWeightsAt(x, z);
+      const rw = realm(x, z);
       // [perf2] the same sums channel by channel (six arrays a pixel were made and thrown away: a phone spent seconds here)
       let c0 = 0.34, c1 = 0.42, c2 = 0.24;
       for (let k = 0; k < 3; k++) { const rc = rcols[k], w = rw[k]; c0 = c0 + (rc[0] - 0.35) * w * 0.18; c1 = c1 + (rc[1] - 0.35) * w * 0.18; c2 = c2 + (rc[2] - 0.35) * w * 0.18; }
-      const rk = sampleGrid(W.rock, x, z), rd = sampleGrid(W.road, x, z), fl = sampleGrid(W.field, x, z);
+      const rk = sampleGrid(rock, x, z), rd = sampleGrid(road, x, z), fl = sampleGrid(field, x, z);
       c0 = lerp(c0, 0.5, rk); c1 = lerp(c1, 0.48, rk); c2 = lerp(c2, 0.45, rk);
       if (h > 24) { const sk = clamp((h - 24) / 16, 0, 0.8); c0 = lerp(c0, 0.88, sk); c1 = lerp(c1, 0.88, sk); c2 = lerp(c2, 0.88, sk); }
       c0 = lerp(c0, 0.72, fl * 0.8); c1 = lerp(c1, 0.6, fl * 0.8); c2 = lerp(c2, 0.3, fl * 0.8);
       c0 = lerp(c0, 0.6, rd * 0.9); c1 = lerp(c1, 0.5, rd * 0.9); c2 = lerp(c2, 0.36, rd * 0.9);
-      { const wa = waterAt(x, z); if (wa && wa.depth > 0.05) { if (wa.fx || wa.fz) { c0 = 0.16; c1 = 0.3; c2 = 0.38; } else { c0 = 0.12; c1 = 0.24; c2 = 0.32; } } } // [water] lakes, ponds and rivers
+      { const wa = water(x, z); if (wa && wa.depth > 0.05) { if (wa.fx || wa.fz) { c0 = 0.16; c1 = 0.3; c2 = 0.38; } else { c0 = 0.12; c1 = 0.24; c2 = 0.32; } } } // [water] lakes, ponds and rivers
       const k = (py * S + px) * 4;
       img.data[k] = clamp(c0 * shade, 0, 1) * 255; img.data[k + 1] = clamp(c1 * shade, 0, 1) * 255; img.data[k + 2] = clamp(c2 * shade, 0, 1) * 255; img.data[k + 3] = 255;
     }
+    if ((py & 3) === 3) yield;
   }
   ctx.putImageData(img, 0, 0);
   ctx.fillStyle = 'rgba(16, 40, 20, 0.5)';
-  for (const t of W.trees) { const px = (t.x + HALF) / 2, py = (t.z + HALF) / 2; ctx.fillRect(px - 0.8, py - 0.8, 1.6, 1.6); }
+  for (let i = 0; i < trees.length / 2; i++) {
+    const px = (trees[i * 2] + HALF) / 2, py = (trees[i * 2 + 1] + HALF) / 2;
+    ctx.fillRect(px - 0.8, py - 0.8, 1.6, 1.6);
+    if ((i & 255) === 255) yield;
+  }
   UI.mapImg = c;
 }
 const w2m = (x, z, S) => [((x + HALF) / WSIZE) * S, ((z + HALF) / WSIZE) * S];
 /* the barrow's own map: 4 px to the metre */
 const DMAP_PX = 4;
 function buildDungeonMap() {
+  const work = buildDungeonMapChunks();
+  while (!work.next().done) { /* synchronous callers retain complete-only publication */ }
+}
+function* buildDungeonMapChunks() {
   const GW = DUN.GW, GH = DUN.GH, k = DMAP_PX;
+  const cells = DUN.cell.slice(), floors = DUN.fy.slice();
+  const index = (i, j) => i < 0 || j < 0 || i >= GW || j >= GH ? -1 : j * GW + i;
   const c = document.createElement('canvas');
   c.width = GW * k; c.height = GH * k;
   const ctx = c.getContext('2d');
   ctx.fillStyle = '#0b0c0e'; ctx.fillRect(0, 0, c.width, c.height);
-  for (let j = 0; j < GH; j++) for (let i = 0; i < GW; i++) {
-    const t = DUN.cell[j * GW + i];
-    if (!t) continue;
-    const f = DUN.fy[j * GW + i];
-    const g = Math.round(clamp(118 + f * 6, 60, 140));
-    ctx.fillStyle = t === 3 ? '#cfd9e2' : `rgb(${g + 14},${g + 6},${g - 8})`;
-    ctx.fillRect(i * k, j * k, k, k);
+  for (let j = 0; j < GH; j++) {
+    for (let i = 0; i < GW; i++) {
+      const t = cells[j * GW + i];
+      if (!t) continue;
+      const f = floors[j * GW + i];
+      const g = Math.round(clamp(118 + f * 6, 60, 140));
+      ctx.fillStyle = t === 3 ? '#cfd9e2' : `rgb(${g + 14},${g + 6},${g - 8})`;
+      ctx.fillRect(i * k, j * k, k, k);
+    }
+    if ((j & 3) === 3 || j === GH - 1) yield;
   }
   // walls drawn as a darker rim
   ctx.fillStyle = 'rgba(30,26,22,0.95)';
-  for (let j = 0; j < GH; j++) for (let i = 0; i < GW; i++) {
-    if (DUN.cell[j * GW + i]) continue;
-    let near = false;
-    for (const [a, b] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const q = dunIdx(i + a, j + b); if (q >= 0 && DUN.cell[q]) near = true; }
-    if (near) ctx.fillRect(i * k, j * k, k, k);
+  for (let j = 0; j < GH; j++) {
+    for (let i = 0; i < GW; i++) {
+      if (cells[j * GW + i]) continue;
+      let near = false;
+      for (const [a, b] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const q = index(i + a, j + b); if (q >= 0 && cells[q]) near = true; }
+      if (near) ctx.fillRect(i * k, j * k, k, k);
+    }
+    if ((j & 3) === 3 || j === GH - 1) yield;
   }
   UI.dunImg = c;
 }
@@ -340,14 +616,33 @@ function drawSiteIcon(ctx, kind, x, y, s, col, alarm = false) {
   if (alarm) { ctx.strokeStyle = `rgba(255,90,60,${0.5 + 0.5 * Math.sin(GAME.t * 6)})`; ctx.lineWidth = s * 0.3; ctx.beginPath(); ctx.arc(0, 0, s * 1.9, 0, TAU); ctx.stroke(); }
   ctx.restore();
 }
+// Start observation when the HUD opens, so its normal layout can deliver the
+// size before the first map draw. An immediate entry or resize keeps the
+// original clientWidth fallback rather than using a stale or guessed size.
+function minimapObserveSize(cv = $('minimap')) {
+  if (!cv || typeof ResizeObserver !== 'function') return;
+  if (UI.mmRO && UI.mmCanvas === cv) return;
+  if (UI.mmRO) UI.mmRO.disconnect();
+  UI.mmSize = null; UI.mmViewport = null; UI.mmCanvas = cv;
+  const observer = new ResizeObserver(entries => {
+    if (UI.mmRO !== observer || UI.mmCanvas !== cv || $('minimap') !== cv
+      || !cv.isConnected || !entries.some(entry => entry.target === cv)) return;
+    const size = cv.clientWidth;
+    UI.mmSize = size > 0 ? size : null;
+    UI.mmViewport = size > 0 ? [innerWidth, innerHeight, window.devicePixelRatio || 1] : null;
+  });
+  UI.mmRO = observer;
+  observer.observe(cv);
+}
 function drawMinimap() {
   const cv = $('minimap'), P = GAME.player;
   if (!cv || !UI.mapImg) return;
   const dpr = Math.min(2, window.devicePixelRatio || 1);
-  // [perf2] the minimap's size from a ResizeObserver: reading clientWidth here, after the frame's writes to the HUD,
-  // made the browser lay the whole page out at once every third frame
-  if (!UI.mmRO && typeof ResizeObserver === 'function') { UI.mmRO = new ResizeObserver(() => { UI.mmSize = cv.clientWidth; }); UI.mmRO.observe(cv); UI.mmSize = cv.clientWidth; }
-  const size = (UI.mmRO ? UI.mmSize : cv.clientWidth) || 186;
+  minimapObserveSize(cv);
+  const viewport = UI.mmViewport;
+  const measured = UI.mmRO && UI.mmCanvas === cv && viewport
+    && viewport[0] === innerWidth && viewport[1] === innerHeight && viewport[2] === (window.devicePixelRatio || 1);
+  const size = (measured ? UI.mmSize : cv.clientWidth) || 186;
   if (cv.width !== Math.round(size * dpr)) { cv.width = Math.round(size * dpr); cv.height = Math.round(size * dpr); }
   const ctx = cv.getContext('2d');
   const S = cv.width;
@@ -390,10 +685,12 @@ function drawMinimap() {
       ctx.restore();
     }
   }
+  const nearbySellers = [];
   forNear(P.x, P.z, range * 1.42, (e) => {
     if (!e.alive || e === P || e.kind === 'door' || e.role === 'critter' || e.kind === 'dragon') return;
     const [x, y] = toM(e.x, e.z);
     if (x < -4 || y < -4 || x > S + 4 || y > S + 4) return;
+    if (!dun && farmSeedSeller(e)) { nearbySellers.push([x, y]); return; }
     let col;
     if (e.faction === FACTION_MONSTER) col = CON[conIndex(e.level, P.level)].col;
     else if (e.faction === FACTION_NEUTRAL) col = '#e9dfc9';
@@ -403,7 +700,8 @@ function drawMinimap() {
   });
   for (const rel of WAR.relics) { const p = relicPosition(rel); const [x, y] = toM(p.x, p.z); ctx.fillStyle = '#ffe28a'; ctx.beginPath(); ctx.arc(x, y, 3.2 * dpr, 0, TAU); ctx.fill(); }
   drawTrackedMinimap(ctx, toM, S, dpr); // [balance] the archer's tracked quarry (07c_balance.js)
-  if (!dun) drawFarmMap(ctx, toM, k); // [farming] your beds and the town strips (08i_farm_draw.js)
+  if (!dun) drawFarmMap(ctx, toM, k, false); // seller icons already use the existing nearby-entity pass
+  for (const [x, y] of nearbySellers) drawFarmSellerIcon(ctx, x, y, 5 * dpr); // above a farmer's current crop plot
   if (!dun) drawCampaignMinimap(ctx, toM, S, dpr); // [campaign] warband routes and orders (08g_campaign.js)
   guideMinimap(ctx, toM, S, dpr); // [guide] where your path's next step is (10e_guide.js)
   netMinimap(ctx, toM, S, dpr); // [net] the others in the March (14o_netui.js)
@@ -520,11 +818,11 @@ function drawWorldMap(canvasOnly = false) { // [campaign] canvasOnly: the live r
     const where = r.state === 'temple' ? (r.at === r.realm ? 'safe at home' : `held by ${REALMS[r.at].name}`) : r.state === 'carried' ? `carried by ${REALMS[r.carrierRealm ?? 0].name}` : 'lying in the field';
     return `<li><b style="color:${REALMS[r.realm].light}">${REALMS[r.realm].hallowName}</b><span>${where}</span></li>`;
   }).join('');
-  const news = WAR.news.slice(-6).reverse().map((n) => `<div>${n.text}</div>`).join('') || '<div>The frontier is quiet, for now.</div>';
-  side.innerHTML = `<h3>The Hallowmarch</h3>${farmMapSide() /* [farming] the season (08i_farm_draw.js) */}<div id="cw-side-host"></div>
+  const news = WAR.news.slice(-6).reverse().map((n) => `<div>${esc(n.text)}</div>`).join('') || '<div>The frontier is quiet, for now.</div>';
+  side.innerHTML = `${HALL.sit ? '' : `<h3>The Hallowmarch</h3>${farmMapSide()}`}<div id="cw-side-host"></div>
     <div class="legend"><span><i style="background:#ddd;clip-path:polygon(0 0,100% 0,100% 55%,50% 100%,0 55%)"></i>Keep (colour shows the holder)</span><span><i style="background:#ddd;clip-path:polygon(25% 0,75% 0,100% 50%,75% 100%,25% 100%,0 50%)"></i>Temple of a hallow</span><span><i style="background:#ddd;clip-path:polygon(50% 0,100% 100%,0 100%)"></i>Muster and portal</span><span><i style="background:#ffe28a;border-radius:50%"></i>A hallow</span></div>
     <ul>${keepRows}</ul><ul>${relicRows}</ul><div class="news">${news}</div>
-    <button class="btn" type="button" id="btn-mapclose">Close map</button>`;
+    <button class="btn" type="button" id="btn-mapclose">${HALL.sit ? 'Leave throne' : 'Close map'}</button>`;
   cwRefreshSide(true); // [campaign] the campaign and the warbands (08g_campaign.js)
   $('btn-mapclose').onclick = () => toggleMap(false);
 }
@@ -533,13 +831,28 @@ function bgClose(id, fn) {
   ov.addEventListener('pointerdown', (e) => { ov._bg = e.target === ov; });
   ov.addEventListener('click', (e) => { if (e.target === ov && ov._bg) fn(); ov._bg = false; });
 }
+let mapReturnFocus = null;
 function toggleMap(force) {
+  if (typeof THRONE_RTS !== 'undefined' && THRONE_RTS.active && force !== false) closeThroneRTS(false);
   const ov = $('mapov');
   const open = force === undefined ? ov.hidden : force;
+  if (!open && HALL.sit) hallLeave();
+  ov.classList.toggle('throne-mode', !!HALL.sit);
   if (open && UI.modal && UI.modal !== 'map') return;
+  const opening = open && ov.hidden, closing = !open && !ov.hidden;
+  if (opening) mapReturnFocus = document.activeElement;
   ov.hidden = !open;
   UI.modal = open ? 'map' : null;
-  if (open) drawWorldMap();
+  if (open) {
+    drawWorldMap();
+    if (opening) $('btn-mapclose')?.focus({ preventScroll: true });
+  } else if (closing) {
+    const available = el => el?.isConnected && !el.disabled && !el.closest('[hidden], [inert]') && el.getClientRects().length;
+    const prior = mapReturnFocus; mapReturnFocus = null;
+    const target = available(prior) && prior !== document.body ? prior
+      : [$('btn-map'), $('mobile-map')].find(available);
+    target?.focus({ preventScroll: true });
+  }
 }
 bgClose('mapov', () => toggleMap(false));
 
@@ -561,7 +874,7 @@ function updateNameplates() {
     if (e.tame && P.target !== e.id && (e.tame.owner !== 'player' || d > 16)) continue; // [animals] names over your own animals close by, not over every sheep (08h_animals.js)
     // under the barrow, names do not show through solid rock
     // [phones] and above ground, not through the walls of a house, a hall or a keep (npSeen, 10p_hud.js)
-    if (P.target !== e.id && !npSeen(e, d)) continue;
+    if (!npSeen(e, d)) continue;
     list.push([d, e]);
   }
   list.sort((a, b) => (b[1].id === P.target) - (a[1].id === P.target) || a[0] - b[0]); // [v13] the chosen one's name first: in a crowd it was cut with the farthest
@@ -577,7 +890,7 @@ function updateNameplates() {
     if (!el) { el = document.createElement('div'); el.className = 'np'; el.innerHTML = '<span class="n"></span><span class="hb"><i></i></span>'; host.appendChild(el); UI.npPool.push(el); el._n = el.firstChild; el._b = el.lastChild.firstChild; el._hb = el.lastChild; }
     el.style.display = '';
     el.style.transform = `translate(${s.x.toFixed(1)}px, ${s.y.toFixed(1)}px) translate(-50%, -100%)`;
-    const txt = e.kind === 'door' ? e.name : `${e.name}`;
+    const txt = farmServiceName(e);
     if (el._txt !== txt) { el._n.textContent = txt; el._txt = txt; }
     el._eid = e.id; // (which body this name is over: two may share a name)
     el.style.setProperty('--nc', nameColor(e, P));
@@ -634,7 +947,9 @@ function onDamageFeedback(src, dst, dmg, absorbed, opts) {
   const P = GAME.player;
   if (!P) return;
   const n = Math.round(dmg);
-  if (src === P) {
+  // One actual hit, consumed by the synchronous death callback; never saved with the character.
+  if (dst === P && Number.isFinite(dmg) && dmg > 0) UI.deathHit = { player: P, source: src, at: GAME.t, hp: P.hp, damage: dmg, kind: opts.elem || opts.kind, dot: !!opts.dot, crit: !!opts.crit };
+  if (src === P && dst !== P) {
     uiFloatAt(dst.x, dst.y + (dst.kind === 'door' ? 4 : 2.1 * (dst.scale || 1)), dst.z, (opts.crit ? 'Crit ' : '') + (n > 0 ? n : 'Absorbed'), opts.crit ? 'crit' : '');
     if (!opts.dot) uiLog(`You hit ${dst.siegeEngine ? `the ${dst.name}` : dst.kind === 'door' ? 'the gate' : theName(dst)} for ${n} damage${opts.crit ? ' (critical)' : ''}.`, 'dmg'); // [siege] engines by name
   } else if (dst === P) {
@@ -712,6 +1027,7 @@ function uiZone(z) {
 }
 function flashScreen(rgb, a) {
   const f = composite.uniforms.uFlash.value;
+  if (REDUCE_MOTION) { f.w = 0; return; }
   f.set(rgb[0], rgb[1], rgb[2], Math.max(f.w, a));
 }
 function showJoystick(x, y, dx, dy) {
@@ -721,11 +1037,58 @@ function showJoystick(x, y, dx, dy) {
   j.firstChild.style.transform = `translate(${dx}px, ${dy}px)`;
   $('joyhint').style.opacity = 0;
 }
-function hideJoystick() { $('joy').classList.remove('on'); }
+function hideJoystick() {
+  $('joy').classList.remove('on');
+  $('joyhint').style.opacity = '';
+}
 
 /* ------------------------------------------------------------------ */
 /* menus                                                               */
 /* ------------------------------------------------------------------ */
+let menuReturnFocus = null;
+function menuRadioKey(e) {
+  const current = e.target.closest('[role="radio"]');
+  if (!current || e.altKey || e.ctrlKey || e.metaKey || e.isComposing) return;
+  if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(e.key)) return;
+  const choices = [...current.parentElement.querySelectorAll('[role="radio"]')], index = choices.indexOf(current);
+  if (index < 0 || !choices.length) return;
+  const next = e.key === 'Home' ? 0 : e.key === 'End' ? choices.length - 1
+    : (index + (e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : -1) + choices.length) % choices.length;
+  e.preventDefault(); e.stopPropagation(); choices[next].focus({ preventScroll: true }); choices[next].click();
+}
+function menuReplacementBlocked() {
+  if (typeof SAVE !== 'undefined' && (SAVE.pending || SAVE.nativeFlight || SAVE.loading && !SAVE.loading.settled || SAVE.wiping)) return true;
+  return typeof NATIVE_PLAYER !== 'undefined' && (NATIVE_PLAYER.busy || NATIVE_PLAYER.switching);
+}
+function menuReplacementSync() {
+  if (UI.modal !== 'menu' || UI.menuTab !== 'char' || !UI.confirmNew) return;
+  const changed = UI.confirmNew.player !== GAME.player || typeof SAVE !== 'undefined' && SAVE.ref !== UI.confirmNew.ref;
+  const blocked = changed || menuReplacementBlocked();
+  const button = $('menu-new-confirm'), status = $('menu-new-status');
+  if (button) {
+    const wasFocused = document.activeElement === button;
+    button.disabled = !!blocked;
+    if (blocked && wasFocused) $('menu-new-cancel')?.focus({ preventScroll: true });
+  }
+  if (status) {
+    const text = changed ? 'Your character connection changed. Keep this character and review the choice again.'
+      : blocked ? 'Your character connection or save is still pending. Keep this character and finish reconnecting before starting over.' : '';
+    if (status.textContent !== text) status.textContent = text;
+    status.hidden = !text;
+  }
+}
+function menuSettingsChoices(body) {
+  for (const group of body.querySelectorAll('.seg')) {
+    const choices = [...group.querySelectorAll('button[aria-checked]')];
+    if (!choices.length) continue;
+    group.setAttribute('role', 'radiogroup');
+    group.setAttribute('aria-label', group.parentElement.querySelector('span')?.textContent || 'Setting');
+    for (const button of choices) {
+      button.setAttribute('role', 'radio');
+      button.tabIndex = button.getAttribute('aria-checked') === 'true' ? 0 : -1;
+    }
+  }
+}
 function onEscape() {
   if (UI.modal === 'mobile') { mobileTray(false); return; }
   if (UI.modal === 'map') { toggleMap(false); return; }
@@ -741,9 +1104,13 @@ function onEscape() {
 function openMenu(tab = 'char') {
   if (UI.modal === 'net' && typeof netSheetToggle === 'function') netSheetToggle(false);
   if (UI.modal && UI.modal !== 'menu') return;
+  if (typeof entryFeedbackCancel === 'function') entryFeedbackCancel();
+  const opening = UI.modal !== 'menu';
+  if (opening) menuReturnFocus = document.activeElement;
   UI.modal = 'menu';
   $('menu').hidden = false;
   renderMenu(tab);
+  if (opening) $('menu-tabs').querySelector('[aria-selected="true"]')?.focus({ preventScroll: true });
 }
 function openCompanion() {
   if (typeof netSheetToggle === 'function') netSheetToggle(false);
@@ -758,12 +1125,29 @@ function openPlayerIdentity() {
   const connect = $('netsheet-acct')?.querySelector('.native-player button');
   if (connect) { connect.scrollIntoView({ block: 'nearest' }); connect.focus({ preventScroll: true }); }
 }
-function closeMenu() { $('menu').hidden = true; UI.modal = null; UI.confirmNew = false; $('btn-newchar').textContent = 'New character'; }
+function closeMenu() {
+  const wasOpen = !$('menu').hidden;
+  $('menu').hidden = true; UI.modal = null; UI.confirmNew = false;
+  if (!wasOpen) return;
+  const available = el => el?.isConnected && !el.disabled && !el.closest('[hidden], [inert]') && el.getClientRects().length;
+  const prior = menuReturnFocus; menuReturnFocus = null;
+  const focus = available(prior) && prior !== document.body ? prior
+    : [$('btn-menu'), $('mobile-menu-toggle')].find(available);
+  focus?.focus({ preventScroll: true });
+}
 function renderMenu(tab) {
+  const tabChanged = UI.menuTab !== tab;
+  const body = $('menu-body'), active = document.activeElement;
+  const settingsFocus = !tabChanged && tab === 'settings' && body.contains(active)
+    ? { group: active.closest('.seg')?.id, id: active.id, scroll: body.scrollTop } : null;
   UI.menuTab = tab;
-  document.querySelectorAll('#menu-tabs button').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.tab === tab)));
+  document.querySelectorAll('#menu-tabs button').forEach((b) => {
+    const selected = b.dataset.tab === tab;
+    b.setAttribute('aria-selected', String(selected)); b.tabIndex = selected ? 0 : -1;
+    if (selected) $('menu-body').setAttribute('aria-labelledby', b.id);
+  });
   const P = GAME.player, prog = GAME.prog;
-  const body = $('menu-body');
+  if (tabChanged) { body.scrollTop = 0; UI.confirmNew = false; }
   if (tab === 'companion') {
     body.innerHTML = '<div id="world-agent-mount"></div>';
     queueMicrotask(() => { if (UI.modal === 'menu' && UI.menuTab === 'companion' && typeof mainWorldAgentRender === 'function') mainWorldAgentRender(); });
@@ -771,6 +1155,17 @@ function renderMenu(tab) {
     body.innerHTML = '<div id="march-coach-mount"></div>';
     queueMicrotask(() => { if (UI.modal === 'menu' && UI.menuTab === 'progress' && typeof marchConsultingRender === 'function') marchConsultingRender(); });
   } else if (tab === 'char') {
+    if (UI.confirmNew && UI.confirmNew.player === P) {
+      const blocked = menuReplacementBlocked();
+      body.innerHTML = `<section class="menu-confirm" aria-labelledby="menu-new-title"><h3 id="menu-new-title">Replace ${esc(P.name)}?</h3>
+        <p>This replaces your current character save. Your new character starts at level 1. You cannot undo this from the game menu.</p>
+        <p id="menu-new-status" role="status" ${blocked ? '' : 'hidden'}>${blocked ? 'Your character connection or save is still pending. Keep this character and finish reconnecting before starting over.' : ''}</p>
+        <div class="acts"><button class="btn primary" type="button" id="menu-new-cancel" data-menu-action="cancel-new">Keep current character</button>
+        <button class="btn danger" type="button" id="menu-new-confirm" data-menu-action="confirm-new" ${blocked ? 'disabled' : ''}>Replace character</button></div></section>`;
+      menuReplacementSync();
+      return;
+    }
+    UI.confirmNew = false;
     const rr = realmRank(prog.rp);
     const nextRR = REALM_RANKS[rr] ?? null;
     const mins = Math.floor(prog.played / 60);
@@ -782,52 +1177,119 @@ function renderMenu(tab) {
         <div class="stat"><small>Creatures slain</small><b>${fmtInt(prog.kills)}</b></div>
         <div class="stat"><small>Foes slain</small><b>${fmtInt(prog.realmKills)}</b></div>
         <div class="stat"><small>Deaths</small><b>${fmtInt(prog.deaths)}</b></div>
-        ${late2CharStats() /* [late2] names and veterancy (10l_late.js) */}
       </div>
+      <div class="character-milestones">${late2CharStats() /* [late2] names and veterancy (10l_late.js) */}</div>
       ${gsCharHTML() /* [gearstats] the stats in a fight and what they do (10g_gearstats.js) */}
       <p>${nextRR !== null ? `${fmtInt(nextRR - prog.rp)} realm points to rank ${rr + 1}.` : 'You hold the highest realm rank.'} Each rank adds 1.5% health and damage. Each foreign hallow your realm holds adds 10% damage for everyone in it.</p>
       <p>Played for ${mins} minute${mins === 1 ? '' : 's'}.</p>
-      <div class="acts"><button type="button" class="btn" data-lore="sec:coach">Your progress &amp; coach</button><button type="button" class="btn" data-lore="sec:path">Your path &amp; next steps</button></div>`;
+      <div class="acts"><button type="button" class="btn primary" data-lore="sec:coach">View progress</button></div>
+      <details class="menu-options"><summary>Character options</summary><p>Start over only when you want to replace this character.</p>
+      <button class="btn" id="btn-newchar" type="button" data-menu-action="new">New character…</button></details>`;
     gsCharWire(body); // [gearstats] the kit and the Gear page a tap away
   } else if (tab === 'settings') {
     const q = quality.level, m = tod.mode;
     body.innerHTML = `<div class="setrow"><span>Graphics</span><div class="seg" id="set-q">${['low', 'medium', 'high'].map((k) => `<button type="button" data-v="${k}" aria-checked="${q === k}">${QUALITY_PRESETS[k].label}</button>`).join('')}</div></div>
       <div class="setrow"><span>Time of day</span><div class="seg" id="set-t">${[['cycle', 'Cycle'], ['morning', 'Morning'], ['golden', 'Golden'], ['night', 'Night']].map(([k, l]) => `<button type="button" data-v="${k}" aria-checked="${m === k}">${l}</button>`).join('')}</div></div>
       <div class="setrow"><span>Weather</span><div class="seg" id="set-w">${[['auto', 'Changing'], ['clear', 'Always clear']].map(([k, l]) => `<button type="button" data-v="${k}" aria-checked="${WEATHER.mode === k}">${l}</button>`).join('')}</div></div>
+      <div class="setrow"><span>Motion &amp; flashes</span><div class="seg" id="set-motion">${[['system', 'Use device setting'], ['reduced', 'Reduce effects']].map(([k, l]) => `<button type="button" data-v="${k}" aria-checked="${MOTION_MODE === k}">${l}</button>`).join('')}</div></div>
+      <p class="fineprint">${REDUCE_MOTION ? 'Reduced effects are active: camera shake, screen flashes and lightning flicker are off.' : 'Reduce effects turns off camera shake, screen flashes and lightning flicker.'} This preference stays on this browser.</p>
       ${soundSettingsHTML() /* [audio2] Volume, Effects, Ambience (11c_sound.js) */}
       <div class="setrow"><span>Music</span><div class="seg" id="set-m">${MUSIC_LEVELS.map(([k, l]) => `<button type="button" data-v="${k}" aria-checked="${musicLevelKey() === k}">${l}</button>`).join('')}</div></div>
       ${captureSettingsHTML() /* [capture] the capture build (14_capture.js) */}
+      <p class="fineprint">Changes apply immediately.</p>
       <p>${IS_TOUCH ? 'Lower graphics settings help on older phones.' : 'If the frame rate drops, the game lowers its own detail first.'}</p>`;
-    $('set-q').onclick = (e) => { const b = e.target.closest('button'); if (!b) return; setQuality(b.dataset.v); renderMenu('settings'); saveSoon(); };
-    $('set-t').onclick = (e) => { const b = e.target.closest('button'); if (!b) return; setTimeMode(b.dataset.v); renderMenu('settings'); saveSoon(); };
-    $('set-w').onclick = (e) => { const b = e.target.closest('button'); if (!b) return; setWeatherMode(b.dataset.v); renderMenu('settings'); saveSoon(); };
+    $('set-q').onclick = (e) => { const b = e.target.closest('button'); if (!b) return; setQuality(b.dataset.v); void saveMenuEdit(e); renderMenu('settings'); };
+    $('set-t').onclick = (e) => { const b = e.target.closest('button'); if (!b) return; setTimeMode(b.dataset.v); void saveMenuEdit(e); renderMenu('settings'); };
+    $('set-w').onclick = (e) => { const b = e.target.closest('button'); if (!b) return; setWeatherMode(b.dataset.v); void saveMenuEdit(e); renderMenu('settings'); };
+    $('set-motion').onclick = (e) => { const b = e.target.closest('button'); if (!b) return; setMotionMode(b.dataset.v); renderMenu('settings'); };
     captureSettingsWire(); // [capture] (14_capture.js)
     soundSettingsWire(); // [audio2] the Volume, Effects and Ambience rows (11c_sound.js)
-    $('set-m').onclick = (e) => { const b = e.target.closest('button'); if (!b) return; const L = MUSIC_LEVELS.find((x) => x[0] === b.dataset.v); if (L) setMusicVolume(L[2]); renderMenu('settings'); saveSoon(); }; // [music] the score's volume (11b_music.js)
+    $('set-m').onclick = (e) => { const b = e.target.closest('button'); if (!b) return; const L = MUSIC_LEVELS.find((x) => x[0] === b.dataset.v); if (L) setMusicVolume(L[2]); void saveMenuEdit(e); renderMenu('settings'); }; // [music] the score's volume (11b_music.js)
+    menuSettingsChoices(body);
+    if (settingsFocus) {
+      const focus = settingsFocus.group ? $(settingsFocus.group)?.querySelector('[aria-checked="true"]') : $(settingsFocus.id);
+      focus?.focus({ preventScroll: true }); body.scrollTop = settingsFocus.scroll;
+    }
   } else if (tab === 'chronicle') {
     renderChronicle(body);
   } else {
     body.innerHTML = guideHelpHTML(); // [guide] the keys and every system's own lines, in the order a player meets them (10e_guide.js GUIDE_HELP)
   }
+  if (tabChanged) $('menu-tabs').querySelector('[aria-selected="true"]')?.focus({ preventScroll: true });
 }
 $('menu-tabs').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) renderMenu(b.dataset.tab); });
-$('btn-resume').onclick = () => closeMenu();
+$('menu-tabs').addEventListener('keydown', (e) => {
+  if (e.altKey || e.ctrlKey || e.metaKey || e.isComposing || !['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return;
+  const tabs = [...$('menu-tabs').querySelectorAll('[role="tab"]')], index = tabs.indexOf(e.target.closest('[role="tab"]'));
+  if (index < 0 || !tabs.length) return;
+  const next = e.key === 'Home' ? 0 : e.key === 'End' ? tabs.length - 1
+    : (index + (e.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
+  e.preventDefault(); e.stopPropagation(); renderMenu(tabs[next].dataset.tab); tabs[next].focus({ preventScroll: true });
+});
+$('menu').addEventListener('keydown', (e) => {
+  if (UI.modal !== 'menu' || e.key !== 'Tab') return;
+  const focusable = [...$('menu').querySelectorAll('button, input, select, textarea, summary, a[href], [tabindex]')]
+    .filter(el => !el.disabled && el.tabIndex >= 0 && !el.closest('[hidden], [inert]') && el.getClientRects().length);
+  const first = focusable[0], last = focusable.at(-1);
+  if (!first) return;
+  if (!$('menu').contains(document.activeElement)) { e.preventDefault(); (e.shiftKey ? last : first).focus(); }
+  else if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+  else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+});
 $('menu-close').onclick = () => closeMenu();
-$('btn-newchar').onclick = () => {
-  if (!UI.confirmNew) { UI.confirmNew = true; $('btn-newchar').textContent = 'Press again to start over'; return; }
-  closeMenu();
-  newCharacter();
-};
+$('menu-body').addEventListener('click', (e) => {
+  const action = e.target.closest('[data-menu-action]')?.dataset.menuAction;
+  if (!action || UI.menuTab !== 'char') return;
+  if (action === 'new') {
+    UI.confirmNew = { player: GAME.player, ref: typeof SAVE === 'undefined' ? null : SAVE.ref };
+    renderMenu('char'); $('menu-body').scrollTop = 0; $('menu-new-cancel')?.focus({ preventScroll: true });
+  } else if (action === 'cancel-new') {
+    UI.confirmNew = false; renderMenu('char');
+    const options = $('menu-body').querySelector('.menu-options'); if (options) options.open = true;
+    $('btn-newchar')?.focus();
+  } else if (action === 'confirm-new' && UI.confirmNew?.player === GAME.player && !menuReplacementBlocked()) {
+    if (typeof SAVE !== 'undefined' && SAVE.ref !== UI.confirmNew.ref) {
+      menuReplacementSync(); return;
+    }
+    closeMenu(); newCharacter();
+  } else if (action === 'confirm-new') {
+    menuReplacementSync();
+  }
+});
+function menuReadingKey(e) {
+  const body = $('menu-body');
+  if (UI.modal !== 'menu' || UI.menuTab === 'settings' || !body?.isConnected
+    || e.currentTarget !== body || e.target !== body || document.activeElement !== body
+    || e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || e.isComposing
+    || (e.key !== 'Home' && e.key !== 'End')) return false;
+  e.preventDefault();
+  body.scrollTo({ top: e.key === 'Home' ? 0 : body.scrollHeight, behavior: 'instant' });
+  return true;
+}
+$('menu-body').addEventListener('keydown', (e) => {
+  if (UI.menuTab === 'settings') menuRadioKey(e);
+  else menuReadingKey(e);
+});
 bgClose('menu', () => closeMenu());
 
-function uiDeath(by) {
+function uiDeathDamage(killer) {
+  const hit = UI.deathHit, P = GAME.player;
+  UI.deathHit = null;
+  if (!hit || hit.player !== P || hit.source !== killer || hit.at !== GAME.t || !(hit.hp <= 0) || !(P.hp <= 0)) return '';
+  const kind = { melee: 'melee', arrow: 'arrow', fire: 'fire', ember: 'fire', frost: 'frost', ice: 'frost', rime: 'frost', holy: 'holy', arcane: 'arcane', shock: 'lightning', spark: 'lightning', aoe: 'area', slam: 'impact', crush: 'crushing' }[hit.kind];
+  return ` Final hit: ${Math.round(hit.damage)} ${typeof kind === 'string' ? kind + ' ' : ''}damage${hit.dot ? ' over time' : ''}${hit.crit ? ' (critical)' : ''}.`;
+}
+function uiDeath(by, killer = null) {
   // Players and chat can be open while the world continues. Their dynamically
   // appended overlays must not cover the recovery choice or retain its focus.
   if (typeof netSheetToggle === 'function') netSheetToggle(false);
   if (typeof netChatClose === 'function') netChatClose();
+  if (UI.modal === 'kit') closeKit();
+  else if (UI.modal === 'map') toggleMap(false);
+  else if (UI.modal === 'dialog') closeDialog();
   UI.modal = 'death';
   $('death').hidden = false;
-  $('death-by').textContent = `Slain by ${by}.`;
+  $('death-by').textContent = `Slain by ${by}.` + uiDeathDamage(killer);
   const P = GAME.player;
   const inFrontier = Math.hypot(P.x, P.z) < R_RING;
   $('btn-release').textContent = inDungeon(P) ? 'Release to the barrow mouth' : buildBedSpot(inFrontier) ? 'Release to your bed' : `Release to ${inFrontier ? REALMS[P.faction].name + ' Muster' : REALMS[P.faction].townName}`; // [building]
@@ -842,7 +1304,7 @@ function openHerald() {
   $('dialog').hidden = false;
   $('dlg-title').textContent = `${R.name} Herald`;
   const b = prog.bounty;
-  const frontierTip = prog.level >= 14 ? `You are ready for the frontier. Step through the stones in the square to reach the muster.` : `The frontier will eat you alive below level 14 or so. Grow stronger in the glens and fields first.`;
+  const frontierTip = `The stones in the square lead to the frontier muster. Check your opponents' levels, travel with allies and retreat from a stronger force.`;
   let body = `<p>Well met, ${P.name}. ${frontierTip}</p>`;
   const acts = [];
   const l2b = b ? null : late2HeraldBounty(); // [late2] past 40, a risen champion's bounty (10l_late.js)
@@ -858,8 +1320,11 @@ function openHerald() {
     acts.push(['Accept bounty', l2b.accept]);
   } else if (prog.level < LEVEL_CAP) {
     const nb = chooseBounty();
-    body += `<p>The ${pluralName(nb.name)} are troubling travellers. Slay ${nb.need} of them and I will see you rewarded with ${fmtInt(nb.reward)} experience and ${10 + prog.level * 5} gold. Their haunt is marked on your map.</p>`;
-    acts.push(['Accept bounty', () => { prog.bounty = nb; closeDialog(); uiToast(`Bounty accepted: slay ${nb.need} ${pluralName(nb.name)}`, 'quest'); saveSoon(); }]); // [guide] pluralName: wolves, not wolfs (10e_guide.js)
+    if (nb) {
+      const levels = nb.minLevel === nb.maxLevel ? String(nb.minLevel) : `${nb.minLevel}–${nb.maxLevel}`;
+      body += `<p>The ${pluralName(nb.name)} are troubling travellers. Slay ${nb.need} of them and I will see you rewarded with ${fmtInt(nb.reward)} experience and ${10 + prog.level * 5} gold. Their haunt is marked on your map. The creatures there are currently level ${levels}.</p>`;
+      acts.push(['Accept bounty', () => { prog.bounty = nb; closeDialog(); uiToast(`Bounty accepted: slay ${nb.need} ${pluralName(nb.name)}`, 'quest'); saveSoon(); }]); // [guide] pluralName: wolves, not wolfs (10e_guide.js)
+    } else body += '<p>I have no suitable bounty for you at present. The nearby quarry is resting or stronger than you. Return later, or explore and work with your allies.</p>';
   }
   if (prog.level >= 14) body += campaignHeraldText(); // [campaign] campaigns and commanding (08g_campaign.js)
   body += late3HeraldText(); // [late3] the way beneath the Hollow King's hall (10m_deep.js)
@@ -871,5 +1336,23 @@ function openHerald() {
   box.innerHTML = '';
   acts.forEach(([l, fn], i) => { const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'btn' + (i === 0 && acts.length > 1 ? ' primary' : ''); btn.textContent = l; btn.onclick = fn; box.appendChild(btn); });
 }
-function closeDialog() { $('dialog').hidden = true; UI.modal = null; }
+let dialogReturnFocus = null;
+function dialogFocusStart() {
+  dialogReturnFocus = document.activeElement;
+  queueMicrotask(() => {
+    if (UI.modal !== 'dialog' || $('dialog').hidden) return;
+    const title = $('dlg-title'); title.tabIndex = -1; title.focus({ preventScroll: true });
+  });
+}
+function closeDialog() {
+  const wasOpen = !$('dialog').hidden, active = UI.modal === 'dialog';
+  $('dialog').hidden = true;
+  if (active) UI.modal = null;
+  if (!wasOpen || !active) return;
+  const available = el => el?.isConnected && !el.disabled && !el.closest('[hidden], [inert]') && el.getClientRects().length;
+  const prior = dialogReturnFocus; dialogReturnFocus = null;
+  const target = available(prior) && prior !== document.body ? prior : [$('btn-menu'), $('mobile-menu-toggle')].find(available);
+  target?.focus({ preventScroll: true });
+}
 bgClose('dialog', () => closeDialog());
+

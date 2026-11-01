@@ -1,12 +1,14 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
+import { checkedSharedScene } from '../shared-scene.js';
 import { createProgressiveOwnedState, OwnedStateError } from './progressive-owned-state.js';
 
 const own = value => value !== null && typeof value === 'object' && !Array.isArray(value)
   && [Object.prototype, null].includes(Object.getPrototypeOf(value));
 // roomFor accepts a 32-character base and may append '-99'.
 const roomName = /^[a-z0-9][a-z0-9_-]{0,34}$/;
-const WORLD_FIELDS = new Set(['k', 'g', 'td', 'tm', 'cn', 'cl', 'at', 'wx']);
+const WORLD_FIELDS = new Set(['k', 'g', 'td', 'tm', 'cn', 'cl', 'at', 'wx', 'activity']);
 function invalid() { throw new OwnedStateError('INVALID_WORLD_STATE', 'The owned world snapshot is invalid; recovery is required.'); }
 
 /** Preserve the legacy JSON omission of undefined object properties, without
@@ -41,6 +43,11 @@ export function checkedWorldSnapshot(value, { keepCount, realmModule } = {}) {
     || !Number.isSafeInteger(keepCount) || keepCount < 1 || keepCount > 32 || !realmModule) invalid();
   for (const [name, world] of Object.entries(clean.worlds)) {
     if (!roomName.test(name) || !own(world) || Object.keys(world).some(key => !WORLD_FIELDS.has(key))) invalid();
+    if (world.activity !== undefined) {
+      const activity = checkedSharedScene(world.activity);
+      if (!activity) invalid();
+      world.activity = activity;
+    }
     if (world.k !== undefined && (!Array.isArray(world.k) || world.k.length !== keepCount || !world.k.every(n => [0, 1, 2].includes(n)))) invalid();
     if (world.g !== undefined && (!Array.isArray(world.g) || world.g.length !== keepCount || !world.g.every(n => [0, 1].includes(n)))) invalid();
     if (world.td !== undefined && (!(world.td >= 0 && world.td <= 3) || typeof world.td !== 'number')) invalid();
@@ -68,23 +75,25 @@ export function checkedWorldSnapshot(value, { keepCount, realmModule } = {}) {
 /** Domain composition only: no personal saves, credentials, roster, chat or
  * company files enter the snapshot. Call open before makeSeason or makeField. */
 export async function openHallowmarchWorldState({ nativeStore, files, dataDir, keepCount, realmModule,
-  checkpointIntervalMs = 30000, clock = Date.now } = {}) {
+  checkpointIntervalMs = 30000, clock = Date.now, active = true, liveOnly = active === false } = {}) {
   if (!files || !['read', 'write'].every(method => typeof files[method] === 'function') || !realmModule
     || typeof realmModule.realmSimSanitize !== 'function') invalid();
   const validate = value => checkedWorldSnapshot(value, { keepCount, realmModule });
-  const bridge = createProgressiveOwnedState({ store: nativeStore, streamId: 'hallowmarch-world-season-v1', checkpointIntervalMs, clock });
+  const bridge = createProgressiveOwnedState({ store: nativeStore, streamId: 'hallowmarch-world-season-v1', checkpointIntervalMs, clock, active });
   function strictRead(name, fallback) {
     try { return JSON.parse(fs.readFileSync(path.join(dataDir, name), 'utf8')); }
     catch (error) { if (error.code === 'ENOENT') return fallback; invalid(); }
   }
-  const initial = validate(await bridge.start({ seed: () => validate({ worlds: strictRead('worlds.json', {}), season: strictRead('season.json', null) }) }));
+  const initialValue = await bridge.start({ seed: () => validate({ worlds: strictRead('worlds.json', {}), season: strictRead('season.json', null) }) });
+  const initial = validate(initialValue);
   let attached = null, captureFailure = false, closing = false, rollingBack = false, backgroundCaptureDeferred = false, lastCaptureAt = clock();
   const idleCaptureIntervalMs = 5 * 60 * 1000;
   const status = () => ({ ...bridge.status(), backgroundCaptureDeferred,
     ...(backgroundCaptureDeferred ? { durable: false } : {}), enabled: true, mode: 'native', scope: 'world-and-season',
     snapshotOwnershipMigrated: true, realtimeAuthority: 'elected-page-region-keepers', authoritativeCombat: false,
     teamsAndRealmPermissionsMigrated: false, personalSavesIncluded: false, credentialsIncluded: false,
-    fenced: rollingBack || captureFailure || ['conflict', 'recovering'].includes(bridge.status().state),
+    fenced: rollingBack || captureFailure || bridge.status().error != null
+      || ['conflict', 'recovering'].includes(bridge.status().state),
     ...(captureFailure ? { durable: false, error: 'WORLD_SNAPSHOT_REJECTED' } : {}) });
   const canMutate = () => !closing && !status().fenced;
   function assertMutable() { if (!canMutate()) throw new OwnedStateError('WORLD_FENCED', 'World persistence needs recovery before play can continue.'); }
@@ -126,6 +135,16 @@ export async function openHallowmarchWorldState({ nativeStore, files, dataDir, k
     attached = { worlds, season, field, rooms };
     for (const name of ['step', 'contribute', 'order', 'capture']) wrap(season, name);
     for (const name of ['step', 'report', 'left']) wrap(field, name);
+    try {
+      if (liveOnly && active === false && initial.season && bridge.status().confirmedVersion > 0) {
+        // A live-only scheduler rebases its wall clock on startup. Compare the
+        // complete snapshot with only the persisted timestamp restored.
+        const current = validate({ worlds, season: { ...season.RS, savedAt: season.lastStep } });
+        if (Object.hasOwn(initialValue.season, 'savedAt')) current.season.savedAt = initialValue.season.savedAt;
+        else delete current.season.savedAt;
+        if (isDeepStrictEqual(current, initialValue)) return;
+      }
+    } catch (error) { captureFailure = true; throw error; }
     capture();
   }
   async function recover() {
@@ -136,7 +155,7 @@ export async function openHallowmarchWorldState({ nativeStore, files, dataDir, k
       if (!restored.season) invalid();
       const next = season.M.realmSimSanitize(restored.season);
       if (!next) invalid();
-      const now = clock(), away = Math.max(0, Math.min(7 * 86400, ((now - (restored.season.savedAt ?? now)) / 1000) * season.speed));
+      const now = clock(), away = liveOnly ? 0 : Math.max(0, Math.min(7 * 86400, ((now - (restored.season.savedAt ?? now)) / 1000) * season.speed));
       if (away > 1) season.M.realmSimStep(next, away);
       validate({ worlds: restored.worlds, season: { ...next, savedAt: now } });
       for (const name of Object.keys(worlds)) delete worlds[name];
@@ -151,8 +170,13 @@ export async function openHallowmarchWorldState({ nativeStore, files, dataDir, k
     captureFailure = false; capture();
     return status();
   }
+  function setActive(value) {
+    if (value === true && attached?.season) attached.season.lastStep = clock();
+    return bridge.setActive(value);
+  }
+  async function suspend(options) { return bridge.suspend(options); }
   async function shutdown(options) {
-    if (!closing && attached) capture();
+    if (options?.checkpoint !== false && !closing && attached) capture();
     closing = true; return bridge.shutdown(options);
   }
   async function rollback(at, options) {
@@ -170,7 +194,7 @@ export async function openHallowmarchWorldState({ nativeStore, files, dataDir, k
     } catch (error) { if (![400, 410, 413].includes(error.status)) captureFailure = true; throw error; }
     finally { rollingBack = false; }
   }
-  return { store, attach, capture, canMutate, assertMutable, recover, rollback,
+  return { store, attach, capture, canMutate, assertMutable, recover, rollback, setActive, suspend,
     rollbackCheckpoints: () => nativeStore?.rollbackCheckpoints?.() ?? [], shutdown, status, checkpoint: bridge.checkpoint };
 }
 
@@ -195,3 +219,4 @@ export function hallowmarchWorldDescription(publicOrigin) {
     '<urn:hallowmarch:world:status> a schema:Action ; schema:name "Observe world and season checkpoint status" .',
   ].join('\n') };
 }
+

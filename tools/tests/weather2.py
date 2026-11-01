@@ -112,7 +112,7 @@ async def main():
     async with async_playwright() as p:
         b, page, logs = await setup(p, touch=PHONE, w=w, h=h)
         await page.evaluate(HELPERS)
-        await page.evaluate(f"__hm.fn.setQuality('{Q}'); __hm.start({{ realm: 0, cls: 'warrior', level: 20 }}); 0")
+        await page.evaluate(f"async () => {{ __hm.fn.setQuality('{Q}'); await __hm.start({{ realm: 0, cls: 'warrior', level: 20 }}); return 0; }}")
         await page.evaluate("__hm.simulate(2); W2T.safe(); 0")
         await page.evaluate(HOLD)
         r = await ev(page, 'boot', "({ errors: __hm.errors.length, live: __hm.weather2.wxLive(), field: !!__hm.weather2.WXR.field || 'not yet', cells: __hm.weather2.WX.cells.length })")

@@ -20,6 +20,7 @@ Writes tools/out/perf2_<mode>_<tag>.json."""
 import asyncio, json, os, sys, time, pathlib, re
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 import hm
+from hmlib import human_play
 from playwright.async_api import async_playwright
 
 ARGS = sys.argv[1:]
@@ -27,6 +28,11 @@ MODE = ARGS[0] if ARGS else 'boot'
 OPT = dict(a.split('=', 1) for a in ARGS if '=' in a)
 TAG = OPT.get('tag', 'now')
 OUT = str(hm.OUT) + '/'
+
+async def active_eval(page, js):
+    # Workload input is explicit and outside the measured JS; setup/idle checks stay untouched.
+    await human_play(page)
+    return await page.evaluate(js)
 
 # ---------------------------------------------------------------------------------------------------------------
 # Followed from before the page's first script: typed arrays of 64 KB or more (where they were made, a weak ref to
@@ -292,8 +298,8 @@ async def mode_boot():
           const W = __hm.fn.W; let hh = 0; for (let i = 0; i < W.H.length; i += 7) hh = (hh * 31 + Math.round(W.H[i] * 1000)) >>> 0;
           return { mapHash: h, heightHash: hh, trees: W.trees.length, colliders: __hm.build ? __hm.build.COLL.boxes.length + __hm.build.COLL.circles.length : null }; })()""")
         # a game started and a minute of it (the world comes alive: the war, the towns), at low as a test runs
-        await page.evaluate("(() => { __hm.fn.setQuality(%r); __hm.start({ realm: 0, cls: 'warrior', level: 20 }); __hm.UI.modal = null; const P = __hm.GAME.player; P.hp = P.maxHp = 1e7; return 0; })()" % OPT.get('q', 'low'))
-        await page.evaluate("(() => { for (let i = 0; i < 6; i++) { __hm.simulate(10); __hm.frame(0.05); } return 0; })()")
+        await page.evaluate("(async () => { __hm.fn.setQuality(%r); await __hm.start({ realm: 0, cls: 'warrior', level: 20 }); __hm.UI.modal = null; const P = __hm.GAME.player; P.hp = P.maxHp = 1e7; return 0; })()" % OPT.get('q', 'low'))
+        await active_eval(page, "(() => { for (let i = 0; i < 6; i++) { __hm.simulate(10); __hm.frame(0.05); } return 0; })()")
         res['heapPlay'] = await heap(cdp)
         res['memPlay'] = await page.evaluate(MEM_JS)
         res['rssPlay'] = procs_rss()
@@ -490,41 +496,43 @@ async def mode_views():
         res['wall'] = round(wall, 1)
         await page.evaluate("window.__rafHold = true; 0")
         await page.evaluate(VIEWS_JS)
-        await page.evaluate("(() => { __hm.fn.setQuality('low'); __hm.start({ realm: 0, cls: 'warrior', level: 30 }); PV2.calm(); __hm.setTod(0.55); __hm.UI.modal = null; return 0; })()")
-        await page.evaluate("__hm.simulate(40); 0" if 'profile' in ARGS else "__hm.simulate(40); __hm.perf.timers(); 0")
+        await page.evaluate("(async () => { __hm.fn.setQuality('low'); await __hm.start({ realm: 0, cls: 'warrior', level: 30 }); PV2.calm(); __hm.setTod(0.55); __hm.UI.modal = null; return 0; })()")
+        await active_eval(page, "__hm.simulate(40); 0" if 'profile' in ARGS else "__hm.simulate(40); __hm.perf.timers(); 0")
         for q in quals:
-            await page.evaluate(f"__hm.fn.setQuality('{q}'); 0")
+            await active_eval(page, f"__hm.fn.setQuality('{q}'); 0")
             for v in views:
                 t1 = time.time()
-                await page.evaluate(f"PV2.view('{v}'); 0")
+                await active_eval(page, f"PV2.view('{v}'); 0")
                 # the steady cost of a step: 4 s simulated (80 steps), the systems timed, and each step on its own
-                st = await page.evaluate("""(() => { __hm.simulate(0.5); __hm.perf.times(true);
+                st = await active_eval(page, """(() => { __hm.simulate(0.5); __hm.perf.times(true);
                   const t = performance.now(); __hm.simulate(4); const s = performance.now() - t; const top = __hm.perf.times(true).slice(0, 10);
                   return { stepMs: +(s / 80).toFixed(2), top: top.map((q) => [q.k, q.ms]), ents: __hm.ENT.length }; })()""")
                 if 'profile' in ARGS:
                     await cdp.send('Profiler.enable'); await cdp.send('Profiler.setSamplingInterval', {'interval': 250})
+                    await human_play(page)
                     await cdp.send('Profiler.start')
                     await page.evaluate("__hm.simulate(8); 0")
                     prof = (await cdp.send('Profiler.stop'))['profile']
                     st['profile'] = prof_top(prof)
                     print(f'        profile of 8 s simulated (self ms):', ', '.join(f'{k} {v}' for k, v in st['profile'][:22]), flush=True)
-                steps = await page.evaluate(STEPS_JS + "(160)")
+                steps = await active_eval(page, STEPS_JS + "(160)")
                 ss = sorted(steps)
                 st['stepMedian'], st['stepP99'], st['stepMax'] = ss[len(ss) // 2], ss[int(len(ss) * 0.99)], ss[-1]
-                st['stepSpikes'] = await page.evaluate("window.__perf2spikes || []")
+                st['stepSpikes'] = await active_eval(page, "window.__perf2spikes || []")
                 # frames: the first ones in view (what compiles and uploads on first sight), then a minute of the world with a
                 # frame drawn every half second of it
                 if 'fprofile' in ARGS:
                     # a CPU profile of 10 frames drawn back to back (no world between them): where a frame's own JS goes
                     await cdp.send('Profiler.enable'); await cdp.send('Profiler.setSamplingInterval', {'interval': 200})
-                    await page.evaluate("(() => { const R = __hm.dbg.renderer, gl = R.getContext(), px = new Uint8Array(4); R.setRenderTarget(null); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px); return 0; })()")
+                    await active_eval(page, "(() => { const R = __hm.dbg.renderer, gl = R.getContext(), px = new Uint8Array(4); R.setRenderTarget(null); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px); return 0; })()")
+                    await human_play(page)
                     await cdp.send('Profiler.start')
                     await page.evaluate("(() => { for (let i = 0; i < 10; i++) __hm.frame(1 / 30); return 0; })()")
                     prof = (await cdp.send('Profiler.stop'))['profile']
                     st['fprofile'] = prof_top(prof, 40)
                     print('        frames profile (self ms over 10 frames):', ', '.join(f'{k} {v}' for k, v in st['fprofile'][:30]), flush=True)
-                first = (await page.evaluate(FRAMES_JS + "(8, 1 / 30, 0)"))[:-1]
-                fr = await page.evaluate(FRAMES_JS + f"({nframes}, 0.1, {60 / nframes - 0.1:.3f})")
+                first = (await active_eval(page, FRAMES_JS + "(8, 1 / 30, 0)"))[:-1]
+                fr = await active_eval(page, FRAMES_JS + f"({nframes}, 0.1, {60 / nframes - 0.1:.3f})")
                 ftop = fr.pop()['acc']
                 s = stats(fr)
                 spikes = sorted(fr, key=lambda f: -f['ms'])[:5]
@@ -536,7 +544,7 @@ async def mode_views():
                 print(f'        frame top (ms a frame, the frame alone):', ', '.join(f'{k} {m}' for k, m in ftop[:12]), flush=True)
                 for f in [x for x in first if x['ms'] > 60] + spikes[:3]:
                     print(f"        spike #{f['i']}: {f['ms']} ms (systems {f['sys']}), programs {f['prog']}, geometries {f['geo']:+d}, textures {f['tex']:+d}, uploaded {f['up']} KB; " + ', '.join(f'{k} {m}' for k, m in f.get('top', [])), flush=True)
-        res['errors'] = await page.evaluate('__hm.errors')
+        res['errors'] = await active_eval(page, '__hm.errors')
         print('errors', res['errors'])
         await b.close()
     pathlib.Path(OUT + f'perf2_views_{TAG}.json').write_text(json.dumps(res, indent=1))
@@ -581,7 +589,7 @@ LONG_FRAMES_JS = r"""(() => {
   if (best) at(best.x + 12, best.z + 12);
   const K = H.WAR.keeps[Math.floor(H.GAME.t / 300) % H.WAR.keeps.length];
   at(K.site.x + 30, K.site.z + 30);
-  H.UI.modal = 'menu'; H.CAM.mode = 'play';
+  H.UI.modal = null; H.CAM.mode = 'play';
   return out;
 })()"""
 
@@ -593,23 +601,27 @@ async def mode_long():
         b, page, cdp, logs, wall = await open_page(p, W, H)
         page.set_default_timeout(3000000)
         await page.evaluate("window.__rafHold = true; 0")
-        await page.evaluate(f"(() => {{ __hm.fn.setQuality('{OPT.get('q', 'low')}'); __hm.start({{ realm: 0, cls: 'warrior', level: 20 }}); __hm.UI.modal = 'menu'; return 0; }})()")
+        await page.evaluate(f"(async () => {{ __hm.fn.setQuality('{OPT.get('q', 'low')}'); await __hm.start({{ realm: 0, cls: 'warrior', level: 20 }}); __hm.UI.modal = null; return 0; }})()")
         res['boot'] = {'wall': round(wall, 1)}
         t0 = time.time()
         for k in range(mins // every + 1):
             if k:
-                # the war goes on: 30 s at a time, the player kept out of it in their town, unharmed
-                await page.evaluate("""((sec) => { const H = __hm; for (let t = 0; t < sec; t += 30) { H.simulate(30); const P = H.GAME.player, S = H.REALMS[P.faction].town;
-                  P.x = P.prevX = S.x + 3; P.z = P.prevZ = S.z + 3; P.y = H.fn.heightAt(P.x, P.z); P.hp = P.maxHp; P.alive = true; } return 0; })""" + f"({every * 60})")
-            fr = await page.evaluate(LONG_FRAMES_JS)
+                # A real test operator renews active play between bounded simulation chunks.
+                # Menu/AFK frames must never advance this benchmark's world.
+                for t in range(0, every * 60, 30):
+                    sec = min(30, every * 60 - t)
+                    await active_eval(page, """((sec) => { const H = __hm, P = H.GAME.player, S = H.REALMS[P.faction].town;
+                      P.x = P.prevX = S.x + 3; P.z = P.prevZ = S.z + 3; P.y = H.fn.heightAt(P.x, P.z);
+                      P.hp = P.maxHp = 1e7; P.alive = true; H.simulate(sec); return 0; })""" + f"({sec})")
+            fr = await active_eval(page, LONG_FRAMES_JS)
             hp = await heap(cdp)
-            d = await page.evaluate(LONG_JS)
+            d = await active_eval(page, LONG_JS)
             d['heap'] = hp; d['frames'] = fr; d['rss'] = procs_rss(); d['wall'] = round(time.time() - t0)
             res['samples'].append(d)
             print(f"t={d['t']:5d}s [{d['wall']}s wall] heap {hp['usedMB']} MB, ArrayBuffers {hp['backingMB']} MB, GPU {d['gl']['buffers'] if d['gl'] else '?'}+{d['gl']['textures'] if d['gl'] else '?'} MB; scene {d['objs']} objects ({d['meshes']} drawn kinds), {d['geos']} geometries, {d['texs']} textures, {d['progs']} programs; "
                   f"frames (first, again, programs) {fr}; {d['campaign']} keeps {d['keeps']}; renderer RSS {d['rss'].get('renderer')} MB, GPU process {d['rss'].get('gpu-process')} MB", flush=True)
             print('       lists', json.dumps(d['lists']), 'errors', d['errors'], 'bad', d['bad'], flush=True)
-        res['errors'] = await page.evaluate('__hm.errors')
+        res['errors'] = await active_eval(page, '__hm.errors')
         await b.close()
     S = res['samples']
     # what grew: from the sample at 10 minutes (the world awake, the war under way) to the last
@@ -622,6 +634,8 @@ async def mode_long():
     res['grow'] = grow; res['peakHeap'] = peak
     print('\ngrowth from', base['t'], 's to', last['t'], 's:', json.dumps(grow), 'peak heap', peak, 'MB')
     fails = []
+    expected = (mins // every) * every * 60
+    if S[-1]['t'] - S[0]['t'] < expected - 1: fails.append('active benchmark simulation stopped before its requested duration')
     # the limits: a heap that grows by more than a quarter (and 12 MB) over the hour, or a scene that keeps adding objects
     if grow['heapMB'] > max(12, base['heap']['usedMB'] * 0.25): fails.append(f"the JS heap grew {grow['heapMB']} MB")
     if grow['backingMB'] > 24: fails.append(f"ArrayBuffers grew {grow['backingMB']} MB")
@@ -680,29 +694,29 @@ async def mode_phone():
         # the title's own frames for a few seconds (the hidden things' shaders are asked for meanwhile), then the game
         await page.wait_for_timeout(3000)
         await page.evaluate("window.__rafHold = true; 0")
-        await page.evaluate("(() => { __hm.start({ realm: 0, cls: 'warrior', level: 1 }); __hm.UI.modal = null; const P = __hm.GAME.player; P.hp = P.maxHp = 1e7; return 0; })()")
+        await page.evaluate("(async () => { await __hm.start({ realm: 0, cls: 'warrior', level: 1 }); __hm.UI.modal = null; const P = __hm.GAME.player; P.hp = P.maxHp = 1e7; return 0; })()")
         # the first minute: a frame each 1/30 s of the world for the first 3 s, then one each half second (as a phone
         # draws at about 30 a second, the world between the frames simulated)
-        fr = (await page.evaluate(FRAMES_JS + "(90, 1 / 30, 0)"))[:-1]
-        fr2 = (await page.evaluate(FRAMES_JS + "(60, 0.1, 0.4)"))[:-1]
+        fr = (await active_eval(page, FRAMES_JS + "(90, 1 / 30, 0)"))[:-1]
+        fr2 = (await active_eval(page, FRAMES_JS + "(60, 0.1, 0.4)"))[:-1]
         res['first'] = stats(fr); res['minute'] = stats(fr2)
         res['spikes'] = sorted(fr + fr2, key=lambda f: -f['ms'])[:6]
-        steps = await page.evaluate(STEPS_JS + "(100)")
+        steps = await active_eval(page, STEPS_JS + "(100)")
         ss = sorted(steps)
         res['step'] = {'median': ss[len(ss) // 2], 'p90': ss[int(len(ss) * 0.9)], 'max': ss[-1]}
         # the touch controls' own cost: the stick dragged (200 moves), the camera dragged on the right (200), taps that
         # pick what is under the finger (40), each dispatched to the canvas as a phone's pointer events are, and the
         # style and layout the next frame then pays
         try:
-            res['touch'] = await page.evaluate(TOUCH_JS)
+            res['touch'] = await active_eval(page, TOUCH_JS)
             print(f"   touch: a stick move {res['touch']['stick']} ms, a camera drag's move {res['touch']['drag']} ms, a tap (picking) {res['touch']['tap']} ms; the style and layout after 200 stick moves {res['touch']['layout']} ms", flush=True)
         except Exception as ex:
             res['touch'] = {'error': str(ex)[:300]}
             print('   touch: could not measure:', res['touch']['error'], flush=True)
         res['heapPlay'] = await heap(cdp)
-        res['memPlay'] = await page.evaluate(MEM_JS)
+        res['memPlay'] = await active_eval(page, MEM_JS)
         res['rssPlay'] = procs_rss()
-        res['errors'] = await page.evaluate('__hm.errors')
+        res['errors'] = await active_eval(page, '__hm.errors')
         await b.close()
     f, m = res['first'], res['minute']
     print(f"   first 90 frames (3 s at 30 a second): JS median {f['median']} ms, p90 {f['p90']}, max {f['max']}; programs linked {f['programs']}", flush=True)
@@ -765,11 +779,12 @@ async def mode_ab():
         b, page, cdp, logs, wall = await open_page(p, 320, 180)
         page.set_default_timeout(3000000)
         await page.evaluate("window.__rafHold = true; 0")
-        await page.evaluate("(() => { __hm.fn.setQuality('low'); __hm.start({ realm: 0, cls: 'warrior', level: 20 }); __hm.UI.modal = 'menu'; __hm.simulate(60); return 0; })()")
-        r = await page.evaluate(AB_JS)
+        await page.evaluate("(async () => { __hm.fn.setQuality('low'); await __hm.start({ realm: 0, cls: 'warrior', level: 20 }); __hm.UI.modal = null; const P = __hm.GAME.player; P.hp = P.maxHp = 1e7; return 0; })()")
+        await active_eval(page, "__hm.simulate(60); 0")
+        r = await active_eval(page, AB_JS)
         # in a keep under siege: the bodies at the gate and on the walls
-        await page.evaluate("(() => { const H = __hm, K = H.WAR.keeps[0]; H.SIEGE.band(1, 0, 30, 12); H.simulate(20); return 0; })()")
-        r2 = await page.evaluate(AB_JS)
+        await active_eval(page, "(() => { const H = __hm, K = H.WAR.keeps[0]; H.SIEGE.band(1, 0, 30, 12); H.simulate(20); return 0; })()")
+        r2 = await active_eval(page, AB_JS)
         await b.close()
     for k, v in (('the war at large', r), ('a keep stormed', r2)):
         print(f"collidersNear, {k}: {v['queries']} queries of 12.5 m ({v['collidersEach']} colliders each on average): a Set {v['oldMs']} ms ({v['usEachOld']} us each), the stamp {v['newMs']} ms ({v['usEachNew']} us each); the same lists: {v['sameLists']}")
@@ -784,7 +799,8 @@ async def mode_ctx():
     async with async_playwright() as p:
         b, page, cdp, logs, wall = await open_page(p, 480, 270)
         page.set_default_timeout(900000)
-        await page.evaluate("(() => { __hm.fn.setQuality('low'); __hm.start({ realm: 0, cls: 'warrior', level: 12 }); __hm.UI.modal = null; __hm.simulate(2); window.__perf2mark = 1; for (let i = 0; i < 3; i++) __hm.frame(1 / 30); return 0; })()")
+        await page.evaluate("(async () => { __hm.fn.setQuality('low'); await __hm.start({ realm: 0, cls: 'warrior', level: 12 }); __hm.UI.modal = null; return 0; })()")
+        await active_eval(page, "__hm.simulate(2); window.__perf2mark = 1; for (let i = 0; i < 3; i++) __hm.frame(1 / 30); 0")
         m0 = await page.evaluate("__hm.perf2.mem()")
         nav = asyncio.ensure_future(page.wait_for_event('framenavigated', timeout=900000))
         await page.evaluate("(() => { const ext = __hm.dbg.renderer.getContext().getExtension('WEBGL_lose_context'); ext.loseContext(); setTimeout(() => ext.restoreContext(), 400); return 0; })()")
@@ -792,7 +808,8 @@ async def mode_ctx():
         await page.wait_for_function('window.__hm && window.__hm.ready', timeout=900000, polling=500)
         r = await page.evaluate("({ mark: window.__perf2mark || null, errors: __hm.errors.slice(0, 3), title: !!(__hm.UI.titleSave && __hm.UI.titleSave.char), name: __hm.UI.titleSave && __hm.UI.titleSave.char ? __hm.UI.titleSave.char.name : null })")
         # and it plays on from the save
-        r2 = await page.evaluate("(() => { const s = __hm.UI.titleSave; __hm.start({ ...s.char }); __hm.UI.modal = null; __hm.simulate(2); for (let i = 0; i < 3; i++) __hm.frame(1 / 30); return { errors: __hm.errors.slice(0, 3), lvl: __hm.GAME.player.level }; })()")
+        await page.evaluate("(async () => { const s = __hm.UI.titleSave; await __hm.start({ ...s.char }); __hm.UI.modal = null; return 0; })()")
+        r2 = await active_eval(page, "(() => { __hm.simulate(2); for (let i = 0; i < 3; i++) __hm.frame(1 / 30); return { errors: __hm.errors.slice(0, 3), lvl: __hm.GAME.player.level }; })()")
         await b.close()
     print('before the loss:', json.dumps({k: m0[k] for k in ('released', 'freedGeos', 'releasedMB')}), flush=True)
     print('after the context came back:', json.dumps(r), '; continued:', json.dumps(r2), flush=True)

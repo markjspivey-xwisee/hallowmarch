@@ -277,7 +277,7 @@ async def main():
         if arg('pre', ''): print('  pre', arg('pre', ''), await page.evaluate("(() => { " + arg('pre', '') + " ; return 0; })()"), flush=True)
         allrows = {}
         for lvl in LEVELS:
-            await page.evaluate(f"(() => {{ const H = __hm; if (H.GAME.player) H.fn.newCharacter(); H.start({{ realm: 0, cls: 'warrior', level: {lvl} }}); H.UI.modal = 'menu'; H.CAM.mode = 'fixed'; H.GAME.player.hp = 1e9; H.GAME.player.maxHp = 1e9; const W = H.dbg.WEATHER; W.mode = 'clear'; W.kind = 'clear'; H.fn.weatherAdvance(60); return 0; }})()")  # [balance3] clear skies for every measure: rain damps fire and soaks foes for storms, and a run's weather moved its duels
+            await page.evaluate(f"(async () => {{ const H = __hm; if (H.GAME.player) H.fn.newCharacter(); await H.start({{ realm: 0, cls: 'warrior', level: {lvl} }}); H.UI.modal = 'menu'; H.CAM.mode = 'fixed'; H.GAME.player.hp = 1e9; H.GAME.player.maxHp = 1e9; const W = H.dbg.WEATHER; W.mode = 'clear'; W.kind = 'clear'; H.fn.weatherAdvance(60); return 0; }})()")  # [balance3] clear skies for every measure: rain damps fire and soaks foes for storms, and a run's weather moved its duels
             # [balance8] idle=S: the run's clock moved on S seconds before the duels (nothing fought meanwhile), to tell what
             # the clock does (the season, the hour, the weather) from what earlier duels leave behind
             if CLOCK == 'fix':  # [balance9] the same day of the year at every level's start, the first level's too: the jump back

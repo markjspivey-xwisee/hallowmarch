@@ -1,0 +1,125 @@
+/** Inventory/shop keyboard navigation with actual markup and synthetic items. */
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+const read = name => readFile(new URL('../../' + name, import.meta.url), 'utf8');
+const [pageSource, kitSource, mobileSource] = await Promise.all([read('src/page.html'), read('src/10b_kit.js'), read('src/10q_mobile.js')]);
+const playwrightPath = process.env.HM_PLAYWRIGHT_MODULE || fileURLToPath(new URL('../node_modules/playwright/index.mjs', import.meta.url));
+const { chromium } = await import(pathToFileURL(playwrightPath));
+const style = pageSource.match(/<style>([\s\S]*?)<\/style>/)[1];
+const markup = pageSource.slice(pageSource.indexOf('<div class="overlay" id="kit" hidden>'), pageSource.indexOf('<div class="overlay" id="death"'));
+const trapStart = mobileSource.indexOf("  document.addEventListener('keydown', (e) => {");
+const trap = mobileSource.slice(trapStart, mobileSource.indexOf("  if (!IS_TOUCH || !$('mobile-tray'))", trapStart));
+assert.match(trap, /\[[^\]]*'kit'[^\]]*'map'[^\]]*\]\.includes\(UI\.modal\)/, 'The actual shared modal Tab handler must cover both Kit and Map, with other modals allowed.');
+let browser;
+test.before(async () => { browser = await chromium.launch({ headless: true, executablePath: process.env.HM_CHROMIUM_EXECUTABLE || undefined }); });
+test.after(async () => { await browser?.close(); });
+async function fixture(t, width = 1280) {
+  const page = await browser.newPage({ viewport: { width, height: 850 }, hasTouch: width < 600 }); t.after(() => page.close());
+  const errors = [], requests = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await page.route('**/*', route => { requests.push(route.request().url()); return route.abort(); });
+  await page.setContent(`<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><style>${style}</style>
+    <body class="${width < 600 ? 'touch' : ''}"><div id="hud"><button id="btn-kit">Inventory</button><button id="fixture-shop">Trade</button><button id="fixture-outside">Outside control</button></div>${markup}</body>`);
+  await page.addScriptTag({ content: `
+    const $=id=>document.getElementById(id),IS_TOUCH=${width < 600},ICONS={};
+    const UI={modal:null},GAME={started:true,t:1,player:{name:'Fixture adventurer',cls:'warrior'},prog:{level:10}};
+    const makeFixtureItem=(id,name)=>({id,name,slot:'weapon',q:1,vis:'sword',lvl:1,base:'Sword',st:{attack:2}});
+    const INV={eq:{},bag:[makeFixtureItem('bag-one','Earned fixture sword'),makeFixtureItem('bag-two','Second fixture sword')],gold:100,potions:2};
+    const fixtureMerchant={merchant:{name:'Fixture merchant'},stock:{items:[makeFixtureItem('shop-one','Shop fixture sword'),makeFixtureItem('shop-two','Next shop sword')]}};
+    const __calls={equip:0,buy:0,sell:0,save:0},QUALITY=[{}, {col:'#ddd',name:'Common'}],SLOTS=['weapon'],SLOT_NAME={weapon:'Weapon'};
+    const BAG_SIZE=6,POTION={max:10},STAT_ORDER=['attack'],STAT_NAME={attack:'attack'},GEAR_STAT_INFO={attack:{}},GLOW_KIND=[];
+    const nearMerchant=()=>fixtureMerchant,merchantStock=shop=>shop.stock,iconSvg=()=>'',fmtInt=String,itemLine=()=> 'Fixture item',itemBroken=()=>false;
+    const potionPrice=()=>2,wearShopRow=()=>'',provisionsShopHTML=()=>'',wearSlotBar=()=>'',survivalKitButtons=()=>'',goodsHTML=()=>'';
+    const gsSummaryHTML=()=>'<button class="btn" data-stat="attack" type="button">Attack explained</button>',gsKeepInView=()=>{},gsReveal=()=>{};
+    const gsCloseHTML=()=>'<button class="btn" type="button" data-act="clear">Close this card</button>',gsStatLi=()=>'<li>Attack +2</li>',wearCardLines=()=>'';
+    const gsCardHTML=()=>'<button class="btn" type="button" data-act="clear">Close this card</button><p>Fixture attack explanation.</p>';
+    const gsKitAction=action=>{if(action!=='clear')return false;UI.kitSel=null;UI.kitHover=null;UI.kitConfirm=null;renderKit();return true};
+    const itemReq=()=>1,canEquip=()=>null,buyPrice=()=>10,sellValue=()=>3,saveSoon=()=>__calls.save++,sfx=()=>{};
+    const equipItem=item=>{const i=INV.bag.indexOf(item);if(i<0)return false;INV.bag.splice(i,1);INV.eq[item.slot]=item;__calls.equip++;return true};
+    const unequip=slot=>{if(!INV.eq[slot])return false;INV.bag.push(INV.eq[slot]);delete INV.eq[slot];return true};
+    const buyItem=(shop,item)=>{const i=shop.stock.items.indexOf(item);if(i<0)return false;shop.stock.items.splice(i,1);INV.bag.push(item);INV.gold-=10;__calls.buy++;return true};
+    const sellItem=item=>{const i=INV.bag.indexOf(item);if(i<0)return false;INV.bag.splice(i,1);INV.gold+=3;__calls.sell++;return true};
+    const sellJunk=()=>{},repairAll=()=>{},buyPotions=()=>{},goodsUse=()=>{};
+    const bgClose=(id,run)=>$(id).addEventListener('click',event=>{if(event.target===$(id))run()});
+    window.__kitFixture={calls:__calls,inventory:INV};
+  ` });
+  await page.addScriptTag({ content: kitSource });
+  await page.addScriptTag({ content: trap + `
+    $('btn-kit').onclick=()=>openKit();$('fixture-shop').onclick=()=>openKit('shop');
+    window.addEventListener('keydown',event=>{if(event.defaultPrevented||event.repeat||event.ctrlKey||event.metaKey||event.altKey)return;
+      if(event.key==='Escape'&&UI.modal==='kit'){event.preventDefault();closeKit()}});
+  ` });
+  return { page, errors, requests };
+}
+for (const width of [320, 390, 1280]) test(`inventory entry, modal keyboard boundary and close return at ${width}px`, async t => {
+  const { page, errors, requests } = await fixture(t, width);
+  await page.locator('#btn-kit').click();
+  assert.equal(await page.evaluate(() => document.activeElement.id), 'kit-close');
+  await page.keyboard.press('Shift+Tab');
+  assert(await page.locator('#kit').evaluate(node => node.contains(document.activeElement)));
+  const last = await page.locator('#kit').evaluate(node => [...node.querySelectorAll('button')].filter(button => !button.disabled && button.getClientRects().length).at(-1).textContent);
+  assert.equal(await page.evaluate(() => document.activeElement.textContent), last);
+  await page.keyboard.press('Tab'); assert.equal(await page.evaluate(() => document.activeElement.id), 'kit-close');
+  await page.keyboard.press('Escape'); assert(await page.locator('#kit').isHidden());
+  assert.equal(await page.evaluate(() => document.activeElement.id), 'btn-kit');
+  assert.deepEqual(await page.evaluate(() => __kitFixture.calls), { equip: 0, buy: 0, sell: 0, save: 0 });
+  assert.deepEqual(errors, []); assert.deepEqual(requests, []);
+});
+test('inventory selection and card updates retain the exact focused item across rebuilt controls', async t => {
+  const { page, errors } = await fixture(t);
+  await page.locator('#btn-kit').click();
+  await page.locator('[data-bag="0"]').focus(); await page.keyboard.press('Enter');
+  assert.equal(await page.evaluate(() => document.activeElement.getAttribute('aria-label')), 'Earned fixture sword');
+  await page.locator('[data-act="equip"]').focus(); await page.keyboard.press('Enter');
+  assert.equal(await page.evaluate(() => document.activeElement.dataset.eq), 'weapon');
+  assert.match(await page.locator('[data-eq="weapon"]').innerText(), /Earned fixture sword/);
+  await page.locator('[data-act="unequip"]').focus(); await page.keyboard.press('Enter');
+  assert.equal(await page.evaluate(() => document.activeElement.getAttribute('aria-label')), 'Earned fixture sword');
+  await page.locator('[data-act="discard"]').focus(); await page.keyboard.press('Enter');
+  assert.equal(await page.evaluate(() => document.activeElement.textContent), 'Press again to throw away');
+  assert.equal(await page.evaluate(() => __kitFixture.inventory.bag.length), 2, 'confirmation alone does not discard');
+  await page.keyboard.press('Enter');
+  assert.equal(await page.evaluate(() => document.activeElement.id), 'kit-close', 'removed item never retargets focus to the next bag slot');
+  assert.deepEqual(await page.evaluate(() => __kitFixture.inventory.bag.map(item => item.id)), ['bag-two']);
+  assert.deepEqual(errors, []);
+});
+test('shop actions preserve the exact item, avoid buying or selling adjacent replacements, and return to Trade', async t => {
+  const { page, errors, requests } = await fixture(t);
+  await page.locator('#fixture-shop').click(); assert.equal(await page.evaluate(() => document.activeElement.id), 'kit-close');
+  await page.locator('[data-shop="0"]').focus(); await page.keyboard.press('Enter');
+  assert.equal(await page.evaluate(() => document.activeElement.dataset.shop), '0');
+  await page.locator('[data-act="buy"]').focus(); await page.keyboard.press('Enter');
+  assert.equal(await page.evaluate(() => document.activeElement.getAttribute('aria-label')), 'Shop fixture sword');
+  assert.equal(await page.evaluate(() => __kitFixture.calls.buy), 1);
+  await page.keyboard.press('Enter');
+  assert.equal(await page.evaluate(() => __kitFixture.calls.buy), 1, 'selection of the purchased bag item cannot purchase the next shop item');
+  await page.locator('[data-act="sell"]').focus(); await page.keyboard.press('Enter');
+  assert.equal(await page.evaluate(() => document.activeElement.id), 'kit-close');
+  assert.deepEqual(await page.evaluate(() => ({ buy: __kitFixture.calls.buy, sell: __kitFixture.calls.sell })), { buy: 1, sell: 1 });
+  await page.keyboard.press('Escape'); assert.equal(await page.evaluate(() => document.activeElement.id), 'fixture-shop');
+  assert.deepEqual(errors, []); assert.deepEqual(requests, []);
+});
+test('routine redraw and a repeated open do not steal focus or overwrite the original inventory opener', async t => {
+  const { page, errors } = await fixture(t);
+  await page.locator('#btn-kit').click();
+  await page.locator('[data-bag="1"]').focus();
+  await page.evaluate(() => renderKit());
+  assert.equal(await page.evaluate(() => document.activeElement.getAttribute('aria-label')), 'Second fixture sword');
+  await page.evaluate(() => openKit('kit'));
+  assert.equal(await page.evaluate(() => document.activeElement.getAttribute('aria-label')), 'Second fixture sword');
+  await page.locator('#kit-close').click(); assert.equal(await page.evaluate(() => document.activeElement.id), 'btn-kit');
+  await page.locator('#fixture-outside').focus(); await page.evaluate(() => closeKit());
+  assert.equal(await page.evaluate(() => document.activeElement.id), 'fixture-outside', 'closing an already closed panel does not move focus');
+  assert.deepEqual(errors, []);
+});
+test('keyboard opening and a removed shop opener return to a visible inventory control', async t => {
+  const { page, errors } = await fixture(t);
+  await page.evaluate(() => { document.activeElement.blur(); openKit(); });
+  assert.equal(await page.evaluate(() => document.activeElement.id), 'kit-close');
+  await page.keyboard.press('Escape'); assert.equal(await page.evaluate(() => document.activeElement.id), 'btn-kit');
+  await page.locator('#fixture-shop').click(); await page.evaluate(() => document.getElementById('fixture-shop').remove());
+  await page.keyboard.press('Escape'); assert.equal(await page.evaluate(() => document.activeElement.id), 'btn-kit');
+  assert.deepEqual(errors, []);
+});

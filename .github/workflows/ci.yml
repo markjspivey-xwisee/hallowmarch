@@ -17,7 +17,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        check: [headless, companies, season, performance, visuals, shaders, phone, soak, water, startup, networking]
+        check: [headless, companies, season, performance, visuals, shaders, phone, soak, water, startup, onboarding, networking]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -26,6 +26,28 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Use bounded Ubuntu archive downloads
+        run: |
+          sudo python3 - <<'PY'
+          from pathlib import Path
+          import re
+          apt_root = Path('/etc/apt')
+          sources = [apt_root / 'sources.list']
+          sources += list((apt_root / 'sources.list.d').glob('*.list'))
+          sources += list((apt_root / 'sources.list.d').glob('*.sources'))
+          sources += list(apt_root.glob('apt-mirrors*.txt'))
+          azure = re.compile(r'https?://azure\.archive\.ubuntu\.com/ubuntu(?=/|\s|$)')
+          for source in sources:
+              if not source.is_file():
+                  continue
+              original = source.read_text()
+              updated = azure.sub('https://archive.ubuntu.com/ubuntu', original)
+              if updated != original:
+                  source.write_text(updated)
+                  print('Using the official Ubuntu archive in', source)
+          (apt_root / 'apt.conf.d' / '99-hallowmarch-ci').write_text(
+              'Acquire::Retries "1";\nAcquire::http::Timeout "20";\nAcquire::https::Timeout "20";\n')
+          PY
       - name: Install dependencies
         run: |
           npm ci --prefix tools
@@ -52,9 +74,34 @@ jobs:
           check() { python tools/ci/run_check.py "$@"; }
           case "$CHECK" in
             headless)
+              node --test tools/tests/character_name_composition.test.mjs tools/tests/death_panel_interruption.test.mjs
+              node --test tools/tests/presentation_accessibility.test.mjs tools/tests/objective_guidance.test.mjs tools/tests/combat_targeting.test.mjs tools/tests/lore_observation.test.mjs tools/tests/first_world_guidance.test.mjs tools/tests/potion_purchase_receipt.test.mjs tools/tests/combat_notes.test.mjs tools/tests/contextual_notes.test.mjs tools/tests/taming_prompt.test.mjs tools/tests/menu_reading_keys.test.mjs tools/tests/farmer_wayfinding.test.mjs
+              node --test tools/tests/menu_edit_save.test.mjs tools/tests/menu_edit_save.browser.test.mjs
+              node --test tools/tests/readiness_responsiveness.test.mjs tools/tests/weather_entry_resources.test.mjs tools/tests/ripple_entry_resources.test.mjs tools/tests/meadow_rgb_preparation.test.mjs tools/tests/season_settle_equivalence.test.mjs
+              node --test tools/tests/season_ice_settle.test.mjs
+              node --test tools/tests/early_title.test.mjs
+              node --test tools/tests/entry_feedback.test.mjs tools/tests/adaptive_quality_clock.test.mjs tools/tests/minimap_size_observer.test.mjs tools/tests/mobile_hud_spacing.test.mjs tools/tests/hud_watch_noise.test.mjs
+              node --test tools/tests/map_build_chunks.test.mjs
+              node --test tools/tests/sound_buffer_preparation.test.mjs tools/tests/music_impulse_preparation.test.mjs
+              node --test tools/tests/ground_ao_preparation.test.mjs tools/tests/season_map_preparation.test.mjs
+              node --test tools/tests/bounty_hud.test.mjs tools/tests/bounty_hud.browser.test.mjs
+              python3 -m unittest discover -s tools/tests -p native_journey_browser_test.py
+              python3 -m unittest discover -s tools/tests -p first_session_points_test.py
+              python3 -m unittest discover -s tools/tests -p first_session_observability_test.py
+              python3 -m unittest discover -s tools/tests -p mobile_viewport_observation_test.py
+              node --test tools/tests/startup_file_guard.browser.test.mjs
+              node --test tools/tests/reduced_effects_layout.browser.test.mjs
+              node --test tools/tests/graphics_recovery_ui.browser.test.mjs
+              node --test tools/tests/bird_crowd_visibility.test.mjs
+              node --test tools/tests/combat_ground_timing.test.mjs tools/tests/class_ground_producers.test.mjs tools/tests/projectile_wall_lifetime.test.mjs tools/tests/enemy_ground_warnings.test.mjs tools/tests/death_cause_feedback.test.mjs tools/tests/pvp_ground_receipts.test.mjs tools/tests/character_start_level.test.mjs tools/tests/dot_source_attribution.test.mjs tools/tests/encounter_development.test.mjs tools/tests/town_worker_development.test.mjs tools/tests/world_development.test.mjs tools/tests/world_level_independence.test.mjs tools/tests/work_practice.test.mjs tools/tests/world_progression_review.test.mjs tools/tests/dungeon_pet_levels.test.mjs tools/tests/client_release_compatibility.test.mjs tools/tests/guide_progression.test.mjs
               python3 -m unittest discover -s tools/tests -p ci_runner_regression.py
-              node --test tools/tests/startup_graphics.mjs tools/tests/gpu_diagnostic.mjs tools/tests/net_reconnect.mjs tools/tests/net_world_pause.mjs tools/tests/net_social_delivery.mjs
-              node --test tools/tests/gameplay_activity_profile.test.mjs
+              node --test tools/tests/ambient_errors.test.mjs tools/tests/startup_graphics.mjs tools/tests/startup_work.test.mjs tools/tests/world_build_chunks.test.mjs tools/tests/structure_build_chunks.test.mjs tools/tests/shared_scene_boot.test.mjs tools/tests/late_world_restore.test.mjs tools/tests/title_compile.test.mjs tools/tests/title_dependencies.test.mjs tools/tests/title_rolling_compile.test.mjs tools/tests/title_program_diagnostics.test.mjs tools/tests/gpu_diagnostic.mjs tools/tests/net_reconnect.mjs tools/tests/net_world_pause.mjs tools/tests/net_live_admission.test.mjs tools/tests/net_social_delivery.mjs
+              node --test tools/tests/gameplay_activity_profile.test.mjs tools/tests/gameplay_capture_time.test.mjs tools/tests/activity_dashboard_scope.test.mjs tools/tests/progressive_ui.test.mjs
+              node --test tools/tests/recovery_shader_equivalence.test.mjs tools/tests/input_lifecycle.test.mjs tools/tests/menu_accessibility.test.mjs
+              node --test tools/tests/chronicle_navigation.browser.test.mjs tools/tests/farmer_wayfinding.browser.test.mjs
+              node --test tools/tests/progress_navigation.browser.test.mjs tools/tests/kit_navigation.browser.test.mjs tools/tests/menu_confirmation.browser.test.mjs tools/tests/players_navigation.browser.test.mjs tools/tests/companion_navigation.browser.test.mjs tools/tests/menu_font_fit.browser.test.mjs
+              node --test tools/tests/warband_campaign_repair.test.mjs tools/tests/warband_replication.test.mjs tools/tests/warband_orders_shared.test.mjs server/warband-orders.test.mjs server/thrones.test.mjs tools/tests/throne_control.test.mjs tools/tests/throne_rts.test.mjs tools/tests/throne_rts_construction.test.mjs tools/tests/throne_rts_workforce.test.mjs tools/tests/throne_rts_render.test.mjs tools/tests/throne_rts_selection.test.mjs tools/tests/realm_watchpost_construction.test.mjs tools/tests/realm_management.test.mjs tools/tests/realm_diplomacy.test.mjs tools/tests/season_field.test.mjs tools/tests/realm_protocol.test.mjs tools/tests/realm_war_hooks.test.mjs tools/tests/realm_public_works.test.mjs tools/tests/realm_logistics.test.mjs tools/tests/realm_logistics_client.test.mjs tools/tests/realm_logistics_network.test.mjs
+              node --test tools/tests/realm_site_clearance.test.mjs tools/tests/realm_plot_placement.test.mjs tools/tests/realm_models_grounding.test.mjs
               node --test tools/tests/party_companion.mjs tools/tests/party_companion_network.mjs tools/tests/party_companion_transport.mjs tools/tests/season_connection_ui.mjs
               node --test tools/tests/companies_regression.mjs tools/tests/fieldarmies_regression.mjs tools/tests/fisher_liveness.mjs
               node tools/tests/net_companies.mjs
@@ -62,19 +109,34 @@ jobs:
               node tools/tests/loops_season.js seeds=12 json=tools/out/season2.json
               ;;
             startup) check python3 tools/tests/startup_graphics.py ;;
+            onboarding)
+              check env HM_BROWSER_CHANNEL=chrome node --test --test-concurrency=1 tools/tests/prologue_navigation.browser.test.mjs tools/tests/hud_watch_noise.browser.test.mjs
+              check python3 tools/tests/lore.py desktop phone
+              check python3 tools/tests/guide.py desk phone
+              ;;
             networking)
               node --test server/gaming/*.test.mjs tools/tests/gaming_live.test.mjs
               node --test client/native-pod/client.test.mjs client/native-pod/profile.test.mjs client/native-pod/public-record.test.mjs client/native-pod/owner-agent-grant.test.mjs client/native-pod/native-load.test.mjs client/native-pod/performance-consultation.test.mjs client/native-pod/foxxi-consulting*.test.mjs client/native-pod/agent-own-session.test.mjs
-              node --test client/native-pod/checkpoint*.test.mjs
+              node --test client/native-pod/recovery.test.mjs client/native-pod/key-scope.test.mjs
+              node --test tools/tests/connected_identity.test.mjs
+              node --test tools/offline-character-recovery/server.test.mjs tools/offline-character-recovery/recovery-core.test.mjs
+              node tools/node_modules/eslint/bin/eslint.js --no-eslintrc --env browser,node,es2022 --parser-options=ecmaVersion:2022,sourceType:module --rule '{"no-undef":"error","no-redeclare":"error","no-dupe-keys":"error","no-unreachable":"error","no-const-assign":"error"}' tools/offline-character-recovery/*.mjs
+              HM_PLAYWRIGHT_MODULE="$PWD/tools/node_modules/playwright/index.mjs" node --test tools/offline-character-recovery/offline-recovery.browser.test.mjs
+              node --test client/native-pod/checkpoint*.test.mjs client/native-pod/provisional-*.test.mjs
               node --test client/native-pod/signing-delegation.test.mjs client/native-pod/agent-gameplay-performance.test.mjs
               node --test client/native-pod/agent-directory.test.mjs
               node --test client/native-pod/gameplay-activity*.test.mjs
+              node --test client/native-pod/gameplay-patterns.test.mjs client/native-pod/gameplay-semantics.test.mjs
+              node --test client/native-pod/activity-dashboard.test.mjs client/native-pod/gameplay-record-reader.test.mjs
+              HM_PLAYWRIGHT_MODULE="$PWD/tools/node_modules/playwright/index.mjs" node --test client/native-pod/activity-dashboard.browser.test.mjs
               node --test client/native-pod/gameplay-learning-delivery*.test.mjs
               node --test client/world-agent-client.test.mjs client/world-agent-mcp.test.mjs
               HM_PLAYWRIGHT_MODULE="$PWD/tools/node_modules/playwright/index.mjs" node --test client/world-agent-client.browser.test.mjs
               HM_PLAYWRIGHT_MODULE="$PWD/tools/node_modules/playwright/index.mjs" node client/native-pod/browser.test.mjs
               HM_PLAYWRIGHT_MODULE="$PWD/tools/node_modules/playwright/index.mjs" node client/native-pod/access-cache.browser.test.mjs
               HM_PLAYWRIGHT_MODULE="$PWD/tools/node_modules/playwright/index.mjs" node client/native-pod/identity-ui.browser.test.mjs
+              HM_PLAYWRIGHT_MODULE="$PWD/tools/node_modules/playwright/index.mjs" node --test client/native-pod/identity-finish.browser.test.mjs
+              HM_PLAYWRIGHT_MODULE="$PWD/tools/node_modules/playwright/index.mjs" node --test client/native-pod/key-scope.browser.test.mjs
               HM_PLAYWRIGHT_MODULE="$PWD/tools/node_modules/playwright/index.mjs" node client/native-pod/owner-agent-grant.browser.test.mjs
               HM_PLAYWRIGHT_MODULE="$PWD/tools/node_modules/playwright/index.mjs" node --test tools/manual/native-virtual-passkey.test.mjs tools/manual/native-virtual-passkey.browser.test.mjs tools/manual/native-oauth-ceremony.test.mjs
               HM_PLAYWRIGHT_MODULE="$PWD/tools/node_modules/playwright/index.mjs" node --test tools/manual/native-oauth-proof-diagnostics.test.mjs tools/manual/native-oauth-proof-diagnostics.browser.test.mjs
@@ -91,16 +153,26 @@ jobs:
               ;;
             companies) check python3 tools/tests/net.py companies ;;
             season) check python3 tools/tests/season2.py ;;
-            performance) echo 'Performance checks run in the following steps.' ;;
-            visuals) check python3 tools/tests/look.py views=l7_yard,l7_cart,l7_woodcutter,l7_quarry,l7_moon,l7_dead,l7_weapons,l7_inside_storm q=low v=day tag=hallowmarch-ci ;;
-            shaders) check python3 tools/tests/shaders.py ;;
+            performance) node --test tools/tests/terrain_block_topology.test.mjs tools/tests/title_rolling_compile.test.mjs tools/tests/title_program_diagnostics.test.mjs tools/tests/entry_feedback.test.mjs tools/tests/adaptive_quality_clock.test.mjs tools/tests/minimap_size_observer.test.mjs tools/tests/mobile_hud_spacing.test.mjs tools/tests/season_map_preparation.test.mjs ;;
+            visuals)
+              check python3 tools/tests/combat_targeting.py
+              check python3 tools/tests/objective_tracking.py
+              check python3 tools/tests/look.py views=l7_yard,l7_cart,l7_woodcutter,l7_quarry,l7_moon,l7_dead,l7_weapons,l7_inside_storm q=low v=day tag=hallowmarch-ci
+              ;;
+            shaders)
+              check python3 tools/tests/shaders.py
+              HM_REALM_SITE_OUT="$PWD/tools/out/realm-sites" check python3 tools/tests/realm_sites_terrain.py
+              HM_RTS_FLOW_OUT="$PWD/tools/out/rts-construction" check python3 tools/tests/rts_construction_flow.py
+              ;;
             phone)
+              check python3 tools/tests/mobile_hud_tap_regression.py
               check python3 tools/tests/phone.py
               check python3 tools/tests/mobile_multitouch.py
               check python3 tools/tests/mobile_hud.py
               check python3 tools/tests/mobile_ergonomics.py
               check python3 tools/tests/mobile_navigation.py noshots
               check python3 tools/tests/touch_flows.py only=net,stores,season
+              HM_MENU_QA_OUT="$PWD/tools/out/menu-usability" check python3 tools/tests/menu_usability.py --strict
               ;;
             soak) check python3 tools/soak.py 10 ;;
             water)
@@ -127,3 +199,4 @@ jobs:
             tools/out/
             hallowmarch.html
           retention-days: 14
+

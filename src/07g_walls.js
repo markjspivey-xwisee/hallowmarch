@@ -493,7 +493,7 @@ function wallsProj(p, tx, ty, tz, d, step) {
   if (!WALLS.on || WALL_PROJ_SKIP[p.kind]) return false;
   // [v13] on its way over a rise: the stretch looked at runs toward that point, not straight at the mark
   if (p.via) { tx = p.via.x; ty = p.via.y; tz = p.via.z; d = Math.max(Math.hypot(tx - p.x, ty - p.y, tz - p.z), step + 0.31); }
-  const arrive = !p.via && (d <= step + 0.3 || p.age > p.life);
+  const arrive = !p.via && d <= step + 0.3;
   // one look covers two steps of the flight: found clear, the next step needs none (half the tests for a shot in the
   // open; a homing shot's next step lies within a few centimetres of the stretch looked at)
   if (!arrive && p.wallClear !== undefined && GAME.t < p.wallClear) return false;

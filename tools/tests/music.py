@@ -69,7 +69,7 @@ async def main():
             check(dt is not None, f"title theme plays after the gesture (state {json.dumps(s)[:300] if dt is None else 'ok'})")
 
             # -------- into the game: the homeland of Logres by day --------
-            r = await ev("""(() => { const H = __hm; H.fn.setQuality('low'); H.start({ realm: 0, cls: 'warrior', level: 20 }); H.setTod(0.3); H.fn.applyTimeOfDay(0.3);
+            r = await ev("""(async () => { const H = __hm; H.fn.setQuality('low'); await H.start({ realm: 0, cls: 'warrior', level: 20 }); H.setTod(0.3); H.fn.applyTimeOfDay(0.3);
               const W = H.dbg.WEATHER; W.mode = 'clear'; W.kind = 'clear'; W.overcast = W.fog = W.raining = W.storm = W.mist = 0;
               H.UI.modal = 'menu'; const P = H.GAME.player; return H.fn.zoneAt(P.x, P.z); })()""")
             log('start zone', r)
@@ -250,7 +250,7 @@ async def main():
                 a = await ev("__hm.aurora.state()")
                 log('shot', name, a)
                 return a
-            await ev("""(() => { const H = __hm; if (!H.GAME.player) H.start({ realm: 2, cls: 'warrior', level: 20 }); H.UI.modal = 'menu'; H.CAM.mode = 'fixed';
+            await ev("""(async () => { const H = __hm; if (!H.GAME.player) await H.start({ realm: 2, cls: 'warrior', level: 20 }); H.UI.modal = 'menu'; H.CAM.mode = 'fixed';
               const W = H.dbg.WEATHER; W.mode = 'clear'; W.kind = 'clear'; W.overcast = W.fog = W.raining = W.storm = W.mist = 0; W.snowing = 0; H.setTod(2.1); return 0; })()""")
             north = """(() => { const H = __hm, F = H.fn, R = H.REALMS[2]; const x = R.dx * 300 + R.px * 30, z = R.dz * 300 + R.pz * 30; H.teleport(x, z);
               H.camera.position.set(x, F.heightAt(x, z) + %s, z); H.camera.lookAt(x + %s, F.heightAt(x, z) + %s, z - 100); %s return 0; })()"""

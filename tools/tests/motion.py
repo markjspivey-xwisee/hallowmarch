@@ -206,7 +206,7 @@ async def main():
         b, page, logs = await setup(p, w=640, h=360)
         page.on('console', lambda m: logs.append(f'[{m.type}] {m.text[:300]}') if m.type == 'error' else None)
         await ev(page, f"__hm.fn.setQuality('{OPT.get('q', 'low')}'); 0")
-        await ev(page, "__hm.start({ realm: 0, cls: 'warrior', level: 20 }); __hm.setTod(0.45); 0")
+        await ev(page, "(async () => { await __hm.start({ realm: 0, cls: 'warrior', level: 20 }); __hm.setTod(0.45); return 0; })()")
         await ev(page, HELP)
         await ev(page, "(() => { MO.quiet(); MO.calm(); const R = __hm.REALMS[0], S = R.musterSite, a = Math.atan2(S.x, S.z); MO.cx = S.x + Math.sin(a) * 40; MO.cz = S.z + Math.cos(a) * 40; __hm.simulate(1); return 0; })()")
         print(f'booted [{time.time() - T0:.0f}s]', flush=True)

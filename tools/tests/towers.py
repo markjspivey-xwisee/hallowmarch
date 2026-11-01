@@ -116,7 +116,7 @@ async def main():
         print('booted', f'[{time.time() - T0:.0f}s]', flush=True)
         await page.evaluate(f"__hm.fn.setQuality('{QUALITY}')")
         await page.evaluate("() => {" + HELPERS + "; return 0; }")
-        await ev(page, 'start', "(() => { __hm.start({ realm: 0, cls: 'archer', level: 30 }); __hm.UI.modal = null; __hm.setTod(0.42); __hm.simulate(0.5); TT.quiet(); const W = __hm.dbg.WEATHER; W.mode = 'fixed'; W.kind = 'clear'; W.raining = 0; W.wet = 0; W.next = 1e9; return 0; })()")
+        await ev(page, 'start', "(async () => { await __hm.start({ realm: 0, cls: 'archer', level: 30 }); __hm.UI.modal = null; __hm.setTod(0.42); __hm.simulate(0.5); TT.quiet(); const W = __hm.dbg.WEATHER; W.mode = 'fixed'; W.kind = 'clear'; W.raining = 0; W.wet = 0; W.next = 1e9; return 0; })()")
 
         if want('v10'): await v10(page)
         if want('floors'): await floors(page)

@@ -88,6 +88,7 @@ test('actual Agent access UI exposes only confirmed public connection fields and
     const ENT=[],netWsSend=()=>true;
     Object.defineProperty(navigator,'clipboard',{value:{async writeText(value){window.copied=value}}});
     ${source}
+    MAIN_WORLD_AGENTS.lastGeneration=NETWS.generation;
     MAIN_WORLD_AGENTS.records.set(${JSON.stringify(grantId)},${JSON.stringify(record)});mainWorldAgentRender();
     window.fixture={render:mainWorldAgentRender,state:MAIN_WORLD_AGENTS,party,net:NETWS,game:GAME,
       noParty(){party=null;this.render()}};
@@ -178,19 +179,22 @@ test('actual death UI closes the active Players and chat surfaces and makes reco
   const net = await readFile(new URL('../src/14o_netui.js', import.meta.url), 'utf8');
   const pageSource = await readFile(new URL('../src/page.html', import.meta.url), 'utf8');
   const styles = pageSource.match(/<style>([\s\S]*?)<\/style>/)[1];
-  const death = source.slice(source.indexOf('function uiDeath('), source.indexOf('/* herald */'));
+  const death = source.slice(source.indexOf('function uiDeathDamage('), source.indexOf('/* herald */'));
   const sheetToggle = net.slice(net.indexOf('function netSheetToggle('), net.indexOf('// your account on the March'));
+  const chatHelpers = net.slice(net.indexOf('function netChatAudience('), net.indexOf('function netChatLabel('));
   const chatClose = net.slice(net.indexOf('function netChatClose('), net.indexOf('function netChatGo('));
   const deathMarkup = pageSource.slice(pageSource.indexOf('<div class="overlay" id="death"'), pageSource.indexOf('<div class="overlay" id="dialog"'));
   const html = `<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><style>${styles}</style>${deathMarkup}
     <div id="netchat"><input id="netchat-in" aria-label="Chat"></div>
     <div id="netsheet" class="overlay"><div class="sheet"><button id="background-action">Player action</button></div></div><script>
-    const $=id=>document.getElementById(id),UI={modal:'net'},NETUI={open:true,chatOpen:true};
-    const GAME={player:{x:0,z:0,faction:0}},R_RING=190,REALMS=[{name:'Logres',townName:'Home'}];
+    const $=id=>document.getElementById(id),UI={modal:'net'},NETUI={open:true,chatOpen:true,chan:'r',drafts:{},draftOwner:null,chatScope:null};
+    const NET={link:{kind:'ws'},party:''},NETWS={acct:{id:'fixture-account'},host:'game.example',worldRoom:'fixture-march'};
+    const GAME={t:1,player:{x:0,z:0,faction:0,hp:0}},R_RING=190,REALMS=[{name:'Logres',townName:'Home'}];
     const inDungeon=()=>false,buildBedSpot=()=>null;
     let released=0;function releasePlayer(){released++}
-    ${sheetToggle}\n${chatClose}\n${death}
-    window.fixture={die:uiDeath,state:()=>({modal:UI.modal,players:NETUI.open,chat:NETUI.chatOpen,released})};
+    ${sheetToggle}\n${chatHelpers}\n${chatClose}\n${death}
+    NETUI.chatScope=netChatAudience('r');document.getElementById('netchat-in').value='Unsent fixture draft';
+    window.fixture={die:uiDeath,draft:()=>NETUI.drafts.r?.text,state:()=>({modal:UI.modal,players:NETUI.open,chat:NETUI.chatOpen,released})};
     document.querySelector('#background-action').focus();
     </script>`;
   const page = await browser.newPage({ viewport: { width: 320, height: 568 } }), errors = [];
@@ -203,9 +207,11 @@ test('actual death UI closes the active Players and chat surfaces and makes reco
   await page.evaluate(() => fixture.die('a foe'));
   assert.equal(await page.locator('#netsheet').isVisible(), false); assert.equal(await page.locator('#netchat').isVisible(), false);
   assert.equal(await page.locator('#death').isVisible(), true);
+  assert.equal(await page.locator('#death-by').textContent(), 'Slain by a foe.');
   assert.equal(await page.locator('#btn-release').evaluate(el => el === document.activeElement), true);
   assert.equal(await page.locator('#btn-release').textContent(), 'Release to Logres Muster');
   assert.deepEqual(await page.evaluate(() => fixture.state()), { modal: 'death', players: false, chat: false, released: 0 });
+  assert.equal(await page.evaluate(() => fixture.draft()), 'Unsent fixture draft', 'death closes chat while retaining only its exact audience draft');
   await page.keyboard.press('Enter');
   assert.equal(await page.locator('#death').isVisible(), false);
   assert.deepEqual(await page.evaluate(() => fixture.state()), { modal: null, players: false, chat: false, released: 1 });
