@@ -1,6 +1,76 @@
 /* Owner identity and private character saves, composed through native ports. */
 const NATIVE_PLAYER = { status: null, profile: null, cache: null, module: null, state: 'idle', message: '', busy: false, busyMessage: '', channel: null, authRefusal: null, switching: false, provisional: null, provisionalOpening: null, provisionalContext: null, playFlight: null, recoveryOpen: false, conflict: null, claimLastConfirmed: false, promoted: false, claimConfirmationPending: false };
 const nativePlayerError = (code, message) => Object.assign(new Error(message), { code });
+// Display-only evidence from an accepted status response. Never a credential or save authority.
+let NATIVE_PLAYER_CONNECTED_IDENTITY = null;
+let NATIVE_PLAYER_CONNECTED_IDENTITY_EPOCH = 0;
+function nativePlayerConnectedIdentityContext() {
+  return { host: NETWS.host, accountId: NETWS.acct?.id, generation: NETWS.generation, token: NETWS.token,
+    displayEpoch: NATIVE_PLAYER_CONNECTED_IDENTITY_EPOCH };
+}
+function nativePlayerConnectedIdentityValues(status) {
+  const binding = status?.binding;
+  if (status?.enabled !== true || status.bound !== true || status.verified !== true || status.provisional === true
+    || binding?.provisional === true || typeof binding?.userId !== 'string' || !/^[A-Za-z0-9_-]{1,200}$/.test(binding.userId)
+    || typeof binding.subjectDid !== 'string' || binding.subjectDid.length > 1024
+    || /[\x00-\x20\x7f]/.test(binding.subjectDid) || !/^did:[a-z0-9]+:[^\s<>"{}|^`\\]+$/.test(binding.subjectDid)) return null;
+  const time = binding.verifiedAt;
+  const recordVerified = typeof time === 'string' && time.length <= 40 && Number.isFinite(Date.parse(time))
+    && new Date(time).toISOString() === time ? time : null;
+  return { userId: binding.userId, subjectDid: binding.subjectDid, recordVerified };
+}
+function nativePlayerConnectedIdentityCurrent(scope) {
+  const refusal = NETWS.liveAdmission;
+  return !!scope && !NETWS.closed && !NETWS.reload && NETWS.state === 'on' && NETWS.ws?.readyState === 1
+    && typeof scope.token === 'string' && !!scope.token && scope.token === NETWS.token
+    && scope.host === NETWS.host && scope.accountId === NETWS.acct?.id && scope.generation === NETWS.generation
+    && scope.displayEpoch === NATIVE_PLAYER_CONNECTED_IDENTITY_EPOCH
+    && !(refusal?.state === 'identity-required' && refusal.host === scope.host && refusal.accountId === scope.accountId && refusal.generation === scope.generation);
+}
+function nativePlayerClearConnectedIdentity(invalidate = true) {
+  if (invalidate) NATIVE_PLAYER_CONNECTED_IDENTITY_EPOCH++;
+  NATIVE_PLAYER_CONNECTED_IDENTITY = null;
+  if (typeof document === 'undefined' || typeof document.querySelectorAll !== 'function') return;
+  document.querySelectorAll('.native-connected-identity').forEach(node => {
+    if (node.parentElement?.classList.contains('native-player')) node.parentElement._nativeKey = null;
+    node.remove();
+  });
+}
+function nativePlayerRememberConnectedIdentity(status, scope) {
+  const values = nativePlayerConnectedIdentityValues(status);
+  if (!values || status !== NATIVE_PLAYER.status || status.account?.id !== scope?.accountId || !nativePlayerConnectedIdentityCurrent(scope)) {
+    nativePlayerClearConnectedIdentity(false); return;
+  }
+  NATIVE_PLAYER_CONNECTED_IDENTITY = { status, scope, values };
+}
+function nativePlayerConnectedIdentity() {
+  const accepted = NATIVE_PLAYER_CONNECTED_IDENTITY, values = nativePlayerConnectedIdentityValues(NATIVE_PLAYER.status);
+  if (!accepted) return null;
+  if (accepted.status !== NATIVE_PLAYER.status || !values || NATIVE_PLAYER.status.account?.id !== NETWS.acct?.id
+    || !nativePlayerConnectedIdentityCurrent(accepted.scope) || NATIVE_PLAYER.authRefusal || NATIVE_PLAYER.expiredAdventure
+    || ['native_identity_required', 'native_signin_required', 'game_account_required', 'account_required', 'owner_mismatch'].includes(NATIVE_PLAYER.state)
+    || values.userId !== accepted.values.userId || values.subjectDid !== accepted.values.subjectDid || values.recordVerified !== accepted.values.recordVerified) {
+    nativePlayerClearConnectedIdentity(false); return null;
+  }
+  return NATIVE_PLAYER.busy || NATIVE_PLAYER.switching ? null : values;
+}
+function nativePlayerRenderConnectedIdentity(parent, values, open) {
+  if (!values) return;
+  const details = document.createElement('details'); details.className = 'native-connected-identity'; details.open = open;
+  const summary = document.createElement('summary'); summary.textContent = 'Connected identity'; summary.dataset.nativeDisclosure = 'connected-identity';
+  summary.style.cssText = 'min-height:44px;display:list-item;box-sizing:border-box;padding:12px 4px;cursor:pointer';
+  details.appendChild(summary);
+  const list = document.createElement('dl'); list.style.overflowWrap = 'anywhere';
+  for (const [label, value] of [['Interego account ID', values.userId], ['Interego DID', values.subjectDid],
+    ...(values.recordVerified ? [['Identity record verified', values.recordVerified]] : [])]) {
+    const name = document.createElement('dt'), text = document.createElement('dd');
+    name.textContent = label; text.textContent = value; list.appendChild(name); list.appendChild(text);
+  }
+  details.appendChild(list);
+  const note = document.createElement('p');
+  note.textContent = 'This is the identity confirmed for this game connection. Identity record verification is historical, not the time of this sign-in. Character recovery is checked separately.';
+  details.appendChild(note); parent.appendChild(details);
+}
 async function nativePlayerRequest(url, { method = 'GET', body, timeoutMs, token = NETWS.token } = {}) {
   // Durable admission and record registration include queued native CAS/readback.
   // Their bounded lifecycle budget does not change short control or explicit deadlines.
@@ -105,12 +175,14 @@ async function nativePlayerAcceptSession(result, context) {
   if (!await netLinkWS() || !current() || NETWS.acct?.id !== account.id) {
     throw nativePlayerError('native_signin_required', 'Your character connection is saved. Retry the connection before continuing.');
   }
+  const identityDisplayContext = nativePlayerConnectedIdentityContext();
   const status = await nativePlayerRequest('/gaming/identity/status');
   if (!current() || status.verified !== true || status.binding?.subjectDid !== binding.subjectDid
     || status.binding?.podUrl !== binding.podUrl || status.account?.id !== account.id) {
     throw nativePlayerError('owner_mismatch', 'The game could not confirm this character owner. Retry the connection.');
   }
   NATIVE_PLAYER.status = { ...status, enabled: true };
+  nativePlayerRememberConnectedIdentity(NATIVE_PLAYER.status, identityDisplayContext);
 }
 async function nativePlayerProvisionalSession(status = NATIVE_PLAYER.status) {
   if (NATIVE_PLAYER.provisional) return NATIVE_PLAYER.provisional;
@@ -193,6 +265,7 @@ async function nativePlayerBegin(save) {
   try { return await flight; } finally { if (NATIVE_PLAYER.playFlight === flight) NATIVE_PLAYER.playFlight = null; }
 }
 async function nativePlayerSaveRef(initialization = { active: true }) {
+  nativePlayerClearConnectedIdentity();
   NATIVE_PLAYER.draftPreview = null;
   const server = netServerUrl();
   if (!server) return null;
@@ -275,12 +348,14 @@ async function nativePlayerSaveRef(initialization = { active: true }) {
   if (!active()) return null;
   const owner = NETWS.acct?.id, host = NETWS.host;
   initialization.owner = owner; initialization.host = host;
+  const identityDisplayContext = nativePlayerConnectedIdentityContext();
   let status;
   try { status = await nativePlayerRequest('/gaming/identity/status'); }
   catch (error) { return active() ? blocked : null; }
   if (!active()) return null;
   if (!owner || NETWS.acct?.id !== owner || NETWS.host !== host || (status.account?.id && status.account.id !== owner)) return blocked;
   NATIVE_PLAYER.status = { ...status, enabled: true };
+  nativePlayerRememberConnectedIdentity(NATIVE_PLAYER.status, identityDisplayContext);
   if (status.provisional === true || status.provisionalPlay?.enabled === true) {
     try {
       const session = await nativePlayerProvisionalSession(status);
@@ -376,6 +451,7 @@ function nativePlayerSaveMessage() {
   return 'Connect your identity to open and save your private character.';
 }
 function nativePlayerRender() {
+  const connectedIdentity = nativePlayerConnectedIdentity();
   if (typeof titleDraftSync === 'function') titleDraftSync();
   if (typeof entryFeedbackSync === 'function') entryFeedbackSync();
   const preparing = typeof titleEntryBlocked === 'function' ? titleEntryBlocked() : GAME.ready === false;
@@ -415,12 +491,13 @@ function nativePlayerRender() {
       && !SAVE.pending && !NATIVE_PLAYER.authRefusal && !NATIVE_PLAYER.conflict && !NATIVE_PLAYER.claimConfirmationPending && !claimRecovery;
     const recoveryCheck = NATIVE_PLAYER.recoveryCheck?.ownerKey === ownerKey ? NATIVE_PLAYER.recoveryCheck.result : null;
     const browserRecovery = NATIVE_PLAYER.browserRecovery?.ownerKey === ownerKey ? NATIVE_PLAYER.browserRecovery.result : null;
-    const renderKey = JSON.stringify([ownerKey, status.bound, status.verified, status.provisional, status.provisionalPlay?.enabled, SAVE.readConfirmed, !!SAVE.loaded, SAVE.loading?.settled, NATIVE_PLAYER.state, NATIVE_PLAYER.busy, NATIVE_PLAYER.switching, NATIVE_PLAYER.message, NATIVE_PLAYER.recoveryOpen, !!NATIVE_PLAYER.conflict, NATIVE_PLAYER.profile?.status(), nativePlayerFreshAllowed(), nativePlayerNewAdventureAllowed(), nativePlayerGuestExpired(), nativePlayerExpiredAdventureAllowed(), compact, !!SAVE.pending, !!GAME.started, !!blocked, preparing, currentClaimProfile?.status(), recoveryCheck, browserRecovery?.status, browserRecovery?.summary]);
+    const renderKey = JSON.stringify([ownerKey, connectedIdentity, status.bound, status.verified, status.provisional, status.provisionalPlay?.enabled, SAVE.readConfirmed, !!SAVE.loaded, SAVE.loading?.settled, NATIVE_PLAYER.state, NATIVE_PLAYER.busy, NATIVE_PLAYER.switching, NATIVE_PLAYER.message, NATIVE_PLAYER.recoveryOpen, !!NATIVE_PLAYER.conflict, NATIVE_PLAYER.profile?.status(), nativePlayerFreshAllowed(), nativePlayerNewAdventureAllowed(), nativePlayerGuestExpired(), nativePlayerExpiredAdventureAllowed(), compact, !!SAVE.pending, !!GAME.started, !!blocked, preparing, currentClaimProfile?.status(), recoveryCheck, browserRecovery?.status, browserRecovery?.summary]);
     if (box._nativeKey === renderKey && box._claimProfile === currentClaimProfile) continue;
     box._nativeKey = renderKey;
     const sameOwner = box._nativeOwner === ownerKey;
     const detailsOpen = sameOwner && box.querySelector('details.native-player-more')?.open;
     const alternativesOpen = sameOwner && box.querySelector('details.native-player-alternatives')?.open;
+    const connectedIdentityOpen = sameOwner && box.querySelector('details.native-connected-identity')?.open;
     const focused = box.contains(document.activeElement) ? document.activeElement : null;
     const focusAction = focused?.dataset.nativeAction, focusInput = focused?.className;
     const focusSummary = focused?.dataset.nativeDisclosure;
@@ -447,6 +524,7 @@ function nativePlayerRender() {
     if (!compact) add('h3', expired ? 'Temporary session expired' : provisional ? 'Keep your character' : status.bound ? 'Your identity and character' : nativePlayerCanPlayNow() ? 'Start your adventure' : 'Your identity and character');
     const hint = add('p', expired || status.bound || nativePlayerCanPlayNow() || nativePlayerNewAdventureAllowed() ? nativePlayerSaveMessage() : 'Connect your Interego identity to open your private character.');
     hint.className = 'native-player-status'; hint.tabIndex = -1;
+    nativePlayerRenderConnectedIdentity(box, connectedIdentity, !!connectedIdentityOpen);
     const profile = NATIVE_PLAYER.switching ? null : NATIVE_PLAYER.profile;
     const forcedRecovery = profile && profileStatus?.hasRecord && !profileStatus.keyPresent;
     const canCheckRecovery = profile && status.bound && status.verified && !provisional && !GAME.started;
@@ -866,6 +944,7 @@ function nativePlayerConnect(fresh = false) {
   if (expected && (!expected.accountId || !expected.ownerDid || !expected.podUrl || !expected.profile || !SAVE.readConfirmed)) {
     NATIVE_PLAYER.message = 'Your current character is still in memory. Confirm its original identity before reconnecting.'; nativePlayerRender(); return;
   }
+  nativePlayerClearConnectedIdentity();
   // A retained sign-in window may still be cross-origin; seed a fresh window.
   const popup = window.open('about:blank', '_blank', 'popup,width=520,height=760');
   if (!popup) { NATIVE_PLAYER.message = 'Allow this sign-in window, then connect again.'; nativePlayerRender(); return; }
@@ -972,6 +1051,8 @@ async function nativePlayerReconnect(expected, notification) {
     throw nativePlayerError('native_signin_required', 'The game session could not confirm your original account. Your progress remains in memory.');
   }
   NATIVE_PLAYER.status = status;
+  // This status preceded transport rebind. Only an ordinary accepted status on
+  // the current connection may reveal identity details; never reuse this one.
   SAVE.nativePaused = false;
   // Readback confirms the old baseline; it never replaces the live character.
   // Build the newest live state now, including progress made during sign-in.

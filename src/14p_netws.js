@@ -35,6 +35,10 @@ function netWsAdmissionStatus() {
   if (value.state === 'live' && !current) return null;
   return { state: value.state, code: value.code, why: value.why, current };
 }
+function netWsClearIdentityDisplay() {
+  try { if (typeof nativePlayerClearConnectedIdentity === 'function') nativePlayerClearConnectedIdentity(); }
+  catch { /* Optional display cleanup must never change transport control flow. */ }
+}
 function netWsAdmissionUpdate(message) {
   const state = message.admission;
   const code = state === 'live' ? 'human_play_admitted' : state === 'standby' ? 'human_play_required'
@@ -44,6 +48,7 @@ function netWsAdmissionUpdate(message) {
     : state === 'standby' ? 'Shared-world play is paused. Return to the game and interact to resume.' : 'Live shared-world play is confirmed.';
   const why = netStr(message.why, 180) || fallback, previous = netWsAdmissionStatus();
   NETWS.liveAdmission = { state, code, why, host: NETWS.host, accountId: NETWS.acct?.id || '', generation: NETWS.generation };
+  if (state === 'identity-required') netWsClearIdentityDisplay();
   if (state === 'identity-required' && (previous?.state !== state || previous.why !== why) && GAME.started && GAME.player) {
     uiLog(why, 'sys'); uiToast(why, 'hint');
   }
@@ -240,6 +245,7 @@ function netWsRetire(ws, why) {
   NETWS.linkP = null;
   if (NETWS.liveAdmission?.state === 'live') NETWS.liveAdmission = null;
   ++NETWS.generation; NETWS.ws = null; NETWS.state = 'off'; NETWS.lastFailure = why;
+  netWsClearIdentityDisplay();
   if (typeof netSharedSceneReset === 'function') netSharedSceneReset();
   netWsPendingFail();
   if (was === 'on') {
@@ -261,6 +267,7 @@ function netWsOpen() {
   // Retire a closing socket before replacing it. Its queued callbacks remain
   // harmless because every handler checks both this generation and identity.
   const old = NETWS.ws; NETWS.ws = null; NETWS.state = 'opening';
+  netWsClearIdentityDisplay();
   if (old) { netWsPendingFail(); try { old.close(); } catch (e) { /* gone */ } }
   let resolveOpen, settled = false, ws = null, fail = 0;
   const p = new Promise((resolve) => { resolveOpen = resolve; });
@@ -354,6 +361,7 @@ function netWsOpen() {
     };
     ws.onclose = (ev) => {
       if (!current()) return;
+      netWsClearIdentityDisplay();
       if (NETWS.liveAdmission?.state === 'live') NETWS.liveAdmission = null;
       if (ev && ev.code === 4006) {
         if (typeof netSceneReloadRequired === 'function') netSceneReloadRequired(ev.reason);
@@ -412,6 +420,7 @@ function netLinkWS(url) {
         if (NETWS.cancelOpen) NETWS.cancelOpen();
         NETWS.linkP = null;
         ++NETWS.generation;
+        netWsClearIdentityDisplay();
         if (typeof netSharedSceneReset === 'function') netSharedSceneReset();
         const ws = NETWS.ws; NETWS.ws = null; NETWS.state = 'off';
         if (ws) try { ws.close(); } catch (e) { /* gone */ }
