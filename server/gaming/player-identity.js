@@ -12,6 +12,7 @@
  */
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { isAsyncFunction } from 'node:util/types';
+import { renderPlayerIdentityFinish } from './player-browser-assets.js';
 
 const NATIVE_RELAY = 'https://relay.interego.xwisee.com';
 const NATIVE_IDENTITY = 'https://identity.interego.xwisee.com';
@@ -81,25 +82,24 @@ function acceptsHtml(req) {
   });
 }
 function browserFailure(res, status, code, browserCeremony) {
+  if (res.headersSent) { if (!res.writableEnded) res.end(); return; }
   const safeCode = ['native_owner_mismatch', 'identity_authorization_declined'].includes(code)
     ? code : 'identity_connection_failed';
-  // Only fixed copy, allowlisted codes and a server-generated public correlation
-  // nonce enter this page. OAuth values, owner data and internal errors do not.
-  const evidence = /^[A-Za-z0-9_-]{43}$/.test(browserCeremony ?? '')
-    ? `<meta name="hallowmarch-identity-ceremony" content="${browserCeremony}">` : '';
-  const message = safeCode === 'native_owner_mismatch'
-    ? 'This sign-in belongs to a different identity. Your character has not been switched. Return to the game and choose your original identity.'
-    : safeCode === 'identity_authorization_declined'
-      ? 'Identity sign-in was declined. Return to the game to try again.'
-      : 'The identity connection could not be completed. Return to the game to try again.';
-  res.writeHead(status, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', Pragma: 'no-cache',
-    'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer',
-    'Content-Security-Policy': "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'" });
-  res.end('<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">'
-    + '<meta name="color-scheme" content="dark"><meta name="hallowmarch-identity-error" content="' + safeCode + '">' + evidence
-    + '<title>Return to Hallowmarch</title><link rel="stylesheet" href="/gaming/identity/assets/finish.css"><main><h1>Identity connection incomplete</h1>'
-    + '<p id="status" role="status">' + message + '</p><button id="return" type="button">Return to the game</button></main>'
-    + '<script type="module" src="/gaming/identity/assets/finish.mjs"></script></html>');
+  // Only fixed copy, allowlisted codes and public ceremony metadata enter the
+  // shared view. A failure never gains a claim path or an external-script fallback.
+  let page;
+  try { page = renderPlayerIdentityFinish({ failureCode: safeCode, browserCeremony }); }
+  catch {
+    // Source unavailability cannot reject the HTTP handler, expose an error, or
+    // create a second claim path. This fixed fallback has no executable content.
+    res.writeHead(503, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', Pragma: 'no-cache',
+      'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer',
+      'Content-Security-Policy': "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'" });
+    res.end('<!doctype html><html lang="en"><meta charset="utf-8"><title>Sign-in did not finish</title>'
+      + '<h1>Sign-in did not finish</h1><p>Your saved character has not been changed.</p><a href="/">Return to the game</a></html>');
+    return;
+  }
+  res.writeHead(status, page.headers); res.end(page.body);
 }
 async function bodyOf(req, supplied) {
   if (supplied !== undefined) {
