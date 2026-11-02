@@ -9,6 +9,7 @@ import { chromium } from '../node_modules/playwright/index.mjs';
 
 const shell = readFileSync(new URL('../../src/page.html', import.meta.url), 'utf8');
 const identity = readFileSync(new URL('../../src/14v_nativeidentity.js', import.meta.url), 'utf8');
+const save = readFileSync(new URL('../../src/12_save.js', import.meta.url), 'utf8').split('function graphicsSaveSettings()')[0];
 const transport = readFileSync(new URL('../../src/14p_netws.js', import.meta.url), 'utf8');
 const ui = readFileSync(new URL('../../src/10_ui.js', import.meta.url), 'utf8');
 function declarations(source, select) {
@@ -18,6 +19,10 @@ function declarations(source, select) {
 // only replaced functions below are synthetic network/profile/action ports.
 const nativeCode = declarations(identity, node => node.type === 'FunctionDeclaration'
   || node.type === 'VariableDeclaration' && node.declarations.some(item => item.id.name.startsWith('NATIVE_PLAYER') || item.id.name === 'nativePlayerError'));
+// Keep the real save-generation/selection guards used by Connect. SAVE itself
+// is the fixture's controlled state; no selector or cancellation helper is stubbed.
+const saveCode = declarations(save, node => node.type === 'FunctionDeclaration'
+  || node.type === 'VariableDeclaration' && node.declarations.every(item => item.id.name !== 'SAVE'));
 const guardCode = declarations(ui, node => node.type === 'FunctionDeclaration' && node.id.name === 'titleEntryBlocked');
 const transportHook = declarations(transport, node => node.type === 'FunctionDeclaration'
   && ['netWsClearIdentityDisplay', 'netWsAdmissionUpdate', 'netWsAdmissionStatus'].includes(node.id.name));
@@ -52,7 +57,7 @@ async function accountFixture(t, options = {}) {
   // This script executes in the disposable document only. No real socket,
   // native SDK, credential, key, owner browser storage or auth flow exists.
   await f.page.evaluate(`window.__early = (() => { const options = ${JSON.stringify(options)};
-      ${guardCode}\n${nativeCode}\n${transportHook}\n
+      ${guardCode}\n${saveCode}\n${nativeCode}\n${transportHook}\n
       const calls = { fetch: [], request: [], link: 0, peek: 0, auth: [], write: 0, key: 0, settled: 0, popup: 0, token: 0, start: 0, entry: 0 };
       const deferred = () => { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; };
       const manifest = deferred(), status = deferred(), metadata = deferred(), authorization = deferred();

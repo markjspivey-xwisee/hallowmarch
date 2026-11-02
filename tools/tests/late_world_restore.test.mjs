@@ -9,7 +9,7 @@ function pick(file,names){const source=read(file);return parse(source,{ecmaVersi
   .filter(node=>node.type==='FunctionDeclaration'&&names.includes(node.id.name)||node.type==='VariableDeclaration'&&node.declarations.some(d=>names.includes(d.id.name)))
   .map(node=>source.slice(node.start,node.end)).join('\n');}
 const source=['14n_net.js','14p_netws.js','14z_networldparts.js'].map(read).join('\n')+'\n'
-  +pick('12_save.js',['SAVE','withTimeout','validSave','saveLoadOwned','saveLoadTitle','loadSave','applyWorldSave'])+'\n'
+  +pick('12_save.js',['SAVE','SAVE_LOAD_SELECTIONS','withTimeout','validSave','saveLoadOwned','saveLoadCurrent','saveLoadPresented','saveLoadApply','saveLoadInvalidate','saveLoadReturn','saveLoadTitle','loadSave','applyWorldSave'])+'\n'
   +pick('08g_campaign.js',['applyCampaignSave']);
 const admission={origin:'https://game.test',epoch:4};
 const copy=value=>value===undefined?undefined:JSON.parse(JSON.stringify(value));
@@ -41,7 +41,13 @@ function harness(){
     data:JSON.stringify({v:1,full:false,parts,remove:[],...extra})});
   const save=(world={})=>({v:1,char:{name:'Owned late character',realm:0,cls:'warrior',level:1,xp:37},settings:{quality:'low'},
     world:{keeps:[],sharedWorld:{...admission},land:{v:1,marker:'private-land'},x:{privateDomain:'private-progress'},...world}});
-  const hydrate=value=>{H.SAVE.loaded=value;const load={settled:true,owner:'owner',host:'game.test'};H.SAVE.loading=load;context.GAME.ready=true;H.title(load);};
+  const hydrate=async value=>{
+    // Model an actual completed owned read, including its private selection
+    // provenance; never manufacture a selector result or bypass its guard.
+    H.SAVE.loading=null;context.GAME.ready=true;
+    context.initSaveBackend=async initialization=>{H.SAVE.native=true;initialization.owner='owner';initialization.host='game.test';return{native:true,get:async()=>({exists:true,data:()=>value})};};
+    await H.load({retry:true});
+  };
   return{H,context,state,calls,out,timers,authority,image,save,hydrate,async advance(ms){now+=ms;for(const[id,timer]of[...timers])if(timer.at<=now){timers.delete(id);timer.fn();}await flush();}};
 }
 
@@ -59,31 +65,31 @@ test('actual timed-out private read hydrates its character/settings/private doma
   f.H.message(f.image({land:'canonical-land'},2));assert.equal(f.state.land,'canonical-land');assert.equal(f.H.NETPARTS.received,2);
 });
 
-test('private-first hydration and no-image keeper preserve their normal private world until a future canonical snapshot arrives',()=>{
+test('private-first hydration and no-image keeper preserve their normal private world until a future canonical snapshot arrives',async()=>{
   for(const freshKeeper of[false,true]){
     const f=harness();f.H.message(f.authority(freshKeeper?{peer:'follower',worldpartsReady:false}:{}));
     f.context.GAME.built=true;f.H.release();assert.equal(f.H.NETPARTS.appliedImageScope,null);
-    f.hydrate(f.save());assert.deepEqual(f.state.land,{v:1,marker:'private-land'});assert.equal(f.state.custom,'private-progress');
+    await f.hydrate(f.save());assert.deepEqual(f.state.land,{v:1,marker:'private-land'});assert.equal(f.state.custom,'private-progress');
     if(!freshKeeper){f.H.message(f.image({land:'future-canonical'}));assert.equal(f.state.land,'future-canonical');}
   }
 });
 
-test('canonical partial images restore only captured domains, preserving uncaptured private data and personal campaign history',()=>{
+test('canonical partial images restore only captured domains, preserving uncaptured private data and personal campaign history',async()=>{
   const f=harness();f.context.GAME.built=true;f.H.release();f.H.message(f.authority());
   const campaign={n:9,el:10,state:'war',peace:0,claims:[{},{},{}],renown:[1,2,3],history:[{n:8,w:0,how:'keeps'}]};
   f.H.message(f.image({core:{campaign}}));
-  f.hydrate(f.save({campaign:{n:1,hist:[{n:8,w:0,how:'keeps',you:{r:0,kills:7},reward:{gold:13,xp:37}}]}}));
+  await f.hydrate(f.save({campaign:{n:1,hist:[{n:8,w:0,how:'keeps',you:{r:0,kills:7},reward:{gold:13,xp:37}}]}}));
   assert.deepEqual(f.state.land,{v:1,marker:'private-land'});assert.equal(f.state.custom,'private-progress');assert.equal(f.context.CAMPAIGN.n,9);
   assert.equal(f.context.CAMPAIGN.history[0].you.kills,7);assert.equal(f.context.CAMPAIGN.history[0].reward.gold,13);
   assert.equal(f.calls.rewards,0);assert.equal(f.calls.learning,0);
 });
 
-test('restoring a captured image never replays receipt/results, publishes, or changes canonical sequence/receive facts',()=>{
+test('restoring a captured image never replays receipt/results, publishes, or changes canonical sequence/receive facts',async()=>{
   const f=harness();f.context.GAME.built=true;f.H.release();f.H.message(f.authority());
   const receipts=[{id:'already-confirmed',ownerAccount:'owner',ok:true,goods:[['stone',2]]}];
   f.H.message(f.image({land:'canonical'},5,{receipts}));const before=f.H.NETPARTS.receipts;
   f.context.calls=f.calls;vm.runInContext('netWorldPartsResult=()=>calls.results++;netWorldPartsConfirmSettled=()=>calls.results++;',f.context);
-  for(let n=0;n<3;n++)f.hydrate(f.save());
+  for(let n=0;n<3;n++)await f.hydrate(f.save());
   assert.equal(f.state.land,'canonical');assert.equal(f.H.NETPARTS.received,1);assert.equal(f.H.NETPARTS.readSeq,5);
   assert.equal(f.H.NETPARTS.receipts,before);assert.equal(f.calls.results,0);assert.equal(f.calls.rewards,0);assert.equal(f.calls.learning,0);assert.equal(f.out.length,0);
 });
@@ -98,15 +104,15 @@ test('reset, authority, transport, owner and admission changes cannot replay a c
   }
 });
 
-test('new authority without an applied image and duplicate/stale/invalid frames cannot fabricate a replay capability',()=>{
+test('new authority without an applied image and duplicate/stale/invalid frames cannot fabricate a replay capability',async()=>{
   const f=harness();f.context.GAME.built=true;f.H.release();f.H.message(f.authority());
   f.H.message({...f.image({land:'bad'}),data:'{'});assert.equal(f.H.protect(),null);
   f.H.message(f.image({land:'canonical'},3));
   f.H.message(f.image({land:'stale'},2));f.H.message({...f.image({land:'wrong-scope'},4),authority:'other'});
-  f.hydrate(f.save());assert.equal(f.state.land,'canonical');
+  await f.hydrate(f.save());assert.equal(f.state.land,'canonical');
   f.H.message(f.authority({authority:'new',peer:'follower',worldpartsReady:false}));
   assert.equal(f.H.NETPARTS.ready,true);assert.equal(f.H.protect(),null);
-  f.hydrate(f.save());assert.deepEqual(f.state.land,{v:1,marker:'private-land'});
+  await f.hydrate(f.save());assert.deepEqual(f.state.land,{v:1,marker:'private-land'});
 });
 
 test('a later canonical image invalidates an older restore capability even within the same owner connection',()=>{
@@ -115,11 +121,11 @@ test('a later canonical image invalidates an older restore capability even withi
   assert.equal(restore(),false);assert.equal(f.state.land,'newer');assert.equal(f.H.NETPARTS.readSeq,2);
 });
 
-test('a partial frame in a new authority cannot bless untouched keys retained from the previous authority',()=>{
+test('a partial frame in a new authority cannot bless untouched keys retained from the previous authority',async()=>{
   const f=harness();f.context.GAME.built=true;f.H.release();f.H.message(f.authority());f.H.message(f.image({land:'old-authority'}));
   f.H.message(f.authority({authority:'new'}));
   f.H.message({...f.image({core:{}},1),authority:'new'});
-  f.hydrate(f.save());assert.deepEqual(f.state.land,{v:1,marker:'private-land'});
+  await f.hydrate(f.save());assert.deepEqual(f.state.land,{v:1,marker:'private-land'});
 });
 
 test('late title hydration retains its existing owner/host/started fences',()=>{
@@ -137,7 +143,7 @@ test('a private adapter failure still restores the captured canonical domains be
   assert.equal(f.H.NETPARTS.received,1);assert.equal(f.out.length,0);
 });
 
-test('the actual additive private-land loader and canonical reconciliation remain idempotent, including a canonical empty image',()=>{
+test('the actual additive private-land loader and canonical reconciliation remain idempotent, including a canonical empty image',async()=>{
   for(const canonical of[{v:1,cr:[[0,0,10,2,2,1,1,0,-200]]},null]){
     const f=harness(),HN=8,heights=new Float32Array(HN*HN).fill(10);
     Object.assign(f.context,{HN,W:{H:heights,trees:[]},Float32Array,LAND_CAP:{craters:40},LAND:{},LAND_HOUSE:{},CASTLES:[],FIRES:[],
@@ -148,14 +154,14 @@ test('the actual additive private-land loader and canonical reconciliation remai
     f.context.GAME.built=true;f.H.release();f.H.message(f.authority());f.H.message(f.image({land:canonical}));
     const expected=canonical?8:10;assert.equal(heights[2*HN+2],expected);
     for(let n=0;n<3;n++){
-      f.hydrate(f.save({land:{v:1,cr:[[0,0,10,2,2,1,1,0,-500]]}}));
+      await f.hydrate(f.save({land:{v:1,cr:[[0,0,10,2,2,1,1,0,-500]]}}));
       assert.equal(heights[2*HN+2],expected);assert.equal(f.context.NATURE.craters.length,canonical?1:0);
     }
     assert.equal(f.H.NETPARTS.received,1);assert.equal(f.calls.learning,0);assert.equal(f.calls.rewards,0);assert.equal(f.out.length,0);
   }
 });
 
-test('actual wall and tower image restoration preserves physics and guard routes without duplicate repair news or diagnostics',()=>{
+test('actual wall and tower image restoration preserves physics and guard routes without duplicate repair news or diagnostics',async()=>{
   for(const kind of['wall','tower'])for(const damaged of[false,true]){
     const f=harness(),news=[],HN=8,guard={id:1,alive:true,y:-5,ai:{wall:true,slot:'w0',route:null}},route=[{x:0,z:0,y:5}];
     const keep={guards:new Set([1]),lord:null,realm:0},site={keepRef:keep,name:'Fixture Keep'},C={S:site};
@@ -177,7 +183,7 @@ test('actual wall and tower image restoration preserves physics and guard routes
     assert.equal(originalNews,1,'ordinary canonical repair behavior remains unchanged');
     for(let n=0;n<3;n++){
       guard.ai.route=null;guard.ai.plug={W:wall};
-      f.hydrate(f.save({land:{v:1,ws:[[0,0,2,500,0]]}}));
+      await f.hydrate(f.save({land:{v:1,ws:[[0,0,2,500,0]]}}));
       assert.equal(wall.state,damaged?'breach':'whole');assert.equal(wall.floors[0].active,!damaged);
       assert.equal(wall.coll.active,!damaged);assert.equal(wall.scaffold.visible,false);assert.equal(guard.ai.plug,null);
       if(kind==='tower')assert.equal(guard.ai.route,route,'restorative routing still runs when diagnostics are quiet');

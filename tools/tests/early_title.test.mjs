@@ -7,6 +7,10 @@ const read=n=>readFileSync(new URL('../../src/'+n,import.meta.url),'utf8');
 function actual(file,names){const s=read(file);return parse(s,{ecmaVersion:'latest'}).body.filter(n=>n.type==='FunctionDeclaration'&&names.includes(n.id.name)||n.type==='VariableDeclaration'&&n.declarations.some(d=>names.includes(d.id.name))).map(n=>s.slice(n.start,n.end)).join('\n');}
 const ui=read('10_ui.js').split('/* HUD construction')[0];
 const identity=actual('14v_nativeidentity.js',['NATIVE_PLAYER_EARLY_POLICY','NATIVE_PLAYER_EARLY_STATUS','NATIVE_PLAYER_EARLY_REFUSAL','NATIVE_PLAYER_EARLY_PROOF','NATIVE_PLAYER_EARLY_EPOCH',
+  'NATIVE_PLAYER_EMPTY_PROVISIONAL','NATIVE_PLAYER_STARTUP_CEREMONY','NATIVE_PLAYER_STARTUP_HANDOFF','NATIVE_PLAYER_STARTUP_EPOCH',
+  'NATIVE_PLAYER_CANONICAL_LOADS','nativePlayerStartupCanonical','nativePlayerStartupHandoffCurrent','nativePlayerStartupBindingMatches','nativePlayerAbortStartup',
+  'nativePlayerStartupPending','nativePlayerStartupUnselected','nativePlayerStartupProof','nativePlayerRememberEmptyProvisional',
+  'nativePlayerStartupCurrent','nativePlayerStartupIdle','nativePlayerStartupConsume','nativePlayerRefreshStartup',
   'nativePlayerEarlyPolicyCurrent','nativePlayerEarlySignInContext','nativePlayerEarlySignInCurrent','nativePlayerEarlySignInChoice',
   'nativePlayerRenderEarlySignIn','nativePlayerClearEarlySignIn','nativePlayerRememberEarlyRefusal',
   'NATIVE_PLAYER_CONNECTED_IDENTITY','NATIVE_PLAYER_CONNECTED_IDENTITY_EPOCH',
@@ -58,7 +62,7 @@ function fixture({career=null,native=true,visualViewport=true}={}){
     netLinkWS:async()=>true,nativePlayerRequest:async()=>c.serverStatus,nativePlayerError:(code,message)=>Object.assign(Error(message),{code}),
     applySettings:()=>{calls.settings++;},applyWorldSave:()=>{calls.world++;},setTimeout:()=>1,clearTimeout(){},
   });
-  vm.runInContext(actual('12_save.js',['saveLoadOwned','saveLoadTitle'])+'\n'+ui+'\n'+actual('10_ui.js',['menuRadioKey'])+'\n'+identity+'\nglobalThis.view=UI;globalThis.draft=()=>TITLE_DRAFT;',c);
+  vm.runInContext(actual('12_save.js',['SAVE_LOAD_SELECTIONS','saveLoadOwned','saveLoadCurrent','saveLoadPresented','saveLoadApply','saveLoadInvalidate','saveLoadReturn','saveLoadTitle'])+'\n'+ui+'\n'+actual('10_ui.js',['menuRadioKey'])+'\n'+identity+'\nglobalThis.view=UI;globalThis.draft=()=>TITLE_DRAFT;',c);
   const session={peek:async()=>{calls.peek++;if(c.peekError)throw Error('private read unavailable');return c.metadata;},resume:async()=>{calls.resume++;return{};},bootstrap:async()=>{calls.bootstrap++;throw Error('UI must not bootstrap');},profile:()=>profile,claimProfile:()=>null,status:()=>({})};
   c.nativePlayerProvisionalSession=async()=>{NATIVE_PLAYER.provisional=session;NATIVE_PLAYER.provisionalContext={host:'fixture',accountId:'owner'};return session;};
   c.nativePlayerProvisionalRef=()=>({native:true});

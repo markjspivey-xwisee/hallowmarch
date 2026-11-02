@@ -6,6 +6,7 @@ import vm from 'node:vm';
 const root = new URL('../../', import.meta.url);
 const diagnosticSource = readFileSync(new URL('src/13y_gpu_diagnostic.js', root), 'utf8');
 const mainSource = readFileSync(new URL('src/13_main.js', root), 'utf8');
+const saveSource = readFileSync(new URL('src/12_save.js', root), 'utf8').split('function graphicsSaveSettings()')[0];
 
 function harness({ requested = true, safe = true, statuses = [], defaultStatus = 2 } = {}) {
   let now = 0, lost = false, id = 0, timerId = 0;
@@ -351,7 +352,9 @@ function bootHarness({ diagnostic = true, safe = true } = {}) {
     performance: { now: () => 0 }, tod: { p: 1 }, camera: { updateMatrixWorld() {} },
     DUN: { root: {} }, INDOOR: { on: false }, scene: {}, lastNow: 0,
     $: id => nodes[id],
-    loadSave: async () => null,
+    bootSaveData: null, NETWS: { host: 'fixture.example', acct: { id: 'fixture-owner' }, reload: false },
+    netServerUrl: () => 'wss://fixture.example/ws', CLASSES: {}, LEVEL_CAP: 50, coreKey: JSON.stringify,
+    applySettings() {}, applyWorldSave() {},
     loadStep: async (frac,msg,fn) => ctx.runBootWork(fn,{workMs:0,maxChunkMs:0,maxSliceMs:0,chunks:0,yields:0}),
     nextPaint: async () => {},
     graphicsAssertActive() {}, graphicsCheckpoint() {},
@@ -393,7 +396,11 @@ function bootHarness({ diagnostic = true, safe = true } = {}) {
   vm.createContext(ctx);
   const workStart=mainSource.indexOf('const BOOT_WORK_BUDGET_MS'),workEnd=mainSource.indexOf('async function loadStep(');
   assert.ok(workStart>=0&&workEnd>workStart);
-  vm.runInContext(mainSource.slice(workStart,workEnd)+'\n'+mainSource.slice(start,end+2),ctx);
+  vm.runInContext(saveSource+'\n'+mainSource.slice(workStart,workEnd)+'\n'+mainSource.slice(start,end+2)+`\n
+    nativePlayerSaveRef=async initialization=>{SAVE.native=true;initialization.owner='fixture-owner';initialization.host='fixture.example';
+      return{native:true,get:async()=>({exists:bootSaveData!==null,data:()=>bootSaveData})};};
+    globalThis.bootActualLoadSave=loadSave;
+  `,ctx);
   return {ctx,calls,nodes};
 }
 
@@ -406,10 +413,11 @@ test('diagnostic boot returns before compilation, map, first tick, title and nor
 });
 test('boot releases canonical scene updates only after its private world snapshot is restored',async()=>{
   const h=bootHarness({diagnostic:false,safe:true});
-  const saved={settings:{quality:'medium'},world:{fixture:'private checkpoint'}};
-  h.ctx.loadSave=async()=>{assert.equal(h.ctx.GAME.built,false);return saved;};
-  h.ctx.applySettings=value=>{assert.equal(value,saved.settings);h.calls.push('settings-restored');};
-  h.ctx.applyWorldSave=value=>{assert.equal(value,saved.world);h.calls.push('private-world-restored');};
+  const saved={v:1,settings:{quality:'medium'},world:{fixture:'private checkpoint'}};let selected;
+  h.ctx.bootSaveData=saved;
+  h.ctx.loadSave=async()=>{assert.equal(h.ctx.GAME.built,false);selected=await h.ctx.bootActualLoadSave();assert.deepEqual(JSON.parse(JSON.stringify(selected)),saved);return selected;};
+  h.ctx.applySettings=value=>{assert.equal(value,selected.settings);h.calls.push('settings-restored');};
+  h.ctx.applyWorldSave=value=>{assert.equal(value,selected.world);h.calls.push('private-world-restored');};
   h.ctx.netSharedSceneFlushBuilt=()=>{assert.equal(h.ctx.GAME.built,true);h.calls.push('scene-ready');};
   h.ctx.resize=()=>h.calls.push('sizing');
   await vm.runInContext('boot()',h.ctx);
