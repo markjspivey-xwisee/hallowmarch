@@ -34,6 +34,7 @@
 
   /* loading */
   #loading { position: fixed; inset: 0; display: grid; place-items: center; background: var(--void); z-index: 50; transition: opacity 0.8s ease; }
+  body:not(.title-preparing) #loading { padding: 16px; overflow-y: auto; align-items: safe center; }
   #loading .inner { display: grid; gap: 14px; justify-items: center; }
   #loading h1 { margin: 0; font: 400 clamp(38px, 8vw, 72px)/1 var(--display); letter-spacing: 0.04em; color: var(--bronze-hi); }
   #loading .bar { width: min(320px, 70vw); height: 3px; background: rgba(255, 255, 255, 0.08); border-radius: 2px; overflow: hidden; }
@@ -44,6 +45,10 @@
   #loading p { margin: 0; max-width: min(28rem, 84vw); text-align: center; overflow-wrap: anywhere; color: var(--ink-dim); font-family: var(--caps); letter-spacing: 0.08em; font-size: 13px; }
   #loading #load-detail, #loading #load-hint { font-family: var(--ui); letter-spacing: normal; line-height: 1.45; }
   #loading #load-detail { font-variant-numeric: tabular-nums; }
+  #loading-identity { width: min(30rem, 86vw); max-width: 100%; padding: 14px; border: 1px solid var(--line); border-radius: 6px; background: var(--slate-solid); text-align: left; }
+  #loading-identity h2 { margin: 0 0 8px; font: 400 21px/1.2 var(--display); color: var(--bronze-hi); }
+  #loading #loading-identity-status { margin: 0 0 10px; max-width: none; font-family: var(--ui); letter-spacing: normal; font-size: 14px; }
+  #loading-sign-in { min-height: 44px; }
   /* A nonmodal entry status; its transform-only sweep is decorative, not progress. */
   #entry-feedback { position: fixed; inset: 0; height: auto; z-index: 40; display: grid; place-items: center; padding: 20px; pointer-events: none; background: rgba(11, 13, 16, 0.94); }
   #entry-feedback .entry-inner { display: grid; justify-items: center; gap: 16px; max-width: 100%; color: var(--ink); font: 400 clamp(24px, 6vw, 34px)/1.2 var(--display); text-align: center; }
@@ -59,6 +64,7 @@
   body.title-preparing #loading h1, body.title-preparing #loading .lore-ltip { display: none; }
   body.title-preparing #loading p { max-width: 100%; font-size: 12px; }
   body.title-preparing #loading .bar { width: min(320px, 100%); }
+  body.title-preparing #create .card-foot { min-height: 0; max-height: 70vh; overflow-y: auto; }
 
   /* title & character creation */
   #title { position: fixed; inset: 0; z-index: 20; display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 470px); align-items: stretch; pointer-events: none; }
@@ -1376,7 +1382,13 @@
 
 <canvas id="scene" aria-label="Hallowmarch, a 3D world of three realms at war" role="img"></canvas>
 
-<div id="loading"><div class="inner"><h1>Hallowmarch</h1><div class="bar" role="progressbar" aria-label="Loading Hallowmarch" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i id="loadbar"></i></div><p id="loadmsg" role="status" aria-live="polite" aria-atomic="true">Raising the hills</p><p id="load-detail" hidden></p><p id="load-hint" hidden>Keep this tab open while the view is prepared.</p></div></div>
+<div id="loading"><div class="inner"><h1>Hallowmarch</h1><div class="bar" role="progressbar" aria-label="Loading Hallowmarch" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i id="loadbar"></i></div><p id="loadmsg" role="status" aria-live="polite" aria-atomic="true">Raising the hills</p><p id="load-detail" hidden></p><p id="load-hint" hidden>Keep this tab open while the view is prepared.</p>
+  <section id="loading-identity" aria-labelledby="loading-identity-title">
+    <h2 id="loading-identity-title">Sign in while your world loads</h2>
+    <p id="loading-identity-status" role="status" aria-live="polite">Checking sign-in options. Your world is loading in the background.</p>
+    <button id="loading-sign-in" class="btn primary" type="button" disabled aria-describedby="loading-identity-status">Sign in</button>
+  </section>
+</div></div>
 <div id="entry-feedback" class="overlay" role="status" aria-live="polite" aria-atomic="true" hidden><div class="entry-inner"><span>Entering Hallowmarch…</span><span class="entry-track" aria-hidden="true"><i></i></span></div></div>
 
 <div id="title" hidden>

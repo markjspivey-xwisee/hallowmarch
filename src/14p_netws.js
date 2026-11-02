@@ -38,6 +38,8 @@ function netWsAdmissionStatus() {
 function netWsClearIdentityDisplay() {
   try { if (typeof nativePlayerClearConnectedIdentity === 'function') nativePlayerClearConnectedIdentity(); }
   catch { /* Optional display cleanup must never change transport control flow. */ }
+  try { if (typeof nativePlayerClearEarlySignIn === 'function') nativePlayerClearEarlySignIn(); }
+  catch { /* Early sign-in display cleanup is never transport authority. */ }
 }
 function netWsAdmissionUpdate(message) {
   const state = message.admission;

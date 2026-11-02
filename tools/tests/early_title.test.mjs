@@ -6,7 +6,10 @@ import {parse} from 'acorn';
 const read=n=>readFileSync(new URL('../../src/'+n,import.meta.url),'utf8');
 function actual(file,names){const s=read(file);return parse(s,{ecmaVersion:'latest'}).body.filter(n=>n.type==='FunctionDeclaration'&&names.includes(n.id.name)||n.type==='VariableDeclaration'&&n.declarations.some(d=>names.includes(d.id.name))).map(n=>s.slice(n.start,n.end)).join('\n');}
 const ui=read('10_ui.js').split('/* HUD construction')[0];
-const identity=actual('14v_nativeidentity.js',['NATIVE_PLAYER_CONNECTED_IDENTITY','NATIVE_PLAYER_CONNECTED_IDENTITY_EPOCH',
+const identity=actual('14v_nativeidentity.js',['NATIVE_PLAYER_EARLY_POLICY','NATIVE_PLAYER_EARLY_STATUS','NATIVE_PLAYER_EARLY_REFUSAL','NATIVE_PLAYER_EARLY_PROOF','NATIVE_PLAYER_EARLY_EPOCH',
+  'nativePlayerEarlyPolicyCurrent','nativePlayerEarlySignInContext','nativePlayerEarlySignInCurrent','nativePlayerEarlySignInChoice',
+  'nativePlayerRenderEarlySignIn','nativePlayerClearEarlySignIn','nativePlayerRememberEarlyRefusal',
+  'NATIVE_PLAYER_CONNECTED_IDENTITY','NATIVE_PLAYER_CONNECTED_IDENTITY_EPOCH',
   'nativePlayerConnectedIdentityContext','nativePlayerConnectedIdentityValues','nativePlayerConnectedIdentityCurrent',
   'nativePlayerClearConnectedIdentity','nativePlayerRememberConnectedIdentity','nativePlayerConnectedIdentity','nativePlayerRenderConnectedIdentity',
   'nativePlayerRender','nativePlayerBegin','nativePlayerSaveRef','nativePlayerChanged','nativePlayerCanPlayNow']);
