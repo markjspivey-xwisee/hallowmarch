@@ -7,10 +7,14 @@ const read=n=>readFileSync(new URL('../../src/'+n,import.meta.url),'utf8');
 function actual(file,names){const s=read(file);return parse(s,{ecmaVersion:'latest'}).body.filter(n=>n.type==='FunctionDeclaration'&&names.includes(n.id.name)||n.type==='VariableDeclaration'&&n.declarations.some(d=>names.includes(d.id.name))).map(n=>s.slice(n.start,n.end)).join('\n');}
 const ui=read('10_ui.js').split('/* HUD construction')[0];
 const identity=actual('14v_nativeidentity.js',['NATIVE_PLAYER_EARLY_POLICY','NATIVE_PLAYER_EARLY_STATUS','NATIVE_PLAYER_EARLY_REFUSAL','NATIVE_PLAYER_EARLY_PROOF','NATIVE_PLAYER_EARLY_EPOCH',
-  'NATIVE_PLAYER_EMPTY_PROVISIONAL','NATIVE_PLAYER_STARTUP_CEREMONY','NATIVE_PLAYER_STARTUP_HANDOFF','NATIVE_PLAYER_STARTUP_EPOCH',
+  'NATIVE_PLAYER_EMPTY_PROVISIONAL','NATIVE_PLAYER_EXPIRED_SIGNIN','NATIVE_PLAYER_STARTUP_CEREMONY','NATIVE_PLAYER_STARTUP_HANDOFF','NATIVE_PLAYER_STARTUP_EPOCH',
   'NATIVE_PLAYER_CANONICAL_LOADS','nativePlayerStartupCanonical','nativePlayerStartupHandoffCurrent','nativePlayerStartupBindingMatches','nativePlayerAbortStartup',
   'nativePlayerStartupPending','nativePlayerStartupUnselected','nativePlayerStartupProof','nativePlayerRememberEmptyProvisional',
   'nativePlayerStartupCurrent','nativePlayerStartupIdle','nativePlayerStartupConsume','nativePlayerRefreshStartup',
+  'nativePlayerExpiredSignInMetadata','nativePlayerExpiredSignInRetained','nativePlayerExpiredSignInCurrent',
+  'nativePlayerExpiredSignInChoice','nativePlayerExpiredSignInStoredCurrent','nativePlayerRememberExpiredSignIn',
+  'nativePlayerOpenExistingIdentity','nativePlayerSignInTransportCurrent',
+  'nativePlayerEarlyRequestCurrent',
   'nativePlayerEarlyPolicyCurrent','nativePlayerEarlySignInContext','nativePlayerEarlySignInCurrent','nativePlayerEarlySignInChoice',
   'nativePlayerRenderEarlySignIn','nativePlayerClearEarlySignIn','nativePlayerRememberEarlyRefusal',
   'NATIVE_PLAYER_CONNECTED_IDENTITY','NATIVE_PLAYER_CONNECTED_IDENTITY_EPOCH',
