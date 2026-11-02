@@ -4,13 +4,16 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import { parse } from 'acorn';
 import { chromium } from '../node_modules/playwright/index.mjs';
 
 const shell = readFileSync(new URL('../../src/page.html', import.meta.url), 'utf8');
-const identity = readFileSync(new URL('../../src/14v_nativeidentity.js', import.meta.url), 'utf8');
+const sourceFile = name => process.env.HM_EXPIRED_SOURCE_DIR
+  ? join(process.env.HM_EXPIRED_SOURCE_DIR, 'pr93-before-' + name) : new URL('../../src/' + name, import.meta.url);
+const identity = readFileSync(sourceFile('14v_nativeidentity.js'), 'utf8');
 const save = readFileSync(new URL('../../src/12_save.js', import.meta.url), 'utf8').split('function graphicsSaveSettings()')[0];
-const transport = readFileSync(new URL('../../src/14p_netws.js', import.meta.url), 'utf8');
+const transport = readFileSync(sourceFile('14p_netws.js'), 'utf8');
 const ui = readFileSync(new URL('../../src/10_ui.js', import.meta.url), 'utf8');
 function declarations(source, select) {
   return parse(source, { ecmaVersion: 'latest' }).body.filter(select).map(node => source.slice(node.start, node.end)).join('\n');
@@ -67,6 +70,7 @@ async function accountFixture(t, options = {}) {
       let GRAPHICS_CONTEXT_LOST = false;
       const NETWS = { host: 'march.example', acct: { id: 'synthetic-game-account' }, token: 'synthetic-game-token', generation: 7,
         state: 'on', ws: { readyState: 1 }, closed: false, reload: false, liveAdmission: null };
+      if (options.anonymous) NETWS.acct = { id: 'synthetic-game-account', guest: true, nativeBound: false };
       if (options.refused) { NETWS.acct = null; NETWS.token = ''; NETWS.state = 'off'; NETWS.ws = null;
         NETWS.sessionRefusal = { code: 'native_signin_required', host: NETWS.host, token: 'synthetic-retired-proof', generation: NETWS.generation }; }
       const SAVE = { native: false, backend: 'local', readConfirmed: false, loaded: null, loading: null,
@@ -89,8 +93,10 @@ async function accountFixture(t, options = {}) {
       nativePlayerConnect = fresh => { calls.auth.push({ fresh }); };
       const profile = { status: () => ({ hasRecord: true, keyPresent: false, pending: false }),
         set: async () => { calls.write++; throw Error('No private write in this fixture.'); } };
-      const session = { status: () => ({ provisional: false }), peek: async () => { calls.peek++; return metadata.promise; },
-        resume: async () => { throw Error('No temporary character may be resumed by this fixture.'); }, profile: () => profile, claimProfile: () => null };
+      const session = { status: () => options.expired ? { provisional: true, pending: false, guestExpiresAt: options.expired,
+        ownerDid: 'did:example:retained-temporary-owner', characterId: 'retained-character', claimStarted: false, claim: null }
+        : { provisional: false }, peek: async () => { calls.peek++; return metadata.promise; },
+        resume: async () => { throw Error('No temporary character may be resumed by this fixture.'); }, profile: () => options.expired ? null : profile, claimProfile: () => null };
       nativePlayerProvisionalSession = async () => { NATIVE_PLAYER.provisional = session;
         NATIVE_PLAYER.provisionalContext = { host: NETWS.host, accountId: NETWS.acct?.id }; return session; };
       nativePlayerModules = async () => { throw Error('No SDK or private key may be opened by this fixture.'); };
@@ -112,7 +118,7 @@ async function accountFixture(t, options = {}) {
   return f;
 }
 
-const unbound = () => ({ enabled: true, bound: false, verified: false, account: { id: 'synthetic-game-account' },
+const unbound = () => ({ enabled: true, bound: false, verified: false, provisional: false, account: { id: 'synthetic-game-account' },
   provisionalPlay: { enabled: true }, recordLinks: {} });
 
 async function acceptStatus(page, value = unbound()) {
@@ -260,6 +266,22 @@ for (const [name, change] of [
   assert.equal(await page.locator('#loading-sign-in').isEnabled(), false);
 });
 
+test('an already accepted anonymous session can sign in with retained expired metadata after a reload', async t => {
+  const expiry = Date.now() - 60000;
+  const { page } = await accountFixture(t, { anonymous: true, expired: expiry });
+  await acceptStatus(page);
+  await page.evaluate(value => __early.releaseMetadata(value), expiredMetadata(expiry));
+  await page.evaluate(() => __early.finish());
+  await page.evaluate(() => __early.render());
+  assert.equal(await page.locator('#loading-sign-in').isEnabled(), true);
+  assert.equal(await page.evaluate(() => __early.GAME.ready), false);
+  assert.deepEqual(await page.evaluate(() => __early.calls.auth), []);
+  await page.locator('#loading-sign-in').click();
+  await page.waitForFunction(() => __early.calls.auth.length === 1);
+  assert.deepEqual(await page.evaluate(() => __early.calls.auth), [{ fresh: false }], 'The accepted anonymous session is reused for explicit sign-in.');
+  assert.equal(await page.evaluate(() => __early.calls.write + __early.calls.key + __early.calls.entry), 0);
+});
+
 for (const [name, patch] of [
   ['disabled original status', { enabled: false }],
   ['missing original enabled', { enabled: undefined }],
@@ -295,6 +317,51 @@ test('a real retired-session refusal and empty metadata permit sign-in proof wit
   { request: [], fetch: ['/gaming/manifest'], peek: 1, token: 1, key: 0, write: 0 });
   assert.equal(await page.locator('#btn-begin').isVisible(), false);
   assert.equal(await page.locator('#btn-continue').isVisible(), false);
+});
+
+const expiredMetadata = guestExpiresAt => ({
+  ownerDid: 'did:example:retained-temporary-owner', podUrl: 'https://pod.example/retained/',
+  guestExpiresAt, characterId: 'retained-character', credentialExpiresAt: guestExpiresAt,
+  claimedOwnerDid: null, expired: true, gameAdmitted: true, targetAvailable: false, targetOwnerDid: null,
+  lastConfirmedClaim: false, claimStarted: false,
+});
+
+test('a retained expired temporary session offers explicit sign-in in the real loading DOM without waiting for the world', async t => {
+  const expiry = Date.now() - 60000;
+  const { page } = await accountFixture(t, { refused: true, expired: expiry });
+  await page.evaluate(() => { __early.start(); __early.releaseManifest(); });
+  await page.waitForFunction(() => __early.calls.peek === 1);
+  await page.evaluate(value => __early.releaseMetadata(value), expiredMetadata(expiry));
+  await page.evaluate(() => __early.finish());
+  await page.evaluate(() => __early.render());
+  const button = page.locator('#loading-sign-in');
+  assert.equal(await button.isVisible(), true);
+  assert.equal(await button.isEnabled(), true, 'Expired retained metadata must not permanently strand the loader action.');
+  assert((await button.evaluate(node => node.getBoundingClientRect().height)) >= 44);
+  assert.equal(await page.evaluate(() => __early.GAME.ready), false);
+  assert.equal(await page.evaluate(() => __early.SAVE.readConfirmed), false);
+  assert.deepEqual(await page.evaluate(() => __early.calls.auth), [], 'Discovery never authenticates or replaces a session automatically.');
+  await button.click();
+  await page.waitForFunction(() => __early.calls.auth.length === 1);
+  assert.deepEqual(await page.evaluate(() => __early.calls.auth), [{ fresh: true }]);
+  assert.equal(await page.evaluate(() => __early.calls.write + __early.calls.key + __early.calls.entry), 0);
+});
+
+for (const [name, patch] of [
+  ['pending character claim', { claimStarted: true }],
+  ['unknown retained owner', { ownerDid: null }],
+]) test(name + ' cannot be treated as the safe expired sign-in choice in the real loading DOM', async t => {
+  const expiry = Date.now() - 60000;
+  const { page } = await accountFixture(t, { refused: true, expired: expiry });
+  await page.evaluate(() => { __early.start(); __early.releaseManifest(); });
+  await page.waitForFunction(() => __early.calls.peek === 1);
+  await page.evaluate(value => __early.releaseMetadata(value), { ...expiredMetadata(expiry), ...patch });
+  await page.evaluate(() => __early.finish());
+  await page.evaluate(() => __early.render());
+  assert.equal(await page.locator('#loading-sign-in').isEnabled(), false);
+  await page.evaluate(() => document.getElementById('loading-sign-in').onclick?.());
+  assert.deepEqual(await page.evaluate(() => __early.calls.auth), []);
+  assert.equal(await page.evaluate(() => __early.calls.write + __early.calls.key + __early.calls.entry), 0);
 });
 
 test('clearing a real refusal proof cannot re-attest the old choice under a fresh display epoch', async t => {
