@@ -6,6 +6,9 @@
 const NETWS = { ws: null, url: '', host: '', state: 'off', acct: null, token: '', world: null, worldPauseReason: '', worldPersistence: null, liveAdmission: null, worldAdmission: null, activeWorldAdmission: null, worldInit: null, worldInitialized: false, worldAdmissionRequired: false, worldReloadRequired: false, link: null, linkP: null, openP: null, generation: 0, cancelOpen: null, retryTimer: 0, pingTimer: 0, closed: false, waits: [], backoff: 1, lastFailure: '', lastClose: null, stats: { opens: 0, drops: 0, sent: 0, recv: 0, bytesUp: 0, bytesDown: 0, rtt: 0 } };
 // Only a recognized refusal of this exact opening can offer explicit recovery.
 NETWS.sessionRefusal = null;
+// A title's normal idle close ends multiplayer, not its HTTP sign-in ceremony.
+// Retain only this exact welcomed session; every replacement still invalidates it.
+NETWS.titleIdle = null;
 // Released once after the private world restore; reconnects do not re-enter boot.
 NETWS.sceneBootReady = false;
 // World/season admission and the owner's character save are separate. Keep a
@@ -35,10 +38,11 @@ function netWsAdmissionStatus() {
   if (value.state === 'live' && !current) return null;
   return { state: value.state, code: value.code, why: value.why, current };
 }
-function netWsClearIdentityDisplay() {
+function netWsClearIdentityDisplay(preserveEarlySignIn = false) {
+  if (!preserveEarlySignIn) NETWS.titleIdle = null;
   try { if (typeof nativePlayerClearConnectedIdentity === 'function') nativePlayerClearConnectedIdentity(); }
   catch { /* Optional display cleanup must never change transport control flow. */ }
-  try { if (typeof nativePlayerClearEarlySignIn === 'function') nativePlayerClearEarlySignIn(); }
+  try { if (!preserveEarlySignIn && typeof nativePlayerClearEarlySignIn === 'function') nativePlayerClearEarlySignIn(); }
   catch { /* Early sign-in display cleanup is never transport authority. */ }
 }
 function netWsAdmissionUpdate(message) {
@@ -239,7 +243,7 @@ function netWsRetryLater() {
 // A timed-out FIFO request makes every outstanding reply ambiguous. Retire the
 // identity before closing: native close events may arrive after queued messages.
 function netWsRetire(ws, why) {
-  if (NETWS.ws !== ws || (!ws && !NETWS.openP)) return false;
+  if (NETWS.ws !== ws || (!ws && !NETWS.openP && !NETWS.titleIdle)) return false;
   const was = NETWS.state;
   if (NETWS.cancelOpen) NETWS.cancelOpen();
   // A caller may request a fresh transport in this same turn, before the old
@@ -363,7 +367,10 @@ function netWsOpen() {
     };
     ws.onclose = (ev) => {
       if (!current()) return;
-      netWsClearIdentityDisplay();
+      const titleIdle = settled && NETWS.state === 'on' && !GAME.started && !GAME.player
+        && ev?.code === 4000 && ev.reason === 'Human play not started' && NETWS.acct?.id && NETWS.token;
+      NETWS.titleIdle = titleIdle ? { host, accountId: NETWS.acct.id, token: NETWS.token, generation } : null;
+      netWsClearIdentityDisplay(!!titleIdle);
       if (NETWS.liveAdmission?.state === 'live') NETWS.liveAdmission = null;
       if (ev && ev.code === 4006) {
         if (typeof netSceneReloadRequired === 'function') netSceneReloadRequired(ev.reason);
@@ -375,6 +382,8 @@ function netWsOpen() {
       NETWS.lastClose = { code: ev && ev.code || 0, reason: netStr(ev && ev.reason, 80) };
       if (!settled) finish(false, 'socket closed');
       else { NETWS.state = 'off'; NETWS.ws = null; }
+      try { if (titleIdle && typeof nativePlayerRenderEarlySignIn === 'function') nativePlayerRenderEarlySignIn(); }
+      catch { /* Optional sign-in display cannot interrupt transport cleanup. */ }
       netWsPendingFail();
       if (typeof netSharedSceneReset === 'function') netSharedSceneReset();
       if (was === 'on') {

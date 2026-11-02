@@ -78,11 +78,19 @@ function nativePlayerStartupIdle(context) {
     && !NATIVE_PLAYER.claimPendingResume && !NATIVE_PLAYER.claimConfirmationPending && !NATIVE_PLAYER.openExistingPending
     && !NATIVE_PLAYER.conflict && (!NATIVE_PLAYER.switching || context.fresh && context.ownsSwitching);
 }
+function nativePlayerSignInTransportCurrent() {
+  if (NETWS.closed || NETWS.reload) return false;
+  if (NETWS.state === 'on' && NETWS.ws?.readyState === 1) return true;
+  const idle = NETWS.titleIdle;
+  return !!idle && !GAME.started && !GAME.player && NETWS.state === 'off' && NETWS.ws === null
+    && idle.host === NETWS.host && idle.accountId === NETWS.acct?.id && idle.token === NETWS.token
+    && idle.generation === NETWS.generation;
+}
 function nativePlayerStartupHandoffCurrent(handoff) {
   return NATIVE_PLAYER_STARTUP_HANDOFF === handoff && handoff.epoch === NATIVE_PLAYER_STARTUP_EPOCH
     && !GAME.started && !NETWS.reload && !NETWS.closed && netServerUrl() === handoff.server && NETWS.host === handoff.host
     && NETWS.token === handoff.token && NETWS.acct?.id === handoff.accountId
-    && NETWS.generation === handoff.generation && NETWS.state === 'on' && NETWS.ws?.readyState === 1;
+    && NETWS.generation === handoff.generation && nativePlayerSignInTransportCurrent();
 }
 function nativePlayerStartupBindingMatches(handoff, status) {
   return nativePlayerStartupHandoffCurrent(handoff) && status?.enabled === true && status.bound === true && status.verified === true
@@ -235,7 +243,7 @@ function nativePlayerEarlySignInCurrent(choice) {
     return choice.mode === 'live' && choice === NATIVE_PLAYER_EARLY_STATUS && choice.status === NATIVE_PLAYER.status
       && choice.status.enabled === true && choice.status.account?.id === choice.accountId
       && typeof choice.accountId === 'string' && !!choice.accountId && typeof choice.token === 'string' && !!choice.token
-      && !NETWS.closed && NETWS.state === 'on' && NETWS.ws?.readyState === 1 && !NATIVE_PLAYER.authRefusal
+      && nativePlayerSignInTransportCurrent() && !NATIVE_PLAYER.authRefusal
       && !(refusal?.state === 'identity-required' && refusal.host === choice.host
         && refusal.accountId === choice.accountId && refusal.generation === choice.generation);
   } catch { return false; } // An unavailable UI predicate never opens sign-in.
