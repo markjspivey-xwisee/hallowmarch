@@ -86,9 +86,13 @@ async function fixturePage(view) {
   const players = (await fs.readFile(path.join(root, 'src/14o_netui.js'), 'utf8')).split('Object.assign(FIELD_NOTES,')[0];
   const cold = view === 'connect-expired';
   const recovery = view === 'recovery-check';
+  const loadSelectionState = saves.match(/^const SAVE_LOAD_SELECTIONS = new WeakMap\(\);$/m)?.[0];
+  assert(loadSelectionState, 'The fixture must retain the real private save-selection provenance state.');
+  const commonLoad = saves.slice(saves.indexOf('function saveLoadOwned('), saves.indexOf('async function loadSave('));
   const recoveryInit = saves.slice(saves.indexOf('async function initSaveBackend('), saves.indexOf('function readLocal('));
-  const recoveryLoad = saves.slice(saves.indexOf('function saveLoadOwned('), saves.indexOf('function buildSave('));
-  assert(recoveryInit.includes('nativePlayerSaveRef') && recoveryLoad.includes('async function loadSave('));
+  const recoveryLoad = saves.slice(saves.indexOf('async function loadSave('), saves.indexOf('function buildSave('));
+  assert(recoveryInit.includes('nativePlayerSaveRef') && recoveryLoad.includes('async function loadSave(')
+    && commonLoad.includes('function saveLoadCurrent(') && commonLoad.includes('function saveLoadTitle('));
   const bound = view !== 'connect' && !cold;
   const live = view === 'players-reauth';
   const coldTransport = cold ? websocket.slice(0, websocket.indexOf('// Login keeps')) : '';
@@ -108,6 +112,8 @@ const startGame=async(value,allowed)=>{if(allowed())identityCalls.entries.push(s
 let resumeRelease=null,resumeGate=null,writeRelease=null,writeGate=null,reauthConflict=false;
 let coldHelloHold=false;const coldHelloReplies=[];
 const typing=()=>true,validSave=value=>value;
+${loadSelectionState}
+${commonLoad}
 ${recovery ? `const readLocal=()=>null,applySettings=()=>{},applyWorldSave=()=>{};
 ${recoveryInit}
 ${recoveryLoad}
@@ -236,7 +242,9 @@ const foreignServer = http.createServer((req, res) => {
 });
 await new Promise(resolve => foreignServer.listen(0, '127.0.0.1', resolve));
 const foreignBase = 'http://127.0.0.1:' + foreignServer.address().port;
-const browser = await chromium.launch({ headless: true, executablePath: process.env.HM_CHROMIUM_EXECUTABLE || undefined, args: ['--no-sandbox'] });
+const browser = await chromium.launch({ headless: true,
+  ...(process.env.HM_EARLY_SIGNIN_BROWSER_CHANNEL ? { channel: process.env.HM_EARLY_SIGNIN_BROWSER_CHANNEL } : {}),
+  executablePath: process.env.HM_CHROMIUM_EXECUTABLE || undefined, args: ['--no-sandbox'] });
 const failures = [];
 async function check(name, run) { try { await run(); console.log('PASS ' + name); } catch (error) { failures.push({ name, message: error.message }); console.error('FAIL ' + name + ': ' + error.message); }
   finally { if(startHold){startHold.release();startHold=null;} if(recoveryHold){recoveryHold.release();recoveryHold=null;} recoveryReply=recoveryResponse(); recoveryAffordanceMode='valid'; } }

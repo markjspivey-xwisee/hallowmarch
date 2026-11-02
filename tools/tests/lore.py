@@ -75,9 +75,10 @@ async def desktop(p):
     await page.keyboard.press('ArrowRight')
     check(await ev(page, "__hm.LORE.state.pro.i") == 2, 'the right arrow key turns the page')
     await page.click('#lore-pro [data-pro="skip"]')
-    r = await ev(page, "({ modal: __hm.UI.modal, hidden: document.getElementById('lore-pro').hidden, p: __hm.LORE.progress() })")
+    # A frame can move the note from queue to seen; read both in one snapshot.
+    r = await ev(page, "({ modal: __hm.UI.modal, hidden: document.getElementById('lore-pro').hidden, p: __hm.LORE.progress(), queue: [...__hm.LORE.state.queue] })")
     check(r['modal'] is None and r['hidden'] and r['p']['pro'] == 1, 'Skip closes the prologue and the character remembers it')
-    check('start' in r['p']['seen'] or 'start' in await ev(page, "__hm.LORE.state.queue"), 'the first-steps note follows the prologue')
+    check('start' in r['p']['seen'] or 'start' in r['queue'], 'the first-steps note follows the prologue')
     t2 = await ev(page, "__hm.GAME.t")
     await frames(page, 2)
     check(await ev(page, "__hm.GAME.t") > t2, 'the world runs again')

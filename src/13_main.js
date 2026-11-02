@@ -578,9 +578,9 @@ async function boot() {
   // Read saved preferences before sizing. Shader work belongs to the separately
   // fenced, visible title families below, not a bulk compile of hidden content.
   await loadStep(0.78, 'Reading the chronicle');
-  const save = await savePromise;
+  await savePromise;
   graphicsAssertActive();
-  if (save) { applySettings(save.settings); applyWorldSave(save.world); }
+  saveLoadApply();
   netSharedSceneFlushBuilt();
   graphicsCheckpoint('Sizing graphics targets');
   resize();
@@ -592,7 +592,7 @@ async function boot() {
   await loadStep(0.82, 'Preparing the sounds', () => prepareSoundBuffersChunks());
   await loadStep(0.83, 'Preparing the ground', () => prepareGroundAOChunks());
   await loadStep(0.835, 'Preparing the seasons', () => prepareSeasonMapChunks());
-  if (typeof prepareTitleDraft === 'function') prepareTitleDraft(save);
+  if (typeof prepareTitleDraft === 'function') prepareTitleDraft(saveLoadPresented());
   await loadStep(0.84, 'Drawing the map', () => bootSequence([buildMapImageChunks, buildDungeonMapChunks]));
   await loadStep(0.9, 'Preparing the first view', () => {
     updateCamera(0.016);
@@ -605,7 +605,7 @@ async function boot() {
   $('loadbar').style.width = '100%';
   $('loadbar').parentElement?.setAttribute('aria-valuenow', '100');
   const drafted = typeof finishTitleDraft === 'function' && finishTitleDraft();
-  if (!drafted) setupTitle(save);
+  if (!drafted) setupTitle(saveLoadPresented());
   graphicsRecoveryNotice();
   graphicsCheckpoint('Ready');
   const L = $('loading');

@@ -58,7 +58,7 @@ function fixture({baseline=false,webdriver=false}={}) {
     world(){return JSON.stringify({GAME:rawGame,SEASON:context.SEASON,W:context.W});}};
 }
 
-test('independent da387 pins and whole-source inverses restrict changes to private clock/reset hooks',()=>{
+test('independent da387 pins and whole-source inverses restrict changes to approved clock and startup hooks',()=>{
   assert.equal(oracle.revision,'da387c00c5577722bc1a73ae260f67d0f336377f');
   assert.equal(sha(oracle.main),'350c065e63ba6fca4cbb691819d454a27a2d7cce04ff66c605d3c23b51507388');
   assert.equal(sha(oracle.live),'0513a8d76d14c09862d40ad288825b5801f21b311786dd120d103de2a283541b');
@@ -69,9 +69,20 @@ test('independent da387 pins and whole-source inverses restrict changes to priva
   const beginning = main.indexOf(declaration(main,'PERF')), end = main.indexOf(declaration(main,'adaptQuality')) + declaration(main,'adaptQuality').length;
   const touchInventoryCopy = "IS_TOUCH ? 'Tap Items' : 'Press I'";
   assert.equal(main.split(touchInventoryCopy).length,2,'Unique approved touch inventory label');
-  const inverse = (main.slice(0,beginning) + declaration(oracle.main,'PERF') + '\n' + declaration(oracle.main,'adaptQuality') + main.slice(end))
+  let inverse = (main.slice(0,beginning) + declaration(oracle.main,'PERF') + '\n' + declaration(oracle.main,'adaptQuality') + main.slice(end))
     .replace(/^\s+resetAdaptiveQualityClock\(\);\n/gm,'')
     .replace(touchInventoryCopy,"IS_TOUCH ? 'Tap Kit' : 'Press I'");
+  // Undo only the four reviewed current-load boot substitutions. Keep the
+  // pinned oracle and every unrelated byte, clock and simulation assertion.
+  for (const [current, original] of [
+    ['  await savePromise;', '  const save = await savePromise;'],
+    ['  saveLoadApply();', '  if (save) { applySettings(save.settings); applyWorldSave(save.world); }'],
+    ["  if (typeof prepareTitleDraft === 'function') prepareTitleDraft(saveLoadPresented());", "  if (typeof prepareTitleDraft === 'function') prepareTitleDraft(save);"],
+    ['  if (!drafted) setupTitle(saveLoadPresented());', '  if (!drafted) setupTitle(save);'],
+  ]) {
+    assert.equal(inverse.split(current).length, 2, 'Unique approved startup substitution: ' + current.trim());
+    inverse = inverse.replace(current, original);
+  }
   assert.equal(inverse,oracle.main);
   assert.equal(live.replace(transitionHook,''),oracle.live,'No grant, timer, input, save or transport condition changes');
   const reset = declaration(main,'resetAdaptiveQualityClock');

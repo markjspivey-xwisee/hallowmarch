@@ -1,8 +1,9 @@
 /* ================================================================== */
 /* saves: a private per-player document, or this browser as fallback   */
 /* ================================================================== */
-const SAVE = { ref: null, backend: 'local', lsKey: 'hallowmarch.save.v1', timer: 0, chain: Promise.resolve(), lastBody: '', lastCore: '', loaded: null, wiping: false, native: false, pending: null, readConfirmed: false, nativeFlight: null, nativePaused: false, nativeFinal: null, loading: null, guestWriteAt: 0, guestTimer: 0, menuFallback: null };
+const SAVE = { ref: null, backend: 'local', lsKey: 'hallowmarch.save.v1', timer: 0, chain: Promise.resolve(), lastBody: '', lastCore: '', loaded: null, wiping: false, native: false, pending: null, readConfirmed: false, privateApplied: false, nativeFlight: null, nativePaused: false, nativeFinal: null, loading: null, guestWriteAt: 0, guestTimer: 0, menuFallback: null };
 const SAVE_MENU_REQUESTS = new WeakSet();
+const SAVE_LOAD_SELECTIONS = new WeakMap();
 
 const withTimeout = (p, ms) => Promise.race([p, new Promise((res) => setTimeout(() => res(null), ms))]);
 async function initSaveBackend(initialization) {
@@ -37,29 +38,78 @@ function validSave(s) {
   return s;
 }
 function saveLoadOwned(load) {
-  return SAVE.loading === load && !GAME.started && !SAVE.pending && !SAVE.nativeFlight && !SAVE.wiping
+  if (typeof load?.isCurrent === 'function') {
+    try { if (load.isCurrent() !== true) return false; } catch { return false; }
+  }
+  return !!load && !load.invalidated && SAVE.loading === load && !GAME.started && !SAVE.pending && !SAVE.nativeFlight && !SAVE.wiping
     && (!load.server || netServerUrl() === load.server)
     && (!load.owner || (NETWS.acct?.id === load.owner && NETWS.host === load.host && !NETWS.reload));
 }
+function saveLoadCurrent(load = SAVE.loading) {
+  return load?.settled && SAVE_LOAD_SELECTIONS.has(load) && SAVE_LOAD_SELECTIONS.get(load) === SAVE.loaded
+    && saveLoadOwned(load) ? SAVE.loaded : null;
+}
+function saveLoadPresented(load = SAVE.loading) {
+  return load?.applied ? saveLoadCurrent(load) : null;
+}
+function saveLoadApply(load = SAVE.loading) {
+  if (!load?.settled || !SAVE_LOAD_SELECTIONS.has(load) || SAVE_LOAD_SELECTIONS.get(load) !== SAVE.loaded || !saveLoadOwned(load)) return null;
+  const save = saveLoadCurrent(load);
+  if (load.applied) return save;
+  if (save === null) { load.applied = true; return null; }
+  // Sticky even if application fails partway: this page cannot later claim it
+  // has never applied an owner's private settings or world state.
+  if (SAVE.native) SAVE.privateApplied = true;
+  applySettings(save.settings);
+  if (!saveLoadOwned(load) || SAVE.loaded !== save) return null;
+  applyWorldSave(save.world);
+  if (!saveLoadOwned(load) || SAVE.loaded !== save) return null;
+  load.applied = true;
+  return save;
+}
+function saveLoadInvalidate(load = SAVE.loading) {
+  if (!load || SAVE.loading !== load) return false;
+  load.invalidated = true;
+  if (load.titleTimer) clearTimeout(load.titleTimer);
+  load.titleTimer = 0;
+  load.cancelReturn?.();
+  SAVE.loading = null;
+  return true;
+}
+function saveLoadReturn(load) {
+  return load.returnCancelled ? Promise.race([load.promise, load.returnCancelled]) : load.promise;
+}
 function saveLoadTitle(load) {
-  if (!saveLoadOwned(load)) return;
+  if (!load.settled || !SAVE_LOAD_SELECTIONS.has(load) || SAVE_LOAD_SELECTIONS.get(load) !== SAVE.loaded || !saveLoadOwned(load)) return;
   // The bounded boot wait may finish before the native read. Retain that exact
   // read and hydrate only the title; never replace a character already playing.
   if (!GAME.ready) { load.titleTimer = setTimeout(() => saveLoadTitle(load), 100); return; }
-  if (SAVE.loaded) { applySettings(SAVE.loaded.settings); applyWorldSave(SAVE.loaded.world); }
-  setupTitle(SAVE.loaded);
+  load.titleTimer = 0;
+  const save = saveLoadApply(load);
+  if (!saveLoadOwned(load) || SAVE.loaded !== save) return;
+  setupTitle(save);
+  if (!saveLoadOwned(load) || SAVE.loaded !== save) return;
+  const onTitleReady = load.onTitleReady;
+  load.onTitleReady = null;
+  if (typeof onTitleReady === 'function') {
+    try { onTitleReady(load); } catch { /* Optional handoff completion cannot change this read's result. */ }
+  }
 }
-async function loadSave({ retry = false } = {}) {
+async function loadSave({ retry = false, onTitleReady = null, isCurrent = null } = {}) {
   // boot starts in 13_main before the later native/transport constants exist.
   await null;
   const previous = SAVE.loading;
-  if (previous && !previous.settled && saveLoadOwned(previous)) return withTimeout(previous.promise, 45000);
+  if (previous && !previous.settled && saveLoadOwned(previous)) return withTimeout(saveLoadReturn(previous), 45000);
   if (GAME.started || SAVE.pending || SAVE.nativeFlight) return SAVE.loaded;
   // A failed read keeps the same profile, key and outstanding native operation.
   // Only an uninitialized/blocked reference may rediscover the identity ports.
   const reusable = retry && previous && saveLoadOwned(previous) && previous.ref?.native && !previous.ref.blocked;
   if (previous?.titleTimer) clearTimeout(previous.titleTimer);
-  const initialization = { settled: false, server: netServerUrl(), owner: reusable ? previous.owner : null,
+  let cancelReturn;
+  const returnCancelled = new Promise(resolve => { cancelReturn = () => resolve(null); });
+  const initialization = { settled: false, selectionSet: false, invalidated: false, returnCancelled, cancelReturn,
+    onTitleReady: typeof onTitleReady === 'function' ? onTitleReady : null,
+    isCurrent: typeof isCurrent === 'function' ? isCurrent : null, server: netServerUrl(), owner: reusable ? previous.owner : null,
     host: reusable ? previous.host : null, phase: 'identity', detached: retry, timedOut: false, ref: reusable ? previous.ref : null,
     get active() { return saveLoadOwned(this); } };
   SAVE.loading = initialization;
@@ -96,6 +146,8 @@ async function loadSave({ retry = false } = {}) {
       const local = SAVE.native ? null : readLocal();
       const s = validSave(remote || local);
       SAVE.loaded = s;
+      initialization.selectionSet = true;
+      SAVE_LOAD_SELECTIONS.set(initialization, s);
       if (s) { SAVE.lastBody = JSON.stringify({ ...s, savedAt: 0 }); SAVE.lastCore = coreKey(s); }
       initialization.phase = remoteOk ? 'confirmed' : 'blocked';
       return s;
@@ -104,8 +156,8 @@ async function loadSave({ retry = false } = {}) {
       if (initialization.active && initialization.detached) saveLoadTitle(initialization);
     }
   })();
-  const result = await withTimeout(initialization.promise, SAVE.native ? 45000 : 24000);
-  if (!initialization.settled) { initialization.detached = true; initialization.timedOut = true; }
+  const result = await withTimeout(saveLoadReturn(initialization), SAVE.native ? 45000 : 24000);
+  if (!initialization.settled && !initialization.invalidated && SAVE.loading === initialization) { initialization.detached = true; initialization.timedOut = true; }
   return result;
 }
 

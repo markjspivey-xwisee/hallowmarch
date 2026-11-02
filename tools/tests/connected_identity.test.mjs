@@ -71,7 +71,14 @@ function fixture() {
     localStorage: { getItem: () => { throw Error('No storage in this display.'); } },
     saveNow: () => { effects.save++; },
   });
-  vm.runInContext(actual(source, ['NATIVE_PLAYER_CONNECTED_IDENTITY', 'NATIVE_PLAYER_CONNECTED_IDENTITY_EPOCH', 'nativePlayerConnectedIdentityContext',
+  vm.runInContext(actual(source, ['NATIVE_PLAYER_EARLY_POLICY', 'NATIVE_PLAYER_EARLY_STATUS', 'NATIVE_PLAYER_EARLY_REFUSAL', 'NATIVE_PLAYER_EARLY_PROOF', 'NATIVE_PLAYER_EARLY_EPOCH',
+    'NATIVE_PLAYER_EMPTY_PROVISIONAL', 'NATIVE_PLAYER_STARTUP_CEREMONY', 'NATIVE_PLAYER_STARTUP_HANDOFF', 'NATIVE_PLAYER_STARTUP_EPOCH',
+    'NATIVE_PLAYER_CANONICAL_LOADS', 'nativePlayerStartupCanonical', 'nativePlayerStartupHandoffCurrent', 'nativePlayerStartupBindingMatches', 'nativePlayerAbortStartup',
+    'nativePlayerStartupPending', 'nativePlayerStartupUnselected', 'nativePlayerStartupProof', 'nativePlayerRememberEmptyProvisional',
+    'nativePlayerStartupCurrent', 'nativePlayerStartupIdle', 'nativePlayerStartupConsume', 'nativePlayerRefreshStartup',
+    'nativePlayerEarlyPolicyCurrent', 'nativePlayerEarlySignInContext', 'nativePlayerEarlySignInCurrent', 'nativePlayerEarlySignInChoice',
+    'nativePlayerRenderEarlySignIn', 'nativePlayerClearEarlySignIn', 'nativePlayerRememberEarlyRefusal',
+    'NATIVE_PLAYER_CONNECTED_IDENTITY', 'NATIVE_PLAYER_CONNECTED_IDENTITY_EPOCH', 'nativePlayerConnectedIdentityContext',
     'nativePlayerConnectedIdentityValues', 'nativePlayerConnectedIdentityCurrent',
     'nativePlayerRememberConnectedIdentity', 'nativePlayerClearConnectedIdentity', 'nativePlayerConnectedIdentity',
     'nativePlayerRenderConnectedIdentity', 'nativePlayerRender']) + '\n'

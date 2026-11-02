@@ -182,9 +182,17 @@ test('accessor bearing is not evaluated during optional preparation and season s
   }finally{f.dispose();}
 });
 test('boot preparation follows saved-world release and diagnostic early-return while init/ice/settle stay literal',()=>{
-  const main=read('src/13_main.js');assert(main.indexOf('applyWorldSave(save.world)')<main.indexOf('() => prepareSeasonMapChunks()'));
-  assert(main.indexOf('if (await graphicsRunDiagnostic()) return;')<main.indexOf('() => prepareSeasonMapChunks()'));
-  assert(main.indexOf('() => prepareGroundAOChunks()')<main.indexOf('() => prepareSeasonMapChunks()'));
-  assert(main.indexOf('() => prepareSeasonMapChunks()')<main.indexOf('prepareTitleDraft(save)'));
+  const main=read('src/13_main.js'),positions={
+    apply:main.indexOf('saveLoadApply();'),
+    diagnostic:main.indexOf('if (await graphicsRunDiagnostic()) return;'),
+    ground:main.indexOf('() => prepareGroundAOChunks()'),
+    season:main.indexOf('() => prepareSeasonMapChunks()'),
+    draft:main.indexOf('prepareTitleDraft('),
+  };
+  for(const[name,index]of Object.entries(positions))assert(index>=0,name+' boot marker must be present');
+  assert(positions.apply<positions.season);
+  assert(positions.diagnostic<positions.season);
+  assert(positions.ground<positions.season);
+  assert(positions.season<positions.draft);
   for(const name of ['seasonsInit','seasonLieStep','seasonIceBuild','seasonIceSettle','seasonSettle','seasonsFrame'])assert.equal(declaration(source,name),declaration(oracle.seasonSource,name),name);
 });

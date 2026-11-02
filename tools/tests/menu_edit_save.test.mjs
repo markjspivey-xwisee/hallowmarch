@@ -174,7 +174,8 @@ test('legacy refusal uses the owned browser checkpoint, and actual reload checks
     netServerSaveRef:async()=>{remoteLookups++;throw Error('A valid local checkpoint must be considered first');},netServerUrl:()=>'',
     setupTitle(){},applySettings(){},applyWorldSave(){}});
   f.c.SAVE=base();f.c.GAME.started=false;f.c.GAME.ready=false;f.c.GAME.player=null;
-  vm.runInContext(declarations(['withTimeout','initSaveBackend','readLocal','validSave','saveLoadOwned','saveLoadTitle','loadSave'])+'\nglobalThis.reloadSave=loadSave;',f.c);
+  vm.runInContext(declarations(['SAVE_LOAD_SELECTIONS','withTimeout','initSaveBackend','readLocal','validSave','saveLoadOwned',
+    'saveLoadCurrent','saveLoadPresented','saveLoadApply','saveLoadInvalidate','saveLoadReturn','saveLoadTitle','loadSave'])+'\nglobalThis.reloadSave=loadSave;',f.c);
   const loaded=await f.c.reloadSave();
   assert.equal(remoteLookups,0);assert.equal(loaded.char.lore.track,'cook');assert.equal(loaded.settings.quality,'low');assert.equal(f.c.SAVE.backend,'local');
 });
