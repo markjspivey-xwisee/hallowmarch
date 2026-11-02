@@ -547,7 +547,7 @@ test('the actual native Begin bootstrap hands the accepted request to the existi
       validSave: value => value,
       startGame: (request, mayStart) => { if (mayStart()) starts.push({ same: request === save, prologue: c.loreConsumeBegin(request) }); },
     });
-    vm.runInContext(declarations('14v_nativeidentity.js', ['nativePlayerBegin']), c);
+    vm.runInContext(declarations('14v_nativeidentity.js', ['NATIVE_PLAYER_STARTUP_CEREMONY', 'NATIVE_PLAYER_STARTUP_HANDOFF', 'nativePlayerStartupPending', 'nativePlayerBegin']), c);
     c.loreRequestBegin(save);
     await c.nativePlayerBegin(save);
     assert.deepEqual(starts, [{ same: true, prologue: true }]);
@@ -573,7 +573,7 @@ test('the actual native Begin preserves a recovered character and its owner guar
         if (mayStart()) starts.push({ name: request.name, level: request.level, xp: request.xp, prologue: c.loreConsumeBegin(request) });
       },
     });
-    vm.runInContext(declarations('14v_nativeidentity.js', ['nativePlayerBegin']), c);
+    vm.runInContext(declarations('14v_nativeidentity.js', ['NATIVE_PLAYER_STARTUP_CEREMONY', 'NATIVE_PLAYER_STARTUP_HANDOFF', 'nativePlayerStartupPending', 'nativePlayerBegin']), c);
     c.loreRequestBegin(save); await c.nativePlayerBegin(save);
     assert.deepEqual(starts, recover ? [{ name: old.name, level: 8, xp: 19, prologue: false }] : []);
   }
