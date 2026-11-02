@@ -262,6 +262,31 @@ test('a failed transport replacement can retry after archival without discarding
 
 test('failed saved-character sign-in releases its closed channel so explicit expired restart remains available', async () => {
   const f = expiredFixture(); let popupClosed = false, channelClosed = false;
+  // This recovery action now requires the actual public policy, accepted
+  // anonymous session and expired claim-free device evidence. Establish them
+  // through the production discovery function; a bare expired UI flag cannot
+  // authorize opening a sign-in ceremony.
+  const metadata = { ownerDid: 'did:fixture:expired', podUrl: 'https://pod.example/expired/', characterId: 'expired-character',
+    guestExpiresAt: f.session.status().guestExpiresAt, credentialExpiresAt: null, expired: true, gameAdmitted: true,
+    claimedOwnerDid: null, targetAvailable: false, targetOwnerDid: null, lastConfirmedClaim: false, claimStarted: false };
+  f.setMetadata(metadata);
+  f.session.status = () => ({ provisional: true, pending: false, ownerDid: metadata.ownerDid, characterId: metadata.characterId,
+    guestExpiresAt: metadata.guestExpiresAt, claimStarted: false, claim: null });
+  f.session.resume = async () => { f.calls.resume++; throw Object.assign(Error('Temporary character expired'), { code: 'guest_expired' }); };
+  Object.assign(f.NETWS, { state: 'on', ws: { readyState: 1 }, generation: 7, closed: false });
+  Object.assign(f.NETWS.acct, { guest: true, nativeBound: false });
+  f.context.localStorage = { getItem: key => key === 'hallowmarch.token.game.example' ? f.NETWS.token : null };
+  f.context.fetch = async () => ({ ok: true, status: 200, json: async () => ({ playerIdentity: { enabled: true,
+    provisionalPlay: { enabled: true, relayUrl: 'https://relay.example', audience: 'https://game.example' } } }) });
+  f.context.nativePlayerRequest = async () => ({ enabled: true, bound: false, verified: false, provisional: false,
+    account: { id: f.NETWS.acct.id }, provisionalPlay: { enabled: true, relayUrl: 'https://relay.example' }, recordLinks: {} });
+  const restartLink = f.context.netLinkWS; f.context.netLinkWS = async () => true;
+  const initialization = { active: true, settled: false }; f.SAVE.loading = initialization;
+  const ref = await f.nativePlayerSaveRef(initialization);
+  initialization.ref = ref; initialization.settled = true; f.SAVE.ref = ref;
+  f.context.netLinkWS = restartLink;
+  assert.equal(ref.blocked, true); assert.equal(f.SAVE.readConfirmed, false);
+  assert.equal(vm.runInContext('nativePlayerExpiredSignInChoice()?.phase', f.context), 'fresh');
   f.context.window.open = () => ({ sessionStorage: { setItem() {} }, close() { popupClosed = true; } });
   f.context.crypto = { randomUUID: () => 'fixture-owner-channel' };
   f.context.BroadcastChannel = class { close() { channelClosed = true; } };

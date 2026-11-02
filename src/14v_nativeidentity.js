@@ -9,6 +9,7 @@ let NATIVE_PLAYER_EARLY_REFUSAL = null;
 let NATIVE_PLAYER_EARLY_PROOF = null;
 let NATIVE_PLAYER_EARLY_EPOCH = 0;
 let NATIVE_PLAYER_EMPTY_PROVISIONAL = null;
+let NATIVE_PLAYER_EXPIRED_SIGNIN = null;
 let NATIVE_PLAYER_STARTUP_CEREMONY = null;
 let NATIVE_PLAYER_STARTUP_HANDOFF = null;
 let NATIVE_PLAYER_STARTUP_EPOCH = 0;
@@ -62,19 +63,104 @@ function nativePlayerRememberEmptyProvisional(session, metadata, initialization,
   NATIVE_PLAYER_EMPTY_PROVISIONAL = metadata === null ? { ...scope, session, initialization } : null;
   return true;
 }
+function nativePlayerExpiredSignInMetadata(metadata) {
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata) || metadata.expired !== true
+    || !Number.isSafeInteger(metadata.guestExpiresAt) || metadata.guestExpiresAt <= 0 || metadata.guestExpiresAt > Date.now()
+    || typeof metadata.ownerDid !== 'string' || !metadata.ownerDid || typeof metadata.podUrl !== 'string' || !metadata.podUrl
+    || metadata.claimedOwnerDid !== null || metadata.targetAvailable !== false || metadata.targetOwnerDid !== null
+    || metadata.claimStarted !== false || metadata.lastConfirmedClaim !== false
+    || Object.values(metadata).some(value => value !== null && !['string', 'number', 'boolean'].includes(typeof value))) return null;
+  return JSON.stringify(Object.keys(metadata).sort().map(key => [key, metadata[key]]));
+}
+function nativePlayerExpiredSignInRetained(choice) {
+  if (!choice || !SAVE.native || GAME.started || GAME.player || SAVE.loaded || SAVE.readConfirmed || SAVE.privateApplied
+    || SAVE.pending || SAVE.nativeFlight || SAVE.wiping || SAVE.nativeFinal || NATIVE_PLAYER.profile
+    || SAVE.ref && !SAVE.ref.blocked || SAVE.loading?.ref && !SAVE.loading.ref.blocked
+    || NATIVE_PLAYER.playFlight || NATIVE_PLAYER.provisionalOpening || NATIVE_PLAYER.promoted
+    || NATIVE_PLAYER.claimPendingResume || NATIVE_PLAYER.claimConfirmationPending || NATIVE_PLAYER.openExistingPending
+    || NATIVE_PLAYER.conflict || SAVE.loading !== choice.initialization || !choice.initialization.active
+    || !choice.initialization.settled || choice.session !== NATIVE_PLAYER.provisional
+    || choice.sessionContext !== NATIVE_PLAYER.provisionalContext) return false;
+  const status = choice.session.status();
+  return status.provisional === true && status.pending === false && status.claimStarted === false && status.claim == null
+    && status.guestExpiresAt === choice.metadata.guestExpiresAt && status.ownerDid === choice.metadata.ownerDid
+    && (status.characterId || null) === (choice.metadata.characterId || null)
+    && nativePlayerExpiredSignInMetadata(choice.metadata) === choice.metadataKey;
+}
+function nativePlayerExpiredSignInCurrent(choice) {
+  try {
+    if (!choice || choice !== NATIVE_PLAYER_EXPIRED_SIGNIN || !nativePlayerExpiredSignInRetained(choice)
+      || !nativePlayerEarlyPolicyCurrent(choice.policy) || choice.epoch !== NATIVE_PLAYER_EARLY_EPOCH
+      || choice.host !== NETWS.host || choice.accountId !== NETWS.acct?.id || choice.socketToken !== NETWS.token
+      || choice.generation !== NETWS.generation || choice.sessionRefusal !== NETWS.sessionRefusal || NETWS.closed || NETWS.reload) return false;
+    if (choice.phase === 'fresh') return NETWS.acct?.guest === true && NETWS.acct.nativeBound === false
+      && typeof choice.socketToken === 'string' && !!choice.socketToken
+      && typeof choice.accountId === 'string' && !!choice.accountId && nativePlayerSignInTransportCurrent();
+    return choice.phase === 'refused' && typeof choice.refusedToken === 'string' && !!choice.refusedToken
+      && choice.refusal?.host === choice.host && choice.refusal.token === choice.refusedToken
+      && (choice.refusal === NETWS.sessionRefusal && choice.refusal.code === 'native_signin_required'
+        && choice.refusal.generation === choice.generation || choice.refusal === NATIVE_PLAYER.authRefusal);
+  } catch { return false; }
+}
+function nativePlayerExpiredSignInChoice() {
+  return !NATIVE_PLAYER.busy && !NATIVE_PLAYER.switching && !NATIVE_PLAYER_STARTUP_HANDOFF
+    && nativePlayerExpiredSignInCurrent(NATIVE_PLAYER_EXPIRED_SIGNIN)
+    && nativePlayerExpiredSignInStoredCurrent(NATIVE_PLAYER_EXPIRED_SIGNIN) ? NATIVE_PLAYER_EXPIRED_SIGNIN : null;
+}
+function nativePlayerExpiredSignInStoredCurrent(choice) {
+  try {
+    const stored = localStorage.getItem('hallowmarch.token.' + choice.host);
+    return !stored || stored === (choice.phase === 'refused' ? choice.refusedToken : choice.socketToken);
+  } catch { return false; }
+}
+function nativePlayerRememberExpiredSignIn(session, metadata, initialization, context, token, acceptedStatus = null) {
+  const metadataKey = nativePlayerExpiredSignInMetadata(metadata), refusal = NETWS.sessionRefusal;
+  if (!metadataKey || !context || context.epoch !== NATIVE_PLAYER_EARLY_EPOCH || context.policy !== NATIVE_PLAYER_EARLY_POLICY
+    || context.host !== NETWS.host || context.accountId !== NETWS.acct?.id || context.token !== NETWS.token
+    || context.generation !== NETWS.generation || context.sessionRefusal !== refusal || !initialization.active
+    || !nativePlayerEarlyPolicyCurrent(context.policy) || NATIVE_PLAYER.provisional !== session) return false;
+  if (acceptedStatus) {
+    const accepted = NATIVE_PLAYER_EARLY_STATUS;
+    if (acceptedStatus.enabled !== true || acceptedStatus.account?.id !== context.accountId || acceptedStatus.bound !== false
+      || acceptedStatus.verified !== false || acceptedStatus.provisional !== false || NETWS.acct?.guest !== true
+      || NETWS.acct.nativeBound !== false || !context.token || token !== context.token || refusal
+      || !nativePlayerEarlyRequestCurrent(context) || !nativePlayerSignInTransportCurrent()
+      || !accepted || accepted.status !== NATIVE_PLAYER.status || accepted.policy !== context.policy
+      || accepted.epoch !== context.epoch || accepted.generation !== context.generation || accepted.token !== context.token
+      || NATIVE_PLAYER.status.bound !== false || NATIVE_PLAYER.status.verified !== false || NATIVE_PLAYER.status.provisional !== false
+      || NETWS.liveAdmission?.state === 'identity-required') return false;
+  } else if (refusal?.code !== 'native_signin_required' || refusal.host !== context.host || refusal.token !== token
+    || refusal.generation !== context.generation) return false;
+  NATIVE_PLAYER_EXPIRED_SIGNIN = { mode: 'expired', phase: acceptedStatus ? 'fresh' : 'refused', policy: context.policy, initialization, session,
+    sessionContext: NATIVE_PLAYER.provisionalContext, metadata: { ...metadata }, metadataKey, refusal,
+    sessionRefusal: refusal, refusedToken: acceptedStatus ? null : token, host: context.host, accountId: context.accountId,
+    socketToken: context.token, token: context.token, generation: context.generation, epoch: context.epoch };
+  return true;
+}
+function nativePlayerOpenExistingIdentity() {
+  const choice = nativePlayerExpiredSignInChoice();
+  if (choice) return nativePlayerConnect(choice.phase === 'refused', choice);
+  if (nativePlayerIsProvisional() && NATIVE_PLAYER.provisional?.status().provisional !== false
+    && (nativePlayerGuestExpired() || NATIVE_PLAYER.expiredAdventure)) {
+    NATIVE_PLAYER.message = 'The expired character connection is not confirmed. Retry its connection or finish its pending claim before signing in.';
+    nativePlayerRender(); return;
+  }
+  return nativePlayerConnect();
+}
 function nativePlayerStartupCurrent(context, channel, ceremony) {
   return !!context && NATIVE_PLAYER.channel === channel && context.epoch === NATIVE_PLAYER_STARTUP_EPOCH
     && context.earlyEpoch === NATIVE_PLAYER_EARLY_EPOCH && !GAME.started && !NETWS.reload && !NETWS.closed
     && context.server === netServerUrl() && context.host === NETWS.host && context.accountId === NETWS.acct?.id
     && context.token === NETWS.token && context.generation === NETWS.generation && context.load === SAVE.loading
-    && context.refusal === NETWS.sessionRefusal
+    && context.refusal === NETWS.sessionRefusal && (!context.expiredChoice || nativePlayerExpiredSignInCurrent(context.expiredChoice))
     && (!context.load || !context.load.invalidated) && ceremony.host === context.host && ceremony.token === context.bearer
     && ceremony.channel === context.channelName && Number.isFinite(ceremony.expiresAt) && Date.now() <= ceremony.expiresAt;
 }
 function nativePlayerStartupIdle(context) {
   return !GAME.started && !GAME.player && !SAVE.pending && !SAVE.nativeFlight && !SAVE.wiping && !SAVE.nativeFinal
     && !NATIVE_PLAYER.playFlight && !NATIVE_PLAYER.provisionalOpening
-    && !NATIVE_PLAYER.profile?.status().pending && !NATIVE_PLAYER.provisional?.status().pending && !nativePlayerIsProvisional()
+    && !NATIVE_PLAYER.profile?.status().pending && !NATIVE_PLAYER.provisional?.status().pending
+    && (!nativePlayerIsProvisional() || context.expiredChoice && nativePlayerExpiredSignInCurrent(context.expiredChoice))
     && !NATIVE_PLAYER.claimPendingResume && !NATIVE_PLAYER.claimConfirmationPending && !NATIVE_PLAYER.openExistingPending
     && !NATIVE_PLAYER.conflict && (!NATIVE_PLAYER.switching || context.fresh && context.ownsSwitching);
 }
@@ -138,6 +224,17 @@ async function nativePlayerRefreshStartup(context, notification, channel, ceremo
   if (!nativePlayerStartupIdle(context)) {
     preserve(); return;
   }
+  let expiredProof = null;
+  if (context.expiredChoice) {
+    let metadata;
+    try { metadata = await context.expiredChoice.session.peek(); }
+    catch { if (current()) preserve(); return; }
+    if (!current()) return;
+    if (!nativePlayerStartupIdle(context) || nativePlayerExpiredSignInMetadata(metadata) !== context.expiredChoice.metadataKey) {
+      preserve(); return;
+    }
+    expiredProof = context.expiredChoice;
+  }
   if (context.proof?.session && nativePlayerStartupUnselected(context.proof)) {
     let metadata;
     try { metadata = await context.proof.session.peek(); }
@@ -147,7 +244,7 @@ async function nativePlayerRefreshStartup(context, notification, channel, ceremo
   }
   const knownProof = context.token || context.refusal && context.refusal === NETWS.sessionRefusal
     && context.refusal.token === context.bearer && context.refusal.host === context.host && context.refusal.generation === context.generation;
-  if (!context.proof || !knownProof || !nativePlayerStartupUnselected(context.proof)) {
+  if (!expiredProof && (!context.proof || !knownProof || !nativePlayerStartupUnselected(context.proof))) {
     const pinned = context.selectedCanonical;
     const selectedCanonical = nativePlayerStartupCanonical(context.load) || pinned && pinned.load === context.load
       && NATIVE_PLAYER_CANONICAL_LOADS.get(pinned.load) === pinned.canonical
@@ -161,6 +258,7 @@ async function nativePlayerRefreshStartup(context, notification, channel, ceremo
   const handoff = { epoch: ++NATIVE_PLAYER_STARTUP_EPOCH, server: context.server, host: context.host, token,
     accountId: status.account.id, ownerDid: status.binding.subjectDid, podUrl: status.binding.podUrl, generation: null, load: null, done: false };
   NATIVE_PLAYER_STARTUP_HANDOFF = handoff;
+  NATIVE_PLAYER_EXPIRED_SIGNIN = null;
   NATIVE_PLAYER.switching = true; SAVE.nativePaused = true;
   nativePlayerStartupConsume(channel);
   const owns = () => nativePlayerStartupHandoffCurrent(handoff);
@@ -227,6 +325,14 @@ function nativePlayerEarlySignInContext(policy = NATIVE_PLAYER_EARLY_POLICY) {
   return policy ? { policy, host: NETWS.host, accountId: NETWS.acct?.id, token: NETWS.token,
     generation: NETWS.generation, epoch: NATIVE_PLAYER_EARLY_EPOCH, sessionRefusal: NETWS.sessionRefusal } : null;
 }
+function nativePlayerEarlyRequestCurrent(context) {
+  return !!context && nativePlayerEarlyPolicyCurrent(context.policy) && context.epoch === NATIVE_PLAYER_EARLY_EPOCH
+    && context.host === NETWS.host && context.accountId === NETWS.acct?.id && context.token === NETWS.token
+    && context.generation === NETWS.generation && context.sessionRefusal === NETWS.sessionRefusal
+    && !NETWS.closed && !NETWS.reload && !GAME.started && !GAME.player && !SAVE.pending && !SAVE.nativeFlight && !SAVE.wiping
+    && !SAVE.nativeFinal && !NATIVE_PLAYER.profile?.status().pending && !NATIVE_PLAYER.claimPendingResume
+    && !NATIVE_PLAYER.claimConfirmationPending && !NATIVE_PLAYER.openExistingPending;
+}
 function nativePlayerEarlySignInCurrent(choice) {
   try {
     if (!choice || !nativePlayerEarlyPolicyCurrent(choice.policy) || choice.epoch !== NATIVE_PLAYER_EARLY_EPOCH
@@ -234,7 +340,9 @@ function nativePlayerEarlySignInCurrent(choice) {
       || choice.generation !== NETWS.generation || NETWS.reload || GAME.ready || GAME.started
       || GRAPHICS_STARTUP.stopped || GRAPHICS_CONTEXT_LOST || NATIVE_PLAYER.busy || NATIVE_PLAYER.switching
       || SAVE.pending || SAVE.nativeFlight || SAVE.wiping || NATIVE_PLAYER.claimConfirmationPending
-      || NATIVE_PLAYER.openExistingPending || NATIVE_PLAYER.claimPendingResume || nativePlayerIsProvisional()) return false;
+      || NATIVE_PLAYER.openExistingPending || NATIVE_PLAYER.claimPendingResume) return false;
+    if (choice.mode === 'expired') return nativePlayerExpiredSignInCurrent(choice) && nativePlayerExpiredSignInStoredCurrent(choice);
+    if (nativePlayerIsProvisional()) return false;
     if (choice.mode === 'fresh') return choice === NATIVE_PLAYER_EARLY_REFUSAL
       && choice.refusal === NATIVE_PLAYER.authRefusal && nativePlayerFreshAllowed();
     if (choice.mode === 'proof') return choice === NATIVE_PLAYER_EARLY_PROOF && choice.choice === NATIVE_PLAYER.newAdventure
@@ -249,6 +357,7 @@ function nativePlayerEarlySignInCurrent(choice) {
   } catch { return false; } // An unavailable UI predicate never opens sign-in.
 }
 function nativePlayerEarlySignInChoice() {
+  if (nativePlayerEarlySignInCurrent(NATIVE_PLAYER_EXPIRED_SIGNIN)) return NATIVE_PLAYER_EXPIRED_SIGNIN;
   if (nativePlayerEarlySignInCurrent(NATIVE_PLAYER_EARLY_STATUS)) return NATIVE_PLAYER_EARLY_STATUS;
   if (nativePlayerEarlySignInCurrent(NATIVE_PLAYER_EARLY_REFUSAL)) return NATIVE_PLAYER_EARLY_REFUSAL;
   return nativePlayerEarlySignInCurrent(NATIVE_PLAYER_EARLY_PROOF) ? NATIVE_PLAYER_EARLY_PROOF : null;
@@ -261,17 +370,20 @@ function nativePlayerRenderEarlySignIn() {
   const pending = !!choice && !!NATIVE_PLAYER.channel;
   box.hidden = !SAVE.native || GAME.ready || GAME.started || GRAPHICS_STARTUP.stopped || GRAPHICS_CONTEXT_LOST;
   button.disabled = !choice;
-  button.textContent = pending ? 'Restart sign-in' : choice?.mode === 'fresh'
+  button.textContent = pending ? 'Restart sign-in' : choice?.mode === 'expired' ? 'Open my saved character' : choice?.mode === 'fresh'
     ? choice.refusal.reason === 'native_owner_mismatch' ? 'Sign in with a different account' : 'Start a fresh sign-in'
     : connected ? 'Reconnect identity' : 'Sign in';
   message.textContent = pending ? 'Finish sign-in in the other window. If you closed it, restart sign-in here.'
     : NATIVE_PLAYER.busy ? 'Your identity connection is being checked. Your world is still loading.'
       : connected ? 'Your identity is connected. Your world is still loading.'
-        : choice ? 'Sign in now. You can enter the realm when your world and identity are ready.'
+        : choice?.mode === 'expired' ? 'Your temporary session ended. Sign in with your existing identity to open its saved character.'
+          : choice ? 'Sign in now. You can enter the realm when your world and identity are ready.'
+            : NATIVE_PLAYER.message && ['guest_expired', 'native_signin_required'].includes(NATIVE_PLAYER.state) ? NATIVE_PLAYER.message
           : 'Checking sign-in options. Your world is loading in the background.';
   button.onclick = () => {
     // Recheck the captured choice, even if a stale button remains on screen.
-    if (nativePlayerEarlySignInCurrent(choice)) nativePlayerConnect(choice.mode === 'fresh');
+    if (nativePlayerEarlySignInCurrent(choice)) nativePlayerConnect(choice.mode === 'fresh' || choice.mode === 'expired' && choice.phase === 'refused',
+      choice.mode === 'expired' ? choice : null);
   };
 }
 function nativePlayerClearEarlySignIn() {
@@ -386,6 +498,7 @@ async function nativePlayerModules() {
 }
 function nativePlayerChanged(info) {
   NATIVE_PLAYER_EMPTY_PROVISIONAL = null;
+  NATIVE_PLAYER_EXPIRED_SIGNIN = null;
   NATIVE_PLAYER.draftPreview = null;
   NATIVE_PLAYER.state = info.state;
   nativePlayerRender();
@@ -563,6 +676,7 @@ async function nativePlayerSaveRef(initialization = { active: true }) {
   if (pendingHandoff && initialization.onTitleReady === pendingHandoff.onTitleReady) pendingHandoff.load = initialization;
   nativePlayerClearConnectedIdentity();
   NATIVE_PLAYER_EMPTY_PROVISIONAL = null;
+  NATIVE_PLAYER_EXPIRED_SIGNIN = null;
   NATIVE_PLAYER_EARLY_POLICY = null;
   nativePlayerClearEarlySignIn();
   NATIVE_PLAYER.draftPreview = null;
@@ -637,6 +751,14 @@ async function nativePlayerSaveRef(initialization = { active: true }) {
           const metadata = await session.peek();
           if (!current()) return active() ? blocked : null;
           if (!nativePlayerRememberEmptyProvisional(session, metadata, initialization, emptyScope)) return active() ? blocked : null;
+          if (metadata?.expired === true) {
+            if (nativePlayerRememberExpiredSignIn(session, metadata, initialization, earlyProofContext, token)) {
+              NATIVE_PLAYER.status = status;
+              NATIVE_PLAYER.state = 'guest_expired';
+              NATIVE_PLAYER.message = 'Your temporary session ended. Sign in with your existing identity to open its saved character.';
+              return blocked;
+            }
+          }
           if (metadata && !metadata.claimedOwnerDid) {
             NATIVE_PLAYER.status = status; NATIVE_PLAYER.claimLastConfirmed = metadata.lastConfirmedClaim === true;
             NATIVE_PLAYER.provisionalProofToken = token;
@@ -675,7 +797,15 @@ async function nativePlayerSaveRef(initialization = { active: true }) {
   const earlyIdentityContext = nativePlayerEarlySignInContext();
   let status;
   try { status = await nativePlayerRequest('/gaming/identity/status'); }
-  catch (error) { return active() ? blocked : null; }
+  catch (error) {
+    if (error.httpStatus === 401 && error.code === 'game_account_required' && nativePlayerEarlyRequestCurrent(earlyIdentityContext)) {
+      NATIVE_PLAYER.authRefusal = { host, token: earlyIdentityContext.token };
+      nativePlayerRememberEarlyRefusal(earlyIdentityContext, earlyIdentityContext.token);
+      NATIVE_PLAYER.state = 'native_signin_required';
+      NATIVE_PLAYER.message = 'Your game session ended. Sign in again with your existing identity.';
+    }
+    return active() ? blocked : null;
+  }
   if (!active()) return null;
   const startupHandoff = NATIVE_PLAYER_STARTUP_HANDOFF;
   if (startupHandoff && initialization.onTitleReady === startupHandoff.onTitleReady
@@ -699,6 +829,12 @@ async function nativePlayerSaveRef(initialization = { active: true }) {
       const emptyScope = { context: NATIVE_PLAYER.provisionalContext, host, accountId: owner, token: NETWS.token, generation: NETWS.generation };
       const metadata = await session.peek();
       if (!nativePlayerRememberEmptyProvisional(session, metadata, initialization, emptyScope)) return active() ? blocked : null;
+      if (metadata?.expired === true && nativePlayerRememberExpiredSignIn(session, metadata, initialization,
+        earlyIdentityContext, earlyIdentityContext?.token, status)) {
+        NATIVE_PLAYER.state = 'guest_expired';
+        NATIVE_PLAYER.message = 'Your temporary session ended. Sign in with your existing identity to open its saved character.';
+        return blocked;
+      }
       // UI-only preview of an unbound, empty browser session. This does not
       // confirm private absence, provision a character or grant entry.
       if (metadata === null && active() && !status.bound && status.provisional !== true && nativePlayerCanPlayNow()) {
@@ -872,7 +1008,9 @@ function nativePlayerRender() {
     const profile = NATIVE_PLAYER.switching ? null : NATIVE_PLAYER.profile;
     const forcedRecovery = profile && profileStatus?.hasRecord && !profileStatus.keyPresent;
     const canCheckRecovery = profile && status.bound && status.verified && !provisional && !GAME.started;
-    const primary = !taskPanel ? null : claimRecovery ? 'Restore saved character' : expired ? 'Open my saved character'
+    const primary = !taskPanel ? null : claimRecovery ? 'Restore saved character'
+      : nativePlayerFreshAllowed() && !provisional && NATIVE_PLAYER.authRefusal.reason !== 'native_owner_mismatch'
+        ? 'Start a fresh sign-in' : expired ? 'Open my saved character'
       : NATIVE_PLAYER.claimConfirmationPending ? 'Confirm kept character'
       : forcedRecovery && canCheckRecovery ? 'Check recovery options'
       : nativePlayerFreshAllowed() && NATIVE_PLAYER.authRefusal.reason !== 'native_owner_mismatch' ? 'Start a fresh sign-in'
@@ -888,7 +1026,7 @@ function nativePlayerRender() {
       b.onclick = () => { if (!(typeof titleEntryBlocked === 'function' && titleEntryBlocked())) return run(); }; return b;
     };
     if (expired) {
-      action('Open my saved character', nativePlayerConnect);
+      action('Open my saved character', nativePlayerOpenExistingIdentity);
       if (target.classList.contains('card-body') && nativePlayerExpiredAdventureAllowed()) action('Start a new character', nativePlayerExpiredAdventure);
       if (NATIVE_PLAYER.provisional?.status().claim?.targetAvailable || NATIVE_PLAYER.provisional?.status().claimStarted) add('p', 'A character claim was started. Connect the identity you used to keep it; its original browser key has not been replaced.');
     } else if (provisional) {
@@ -901,7 +1039,7 @@ function nativePlayerRender() {
     } else if (NATIVE_PLAYER.claimConfirmationPending) action('Confirm kept character', () => nativePlayerTask(nativePlayerConfirmClaim));
     else action(status.bound ? 'Reconnect identity' : 'I already have an identity', nativePlayerConnect);
     if (target.classList.contains('card-body') && nativePlayerNewAdventureAllowed()) action('Play with a new character', nativePlayerNewAdventure);
-    if (target.classList.contains('card-body') && nativePlayerFreshAllowed()) action(
+    if (target.classList.contains('card-body') && nativePlayerFreshAllowed() && !(expired && provisional)) action(
       NATIVE_PLAYER.authRefusal.reason === 'native_owner_mismatch' ? 'Sign in with a different account' : 'Start a fresh sign-in', () => nativePlayerConnect(true));
     const connectionRetry = !expired && SAVE.native && !SAVE.readConfirmed && !GAME.started && !NATIVE_PLAYER.switching;
     if (connectionRetry) action('Retry connection', () => nativePlayerTask(nativePlayerRetryLoad));
@@ -1278,9 +1416,16 @@ function nativePlayerNewAdventure() {
     } finally { NATIVE_PLAYER.switching = false; nativePlayerRender(); }
   });
 }
-function nativePlayerConnect(fresh = false) {
+function nativePlayerConnect(fresh = false, expiredChoice = null) {
   if (NATIVE_PLAYER.busy || NATIVE_PLAYER_STARTUP_HANDOFF) return;
-  if (fresh && !nativePlayerFreshAllowed()) {
+  if (!expiredChoice && !GAME.started && nativePlayerIsProvisional() && NATIVE_PLAYER.provisional?.status().provisional !== false
+    && (nativePlayerGuestExpired() || NATIVE_PLAYER.expiredAdventure)) return nativePlayerOpenExistingIdentity();
+  if (expiredChoice && (!nativePlayerExpiredSignInCurrent(expiredChoice) || !nativePlayerExpiredSignInStoredCurrent(expiredChoice)
+    || fresh !== (expiredChoice.phase === 'refused'))) {
+    NATIVE_PLAYER.message = 'The expired character connection changed. Retry its connection before signing in.'; nativePlayerRender(); return;
+  }
+  const freshAllowed = () => expiredChoice ? expiredChoice.phase === 'refused' && nativePlayerExpiredSignInCurrent(expiredChoice) : nativePlayerFreshAllowed();
+  if (fresh && !freshAllowed()) {
     NATIVE_PLAYER.message = 'Keep the current character open. Reconnect its original identity without replacing the session.'; nativePlayerRender(); return;
   }
   const expected = GAME.started ? { accountId: NETWS.acct?.id, ownerDid: NATIVE_PLAYER.status?.binding?.subjectDid,
@@ -1297,19 +1442,47 @@ function nativePlayerConnect(fresh = false) {
   let starting;
   starting = nativePlayerTask(async () => {
     const host = NETWS.host;
+    if (expiredChoice) {
+      try {
+        const metadata = await expiredChoice.session.peek();
+        if (!nativePlayerExpiredSignInCurrent(expiredChoice) || !nativePlayerExpiredSignInStoredCurrent(expiredChoice)
+          || nativePlayerExpiredSignInMetadata(metadata) !== expiredChoice.metadataKey) {
+          throw new Error('The expired character connection changed. Retry its connection before signing in.');
+        }
+      } catch (error) { popup.close(); throw error; }
+    }
     if (fresh) {
       try {
-        if (!nativePlayerFreshAllowed()) throw new Error('Keep the current character open. Its session cannot be replaced.');
+        if (!freshAllowed()) throw new Error('Keep the current character open. Its session cannot be replaced.');
         NATIVE_PLAYER.switching = true; SAVE.readConfirmed = false; nativePlayerRender();
-        await netWsTokenForget(host, NATIVE_PLAYER.authRefusal.token, nativePlayerFreshAllowed);
-        if (!nativePlayerFreshAllowed()) throw new Error('Keep the current character open. Its session cannot be replaced.');
+        await netWsTokenForget(host, expiredChoice ? expiredChoice.refusedToken : NATIVE_PLAYER.authRefusal.token, freshAllowed);
+        if (!freshAllowed()) throw new Error('Keep the current character open. Its session cannot be replaced.');
         SAVE.readConfirmed = false;
         NATIVE_PLAYER.authRefusal = null;
         if (NETWS.link) NETWS.link.close();
         else netWsRetire(NETWS.ws, 'explicit title sign-in');
+        if (expiredChoice) nativePlayerClearEarlySignIn();
+        const transitionEpoch = NATIVE_PLAYER_EARLY_EPOCH, transitionGeneration = NETWS.generation;
         NETWS.token = ''; NETWS.acct = null;
         if (!await netLinkWS() || !nativePlayerSwitchIdle()) throw new Error('The fresh game session is unavailable. Retry the connection.');
-      } catch (error) { popup.close(); throw error; }
+        if (expiredChoice) {
+          if (NATIVE_PLAYER_EXPIRED_SIGNIN !== expiredChoice || !nativePlayerExpiredSignInRetained(expiredChoice)
+            || !nativePlayerEarlyPolicyCurrent(expiredChoice.policy) || NETWS.host !== host || netServerUrl() !== expiredChoice.policy.server
+            || NETWS.generation !== transitionGeneration + 1 || NATIVE_PLAYER_EARLY_EPOCH !== transitionEpoch + 1
+            || NETWS.sessionRefusal || !NETWS.acct?.id || NETWS.acct.guest !== true || NETWS.acct.nativeBound !== false
+            || !NETWS.token || !nativePlayerSignInTransportCurrent()) {
+            throw new Error('The fresh game connection changed. Retry before opening your saved character.');
+          }
+          expiredChoice = NATIVE_PLAYER_EXPIRED_SIGNIN = { ...expiredChoice, phase: 'fresh', accountId: NETWS.acct.id,
+            socketToken: NETWS.token, token: NETWS.token, generation: NETWS.generation, epoch: NATIVE_PLAYER_EARLY_EPOCH,
+            sessionRefusal: NETWS.sessionRefusal };
+        }
+      } catch (error) {
+        if (expiredChoice && NATIVE_PLAYER_EXPIRED_SIGNIN === expiredChoice && SAVE.loading === expiredChoice.initialization
+          && NATIVE_PLAYER.provisional === expiredChoice.session && NATIVE_PLAYER.provisionalContext === expiredChoice.sessionContext
+          && !GAME.started && !NATIVE_PLAYER_STARTUP_HANDOFF) NATIVE_PLAYER.switching = false;
+        popup.close(); throw error;
+      }
     }
     // A refused expired session has no welcome account or active token. Its
     // stored opaque proof may still authorize the server's bounded sign-in
@@ -1320,7 +1493,7 @@ function nativePlayerConnect(fresh = false) {
     }
     const earlyRefusalContext = nativePlayerEarlySignInContext();
     const channelName = 'hallowmarch-owner-' + crypto.randomUUID();
-    const startupContext = { proof: startupProof, selectedCanonical, fresh, ownsSwitching: fresh && NATIVE_PLAYER.switching,
+    const startupContext = { proof: startupProof, expiredChoice, selectedCanonical, fresh, ownsSwitching: fresh && NATIVE_PLAYER.switching,
       server: netServerUrl(), host, accountId: NETWS.acct?.id, token: NETWS.token, bearer: token,
       generation: NETWS.generation, load: SAVE.loading, refusal: NETWS.sessionRefusal, earlyEpoch: NATIVE_PLAYER_EARLY_EPOCH,
       epoch: ++NATIVE_PLAYER_STARTUP_EPOCH, channelName };
@@ -1329,7 +1502,7 @@ function nativePlayerConnect(fresh = false) {
     popup.sessionStorage.setItem('hallowmarch.identity.ceremony.v1', JSON.stringify(ceremony));
     NATIVE_PLAYER.channel?.close();
     const channel = NATIVE_PLAYER.channel = new BroadcastChannel(channelName);
-    NATIVE_PLAYER_STARTUP_CEREMONY = startupProof ? { context: startupContext, channel, ceremony } : null;
+    NATIVE_PLAYER_STARTUP_CEREMONY = startupProof || expiredChoice ? { context: startupContext, channel, ceremony } : null;
     let processingConnected = false;
     channel.onmessage = event => {
       if (event.data?.type === 'hallowmarch-native-failed') {
@@ -1382,17 +1555,20 @@ function nativePlayerConnect(fresh = false) {
       }
       NATIVE_PLAYER.authRefusal = null;
       popup.location.replace(result.authorizationUrl);
-      if (startupProof && fresh && NATIVE_PLAYER_STARTUP_CEREMONY?.channel === channel
+      if ((startupProof || expiredChoice) && fresh && NATIVE_PLAYER_STARTUP_CEREMONY?.channel === channel
         && nativePlayerStartupCurrent(startupContext, channel, ceremony)) NATIVE_PLAYER.switching = false;
       NATIVE_PLAYER.message = 'Complete sign-in in the identity window, then return here.';
     } catch (error) {
-      if (error.httpStatus === 401 && error.code === 'game_account_required' && !GAME.started && !SAVE.pending && !SAVE.nativeFlight && !NATIVE_PLAYER.profile?.status().pending) {
+      if (error.httpStatus === 401 && error.code === 'game_account_required'
+        && nativePlayerStartupCurrent(startupContext, channel, ceremony) && nativePlayerStartupIdle(startupContext)) {
         NATIVE_PLAYER.authRefusal = { host, token };
         nativePlayerRememberEarlyRefusal(earlyRefusalContext, token);
+        if (expiredChoice) NATIVE_PLAYER_EXPIRED_SIGNIN = { ...expiredChoice, phase: 'refused',
+          refusal: NATIVE_PLAYER.authRefusal, refusedToken: token };
         error.message = 'The previous game session has expired or was refused. Start a fresh sign-in, then choose your existing identity.';
       }
       popup.close(); nativePlayerStartupConsume(channel);
-      if (startupProof && fresh && !NATIVE_PLAYER_STARTUP_HANDOFF) NATIVE_PLAYER.switching = false;
+      if ((startupProof || expiredChoice) && fresh && !NATIVE_PLAYER_STARTUP_HANDOFF) NATIVE_PLAYER.switching = false;
       throw error;
     }
   });
