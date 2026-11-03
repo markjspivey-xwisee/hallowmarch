@@ -477,9 +477,12 @@ document.addEventListener('visibilitychange', () => {
 const BOOT_STEPS = []; // [perf2] every step's time, the first too (13x_perf2.js)
 const BOOT_WORK_BUDGET_MS = 8;
 function yieldBootWork() {
-  // Let input/rendering run without waiting for a fresh display frame after
-  // every CPU slice. Older browsers retain the existing paint/timer fallback.
-  if (window.scheduler && typeof window.scheduler.yield === 'function') return window.scheduler.yield();
+  // A boosted scheduler.yield continuation can repeatedly outrank the network
+  // and timer tasks that enable sign-in. Queue a fresh background task instead:
+  // loading is useful work, while identity responses and input must run first.
+  if (window.scheduler && typeof window.scheduler.postTask === 'function') {
+    return window.scheduler.postTask(() => {}, { priority: 'background' });
+  }
   return nextPaint();
 }
 function* bootSequence(tasks) {
@@ -564,7 +567,12 @@ async function loadStep(frac, msg, fn) {
 }
 async function boot() {
   GAME.built = false;
-  const savePromise = loadSave().catch(() => null);
+  const savePromise = loadSave().then(() => {
+    // The existing owner-scoped form needs no world meshes. Reveal it as soon
+    // as its read settles, while keeping entry behind the graphics fence.
+    if (typeof prepareTitleDraft === 'function'
+      && !(typeof graphicsDiagnosticActive === 'function' && graphicsDiagnosticActive())) prepareTitleDraft(SAVE.loaded);
+  }).catch(() => null);
   await loadStep(0.03, 'Raising the hills', () => buildWorldChunks(7));
   await loadStep(0.2, 'Shaping the land', () => bootSequence([uploadWorldTextures, buildTerrain, buildWater]));
   await loadStep(0.34, 'Planting the forests', () => bootSequence([buildTrees, buildNearTrees, buildRocks, buildHeroTree, buildCrags])); // [land] buildCrags (03c_land.js)
@@ -592,7 +600,6 @@ async function boot() {
   await loadStep(0.82, 'Preparing the sounds', () => prepareSoundBuffersChunks());
   await loadStep(0.83, 'Preparing the ground', () => prepareGroundAOChunks());
   await loadStep(0.835, 'Preparing the seasons', () => prepareSeasonMapChunks());
-  if (typeof prepareTitleDraft === 'function') prepareTitleDraft(saveLoadPresented());
   await loadStep(0.84, 'Drawing the map', () => bootSequence([buildMapImageChunks, buildDungeonMapChunks]));
   await loadStep(0.9, 'Preparing the first view', () => {
     updateCamera(0.016);

@@ -61,7 +61,7 @@ async function accountFixture(t, options = {}) {
   // native SDK, credential, key, owner browser storage or auth flow exists.
   await f.page.evaluate(`window.__early = (() => { const options = ${JSON.stringify(options)};
       ${guardCode}\n${saveCode}\n${nativeCode}\n${transportHook}\n
-      const calls = { fetch: [], request: [], link: 0, peek: 0, auth: [], write: 0, key: 0, settled: 0, popup: 0, token: 0, start: 0, entry: 0 };
+      const calls = { fetch: [], request: [], link: 0, peek: 0, auth: [], write: 0, key: 0, settled: 0, popup: 0, token: 0, start: 0, entry: 0, retries: 0 };
       const deferred = () => { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; };
       const manifest = deferred(), status = deferred(), metadata = deferred(), authorization = deferred();
       const $ = id => document.getElementById(id);
@@ -107,6 +107,8 @@ async function accountFixture(t, options = {}) {
         start, releaseManifest: () => manifest.resolve(), releaseStatus: value => status.resolve(value), rejectStatus: () => status.reject(Error('synthetic status unavailable')),
         releaseMetadata: value => metadata.resolve(value), result: () => result, finish: () => finished,
         render: () => { if (typeof nativePlayerRenderEarlySignIn === 'function') nativePlayerRenderEarlySignIn(); },
+        useRetryProbe: () => { loadSave = async options => { if (options.retry === true) calls.retries++; };
+          nativePlayerTask = async operation => operation(); },
         clear: () => netWsClearIdentityDisplay(), refuse: () => netWsAdmissionUpdate({ admission: 'identity-required', code: 'native_signin_required' }),
         loseGraphics: () => { GRAPHICS_CONTEXT_LOST = true; }, actualConnect: () => actualConnect(false),
         attemptBegin: () => nativePlayerBegin({ name: 'Synthetic recruit', realm: 0, cls: 'warrior', fresh: true }),
@@ -172,7 +174,7 @@ test('accepted live policy and status allow explicit sign-in while private load 
   await page.evaluate(() => __early.finish());
 });
 
-test('unknown or refused identity never enables loading sign-in or claims an absent character', async t => {
+test('failed identity offers a scoped connection retry without enabling authentication or selecting a character', async t => {
   const { page } = await accountFixture(t);
   await page.evaluate(() => __early.start());
   assert.equal(await page.locator('#loading-sign-in').isDisabled(), true);
@@ -183,11 +185,20 @@ test('unknown or refused identity never enables loading sign-in or claims an abs
   await page.evaluate(() => __early.rejectStatus());
   await page.evaluate(() => __early.finish());
   await page.evaluate(() => __early.render());
-  assert.equal(await page.locator('#loading-sign-in').isEnabled(), false);
+  assert.equal(await page.locator('#loading-sign-in').innerText(), 'Retry sign-in check');
+  assert.equal(await page.locator('#loading-sign-in').isEnabled(), true);
   assert.doesNotMatch(await page.locator('#loading-identity-status').innerText(), /no (saved )?character|new character|empty (save|pod)|character (is )?absent/i);
   assert.equal(await page.evaluate(() => __early.SAVE.readConfirmed), false);
   assert.equal(await page.evaluate(() => __early.SAVE.loaded), null);
   assert.deepEqual(await page.evaluate(() => __early.calls.auth), []);
+  await page.evaluate(() => __early.useRetryProbe());
+  await page.locator('#loading-sign-in').click();
+  assert.equal(await page.evaluate(() => __early.calls.retries), 1);
+  assert.deepEqual(await page.evaluate(() => __early.calls.auth), []);
+  // A captured retry cannot operate after its initialization is replaced.
+  await page.evaluate(() => { __early.SAVE.loading = { active:true, settled:true, identityError:true }; });
+  await page.locator('#loading-sign-in').click();
+  assert.equal(await page.evaluate(() => __early.calls.retries), 1);
 });
 
 for (const [name, options] of [
@@ -204,8 +215,10 @@ for (const [name, options] of [
     account: { id: 'synthetic-game-account' } }); __early.releaseMetadata(null); });
   await page.evaluate(() => __early.finish());
   await page.evaluate(() => __early.render());
-  assert.equal(await page.locator('#loading-sign-in').isEnabled(), false);
-  await page.evaluate(() => document.getElementById('loading-sign-in')?.onclick?.());
+  const retriable = options.manifestStatus === 503 || options.socket === false;
+  assert.equal(await page.locator('#loading-sign-in').isEnabled(), retriable);
+  if (retriable) assert.equal(await page.locator('#loading-sign-in').innerText(), 'Retry sign-in check');
+  if (!retriable) await page.evaluate(() => document.getElementById('loading-sign-in')?.onclick?.());
   assert.deepEqual(await page.evaluate(() => __early.calls.auth), []);
   assert.equal(await page.evaluate(() => __early.calls.write), 0);
 });

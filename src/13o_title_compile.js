@@ -459,7 +459,9 @@ async function prepareTitleProgramJobs(inventory, stages, generation, dependency
   const history = GRAPHICS_STARTUP.titlePreparations ||= [];
   history.push(receipt);
   if (history.length > 8) history.shift();
-  if (BOOT_SAFE || !renderer.extensions?.has?.('KHR_parallel_shader_compile')) return receipt;
+  // Reduced effects still need asynchronous compilation. Falling straight
+  // through to cold draws can block input for seconds on a recovering browser.
+  if (!renderer.extensions?.has?.('KHR_parallel_shader_compile')) return receipt;
   receipt.supported = true;
   GRAPHICS_STARTUP.titlePreparing = true;
   const message = document.getElementById?.('loadmsg');

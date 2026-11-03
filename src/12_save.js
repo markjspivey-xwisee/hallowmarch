@@ -153,6 +153,10 @@ async function loadSave({ retry = false, onTitleReady = null, isCurrent = null }
       return s;
     } finally {
       initialization.settled = true;
+      // Failed discovery must leave a usable retry control during world build.
+      // Rendering this status cannot change the private read's result.
+      try { if (typeof nativePlayerRenderEarlySignIn === 'function') nativePlayerRenderEarlySignIn(); }
+      catch { /* An optional loading status never replaces a save result. */ }
       if (initialization.active && initialization.detached) saveLoadTitle(initialization);
     }
   })();

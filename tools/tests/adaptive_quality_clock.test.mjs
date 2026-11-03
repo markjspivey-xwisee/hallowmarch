@@ -72,6 +72,20 @@ test('independent da387 pins and whole-source inverses restrict changes to appro
   let inverse = (main.slice(0,beginning) + declaration(oracle.main,'PERF') + '\n' + declaration(oracle.main,'adaptQuality') + main.slice(end))
     .replace(/^\s+resetAdaptiveQualityClock\(\);\n/gm,'')
     .replace(touchInventoryCopy,"IS_TOUCH ? 'Tap Kit' : 'Press I'");
+  // The November startup repair changes scheduling and when the owner-scoped
+  // form is shown, while the complete adaptive clock and simulation stay exact.
+  inverse = inverse.replace(declaration(main,'yieldBootWork'),declaration(oracle.main,'yieldBootWork'));
+  const earlyRead = `  const savePromise = loadSave().then(() => {
+    // The existing owner-scoped form needs no world meshes. Reveal it as soon
+    // as its read settles, while keeping entry behind the graphics fence.
+    if (typeof prepareTitleDraft === 'function'
+      && !(typeof graphicsDiagnosticActive === 'function' && graphicsDiagnosticActive())) prepareTitleDraft(SAVE.loaded);
+  }).catch(() => null);`;
+  assert.equal(inverse.split(earlyRead).length,2);
+  inverse = inverse.replace(earlyRead,'  const savePromise = loadSave().catch(() => null);');
+  const mapStart = "  await loadStep(0.84, 'Drawing the map'";
+  assert.equal(inverse.split(mapStart).length,2);
+  inverse = inverse.replace(mapStart,"  if (typeof prepareTitleDraft === 'function') prepareTitleDraft(saveLoadPresented());\n"+mapStart);
   // Undo only the four reviewed current-load boot substitutions. Keep the
   // pinned oracle and every unrelated byte, clock and simulation assertion.
   for (const [current, original] of [

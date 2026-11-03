@@ -74,6 +74,8 @@ These apply to every change, not only to the feature that prompted them.
 
 ## Build and run
 
+- **Startup responsiveness (2026-11-03):** CPU construction posts fresh background tasks instead of repeatedly boosted `scheduler.yield` continuations, so identity/network events can run during construction. The existing owner-scoped title draft opens after its save read settles; realm entry still waits for the original graphics fences. Reduced graphics uses KHR parallel preparation when available, retaining its reduced targets and effects. Previously it skipped preparation and blocked the page in cold draws. Failed identity discovery offers an explicit check retry scoped to the same settled initialization, with no authentication or private-save authority supplied by that retry. Public HTML delivery negotiates Brotli/gzip, uses a bounded two-entry compression cache and content-bound validators; identity/save responses never pass through that cache. Native Edge/NVIDIA diagnostics and focused regressions are retained in the November 3 repair chat; cold driver compilation remains a material first-visit cost.
+
 - Run `python3 build.py`. It concatenates `src/page.html` and every `src/NN[a-z]_*.js` module in filename order into one `<script type="module">`, and writes `hallowmarch.html`. three.js 0.160.0 is imported from jsDelivr.
 - All modules share one top-level scope after concatenation:
   - Top-level names must be unique across files. `tools/lint.sh` reports redeclarations.

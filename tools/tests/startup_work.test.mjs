@@ -73,7 +73,8 @@ test('an expensive iterator factory yields before starting its next chunk',async
 });
 test('the browser scheduler gets real task boundaries with its receiver preserved',async()=>{
   const h=harness(),receipt=h.receipt(),seen=[];let yields=0;
-  const scheduler={yield(){assert.equal(this,scheduler);yields++;return new Promise(resolve=>setImmediate(()=>{seen.push('host');resolve();}));}};
+  const scheduler={postTask(callback,options){assert.equal(this,scheduler);assert.equal(options.priority,'background');yields++;return new Promise(resolve=>setImmediate(()=>{callback();seen.push('host');resolve();}));},
+    yield(){throw Error('Boosted continuations must not starve identity/network events.');}};
   h.ctx.window.scheduler=scheduler;
   function* chunks(){for(let i=0;i<10;i++){h.advance(5);seen.push(i);yield;}}
   await h.ctx.runBootWork(chunks,receipt);

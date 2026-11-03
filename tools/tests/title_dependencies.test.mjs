@@ -247,8 +247,8 @@ test('unowned sky and unknown dependencies fail without preparing a program', as
   const f = fixture(); await assert.rejects(f.run('crowds'), /Unknown/); assert.equal(f.calls.length, 0); f.clean();
 });
 
-test('recovery and missing KHR retain the original serial path without running a preflight', async () => {
-  for (const options of [{ safe: true }, { supported: false }]) for (const id of ['post', 'sky']) {
+test('missing KHR retains the original serial path without running a preflight', async () => {
+  for (const options of [{ supported: false }]) for (const id of ['post', 'sky']) {
     const f = fixture(options), receipt = await f.run(id); assert.equal(receipt.supported, false); assert.equal(f.calls.length, 0); assert.equal(f.preflightCalls(), 0); f.clean();
   }
 });
@@ -841,8 +841,8 @@ test('stale initial feedback clears immediately and cannot republish the obsolet
   assert.equal(receipt.stale,true);assert(clear>=0);assert(events.slice(clear).every(event=>event.phase==='clear'));f.clean();
 });
 
-test('recovery and absent parallel compile never publish an initial inventory counter',async()=>{
-  for(const options of[{safe:true},{supported:false}]){
+test('absent parallel compile never publishes an initial inventory counter',async()=>{
+  for(const options of[{supported:false}]){
     const f=initialFixture(options),events=[];f.ctx.titleLoadingProgress=state=>events.push(state);
     const receipt=await f.runInitial();assert.equal(receipt.supported,false);assert.equal(events.length,0);f.clean();
   }
