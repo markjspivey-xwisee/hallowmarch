@@ -345,10 +345,18 @@ test('an unpreemptible turn crossing a program deadline schedules no extra polli
   assert.equal(requestedWait(f),0);const rejected=assert.rejects(promise,/timed out/);await f.timer();await rejected;
   const receipt=f.ctx.GRAPHICS_STARTUP.titlePreparations[0];assert.equal(receipt.maxFullTurnMs,90001);assert.equal(receipt.budgetClippedWaits,1);f.clean();
 });
-test('recovery and absent parallel extension retain serial rendering without timers or preparation', async () => {
-  for (const options of [{ safe: true }, { supported: false }]) {
+test('absent parallel extension retains serial rendering without timers or preparation', async () => {
+  for (const options of [{ supported: false }]) {
     const f = fixture(options), receipt = await f.run(); assert.equal(receipt.supported, false); assert.equal(f.calls.length, 0); f.clean();
   }
+});
+
+test('reduced graphics still prepares supported programs before their cold draws', async () => {
+  const f = fixture({ safe: true });
+  const receipt = await f.finish(f.run());
+  assert.equal(receipt.supported, true); assert.equal(receipt.completed, true);
+  assert(f.calls.length > 0); assert(receipt.maxPending <= productPending);
+  assert.notEqual(f.ctx.GAME.ready, true); f.clean();
 });
 test('zero eligible leaves completes preparation without compiling or claiming a frame', async () => {
   const f = fixture({ count: 1 }); f.objects[0].visible = false;
@@ -577,7 +585,7 @@ test('compile exceptions restore material side and perform no further GL restora
 });
 test('preparation history is bounded and never claims readiness or mutates character/world state', async () => {
   const f = fixture({ safe: true }); const before = JSON.stringify(f.ctx.GAME);
-  for (let i = 0; i < 12; i++) await f.run();
+  for (let i = 0; i < 12; i++) await f.finish(f.run());
   assert.equal(f.ctx.GRAPHICS_STARTUP.titlePreparations.length, 8); assert.equal(JSON.stringify(f.ctx.GAME), before); f.clean();
 });
 

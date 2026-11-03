@@ -366,14 +366,23 @@ function nativePlayerRenderEarlySignIn() {
   const box = $('loading-identity'), button = $('loading-sign-in'), message = $('loading-identity-status');
   if (!box || !button || !message) return;
   const choice = nativePlayerEarlySignInChoice();
+  const load = SAVE.loading;
+  const canRetry = () => SAVE.native && load === SAVE.loading && load?.identityError === true && load.settled && load.active
+    && !GAME.ready && !GAME.started && !GRAPHICS_STARTUP.stopped && !GRAPHICS_CONTEXT_LOST
+    && !NATIVE_PLAYER.busy && !NATIVE_PLAYER.switching && !NATIVE_PLAYER.channel && !NATIVE_PLAYER_STARTUP_HANDOFF
+    && !SAVE.pending && !SAVE.nativeFlight && !SAVE.wiping && !NATIVE_PLAYER.profile?.status().pending
+    && !NATIVE_PLAYER.provisional?.status().pending && !NATIVE_PLAYER.claimPendingResume
+    && !NATIVE_PLAYER.claimConfirmationPending && !NATIVE_PLAYER.openExistingPending;
+  const retry = !choice && canRetry();
   const connected = choice?.mode === 'live' && nativePlayerConnectedIdentity();
   const pending = !!choice && !!NATIVE_PLAYER.channel;
   box.hidden = !SAVE.native || GAME.ready || GAME.started || GRAPHICS_STARTUP.stopped || GRAPHICS_CONTEXT_LOST;
-  button.disabled = !choice;
-  button.textContent = pending ? 'Restart sign-in' : choice?.mode === 'expired' ? 'Open my saved character' : choice?.mode === 'fresh'
+  button.disabled = !choice && !retry;
+  button.textContent = retry ? 'Retry sign-in check' : pending ? 'Restart sign-in' : choice?.mode === 'expired' ? 'Open my saved character' : choice?.mode === 'fresh'
     ? choice.refusal.reason === 'native_owner_mismatch' ? 'Sign in with a different account' : 'Start a fresh sign-in'
     : connected ? 'Reconnect identity' : 'Sign in';
-  message.textContent = pending ? 'Finish sign-in in the other window. If you closed it, restart sign-in here.'
+  message.textContent = retry ? 'Sign-in could not be checked. Retry the connection. Your saved character is kept.'
+    : pending ? 'Finish sign-in in the other window. If you closed it, restart sign-in here.'
     : NATIVE_PLAYER.busy ? 'Your identity connection is being checked. Your world is still loading.'
       : connected ? 'Your identity is connected. Your world is still loading.'
         : choice?.mode === 'expired' ? 'Your temporary session ended. Sign in with your existing identity to open its saved character.'
@@ -381,6 +390,10 @@ function nativePlayerRenderEarlySignIn() {
             : NATIVE_PLAYER.message && ['guest_expired', 'native_signin_required'].includes(NATIVE_PLAYER.state) ? NATIVE_PLAYER.message
           : 'Checking sign-in options. Your world is loading in the background.';
   button.onclick = () => {
+    if (retry && canRetry()) {
+      void nativePlayerTask(() => loadSave({ retry: true }), 'Checking sign-in…');
+      return;
+    }
     // Recheck the captured choice, even if a stale button remains on screen.
     if (nativePlayerEarlySignInCurrent(choice)) nativePlayerConnect(choice.mode === 'fresh' || choice.mode === 'expired' && choice.phase === 'refused',
       choice.mode === 'expired' ? choice : null);
@@ -731,7 +744,7 @@ async function nativePlayerSaveRef(initialization = { active: true }) {
       };
       if (initialization.promise && typeof initialization.promise.then === 'function') void initialization.promise.then(settled, settled);
     }
-  } catch (error) { return active() ? blocked : null; }
+  } catch (error) { if (active()) initialization.identityError = true; return active() ? blocked : null; }
   if (!await netLinkWS()) {
     // A retired/expired game bearer is never a socket session. A known browser
     // key may still recover its bounded proof ceremony or exact pending claim.
@@ -788,6 +801,7 @@ async function nativePlayerSaveRef(initialization = { active: true }) {
         NATIVE_PLAYER.message = 'Your saved character is still intact. Retry its connection or complete the pending identity claim.';
       }
     }
+    if (active() && !NETWS.sessionRefusal && !NATIVE_PLAYER.newAdventure && !NATIVE_PLAYER_EXPIRED_SIGNIN) initialization.identityError = true;
     return active() ? blocked : null;
   }
   if (!active()) return null;
@@ -798,6 +812,7 @@ async function nativePlayerSaveRef(initialization = { active: true }) {
   let status;
   try { status = await nativePlayerRequest('/gaming/identity/status'); }
   catch (error) {
+    if (active()) initialization.identityError = true;
     if (error.httpStatus === 401 && error.code === 'game_account_required' && nativePlayerEarlyRequestCurrent(earlyIdentityContext)) {
       NATIVE_PLAYER.authRefusal = { host, token: earlyIdentityContext.token };
       nativePlayerRememberEarlyRefusal(earlyIdentityContext, earlyIdentityContext.token);

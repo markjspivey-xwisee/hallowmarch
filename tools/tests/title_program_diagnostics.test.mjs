@@ -24,11 +24,16 @@ function fixture(options={}){
   ctx.gl=gl;vm.runInContext(helper+';globalThis.runDiagnostic=titleFailedProgramDiagnostics;',ctx);
   return {run:()=>ctx.runDiagnostic(program),handle,program,renderer,state,ctx,gl,calls};
 }
-test('only the exact new helper and failed-branch call differ from the pinned release queue',()=>{
+test('diagnostics and the explicit reduced-graphics admission fix are the only changes to the pinned queue',()=>{
   const oracle=JSON.parse(read('tools/tests/fixtures/title_program_diagnostics_fc983.json'));
   assert.equal(oracle.revision,'fc983ff6d582b3daa0983dca25fa57435f0c8cfd');assert.equal(sha(oracle.source),'7df3b4483d92d5f451438759edb25395fe387540a6335fad53d352c854980083');assert.equal(oracle.sha256,sha(oracle.source));
   const start=source.indexOf('// Failure-only observations.'),block=source.slice(start,node.end)+'\n\n',call='              Object.assign(receipt.failedProgram, titleFailedProgramDiagnostics(program));\n';
-  assert(start>0);assert.equal(source.split(block).length,2);assert.equal(source.split(call).length,2);assert.equal(source.replace(block,'').replace(call,''),oracle.source);
+  const recovery = '  // Reduced effects still need asynchronous compilation. Falling straight\n'
+    + '  // through to cold draws can block input for seconds on a recovering browser.\n'
+    + "  if (!renderer.extensions?.has?.('KHR_parallel_shader_compile')) return receipt;";
+  assert.equal(source.split(recovery).length,2);
+  const previous = source.replace(recovery,"  if (BOOT_SAFE || !renderer.extensions?.has?.('KHR_parallel_shader_compile')) return receipt;");
+  assert(start>0);assert.equal(source.split(block).length,2);assert.equal(source.split(call).length,2);assert.equal(previous.replace(block,'').replace(call,''),oracle.source);
 });
 test('one live owned failed program log is read once with positive pre/post checks and no shader API',()=>{
   const f=fixture(),result=f.run();assert.equal(result.programLog,'actual failed program log');assert.equal(result.programLogSource,'live-failed-program');assert.equal(f.calls.filter(x=>x==='programLog').length,1);assert.equal(f.calls.filter(x=>x==='isProgram').length,2);assert.equal(result.vertexLog,null);assert.equal(result.fragmentLog,null);assert(!f.calls.some(x=>x.startsWith('FORBIDDEN:')));

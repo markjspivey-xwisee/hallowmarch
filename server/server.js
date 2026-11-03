@@ -39,6 +39,7 @@ import { createMainWorldAgentTransport } from './gaming/main-world-agent-transpo
 import { makeCompanies, reservedNames, coPledgeApply, coText } from './companies.js'; // [companies]
 import { makeField } from './fieldarmies.js'; // [season2] the season's armies on the pages' fields
 import { createHumanPlayGate } from './human-play.js';
+import { createGamePageDelivery } from './game-page.js';
 import { createSharedScene, checkedSharedScene } from './shared-scene.js';
 import { realmManagementReloadRequired, createRealmManagementProtocol } from './realm-management.js';
 import { realmLogisticsApply, realmLogisticsView, realmLogisticsGateReport } from './realm-logistics.js';
@@ -1120,6 +1121,7 @@ function onMsg(c, raw) {
 /* ------------------------------------------------------------------ */
 /* HTTP: health, the numbers, the game itself                          */
 /* ------------------------------------------------------------------ */
+const sendGamePage = createGamePageDelivery();
 const server = http.createServer(async (req, res) => {
   const u = new URL(req.url, 'http://x');
   if (playerBrowserAssets(req, res, u.pathname)) return;
@@ -1190,7 +1192,7 @@ const server = http.createServer(async (req, res) => {
     try { html = fs.readFileSync(CFG.page, 'utf8'); } catch (e) { res.writeHead(404); res.end('The game is not built here (python3 build.py)'); return; }
     // the page served from here connects back here
     html = '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=auto"><script>window.__HM_GAMING=' + JSON.stringify(gamingManifest()).replace(/</g, '\\u003c') + ';window.__HM_NET_SERVER=(location.protocol==="https:"?"wss://":"ws://")+location.host+"/ws";</script></head><body>' + html + '</body></html>';
-    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-cache' }); res.end(html); return;
+    await sendGamePage(req, res, html); return;
   }
   res.writeHead(404); res.end();
 });
