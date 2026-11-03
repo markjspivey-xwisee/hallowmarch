@@ -193,6 +193,6 @@ test('boot preparation follows saved-world release and diagnostic early-return w
   assert(positions.apply<positions.season);
   assert(positions.diagnostic<positions.season);
   assert(positions.ground<positions.season);
-  assert(positions.season<positions.draft);
+  assert(positions.draft<positions.season,'The read-only title form may precede world-dependent season preparation.');
   for(const name of ['seasonsInit','seasonLieStep','seasonIceBuild','seasonIceSettle','seasonSettle','seasonsFrame'])assert.equal(declaration(source,name),declaration(oracle.seasonSource,name),name);
 });

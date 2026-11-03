@@ -570,7 +570,8 @@ async function boot() {
   const savePromise = loadSave().then(() => {
     // The existing owner-scoped form needs no world meshes. Reveal it as soon
     // as its read settles, while keeping entry behind the graphics fence.
-    if (typeof prepareTitleDraft === 'function') prepareTitleDraft(SAVE.loaded);
+    if (typeof prepareTitleDraft === 'function'
+      && !(typeof graphicsDiagnosticActive === 'function' && graphicsDiagnosticActive())) prepareTitleDraft(SAVE.loaded);
   }).catch(() => null);
   await loadStep(0.03, 'Raising the hills', () => buildWorldChunks(7));
   await loadStep(0.2, 'Shaping the land', () => bootSequence([uploadWorldTextures, buildTerrain, buildWater]));

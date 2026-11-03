@@ -358,6 +358,7 @@ function bootHarness({ diagnostic = true, safe = true } = {}) {
     loadStep: async (frac,msg,fn) => ctx.runBootWork(fn,{workMs:0,maxChunkMs:0,maxSliceMs:0,chunks:0,yields:0}),
     nextPaint: async () => {},
     graphicsAssertActive() {}, graphicsCheckpoint() {},
+    graphicsDiagnosticActive: () => diagnostic,
     graphicsRunDiagnostic: async () => { calls.push('diagnostic'); return diagnostic; },
     netSharedSceneFlushBuilt: () => calls.push('scene-ready'),
     perf2Compile: () => calls.push('compile'),
@@ -426,16 +427,16 @@ test('boot releases canonical scene updates only after its private world snapsho
   assert(h.calls.indexOf('scene-ready')<h.calls.indexOf('sizing'));
   assert(h.calls.indexOf('sizing')<h.calls.indexOf('sound-start'));
   assert(h.calls.indexOf('diagnostic')<h.calls.indexOf('sound-start'));
-  assert(h.calls.indexOf('sound-ready')<h.calls.indexOf('draft-prepare'));
+  assert(h.calls.indexOf('draft-prepare')<h.calls.indexOf('sound-ready'));
   assert(h.calls.indexOf('ground-ready')<h.calls.indexOf('season-start'));
-  assert(h.calls.indexOf('season-ready')<h.calls.indexOf('draft-prepare'));
+  assert(h.calls.indexOf('draft-prepare')<h.calls.indexOf('season-ready'));
   assert(h.calls.indexOf('draft-prepare')<h.calls.indexOf('map'));
 });
 
 test('ordinary safe boot still renders its first view and enters the normal loop', async () => {
   const h = bootHarness({diagnostic:false,safe:true});
   await vm.runInContext('boot()',h.ctx);
-  assert.deepEqual(h.calls,['meadow-start','meadow-ready','scene-ready','diagnostic','sound-start','sound-ready','ground-start','ground-ready','season-start','season-ready','draft-prepare','map','dungeon-map','title-draw','draft-finish','title','recovery-notice','raf']);
+  assert.deepEqual(h.calls,['draft-prepare','meadow-start','meadow-ready','scene-ready','diagnostic','sound-start','sound-ready','ground-start','ground-ready','season-start','season-ready','map','dungeon-map','title-draw','draft-finish','title','recovery-notice','raf']);
   assert.equal(h.ctx.GAME.ready,true);
   assert.equal(h.ctx.window.__hm.ready,true);
 });
@@ -449,7 +450,7 @@ test('ordinary boot reaches its fenced title without bulk-compiling hidden world
   h.ctx.renderer.compile=forbidden('renderer.compile');
   Object.defineProperty(h.ctx.DUN.root,'visible',{set:forbidden('hidden dungeon visibility')});
   await vm.runInContext('boot()',h.ctx);
-  assert.deepEqual(h.calls,['meadow-start','meadow-ready','scene-ready','diagnostic','sound-start','sound-ready','ground-start','ground-ready','season-start','season-ready','draft-prepare','map','dungeon-map','title-draw','draft-finish','title','recovery-notice','raf']);
+  assert.deepEqual(h.calls,['draft-prepare','meadow-start','meadow-ready','scene-ready','diagnostic','sound-start','sound-ready','ground-start','ground-ready','season-start','season-ready','map','dungeon-map','title-draw','draft-finish','title','recovery-notice','raf']);
   assert.equal(h.ctx.GAME.ready,true);
 });
 
@@ -463,7 +464,7 @@ test('a retained early draft still awaits the real title gate and avoids resetti
   assert.equal(typeof release,'function');assert.equal(h.ctx.GAME.ready,false);assert.equal(h.ctx.window.__hm.ready,false);
   assert.equal(h.calls.includes('draft-finish'),false);assert.equal(h.calls.includes('title'),false);assert.equal(h.calls.includes('raf'),false);
   release();await pending;
-  assert.deepEqual(h.calls,['meadow-start','meadow-ready','scene-ready','diagnostic','sound-start','sound-ready','ground-start','ground-ready','season-start','season-ready','draft-prepare','map','dungeon-map','title-draw','draft-finish','recovery-notice','raf']);
+  assert.deepEqual(h.calls,['draft-prepare','meadow-start','meadow-ready','scene-ready','diagnostic','sound-start','sound-ready','ground-start','ground-ready','season-start','season-ready','map','dungeon-map','title-draw','draft-finish','recovery-notice','raf']);
   assert.equal(h.nodes.loading.hidden,true);
 });
 
@@ -471,7 +472,7 @@ test('optional sound preparation failure preserves every normal title readiness 
   const h=bootHarness({diagnostic:false,safe:false});
   h.ctx.prepareSoundBuffersChunks=function*(){assert.equal(h.ctx.GAME.ready,false);h.calls.push('sound-start');yield;return false;};
   await vm.runInContext('boot()',h.ctx);
-  assert(h.calls.indexOf('sound-start')<h.calls.indexOf('draft-prepare'));
+  assert(h.calls.indexOf('draft-prepare')<h.calls.indexOf('sound-start'));
   assert(h.calls.indexOf('draft-prepare')<h.calls.indexOf('title-draw'));
   assert(h.calls.indexOf('title-draw')<h.calls.indexOf('draft-finish'));
   assert(h.calls.indexOf('draft-finish')<h.calls.indexOf('raf'));
