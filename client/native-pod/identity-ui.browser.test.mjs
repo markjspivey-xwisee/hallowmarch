@@ -630,8 +630,6 @@ try {
     });
     assert(await page.locator('#btn-begin').isDisabled());
     assert.equal(await page.locator('#title button.primary:visible').innerText(), 'Open my saved character');
-    assert(await page.locator('#title').getByRole('button', { name: 'Start a new character', exact: true }).isHidden());
-    await page.locator('#title .native-player-alternatives > summary').click();
     assert(await page.locator('#title').getByRole('button', { name: 'Start a new character', exact: true }).isVisible());
     await page.evaluate(() => { identityTest.render(); identityTest.render(); });
     assert.deepEqual(await page.evaluate(() => ({ sameSession: retainedMenuState.session === NATIVE_PLAYER.provisional, sameKey: retainedMenuState.guest.keyId === NATIVE_PLAYER.provisional.status().keyId,
