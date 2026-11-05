@@ -252,6 +252,41 @@ test('the primary Open my saved character action takes the same fresh route for 
   assert.equal(f.counts.requests.find(row => row.path === '/gaming/identity/start').token, FRESH); assertNoGameplay(f);
 });
 
+test('returning from a pending expired sign-in restores the new character choice without archiving the retained key', async () => {
+  const f = await knownExpired(); f.context.GAME.ready = true; f.H.render();
+  const action = label => f.target.querySelectorAll('button').find(button => button.textContent === label);
+  assert.equal(action('Start a new character')?.disabled, false);
+  await f.clickPrimary();
+  assert.equal(action('Start a new character'), undefined);
+  assert.equal(action('Back to character choices')?.disabled, false);
+  action('Back to character choices').onclick();
+  assert.equal(f.counts.popupClosed, 1);
+  assert.equal(f.H.NATIVE_PLAYER.channel, null);
+  assert.equal(action('Start a new character')?.disabled, false);
+  assert.equal(f.store.get('hallowmarch.token.game.example'), FRESH);
+  assert.equal(f.H.NATIVE_PLAYER.message, '');
+  f.connected(); await flush();
+  assert.equal(f.counts.reads, 0, 'An old authorization response cannot open a character after returning.');
+  f.H.render();
+  assert.equal(action('Start a new character'), undefined, 'A new account token blocks a fresh character reset.');
+  assert.equal(f.store.get('hallowmarch.token.game.example'), CANONICAL);
+  assertNoGameplay(f);
+});
+
+test('returning from an expired sign-in keeps a newer identity connection when its token already arrived', async () => {
+  const f = await knownExpired(); f.context.GAME.ready = true; f.H.render();
+  await f.clickPrimary();
+  const back = f.target.querySelectorAll('button').find(button => button.textContent === 'Back to character choices');
+  assert.equal(back?.disabled, false);
+  f.store.set('hallowmarch.token.game.example', CANONICAL);
+  back.onclick();
+  assert.equal(f.counts.popupClosed, 0);
+  assert.equal(f.H.NATIVE_PLAYER.channel, f.channels.at(-1));
+  assert.match(f.H.NATIVE_PLAYER.message, /Reload to see your character choices/);
+  assert.equal(f.store.get('hallowmarch.token.game.example'), CANONICAL);
+  assertNoGameplay(f);
+});
+
 test('a reload with no game bearer and a retained expired device reuses its checked anonymous welcome for sign-in', async () => {
   const f = await knownExpired({ anonymousBoot: true });
   assert.equal(f.H.NETWS.sessionRefusal, null); assert.equal(f.H.NETWS.token, FRESH);
