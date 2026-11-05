@@ -204,9 +204,10 @@ function nativePlayerStartupConsume(channel) {
   if (NATIVE_PLAYER_STARTUP_CEREMONY?.channel === channel) NATIVE_PLAYER_STARTUP_CEREMONY = null;
 }
 function nativePlayerBackFromExpiredSignIn(pending) {
+  // The exact window can still be dismissed after its sign-in deadline.
   if (!pending?.context.expiredChoice || pending !== NATIVE_PLAYER_STARTUP_CEREMONY
-    || NATIVE_PLAYER.busy || NATIVE_PLAYER.switching || NATIVE_PLAYER_STARTUP_HANDOFF
-    || !nativePlayerStartupCurrent(pending.context, pending.channel, pending.ceremony)) return;
+    || NATIVE_PLAYER.channel !== pending.channel
+    || NATIVE_PLAYER.busy || NATIVE_PLAYER.switching || NATIVE_PLAYER_STARTUP_HANDOFF) return;
   if (!nativePlayerExpiredSignInStoredCurrent(pending.context.expiredChoice)) {
     NATIVE_PLAYER.message = 'Your game connection changed. Reload to see your character choices.';
     nativePlayerRender();

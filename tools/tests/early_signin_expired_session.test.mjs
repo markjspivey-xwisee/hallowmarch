@@ -287,6 +287,18 @@ test('returning from an expired sign-in keeps a newer identity connection when i
   assertNoGameplay(f);
 });
 
+test('the last rendered back button works after the expired sign-in window times out', async () => {
+  const f = await knownExpired(); f.context.GAME.ready = true; f.H.render();
+  await f.clickPrimary();
+  const back = f.target.querySelectorAll('button').find(button => button.textContent === 'Back to character choices');
+  await f.advance(10 * 60 * 1000 + 1);
+  back.onclick();
+  assert.equal(f.counts.popupClosed, 1);
+  assert.equal(f.H.NATIVE_PLAYER.channel, null);
+  assert.equal(f.target.querySelectorAll('button').find(button => button.textContent === 'Start a new character')?.disabled, false);
+  assertNoGameplay(f);
+});
+
 test('a reload with no game bearer and a retained expired device reuses its checked anonymous welcome for sign-in', async () => {
   const f = await knownExpired({ anonymousBoot: true });
   assert.equal(f.H.NETWS.sessionRefusal, null); assert.equal(f.H.NETWS.token, FRESH);
