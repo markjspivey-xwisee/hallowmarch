@@ -12,7 +12,8 @@ concurrency:
 jobs:
   checks:
     name: ${{ matrix.check }}
-    runs-on: ubuntu-latest
+    # The pinned Playwright 1.55 browser dependencies support Ubuntu 24.04.
+    runs-on: ubuntu-24.04
     timeout-minutes: 90
     strategy:
       fail-fast: false

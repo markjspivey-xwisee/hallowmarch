@@ -42,6 +42,11 @@ test('boot peek does not create a browser key; reload retains the same nonextrac
   const proof = await second.signBootstrap(grant);
   assert.equal(await webcrypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, verifier, from64(proof),
     new TextEncoder().encode('interego-play-provisional-v1\nnative-payload\nnative-signature')), true);
+  for (const version of ['2026-11-06', '2026-11-06-r2']) {
+    const acceptance = await second.signBootstrap(grant, version);
+    assert.equal(await webcrypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, verifier, from64(acceptance),
+      new TextEncoder().encode(`interego-play-provisional-v1\nnative-payload\nnative-signature\nHosted-Interego-Terms: ${version}`)), true);
+  }
   const signed = await second.signProof({ attestation: 'public-attestation', audience: origin, challenge: 'one-use-challenge' });
   assert.equal(await webcrypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, verifier, from64(signed),
     new TextEncoder().encode('interego-play-proof-v1\npublic-attestation\nhttps://game.example\none-use-challenge')), true);
