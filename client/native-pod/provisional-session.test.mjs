@@ -87,6 +87,32 @@ test('first Play confirms a private checkpoint; reload resumes it without provis
   assert(f.calls.some(call => call.op === 'reauthenticate'));
 });
 
+test('new Play can only retry enrollment with the version the player explicitly accepted', async () => {
+  const terms = { version: '2026-11-06', url: 'https://interego.xwisee.com/terms/2026-11-06/', privacyUrl: 'https://interego.xwisee.com/privacy/' };
+  const f = fixture(), submitted = [], signed = [];
+  const fetch = async (url, options) => {
+    if (url.endsWith('/play/provisional')) {
+      const body = JSON.parse(options.body);
+      submitted.push(body.termsVersion);
+      if (!body.termsVersion) return Response.json({ error: 'hosted_terms_required', terms }, { status: 428 });
+      assert.equal(body.termsVersion, terms.version);
+    }
+    return f.nativeFetch(url, options);
+  };
+  const device = { ...f.device, signBootstrap(grant, version) { signed.push(version); return f.device.signBootstrap(grant); } };
+  const declined = await f.make({ fetch, device, confirmTerms: async shown => { assert.deepEqual(shown, terms); return false; } });
+  await assert.rejects(declined.bootstrap(), { code: 'hosted_terms_declined' });
+  assert.deepEqual(submitted, [undefined]);
+  assert.equal(f.records.size, 0);
+  assert.equal(f.sessions.length, 0);
+  const agreed = await f.make({ fetch, device, confirmTerms: async shown => { assert.deepEqual(shown, terms); return true; } });
+  await agreed.bootstrap();
+  assert.deepEqual(submitted, [undefined, undefined, terms.version]);
+  assert.deepEqual(signed, submitted);
+  assert.equal(f.requests.filter(call => call.path.endsWith('/play/challenge')).length, 3);
+  assert.equal(f.sessions.length, 1);
+});
+
 test('explicit expiry archival closes only the expired session and leaves its private checkpoint and credentials intact', async () => {
   const f = fixture(), original = await f.make(); await original.bootstrap();
   await original.set({ v: 1, char: { name: 'Expired hero', level: 5 } });
