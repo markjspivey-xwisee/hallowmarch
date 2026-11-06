@@ -19,6 +19,9 @@ function bounded(value, maximum, label) {
   }
   return value;
 }
+export function isHostedTermsVersion(value) {
+  return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}(?:-r[1-9]\d*)?$/.test(value);
+}
 export function provisionalPublicKey(value) {
   if (!object(value) || value.kty !== 'EC' || value.crv !== 'P-256'
     || Object.hasOwn(value, 'd') || !/^[A-Za-z0-9_-]{43}$/.test(value.x || '')
@@ -249,7 +252,7 @@ export function createProvisionalDevice({ origin = globalThis.location?.origin, 
       if (!object(playGrant)) fail('invalid_proof', 'The native play grant is invalid.');
       const payload = bounded(playGrant._signed_payload, 65536, 'native grant payload');
       const signature = bounded(playGrant._signature, 2048, 'native grant signature');
-      if (termsVersion !== undefined && (typeof termsVersion !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(termsVersion))) {
+      if (termsVersion !== undefined && !isHostedTermsVersion(termsVersion)) {
         fail('invalid_proof', 'The Hosted Interego Terms version is invalid.');
       }
       const agreement = termsVersion ? '\nHosted-Interego-Terms: ' + termsVersion : '';
