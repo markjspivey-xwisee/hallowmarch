@@ -248,8 +248,8 @@ function towerBreachFall(W) {
   if (P && dist2(P.x, P.z, T.wx, T.wz) < 90 * 90) { wallSfx('stone', T.wx, T.wz); uiLog(`A tower of ${S.name} falls in!`, 'warn'); }
 }
 // built back (from castleRepairDone): the archer whose post was on its top walks up again
-function towerBreachMended(W) {
-  TBREACH.stats.mended++;
+function towerBreachMended(W, restoreApplied = false) {
+  if (!restoreApplied) TBREACH.stats.mended++;
   const T = W.T, K = T.S.keepRef;
   if (!K) return;
   for (const id of K.guards) {

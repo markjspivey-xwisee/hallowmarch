@@ -29,8 +29,42 @@ function itemIcon(it, slot) {
 }
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
+let kitReturnFocus = null;
+function kitFocusable(node) {
+  return !!(node && node.isConnected && node.tabIndex >= 0 && !node.disabled && !node.closest('[hidden], [inert]') && node.getClientRects().length);
+}
+function kitFocusState() {
+  const node = document.activeElement;
+  return $('kit').contains(node) ? { node, item: node._kitFocusItem, stat: node._kitFocusStat,
+    action: node.dataset.act, id: node.id, data: JSON.stringify({ ...node.dataset }) } : null;
+}
+function kitMarkFocusItems(scope) {
+  const sel = UI.kitHover || UI.kitSel;
+  for (const button of scope.querySelectorAll('button')) {
+    button._kitFocusItem = button.dataset.bag !== undefined ? INV.bag[+button.dataset.bag]
+      : button.dataset.eq !== undefined ? INV.eq[button.dataset.eq]
+      : button.dataset.shop !== undefined ? UI.kitShop?.stock?.items[+button.dataset.shop]
+      : button.dataset.act ? sel?.item : null;
+    button._kitFocusStat = button.dataset.stat || (button.dataset.act ? sel?.stat : null);
+  }
+}
+function kitRestoreFocus(held) {
+  if (!held || $('kit').hidden || UI.modal !== 'kit' || kitFocusable(held.node)) return;
+  const buttons = [...$('kit').querySelectorAll('button')].filter(kitFocusable);
+  // An item is the same object even when equipping or buying changes its slot.
+  // Never focus a replacement at the old index after a sale or discard.
+  const itemButton = button => button._kitFocusItem === held.item && (button.dataset.bag !== undefined || button.dataset.eq !== undefined || button.dataset.shop !== undefined);
+  const next = held.item ? buttons.find(button => button._kitFocusItem === held.item && held.action && button.dataset.act === held.action)
+    || buttons.find(itemButton)
+    : held.stat ? buttons.find(button => button.dataset.stat === held.stat)
+      : held.id ? buttons.find(button => button.id === held.id)
+        : held.data !== '{}' ? buttons.find(button => JSON.stringify({ ...button.dataset }) === held.data) : null;
+  (next || $('kit-close'))?.focus({ preventScroll: true });
+}
 function openKit(mode = 'kit') {
   if (UI.modal && UI.modal !== 'kit') return;
+  const opening = UI.modal !== 'kit';
+  if (opening) kitReturnFocus = document.activeElement;
   UI.modal = 'kit';
   UI.kitMode = mode;
   UI.kitShop = mode === 'shop' ? nearMerchant() : null;
@@ -38,9 +72,18 @@ function openKit(mode = 'kit') {
   UI.kitSel = null; UI.kitHover = null; UI.kitConfirm = null;
   $('kit').hidden = false;
   renderKit();
+  if (opening) $('kit-close').focus({ preventScroll: true });
   sfx('bagOpen');
 }
-function closeKit() { $('kit').hidden = true; if (UI.modal === 'kit') UI.modal = null; UI.kitSel = null; UI.kitHover = null; }
+function closeKit() {
+  const wasOpen = UI.modal === 'kit' && !$('kit').hidden;
+  $('kit').hidden = true; if (UI.modal === 'kit') UI.modal = null; UI.kitSel = null; UI.kitHover = null;
+  if (wasOpen) {
+    const previous = kitReturnFocus; kitReturnFocus = null;
+    const next = [previous, $('mobile-inventory'), $('btn-kit')].find(kitFocusable);
+    next?.focus({ preventScroll: true });
+  }
+}
 function toggleKit() { if (UI.modal === 'kit') closeKit(); else openKit('kit'); }
 
 function statSummary() { return gsSummaryHTML(); } // [gearstats] each stat a button that opens what it does (10g_gearstats.js)
@@ -51,6 +94,7 @@ function itemButton(it, cls, data, slotName) {
 }
 function renderKit() {
   if ($('kit').hidden) return;
+  const focused = kitFocusState();
   const P = GAME.player;
   const shop = UI.kitMode === 'shop' && UI.kitShop;
   $('kit-title').textContent = shop ? `${UI.kitShop.merchant.name}'s stall` : IS_TOUCH ? 'Inventory' : `${P.name}'s kit`;
@@ -81,6 +125,7 @@ function renderKit() {
   $('kit-left').innerHTML = left;
   $('kit-right').innerHTML = right;
   renderKitCard();
+  kitMarkFocusItems($('kit')); kitRestoreFocus(focused);
 }
 function compareLines(it, other) {
   const keys = new Set([...Object.keys(it.st), ...Object.keys(other ? other.st : {})]);
@@ -95,13 +140,15 @@ function compareLines(it, other) {
 }
 function renderKitCard() {
   const box = $('kit-card');
+  const focused = kitFocusState();
   const sel = UI.kitHover || UI.kitSel;
   box.classList.toggle('has-x', !!UI.kitSel); // [gearstats] a card you chose can be closed
-  if (sel && sel.stat) { box.innerHTML = gsCardHTML(sel.stat); gsKeepInView(); return; } // [gearstats] what a stat does (10g_gearstats.js)
+  if (sel && sel.stat) { box.innerHTML = gsCardHTML(sel.stat); gsKeepInView(); kitMarkFocusItems(box); kitRestoreFocus(focused); return; } // [gearstats] what a stat does (10g_gearstats.js)
   if (!sel || !sel.item) {
     const stats = UI.kitMode !== 'shop' ? ` ${IS_TOUCH ? 'Tap' : 'Click'} a stat above to see what it does.` : ''; // [gearstats]
     box.innerHTML = `<p class="hint">${IS_TOUCH ? 'Tap an item to see its stats.' : 'Click an item to see its stats; double-click to equip it.'}${stats} Loot drops where foes fall. Walk over it to pick it up.</p>`;
     gsKeepInView(); // [gearstats]
+    kitMarkFocusItems(box); kitRestoreFocus(focused);
     return;
   }
   const it = sel.item, Q = QUALITY[it.q], where = sel.where;
@@ -130,6 +177,7 @@ function renderKitCard() {
   html += `<div class="acts">${acts.map(([l, a, dis]) => `<button class="btn${a === 'equip' || a === 'buy' ? ' primary' : ''}" type="button" data-act="${a}" ${dis ? 'disabled' : ''}>${l}</button>`).join('')}</div>`;
   box.innerHTML = html;
   gsKeepInView(); // [gearstats]
+  kitMarkFocusItems(box); kitRestoreFocus(focused);
 }
 function kitItemFrom(el) {
   if (!el) return null;
@@ -164,7 +212,7 @@ function bindKit() {
     if (b.id === 'kit-close') { closeKit(); return; }
     if (b.id === 'kit-junk') { sellJunk(); renderKit(); return; }
     if (b.id === 'kit-repair') { repairAll(); renderKit(); return; } // feature/weather
-    if (b.dataset.buyp) { buyPotions(+b.dataset.buyp); renderKit(); return; }
+    if (b.dataset.buyp) { buyPotions(+b.dataset.buyp, e); renderKit(); return; }
     if (b.dataset.gooduse) { goodsUse(b.dataset.gooduse); renderKit(); return; } // goods (06d_goods.js)
     if (b.dataset.act) { kitAction(b.dataset.act); return; }
     const s = kitItemFrom(b);

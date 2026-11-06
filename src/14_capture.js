@@ -320,7 +320,7 @@ function capRun(sec, step = 0.05) {
     CAPTURE.t += step;
     try { simStep(step); } catch (err) { reportError(err); }
     renderTime += step; U.uTime.value = renderTime;
-    for (let j = AOE_MARKS.length - 1; j >= 0; j--) if (AOE_MARKS[j].until < GAME.t) AOE_MARKS.splice(j, 1);
+    for (let j = AOE_MARKS.length - 1; j >= 0; j--) if (!aoeMarkAlive(AOE_MARKS[j])) AOE_MARKS.splice(j, 1);
   }
   try { updateWeather(step); } catch (err) { /* the weather's look eases in at the next frame */ }
 }

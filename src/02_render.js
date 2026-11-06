@@ -3,14 +3,71 @@
 /* ================================================================== */
 const canvas = document.getElementById('scene');
 const IS_TOUCH = matchMedia('(pointer: coarse)').matches || ('ontouchstart' in window && navigator.maxTouchPoints > 0);
-const REDUCE_MOTION = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const MOTION_QUERY = matchMedia('(prefers-reduced-motion: reduce)');
+const MOTION_PREF_KEY = 'hallowmarch.motion.v1';
+let MOTION_MODE = 'system';
+try { if (localStorage.getItem(MOTION_PREF_KEY) === 'reduced') MOTION_MODE = 'reduced'; } catch (e) { /* a device preference must not block play */ }
+let REDUCE_MOTION = MOTION_MODE === 'reduced' || MOTION_QUERY.matches;
+function syncMotionPreference() {
+  REDUCE_MOTION = MOTION_MODE === 'reduced' || MOTION_QUERY.matches;
+  document.documentElement?.setAttribute('data-reduced-motion', String(REDUCE_MOTION));
+}
+function setMotionMode(mode) {
+  if (mode !== 'system' && mode !== 'reduced') return;
+  MOTION_MODE = mode; syncMotionPreference();
+  try { localStorage.setItem(MOTION_PREF_KEY, mode); } catch (e) { /* private browsing can refuse preferences */ }
+}
+syncMotionPreference();
+MOTION_QUERY.addEventListener?.('change', syncMotionPreference);
 
-const BOOT_SAFE = new URLSearchParams(location.search).get('safe') === '1';
 const GRAPHICS_TRACE_KEY = 'hallowmarch.graphics.trace.v1';
+const GRAPHICS_RECOVERY_KEY = 'hallowmarch.graphics.recovery.v1';
 let GRAPHICS_CONTEXT_LOST = false;
 let graphicsPrevious = null;
 try { graphicsPrevious = JSON.parse(sessionStorage.getItem(GRAPHICS_TRACE_KEY) || 'null'); } catch (e) { /* diagnostics never gate startup */ }
-const GRAPHICS_STARTUP = window.__hmStartup = { recovery: BOOT_SAFE, phase: 'Creating graphics context', events: [], lost: 0, restored: 0, stopped: false, previous: graphicsPrevious };
+function graphicsRememberRecovery() {
+  try { localStorage.setItem(GRAPHICS_RECOVERY_KEY, JSON.stringify({ v: 1, enabled: true })); } catch (e) { /* browser storage may be unavailable */ }
+}
+let GRAPHICS_RECOVERY_SOURCE = 'standard';
+function graphicsRecoverySelection() {
+  const choice = new URLSearchParams(location.search).get('safe');
+  if (choice === '0') {
+    try { localStorage.removeItem(GRAPHICS_RECOVERY_KEY); } catch (e) { /* explicit override still works */ }
+    return false;
+  }
+  if (choice === '1') { GRAPHICS_RECOVERY_SOURCE = 'explicit'; graphicsRememberRecovery(); return true; }
+  try {
+    const saved = JSON.parse(localStorage.getItem(GRAPHICS_RECOVERY_KEY) || 'null');
+    if (saved && saved.v === 1 && saved.enabled === true) { GRAPHICS_RECOVERY_SOURCE = 'remembered'; return true; }
+  } catch (e) { /* invalid or blocked storage never prevents startup */ }
+  // Migrate this browser tab's previous failure/reduced launch. This preference
+  // stays on this device/browser origin; it never enters an owned character save.
+  if (graphicsPrevious && (graphicsPrevious.recovery === true || graphicsPrevious.lost > 0 || graphicsPrevious.stopped === true)) {
+    GRAPHICS_RECOVERY_SOURCE = 'previous-session'; graphicsRememberRecovery(); return true;
+  }
+  return false;
+}
+const BOOT_SAFE = graphicsRecoverySelection();
+function graphicsRecoveryURL(reduced) {
+  const target = new URL(location.href);
+  target.searchParams.set('safe', reduced ? '1' : '0');
+  target.searchParams.delete('gpuDiag');
+  return target.href;
+}
+function graphicsRecoveryNotice() {
+  if (!BOOT_SAFE) return;
+  const title = document.getElementById('title');
+  const host = title && title.querySelector('.card-foot');
+  if (!host || document.getElementById('graphics-recovery')) return;
+  const notice = document.createElement('p'); notice.id = 'graphics-recovery'; notice.className = 'fineprint';
+  notice.setAttribute('role', 'status');
+  const text = document.createElement('span');
+  text.textContent = 'Reduced graphics are active for this browser. Your saved graphics preferences are unchanged.';
+  const retry = document.createElement('a'); retry.href = graphicsRecoveryURL(false);
+  retry.textContent = 'Try standard graphics';
+  notice.appendChild(text); notice.appendChild(retry); host.appendChild(notice);
+}
+const GRAPHICS_STARTUP = window.__hmStartup = { recovery: BOOT_SAFE, recoverySource: GRAPHICS_RECOVERY_SOURCE, titleSubmitted: 0, titleCompleted: 0, phase: 'Creating graphics context', events: [], lost: 0, restored: 0, stopped: false, previous: graphicsPrevious };
 function graphicsCheckpoint(phase, message = '') {
   GRAPHICS_STARTUP.phase = phase;
   GRAPHICS_STARTUP.events.push({ phase, message: String(message).slice(0, 500), at: Math.round(performance.now()) });
@@ -27,23 +84,74 @@ canvas.addEventListener('webglcontextcreationerror', (event) => {
   GRAPHICS_START_MESSAGE = String(event.statusMessage || '').slice(0, 500);
   graphicsCheckpoint('Graphics context creation failed', GRAPHICS_START_MESSAGE);
 });
+// Register before gameplay capture handlers; takeover activates this delegate.
+window.addEventListener('keydown', (event) => {
+  const notice = document.getElementById('nogl');
+  if (!notice || notice.hidden || !notice._graphicsFailureKeys) return;
+  notice._graphicsFailureKeys(event);
+}, true);
+function graphicsFailureTakeover(notice) {
+  // A failed game cannot retain a sheet's focus trap or accept world shortcuts.
+  // Use exported state only: renderer creation can fail before UI is initialized.
+  for (const panel of document.querySelectorAll('#title, #hud, .overlay, #lore-pro, #netchat')) {
+    panel.hidden = true; panel.inert = true;
+  }
+  for (const surface of document.body.children) if (surface !== notice) surface.inert = true;
+  const state = window.__hm;
+  if (state && typeof entryFeedbackCancel === 'function') entryFeedbackCancel();
+  if (state && state.UI) state.UI.modal = null;
+  notice.inert = false;
+  notice.hidden = false;
+  if (notice._graphicsFailureKeys) return;
+  notice._graphicsFailureKeys = (event) => {
+    if (notice.hidden) return;
+    // Leave native link/disclosure activation intact while blocking game handlers.
+    event.stopImmediatePropagation();
+    if (event.key !== 'Tab') return;
+    const controls = [...notice.querySelectorAll('button, input, select, textarea, summary, a[href], [tabindex]')]
+      .filter(node => !node.disabled && node.tabIndex >= 0 && !node.closest('[hidden], [inert]') && node.getClientRects().length);
+    const first = controls[0], last = controls[controls.length - 1];
+    if (!first) { event.preventDefault(); return; }
+    if (!controls.includes(document.activeElement)) { event.preventDefault(); (event.shiftKey ? last : first).focus(); }
+    else if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+  };
+}
 function graphicsStartFailure(error, title = 'Graphics could not start') {
   const loading = document.getElementById('loading'), notice = document.getElementById('nogl');
   if (loading) { loading.hidden = true; loading.style.display = 'none'; }
   if (!notice) return;
-  notice.hidden = false;
+  graphicsFailureTakeover(notice);
   notice.setAttribute('role', 'alert');
+  const diagnostic = GRAPHICS_START_MESSAGE || String(error && error.message || error);
+  const unavailable = /(?:GL_VENDOR|GL_RENDERER|VENDOR|RENDERER)\s*[:=]\s*["']?Disabled\b|BindToCurrentSequence/i.test(diagnostic);
+  const unsupported = !unavailable && String(error && error.message || error) === 'WebGL 2 is not available in this browser.';
   const heading = document.createElement('strong');
-  heading.textContent = title;
+  heading.id = 'graphics-failure-title';
+  heading.textContent = unavailable ? 'Browser graphics are unavailable' : unsupported ? 'Graphics are not supported' : title;
+  notice.setAttribute('aria-labelledby', heading.id);
   const detail = document.createElement('span');
-  detail.textContent = GRAPHICS_START_MESSAGE || String(error && error.message || error);
+  detail.textContent = unavailable ? 'This browser could not provide a working graphics connection.'
+    : unsupported ? 'This browser does not provide the graphics features Hallowmarch needs.'
+      : GRAPHICS_CONTEXT_LOST ? 'The browser stopped the game\'s graphics.'
+        : title === 'Graphics stopped' ? 'The game could not finish preparing graphics.' : 'The game could not start graphics in this browser.';
   const help = document.createElement('span');
-  help.textContent = GRAPHICS_CONTEXT_LOST ? 'The browser stopped graphics. Close this game tab and restart the browser before trying the reduced graphics launch. Your saved character is kept.' : 'Hallowmarch needs WebGL 2. Try reduced graphics. If the browser still blocks graphics, close and reopen it before trying again.';
-  const retry = document.createElement('a'), target = new URL(location.href);
-  target.searchParams.set('safe', '1');
-  retry.href = target.href;
-  retry.textContent = 'Reload with low graphics';
-  notice.replaceChildren(heading, detail, help, retry);
+  help.textContent = unavailable ? 'Reduced graphics cannot restore a disabled browser graphics connection. Close this game tab and restart the browser, then retry. Your saved character is kept.'
+    : unsupported ? 'Use a browser with WebGL 2 support, or restart this browser before retrying. Your saved character is kept.'
+      : BOOT_SAFE ? 'Reduced graphics were already active. Close this game tab and restart the browser before trying again. Your saved character is kept.'
+        : GRAPHICS_CONTEXT_LOST ? 'Close this game tab and restart the browser before trying reduced graphics. Your saved character is kept.'
+          : 'Try reduced graphics. If the problem continues, close this game tab and restart the browser before trying again. Your saved character is kept.';
+  const retry = document.createElement('a');
+  retry.href = graphicsRecoveryURL(unavailable || unsupported ? BOOT_SAFE : true);
+  retry.className = 'btn primary graphics-retry';
+  retry.textContent = unavailable || unsupported ? 'Retry loading' : BOOT_SAFE ? 'Retry reduced graphics' : 'Try reduced graphics';
+  const technical = document.createElement('details');
+  technical.className = 'graphics-technical';
+  const summary = document.createElement('summary'); summary.textContent = 'Technical details';
+  const log = document.createElement('pre'); log.textContent = diagnostic;
+  technical.appendChild(summary); technical.appendChild(log);
+  notice.replaceChildren(heading, detail, help, retry, technical);
+  retry.focus?.({ preventScroll: true });
 }
 
 canvas.addEventListener('webglcontextlost', (event) => {
@@ -53,6 +161,7 @@ canvas.addEventListener('webglcontextlost', (event) => {
   GRAPHICS_CONTEXT_LOST = true;
   GRAPHICS_STARTUP.lost++;
   GRAPHICS_STARTUP.stopped = true;
+  graphicsRememberRecovery();
   GRAPHICS_START_MESSAGE = 'Graphics stopped during ' + stage + (event.statusMessage ? ': ' + event.statusMessage : '.');
   graphicsCheckpoint(stage, GRAPHICS_START_MESSAGE);
   const state = window.__hm;
@@ -102,7 +211,9 @@ const QUALITY_PRESETS = {
   medium: { dpr: 1.25, msaa: 2, grass: 0.62, flowers: 0.7, treeDist: 300, nearTrees: 28, bloom: 5, label: 'Medium' },
   low: { dpr: 1.0, msaa: 0, grass: 0.36, flowers: 0.45, treeDist: 200, nearTrees: 0, bloom: 4, label: 'Low' }, // [motion] treeDist 230 -> 200: the farthest chunks are lost in the fog at low
 };
-const GRAPHICS_BOOT_LEVEL = BOOT_SAFE ? 'low' : IS_TOUCH ? 'medium' : 'high';
+// An unknown desktop GPU must draw its first view before adaptive detail has
+// any frame timings. Saved and manual quality choices still apply normally.
+const GRAPHICS_BOOT_LEVEL = BOOT_SAFE ? 'low' : 'medium';
 const quality = { level: GRAPHICS_BOOT_LEVEL, ...QUALITY_PRESETS[GRAPHICS_BOOT_LEVEL] };
 graphicsCheckpoint('Preparing graphics data');
 
@@ -440,7 +551,11 @@ function renderShadowPass(cx, cy, cz) {
   updateShadowCamera(cx, cy, cz);
   for (const m of SHADOW.proxies) {
     const s = m.userData.src;
-    m.visible = liveIn(s);
+    // Empty instance sources have no shadow to draw. Recheck each pass so a
+    // populated pool resumes without changing source or ancestor visibility.
+    m.visible = liveIn(s) && !(s.isInstancedMesh && s.count === 0)
+      && !(s.geometry?.isInstancedBufferGeometry && s.geometry.instanceCount === 0)
+      && !(m.geometry?.isInstancedBufferGeometry && m.geometry.instanceCount === 0);
     if (m.visible) m.matrixWorld.copy(s.matrixWorld);
   }
   renderer.setRenderTarget(SHADOW.rt);
@@ -657,14 +772,21 @@ vec4 cloudDome(vec3 dir){
   if (uCloudDomeOn.x < 0.5 || dir.y < -0.03) return vec4(0.0, 0.0, 0.0, 1.0);
   return cloudLitDir(dir, texture(uCloudDome, cloudDomeUV(dir)));
 }
-// the sky of the main view: its own pixel of the screen's clouds (wxCloudsScreen), else the dome
+// The cloud render targets have no mipmaps. Select the sample first, then light
+// it once: duplicating this call through cloudDome also failed on native D3D11.
+// The main view uses its own screen clouds (wxCloudsScreen), else the dome.
 vec4 cloudScreen(vec3 dir, vec2 fc){
-  if (uCloudScrP.z < 0.5) return cloudDome(dir);
   if (uCloudDomeOn.x < 0.5 || dir.y < -0.03) return vec4(0.0, 0.0, 0.0, 1.0);
-  // (four taps half a texel of the pass apart: a tent over its texels, so the steps' spread reads as soft, not as grain)
-  vec2 o = 0.5 * uCloudScrP.w * uCloudScrP.xy, uv = fc * uCloudScrP.xy;
-  vec4 c = texture(uCloudScr, uv + vec2(-o.x, -o.y)) + texture(uCloudScr, uv + vec2(o.x, -o.y)) + texture(uCloudScr, uv + vec2(-o.x, o.y)) + texture(uCloudScr, uv + o);
-  return cloudLitDir(dir, c * 0.25);
+  vec4 c;
+  if (uCloudScrP.z < 0.5) {
+    c = texture(uCloudDome, cloudDomeUV(dir));
+  } else {
+    // Same four taps and averaging as the original screen path.
+    vec2 o = 0.5 * uCloudScrP.w * uCloudScrP.xy, uv = fc * uCloudScrP.xy;
+    c = texture(uCloudScr, uv + vec2(-o.x, -o.y)) + texture(uCloudScr, uv + vec2(o.x, -o.y)) + texture(uCloudScr, uv + vec2(-o.x, o.y)) + texture(uCloudScr, uv + o);
+    c *= 0.25;
+  }
+  return cloudLitDir(dir, c);
 }
 `;
 /* ------------------------------------------------------------------ */

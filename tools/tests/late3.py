@@ -54,7 +54,7 @@ window.L3 = {
   D: () => window.__hm.deep.DEEP,
   pt: (u, v) => { const F = __hm.fn; return F.dunPoint(u, v); },
   to: (u, v) => { const H = __hm, F = H.fn, P = H.GAME.player, p = F.dunPoint(u, v); P.x = P.prevX = p.x; P.z = P.prevZ = p.z; P.y = p.y; P.onGround = true; P.vy = 0; H.fn.setIndoor(true); return p; },
-  start: (cls, lv, realm) => { const H = __hm, F = H.fn; F.newCharacter(); H.start({ realm: realm || 0, cls, level: lv }); const P = H.GAME.player; H.bal.applyFairGear(P, Math.min(50, lv)); H.INV.potions = 3; P.hp = P.maxHp; P.power = P.maxPower; return 0; },
+  start: async (cls, lv, realm) => { const H = __hm, F = H.fn; F.newCharacter(); await H.start({ realm: realm || 0, cls, level: lv }); const P = H.GAME.player; H.bal.applyFairGear(P, Math.min(50, lv)); H.INV.potions = 3; P.hp = P.maxHp; P.power = P.maxPower; return 0; },
   calm: () => { const H = __hm; for (const e of H.ENT) if (e.alive && e.faction === H.FACTION_MONSTER && e.x > 1000 && !e.deepLord && e.role !== 'dungeonBoss') { e.damagers = null; H.fn.killEnt(e, null); } return 0; },
   kingDown: () => { const H = __hm; H.late.LATE2.d.king = Math.max(1, H.late.LATE2.d.king); H.GAME.prog.kingKills = Math.max(1, H.GAME.prog.kingKills || 0); return 0; },
   safe: () => { const P = __hm.GAME.player; if (!P.alive) { L3.deaths = (L3.deaths || 0) + 1; P.alive = true; P.removeAt = 0; } P.hp = P.maxHp; P.power = P.maxPower; P.buffs.length = 0; P.l3fall = null; return 0; },
@@ -366,7 +366,7 @@ async def compile_(page):
     page.on('console', lambda m: msgs.append(m.text) if m.type == 'error' else None)
     for q in ['high', 'medium', 'low']:
         await page.evaluate(f"__hm.fn.setQuality('{q}')")
-        await ev(page, """(() => { const H = __hm, F = H.fn, D = H.deep.DEEP; L3.start('warrior', 50); L3.kingDown(); H.deep.late3SealOpen(true);
+        await ev(page, """(async () => { const H = __hm, F = H.fn, D = H.deep.DEEP; await L3.start('warrior', 50); L3.kingDown(); H.deep.late3SealOpen(true);
           L3.to(140, 39); D.root.visible = true; H.camera.position.set(F.dunWX(140.5), -12.6, F.dunWZ(38.2)); H.camera.lookAt(F.dunWX(121), -18.2, F.dunWZ(52));
           const C = D.cells.find((c) => c.hall === 'pyres' && c.st === 0); if (C) H.deep.deepIgnite(C, null); H.simulate(1); H.UI.modal = 'menu'; H.CAM.mode = 'fixed';
           for (let i = 0; i < 3; i++) H.frame(1/30);
@@ -384,7 +384,7 @@ async def fight(page):
     for lv in LVS:
       for bk in BOTS:  # [balance9]
         for cls in CLS:
-            await page.evaluate(f"L3.start('{cls}', {lv}); L3.kingDown(); __hm.deep.late3SealOpen(true); __hm.deep.deepPacksFresh(); 0")
+            await page.evaluate(f"(async () => {{ await L3.start('{cls}', {lv}); L3.kingDown(); __hm.deep.late3SealOpen(true); __hm.deep.deepPacksFresh(); return 0; }})()")
             # through the halls: a pack of each, the skilled bot played by the game's own bot
             r = await ev(page, f"""(() => {{ const H = __hm, F = H.fn, D = H.deep.DEEP, P = H.GAME.player;
               F.setIndoor(true); const out = {{ cls: '{cls}', lv: {lv}, halls: [] }};
@@ -425,7 +425,7 @@ async def fight(page):
             check(r['dead'] and r['alive'], f"a level {lv} {cls} ({bk} bot) brings down the Ash-Crowned (level {r['lvl']}): {r['t']} s, lowest health {r['low']*100:.0f}%, Words spoken {r['words']} broken {r['broken']}, stamps {r['stamps']}, falls {r['falls']}, pitch burns {r['burns']}, draughts left {r['potions']}, lord at {r['kLeft']*100:.0f}%")
 
 async def std(page):
-    r = await ev(page, """(() => { const H = __hm, F = H.fn, V = H.vet3, L = H.late, P = H.GAME.player; L3.start('warrior', 50); const P2 = H.GAME.player;
+    r = await ev(page, """(async () => { const H = __hm, F = H.fn, V = H.vet3, L = H.late, P = H.GAME.player; await L3.start('warrior', 50); const P2 = H.GAME.player;
       F.setIndoor(false); L.LATE2.d.king = 1; L.late2CheckNames(true); L.late2Wear('kingsbane');
       const a = { worn: L.LATE2.worn, dev: V.late3Device(), mantle39: 0, mantle: V.late3MantleCode(P2) };
       H.GAME.prog.level = 39; a.mantle39 = V.late3MantleCode(P2); H.GAME.prog.level = 50;
@@ -466,7 +466,7 @@ async def std(page):
     check(r['bard2'] == 0 and r['bard3'] == 4 * 7 and r['bardHtml'], f"at veterancy 3 your horse wears the device on its cloth (code {r['bard3']}; at 2 {r['bard2']})")
 
 async def vetshots(page):
-    await ev(page, """(() => { const H = __hm, F = H.fn, L = H.late, V = H.vet3; L3.start('warrior', 50); const P = H.GAME.player; F.setIndoor(false); L.LATE2.d.deep = 1; L.LATE2.d.king = 1; L.late2CheckNames(true); L.late2Wear('ashbane'); V.L3V.mantle = true; V.L3V.std.fallen = false; V.L3V.std.k = 0;
+    await ev(page, """(async () => { const H = __hm, F = H.fn, L = H.late, V = H.vet3; await L3.start('warrior', 50); const P = H.GAME.player; F.setIndoor(false); L.LATE2.d.deep = 1; L.LATE2.d.king = 1; L.late2CheckNames(true); L.late2Wear('ashbane'); V.L3V.mantle = true; V.L3V.std.fallen = false; V.L3V.std.k = 0;
       const t = H.REALMS[0].town; H.INV.gold = 5000; L.late2StdMake(); let ok = false; for (let r = 40; r < 120 && !ok; r += 6) for (let k = 0; k < 12 && !ok; k++) { const x = t.x + Math.cos(k * 0.52) * r, z = t.z + Math.sin(k * 0.52) * r; if (!F.isWalkable(x, z)) continue; H.teleport(x, z); P.yaw = k; H.simulate(0.1); ok = L.late2StdPlant(); }
       window.L3V_AT = L.LATE2.std.at; H.dbg.WEATHER && (H.dbg.WEATHER.mode = 'clear'); return 0; })()""")
     for q in (arg('sq') or Q).split(','):
@@ -490,7 +490,7 @@ async def snap(page, name, js):
 
 CAM = "const cam = (u, y, v, lu, ly, lv) => { const F = H.fn; H.deep.DEEP.root.visible = true; H.camera.position.set(F.dunWX(u), y, F.dunWZ(v)); H.camera.lookAt(F.dunWX(lu), ly, F.dunWZ(lv)); }; "
 async def shots(page):
-    await ev(page, """(() => { L3.start('warrior', 50); L3.kingDown(); const H = __hm, F = H.fn; H.deep.late3SealOpen(true); H.deep.deepPacksFresh(); F.setIndoor(true); H.setTod(1.2); return 0; })()""")
+    await ev(page, """(async () => { await L3.start('warrior', 50); L3.kingDown(); const H = __hm, F = H.fn; H.deep.late3SealOpen(true); H.deep.deepPacksFresh(); F.setIndoor(true); H.setTod(1.2); return 0; })()""")
     for q in (arg('sq') or Q).split(','):
         await page.evaluate(f"__hm.fn.setQuality('{q}')")
         # the seal from the Hollow King's hall, whole

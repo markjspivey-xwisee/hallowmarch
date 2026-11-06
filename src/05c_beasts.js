@@ -450,10 +450,18 @@ function beastBodyGLSL(K) {
   // ends of the swing)
   vec3 bbFoot(float c, float duty, float reachB){
     float u = fract((c - 1.5708) * 0.159155), ad = ${BB_CLEAR.toFixed(3)} * duty;
-    if (u < duty) return vec3(reachB * (1.0 - 2.0 * u / duty), 0.0, max(1.0 - smoothstep(0.0, ad, u), smoothstep(duty - ad, duty, u)));
-    float wv = (u - duty) / (1.0 - duty), q = 1.0 - wv;
-    float e = wv * wv * (3.0 - 2.0 * wv) - (1.0 - duty) / max(duty, 0.05) * (wv * pow(q, 4.0) - q * pow(wv, 4.0)); // [polish] (q^7: the retraction died away within a frame at a canter, 3 cm of skating at each end)
-    return vec3(reachB * (2.0 * e - 1.0), pow(sin(3.14159 * wv), 0.5), 1.0);
+    // Keep one initialized result across both phases. Multiple early returns
+    // produce uninitialized-return diagnostics and slow FXC fallback compilation
+    // on some D3D11 drivers even though both branches are complete in GLSL.
+    vec3 foot = vec3(0.0);
+    if (u < duty) {
+      foot = vec3(reachB * (1.0 - 2.0 * u / duty), 0.0, max(1.0 - smoothstep(0.0, ad, u), smoothstep(duty - ad, duty, u)));
+    } else {
+      float wv = (u - duty) / (1.0 - duty), q = 1.0 - wv;
+      float e = wv * wv * (3.0 - 2.0 * wv) - (1.0 - duty) / max(duty, 0.05) * (wv * pow(q, 4.0) - q * pow(wv, 4.0)); // [polish] (q^7: the retraction died away within a frame at a canter, 3 cm of skating at each end)
+      foot = vec3(reachB * (2.0 * e - 1.0), pow(sin(3.14159 * wv), 0.5), 1.0);
+    }
+    return foot;
   }
   // the hoof's or paw's turn in the air (0 while it is down: it stands level)
   float bbTuck(bool fr, vec3 f, float fold){ return (fr ? 0.8 : -0.7) * f.y * fold; }
@@ -633,8 +641,11 @@ function beastVS(depth) {
     if (b == 2) { rotP(rotY(headY * w) * rotX(headX * w), uNeck); b = 1; w = 1.0; }
     if (b == 15) { rotP(rotY(tailY * w) * rotX(tailX * w), uTail); b = 0; w = 1.0; }
     if (b >= 3 && b <= 14) {
-      int leg = (b - 3) / 3;
-      int rel = b - 3 - leg * 3;
+      // This branch only admits the twelve leg bones (3..14). Keep the
+      // quotient/remainder in that exact float range rather than asking FXC
+      // to lower signed integer division and its sign-correction instructions.
+      float boneOffset = float(b) - 3.0, legNumber = floor(boneOffset / 3.0);
+      int leg = int(legNumber), rel = int(boneOffset - legNumber * 3.0);
       bool fr = leg < 2;
       float o = leg == 0 ? off.x : (leg == 1 ? off.y : (leg == 2 ? off.z : off.w));
       vec3 fp = bbFoot(ph + o, duty, reachB);
@@ -653,7 +664,9 @@ function beastVS(depth) {
       tg -= vec2(lungeZ, bob);
       tg.y += sink.y; tg = bbRot(tg, vPiv, -thV);
       tg = bbRot(tg, vec2(uSpine.z, uFT.y), -pitch);
-      tg = bbRot(tg, uSpine.zy, fr ? -spine : spine);
+      // Select a constant sign before multiplying: FXC can emit an invalid
+      // negated source operand for the equivalent signed-value conditional.
+      tg = bbRot(tg, uSpine.zy, spine * (fr ? -1.0 : 1.0));
       vec3 Lr = fr ? uFL : uBL, Tr = fr ? uFT : uBT;
       // [polish] a foot to the side of the leg's plane: the leg swings out about its top (the feet do not cross), reaching
       // as far down, and the hoof or paw rolls back level. [motion3] The turn is the one that sets the low joint (the
@@ -909,3 +922,4 @@ HORSE_SEAT_GLSL = (() => {
 })();
 humanoidMat.vertexShader = humanVS(false);
 humanoidMat.uniforms.uFootLock = { value: FOOT_LOCK.tex }; // [polish] planted feet (13s_footlock.js)
+

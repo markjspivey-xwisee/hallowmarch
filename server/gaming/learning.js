@@ -5,6 +5,12 @@
 import { createHash } from 'node:crypto';
 
 export const GAMING_NS = 'urn:interego:gaming:';
+export const COMMITTED_GAMEPLAY_PROFILE = 'https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld';
+export const COMMITTED_GAMEPLAY_PROFILE_VERSION = COMMITTED_GAMEPLAY_PROFILE + '/versions/1.0.0';
+export const COMMITTED_GAMEPLAY_EVENT_TYPES = Object.freeze(['damage', 'loot.granted', 'resource.gathered', 'teaching.delivered',
+  'knowledge.consulted', 'companion.spawned', 'movement.applied', 'telemetry.sample', 'player.joined', 'encounter.started',
+  'entity.recovered', 'companion.nativeReferenceRegistered', 'companion.nativeAdmitted', 'companion.nativeRevoked',
+  'companion.granted', 'companion.revoked', 'consent.changed']);
 export const FOXXI_XAPI_ACTION = 'urn:iep:action:foxxi:write-xapi-statements-signed';
 export const FOXXI_XAPI_ACTION_PUBLISHED = 'https://relay.interego.xwisee.com/ns/iep/action/foxxi/write-xapi-statements-signed';
 /** Exact aliases verified in Foxxi's source and published affordances respectively.
@@ -138,6 +144,39 @@ function toStatement(row, did, projection) {
       [`${GAMING_NS}competencyStatus`]: 'not-assessed'
     } }
   };
+}
+
+/** Explicit, versioned projection for a new exporter, not an upgrade of the legacy
+ * sink/outbox below. The caller must supply an authenticated subject binding and
+ * the actual run's registration UUID; no lifecycle events or sessions are inferred.
+ * IDs include this projection version, subject and registration, so legacy LRS
+ * statements cannot be silently rewritten. Do not send both projections as two
+ * independent observations of the same action. Original committed events remain
+ * the source of truth, including their stream versions and event identifiers. */
+export function committedGameplayStatements(events, { subjectDid, actorId = subjectDid, registration, ...context } = {}) {
+  if (typeof subjectDid !== 'string' || !/^did:[a-z0-9]+:[^\s<>"{}|^`\\]+$/.test(subjectDid) || subjectDid.length > 512)
+    throw new TypeError('an authenticated subject DID binding is required');
+  text(actorId, 'actorId');
+  if (typeof registration !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(registration))
+    throw new TypeError('the actual run registration UUID is required');
+  // UUID text is case-insensitive. Equivalent spellings must not create a new
+  // statement identity when a caller retries the same run after a restart.
+  registration = registration.toLowerCase();
+  const projection = projectGamingEvents(events, context);
+  const known = new Set(COMMITTED_GAMEPLAY_EVENT_TYPES);
+  return projection.evidence.map(row => {
+    if (row.actorId !== actorId) throw new TypeError('a committed projection cannot cross subject bindings');
+    if (row.actorKind === 'npc' || row.actorKind === 'system' || row.humanSubject === false && row.actorKind !== 'agent')
+      throw new TypeError('a personal committed projection requires a player or authenticated agent subject');
+    if (!known.has(row.kind)) throw new TypeError('the committed event kind is outside this Profile');
+    if (row.source.authority !== 'authoritative-game-log') throw new TypeError('this Profile requires authoritative-game-log provenance');
+    if (new Date(row.at).toISOString() !== row.at) throw new TypeError('the committed event must retain its canonical observed ISO timestamp');
+    const statement = toStatement(row, subjectDid, projection);
+    statement.id = uuidFor(canonical([COMMITTED_GAMEPLAY_PROFILE_VERSION, row.id, subjectDid, registration]));
+    statement.context.registration = registration;
+    statement.context.contextActivities = { category: [{ id: COMMITTED_GAMEPLAY_PROFILE_VERSION }] };
+    return statement;
+  });
 }
 
 /** Adapter contract verified in Foxxi affordances.ts / src/self-xapi.ts:

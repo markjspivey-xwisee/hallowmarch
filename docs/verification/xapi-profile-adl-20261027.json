@@ -1,0 +1,47 @@
+{
+  "validator": "ADL Profile Server profileValidator/validator.js",
+  "sourceCommit": "da9159adc694bac7817f9068fe6002dca89d69b3",
+  "runtime": "jsonschema@1.2.6",
+  "allDownloadedGitBlobHashesMatched": true,
+  "checks": [
+    {
+      "file": "server/gaming/gameplay-activity-profile-1.0.0.jsonld",
+      "profileVersion": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "sha256": "c74b4a9bb66b6643aca8bb34707d1ce2f88080c4e26de329e4c78c21780139ac",
+      "valid": true,
+      "errorCount": 0,
+      "errors": [],
+      "concepts": 28,
+      "templates": 16,
+      "patterns": 2
+    },
+    {
+      "file": "server/gaming/gameplay-activity-profile.jsonld",
+      "profileVersion": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.1.0",
+      "sha256": "5d5c7b59ee8d487af92227261825599d3928aa56431369d4d51ce4e6a55b3269",
+      "valid": true,
+      "errorCount": 0,
+      "errors": [],
+      "concepts": 28,
+      "templates": 16,
+      "patterns": 6
+    },
+    {
+      "file": "server/gaming/committed-gameplay-profile.jsonld",
+      "profileVersion": "https://march-production-f6d9.up.railway.app/gaming/committed-activity-profile.jsonld/versions/1.0.0",
+      "sha256": "d54996aa2293c0e861ae4936e0a6b177f5e53cc9fc1a6374d24714563a138aba",
+      "valid": true,
+      "errorCount": 0,
+      "errors": [],
+      "concepts": 25,
+      "templates": 17,
+      "patterns": 2
+    }
+  ],
+  "negativeControl": {
+    "injected": "primary pattern with both oneOrMore and alternates",
+    "valid": false,
+    "errorCount": 1
+  },
+  "scope": "Unmodified historical ADL metadata/structure/inline-schema validator. This is not complete normative Profile validation, external IRI resolution, statement/template execution, Pattern conformance, or LRS certification."
+}

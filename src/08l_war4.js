@@ -48,6 +48,7 @@ const W4 = {
 /* ------------------------------------------------------------------ */
 // both factions realms of a pact in force? (asked by isEnemy for every pair it weighs: cheap when there is none)
 function war4Allied(fa, fb) {
+  if (typeof realmManualAllied === 'function' && realmManualAllied(fa, fb)) return true;
   const P = W3.pact;
   if (!P || !W4.on || !W3.on || fa === fb || fa > 2 || fb > 2) return false;
   const m = P.members;
@@ -68,30 +69,54 @@ function w4PactBegins(P) {
   for (const e of ENT) {
     if (!e.alive || e.faction > 2 || !e.target) continue;
     const t = getEnt(e.target);
-    if (t && war4Allied(e.faction, t.faction)) { e.target = null; if (e.threat) e.threat.delete(t.id); if (e.ai) e.ai.chase = null; }
+    if (t && (e.faction === a || e.faction === b) && (t.faction === a || t.faction === b)
+      && war4Allied(e.faction, t.faction)) { e.target = null; if (e.threat) e.threat.delete(t.id); if (e.ai) e.ai.chase = null; }
   }
 }
 function w4PactStep() {
+  if (typeof realmDiplomacyCanSimulateWorld === 'function' && !realmDiplomacyCanSimulateWorld()) return;
   const P = W3.pact, key = P ? P.against + ':' + Math.round(P.t * 10) : '';
   if (key !== W4.pactKey) { W4.pactKey = key; if (P) w4PactBegins(P); }
-  if (P) w4PactSweep();
+  if (P || typeof realmManualTreatiesActive === 'function' && realmManualTreatiesActive()) w4PactSweep();
 }
 // while it holds (every 2 s): an order against an ally (a raid the chance of an open temple gave, a chase after an ally
 // carrying a hallow of ours) is given back: its band could only stand before the ally's gate, or steal from a friend
 function w4PactSweep() {
+  // Only the admitted keeper changes shared army phases. A replica merely reads the treaty.
+  if (typeof realmDiplomacyCanSimulateWorld === 'function' && !realmDiplomacyCanSimulateWorld()) return;
   for (const wb of WAR.warbands) {
     const O = wb.order;
-    if (wb.dead || !O || O.byPlayer) continue;
-    let bad = false;
-    if (O.type === 'attack' && O.keep && war4Allied(wb.realm, O.keep.realm)) bad = true;
-    else if (O.type === 'raid' && O.temple && war4Allied(wb.realm, O.temple.realm)) bad = true;
-    else if (O.type === 'retrieve' && O.relic && O.relic.state === 'carried') { const c = getEnt(O.relic.carrier); if (c && war4Allied(wb.realm, c.faction)) bad = true; }
-    if (bad) { wb.order = null; W4.stats.recalled++; }
+    if (wb.dead || !O) continue;
+    let targetRealm = -1;
+    if (O.type === 'attack' && O.keep) targetRealm = O.keep.realm;
+    else if (O.type === 'raid' && O.temple) targetRealm = O.temple.realm;
+    else if (O.type === 'retrieve' && O.relic && O.relic.state === 'carried') { const c = getEnt(O.relic.carrier); if (c) targetRealm = c.faction; }
+    const manual = typeof realmManualAllied === 'function' && realmManualAllied(wb.realm, targetRealm);
+    if (O.byPlayer && !manual) continue; // preserve the automatic pact's existing sweep rules
+    if (targetRealm >= 0 && war4Allied(wb.realm, targetRealm)) {
+      if (manual) {
+        wb.cwMine = null; wb.cwKey = '';
+        const home = REALMS[wb.realm]?.nav?.muster;
+        if (home) wbSetOrder(wb, { type: 'patrol', node: home, until: GAME.t + 45, home: true, why: 'truce' });
+        else wb.order = null;
+        wb.path = null; wb.pathIdx = 0; wb.goal = null;
+      } else wb.order = null;
+      // No new command token/revision: this is the accepted order's ceasefire phase.
+      W4.stats.recalled++;
+    }
+  }
+  for (const e of ENT) {
+    if (!e.alive || !e.target || e.role === 'remote' || e.netCompanion
+      || e.netEntityOwner && (typeof NET === 'undefined' || e.netEntityOwner !== NET.self)) continue;
+    const target = getEnt(e.target);
+    if (target && typeof realmManualCeasefire === 'function' && realmManualCeasefire(e, target)) {
+      e.target = null; if (e.threat) e.threat.delete(target.id); if (e.ai) e.ai.chase = null;
+    }
   }
 }
 // the commander's choices (from cwChoose, after war3Choose): none against an ally while the pact holds
 function war4Choose(r, C) {
-  if (!W4.on || !W3.pact) return;
+  if (!(W4.on && W3.pact) && !(typeof realmManualTreatiesActive === 'function' && realmManualTreatiesActive())) return;
   for (let i = C.length - 1; i >= 0; i--) {
     const o = C[i].o;
     if ((o.type === 'attack' && o.keep && war4Allied(r, o.keep.realm)) || (o.type === 'raid' && o.temple && war4Allied(r, o.temple.realm))) C.splice(i, 1);

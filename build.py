@@ -13,6 +13,7 @@ out = (
     shell.rstrip() + '\n'
     + '<script type="module">\n'
     + "import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.min.js';\n"
+    + 'window.__hmFileBoot?.ready();\n'
     + 'THREE.ColorManagement.enabled = false;\n'
     + js
     + '\n</script>\n'

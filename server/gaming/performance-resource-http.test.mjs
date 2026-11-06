@@ -7,7 +7,10 @@ import { resolve } from 'node:path';
 import { createPerformanceResourceHttp } from './performance-resource-http.js';
 
 const activityProfile = JSON.parse(await readFile(new URL('./gameplay-activity-profile.jsonld', import.meta.url), 'utf8'));
-const profilePath = '/gaming/activity-profile.jsonld', versionPath = profilePath + '/versions/1.0.0';
+const historicalActivityProfile = JSON.parse(await readFile(new URL('./gameplay-activity-profile-1.0.0.jsonld', import.meta.url), 'utf8'));
+const committedActivityProfile = JSON.parse(await readFile(new URL('./committed-gameplay-profile.jsonld', import.meta.url), 'utf8'));
+const profilePath = '/gaming/activity-profile.jsonld', versionPath = new URL(activityProfile.versions[0].id).pathname;
+const oldVersionPath = profilePath + '/versions/1.0.0';
 const sdk = process.env.INTEREGO_SDK_TEST_ROOT ? await import(pathToFileURL(resolve(process.env.INTEREGO_SDK_TEST_ROOT, 'packages/core/dist/index.js'))) : null;
 
 const resource = { id: 'field-note:keep', kind: 'job-aid', title: '<Keep & gate>', purpose: 'performance-support',
@@ -62,9 +65,45 @@ test('unconfigured Profile and origin do not advertise invented public records o
   const { get } = await fixture(t, { activityProfile, publicOrigin: undefined });
   assert.equal((await (await get()).json()).activity.profile, null);
   for (const change of [
-    { id: 'https://example.org/> <urn:injected>' }, { versions: [{ id: activityProfile.id + '/versions/2.0.0' }] },
+    { id: 'https://example.org/> <urn:injected>' }, { versions: [{ id: 'https://example.org/other-profile/versions/2.0.0' }] },
     { conformsTo: activityProfile.versions[0].id }
   ]) assert.throws(() => createPerformanceResourceHttp({ catalog, activityProfile: { ...activityProfile, ...change } }), /fixed observed activity Profile/);
+});
+
+test('immutable historical Profile serves its original rules separately from the current Profile', async t => {
+  const { request } = await fixture(t, { activityProfile, activityProfileVersions: [historicalActivityProfile] });
+  assert.equal(await (await request(profilePath)).text(), JSON.stringify(activityProfile));
+  assert.equal(await (await request(versionPath)).text(), JSON.stringify(activityProfile));
+  assert.equal(await (await request(oldVersionPath)).text(), JSON.stringify(historicalActivityProfile));
+  assert.notEqual(JSON.stringify(historicalActivityProfile.patterns), JSON.stringify(activityProfile.patterns));
+  for (const options of [
+    { activityProfileVersions: [historicalActivityProfile] },
+    { activityProfile, activityProfileVersions: [historicalActivityProfile, historicalActivityProfile] },
+    { activityProfile, activityProfileVersions: [{ ...historicalActivityProfile, id: 'https://other.example/profile' }] }
+  ]) assert.throws(() => createPerformanceResourceHttp({ catalog, ...options }), /Historical activity|immutable activity|historical activity/);
+});
+
+test('committed-game Profile is discoverable separately from the active owner-browser recorder', async t => {
+  const committedPath = '/gaming/committed-activity-profile.jsonld', committedVersionPath = committedPath + '/versions/1.0.0';
+  const { request, get } = await fixture(t, { activityProfile, committedActivityProfile });
+  for (const path of [committedPath, committedVersionPath]) {
+    assert.equal(await (await request(path)).text(), JSON.stringify(committedActivityProfile));
+    assert.equal(await (await request(path, { method: 'HEAD' })).text(), '');
+    assert.equal((await request(path, { method: 'POST', body: '{}' })).status, 405);
+  }
+  const index = await (await get()).json();
+  assert.equal(index.activity.source, 'owner-browser-observation');
+  assert.equal(index.committedActivity.source, 'authoritative-committed-game-log');
+  assert.equal(index.committedActivity.emitter, 'explicit-projection-api');
+  assert.equal(index.committedActivity.activeOwnerBrowserProfile, false);
+  const bridge = createPerformanceResourceHttp({ catalog: { ...catalog, courses: [] }, activityProfile, committedActivityProfile, publicOrigin: 'https://game.example',
+    nativeScope: { graphIri: 'urn:graph:hallowmarch:performance-support', resourceNamespace: 'urn:hallowmarch:resource:' } });
+  const parts = bridge.nativeComposition().parts.filter(p => p.graphIri.includes(':activity-profile:'));
+  assert.equal(parts.length, 2);
+  const committedPart = parts.find(p => p.graphContent.includes(`dct:subject <${committedActivityProfile.versions[0].id}>`));
+  assert.ok(committedPart.graphContent.includes('gaming:emitter "explicit-projection-api"'));
+  assert.ok(committedPart.graphContent.includes(`<${committedActivityProfile.id}> i2x:isClassifiedBy i2idl:xapi-profile`));
+  assert.ok(committedPart.graphContent.includes('schema:text ' + JSON.stringify(JSON.stringify(committedActivityProfile))));
 });
 
 test('native composition retains the exact Profile in its own identified version part', () => {
@@ -103,6 +142,45 @@ test('actual native SDK parses and digests every public composition graph and it
   assert.ok(parsed.subjects.some(s => s.subject === part.graphIri));
   const version = parsed.subjects.find(s => s.subject === activityProfile.versions[0].id);
   assert.deepEqual(version.properties.get('http://purl.org/dc/terms/conformsTo'), [{ kind: 'iri', iri: activityProfile.conformsTo }]);
+});
+
+test('native Profile publication uses I2IDL-X classifications with pinned Hypothetical provenance', () => {
+  const bridge = createPerformanceResourceHttp({ catalog: { ...catalog, courses: [] }, activityProfile, activityProfileVersions: [historicalActivityProfile], publicOrigin: 'https://game.example',
+    nativeScope: { graphIri: 'urn:graph:hallowmarch:performance-support', resourceNamespace: 'urn:hallowmarch:resource:' } });
+  const parts = bridge.nativeComposition().parts.filter(p => p.graphIri.includes(':activity-profile:'));
+  assert.equal(parts.length, 2);
+  for (const document of [activityProfile, historicalActivityProfile]) {
+    const version = document.versions[0].id, part = parts.find(p => p.graphContent.includes(`dct:subject <${version}>`));
+    assert.ok(part);
+    const classifications = [[document.id, 'xapi-profile'], [version, 'profile-version'],
+      ...document.templates.map(item => [item.id, 'statement-template']), ...document.patterns.map(item => [item.id, 'xapi-pattern'])];
+    for (const [id, concept] of classifications) assert.ok(part.graphContent.includes(`<${id}> i2x:isClassifiedBy i2idl:${concept} ; gaming:semanticMappingStatus "Hypothetical"`));
+    assert.equal((part.graphContent.match(/i2x:isClassifiedBy/g) || []).length, classifications.length);
+    assert.ok(part.graphContent.includes('@prefix i2x: <https://relay.interego.xwisee.com/ns/u-pk-33d42e6b33dc/i2idlx#>'));
+    assert.ok(part.graphContent.includes('gaming:glossaryPublicationVersion "v0.0.93"'));
+    assert.ok(part.graphContent.includes('gaming:glossarySourceCommit "b75261de5ad7851c1f61607091cc00e486bbbb5f"'));
+    assert.ok(part.graphContent.includes('gaming:semanticProfileVersion "0.5.0"'));
+    assert.ok(part.graphContent.includes('prov:wasDerivedFrom <https://github.com/blakeplock/i2idl-linked-data/blob/b75261de5ad7851c1f61607091cc00e486bbbb5f/public/glossary.jsonld>'));
+    assert.equal(part.graphContent.includes('i2idl:competency'), false);
+    assert.ok(part.graphContent.includes('schema:text ' + JSON.stringify(JSON.stringify(document))));
+  }
+  const invalid = structuredClone(activityProfile); invalid.templates[0].id = 'https://example.org/> <urn:injected>';
+  assert.throws(() => createPerformanceResourceHttp({ catalog, activityProfile: invalid }), /safe version, template and pattern/);
+});
+
+test('application vocabulary and consulting annotations retain the verified glossary provenance', async () => {
+  const alignment = JSON.parse(await readFile(new URL('./performance-consulting-alignment.json', import.meta.url), 'utf8'));
+  for (const name of ['vocabulary.jsonld', 'hallowmarch-vocabulary.jsonld']) {
+    const vocabulary = JSON.parse(await readFile(new URL(name, import.meta.url), 'utf8'));
+    const source = vocabulary['@graph'].find(node => node['@type'] === 'owl:Ontology');
+    assert.equal(source['gaming:glossaryPublicationVersion'], alignment.canonicalSource.publicationVersion);
+    assert.equal(source['gaming:glossarySourceCommit'], alignment.canonicalSource.sourceCommit);
+    assert.equal(source['gaming:glossaryVerificationDate'], alignment.canonicalSource.verificationDate);
+    assert.equal(source['gaming:mappingStatus'], 'proposed-application-annotation');
+  }
+  assert.equal(alignment.canonicalSource.publicationVersion, 'v0.0.93');
+  assert.equal(alignment.canonicalSource.semanticProfileVersion, '0.5.0');
+  assert.equal(alignment.canonicalSource.semanticMappingStatus, 'Hypothetical');
 });
 
 test('human and agent views resolve the same content and revision without recording learning', async t => {
@@ -174,7 +252,10 @@ test('I2IDL-X annotates consulting resources while leaving game facts and unrela
   assert.equal(aid.performanceConsulting.scope, 'performance-consulting');
   assert.equal(aid.performanceConsulting.status, 'proposed-application-annotation');
   assert.equal(aid.performanceConsulting.annotations[0].relation, 'http://purl.org/dc/terms/subject');
-  assert.equal(aid.performanceConsulting.source.publicationVersion, 'v0.0.90');
+  assert.equal(aid.performanceConsulting.source.publicationVersion, 'v0.0.93');
+  assert.equal(aid.performanceConsulting.source.semanticProfileVersion, '0.5.0');
+  assert.equal(aid.performanceConsulting.source.semanticMappingStatus, 'Hypothetical');
+  assert.equal(aid.performanceConsulting.source.sourceCommit, 'b75261de5ad7851c1f61607091cc00e486bbbb5f');
   for (const id of ['map:legend', 'lore:1']) assert.equal((await (await post({ id })).json()).performanceConsulting, undefined);
   const profile = await (await get('/alignment.json')).json();
   assert.equal(profile.evidencePolicy.gameLevelIsTransferableCompetency, false);
@@ -196,6 +277,8 @@ test('I2IDL-X annotates consulting resources while leaving game facts and unrela
   assert(personalPage.includes('gaming:requiresContext true'));
   assert(!personalPage.includes('schema:text'));
   assert(native.graphContent.includes('gaming:alignmentScope "performance-consulting"'));
+  assert(native.graphContent.includes('<urn:hallowmarch:resource:field-note%3Akeep> <http://purl.org/dc/terms/subject> <https://id.i2idl.org/concepts/procedural-knowledge>'));
+  assert.equal(native.graphContent.includes('i2x:isClassifiedBy i2idl:procedural-knowledge'), false);
   const composition = bridge.nativeComposition();
   assert.equal(composition.parts.length, 9);
   assert.equal((composition.root.graphContent.match(/dct:hasPart/g) || []).length, 9);

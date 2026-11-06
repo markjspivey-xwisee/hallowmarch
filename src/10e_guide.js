@@ -39,11 +39,21 @@ function guideFront(P, R, x, z, what) {
   return { x, z, what };
 }
 const GUIDE_BEASTS = new Set(['wolf', 'boar', 'bear']);
+// Authored camp tiers describe its place in the world, not the strength of its
+// inhabitants. Each resident now develops through its own actual experience.
+function guideCampResidents(c) {
+  return [...(c.members || [])].map(getEnt).filter((e) => e && e.alive && !e.removed && !e.elite && Number.isFinite(e.level) && e.level >= 1);
+}
 function guideCampFor(P, prog, beasts = false) {
   const R = REALMS[P.faction];
-  const ok = CAMPS.filter((c) => c.realm === R.id && !c.elite && c.lmin <= prog.level + 1 && c.lmax >= prog.level - 3 && (!beasts || GUIDE_BEASTS.has(c.type)));
-  const c = guideNearest(ok, P);
-  return c ? { x: c.x, z: c.z, what: `the ${(MOB_PLURAL[c.type] || c.type).toLowerCase()} of your level` } : null;
+  const ok = CAMPS.filter((c) => c.realm === R.id && !c.elite && (!beasts || GUIDE_BEASTS.has(c.type)))
+    .map((c) => { const levels = guideCampResidents(c).map((e) => e.level); return { c, low: Math.min(...levels), high: Math.max(...levels) }; })
+    .filter((q) => q.low !== Infinity && q.high <= prog.level + 1);
+  const matched = ok.filter((q) => q.high >= prog.level - 3);
+  const q = guideNearest(matched.length ? matched : ok, P, (v) => v.c);
+  if (!q) return null;
+  const levels = q.low === q.high ? String(q.low) : `${q.low}–${q.high}`;
+  return { x: q.c.x, z: q.c.z, what: `the level ${levels} ${(MOB_PLURAL[q.c.type] || q.c.type).toLowerCase()}` };
 }
 function guideEnemyKeep(P) {
   const foes = WAR.keeps.filter((K) => K.realm !== P.faction);
@@ -61,17 +71,18 @@ function guideMarkOf(S) {
     case 'herald': return R.herald ? guideTown(P, R, R.herald.x, R.herald.z, `the ${R.name} Herald`) : null;
     case 'bounty':
       if (b && !b.done && CAMPS[b.camp]) return { x: CAMPS[b.camp].x, z: CAMPS[b.camp].z, what: `the ${pluralName(b.name)}` };
+      if (!b && !bountyAvailable(P, prog)) return null;
       return R.herald ? guideTown(P, R, R.herald.x, R.herald.z, `the ${R.name} Herald`) : null;
     case 'lv5': case 'lv20':
       if (b && !b.done && CAMPS[b.camp]) return { x: CAMPS[b.camp].x, z: CAMPS[b.camp].z, what: `the ${pluralName(b.name)}` };
-      return guideOnFrontier(P) ? null : guideCampFor(P, prog);
+      return guideOnFrontier(P) ? guideTown(P, R, R.town.x, R.town.z, R.townName) : guideCampFor(P, prog);
     case 'draught': return R.merchant ? guideTown(P, R, R.merchant.x, R.merchant.z, R.merchant.name) : null;
     case 'cook': {
       if (goodsHave('meat_raw') || goodsHave('fish_raw')) {
         const f = guideNearest(FIRES.filter((q) => !q.ghost && !q.wall && (q.until == null || q.until > GAME.t) && (q.indoor || q.station || q.size >= 0.5)), P);
         return f ? { x: f.x, z: f.z, what: f.indoor ? 'a hearth' : f.station ? `the ${f.station}` : 'a fire' } : null;
       }
-      return guideOnFrontier(P) ? null : guideCampFor(P, prog, true);
+      return guideOnFrontier(P) ? guideTown(P, R, R.town.x, R.town.z, R.townName) : guideCampFor(P, prog, true);
     }
     case 'craft': {
       const kind = goodsCount('herb_heal') >= 2 && goodsHave('water') ? 'alchemy' : 'tanning';
@@ -81,7 +92,7 @@ function guideMarkOf(S) {
     case 'muster':
       if (prog.level < 14) { // until 14: hunt (the bounty's creatures, or a camp of your level)
         if (b && !b.done && CAMPS[b.camp]) return { x: CAMPS[b.camp].x, z: CAMPS[b.camp].z, what: `the ${pluralName(b.name)}` };
-        return guideOnFrontier(P) ? null : guideCampFor(P, prog);
+        return guideOnFrontier(P) ? guideTown(P, R, R.town.x, R.town.z, R.townName) : guideCampFor(P, prog);
       }
       return guideOnFrontier(P) ? { x: R.musterSite.x, z: R.musterSite.z, what: `${R.name} Muster` } : { x: R.town.x, z: R.town.z, what: 'the portal stones' };
     case 'climb': {
@@ -104,7 +115,7 @@ function guideMarkOf(S) {
     }
     case 'barrow': case 'king': return BARROW.door ? guideFront(P, R, BARROW.door.x, BARROW.door.z, 'the Hollow Barrow') : null;
     case 'champion': {
-      const list = CAMPS.filter((c) => c.elite && c.lmin <= prog.level + 2).map((c) => getEnt(c.eliteId)).filter((e) => e && e.alive);
+      const list = CAMPS.filter((c) => c.elite).map((c) => getEnt(c.eliteId)).filter((e) => e && e.alive && !e.removed && Number.isFinite(e.level) && e.level >= 1 && e.level <= prog.level + 2);
       const e = guideNearest(list, P);
       return e ? { x: e.x, z: e.z, what: capFirst(e.name) } : null;
     }
@@ -115,6 +126,7 @@ function guideMarkOf(S) {
 // a creature's name for many of them: wolves, not wolfs; draugr and barrow bones as they are
 function pluralName(n) {
   n = String(n || '');
+  if (Object.values(MOB_PLURAL).includes(n)) return n;
   if (/(bones|draugr)$/.test(n)) return n;
   if (/wolf$/.test(n)) return n.replace(/wolf$/, 'wolves');
   return /(s|x|ch|sh)$/.test(n) ? n + 'es' : n + 's';
@@ -222,9 +234,9 @@ function guideAims() {
 /* ------------------------------------------------------------------ */
 // `fight`: may show in a fight (it is about the fight); `ok`: shows only while it still means something here
 Object.assign(FIELD_NOTES, {
-  needs: { t: 'Food and water', x: () => `${IS_TOUCH ? 'Open More to find the food and water bars. Tap them' : 'The two bars under your health are food and water. Press V or click them'} to eat or drink the best thing in your packs. Drink at any well, trough, lake or river (${IS_TOUCH ? 'Use' : 'E'}), and cook meat at any fire. You never starve, but hungry or thirsty you heal slowly.` },
-  stones: { t: 'The portal stones', x: () => `The ring of stones in the square carries you to your realm's muster on the frontier, and back. Below level 14 the frontier will kill you quickly: grow strong at home first.`, ok: () => GAME.prog.level < 14 },
-  station: { t: 'A workstation', x: () => `${IS_TOUCH ? 'Use' : 'E'} opens its recipes. Each town has a forge, a workbench, a tanning rack, a loom, a bakehouse and an alchemy table: tan a hide into leather, or steep woundwort into a healing draught. ${IS_TOUCH ? 'Crafting in your Kit' : 'C'} shows what you can make by hand.` },
+  needs: { t: 'Food and water', x: () => `${IS_TOUCH ? 'Open Menu → Explore to find the food and water bars. Tap them' : 'The two bars under your health are food and water. Press V or click them'} to eat or drink the best thing in your packs. Drink at any well, trough, lake or river (${IS_TOUCH ? 'Use' : 'E'}), and cook meat at any fire. You never starve, but hungry or thirsty you heal slowly.` },
+  stones: { t: 'The portal stones', x: () => `The ring of stones in the square carries you to your realm's muster on the frontier, and back. Check opponents' levels and travel with allies: each soldier grows through its own experience.`, ok: () => GAME.prog.level < 14 },
+  station: { t: 'A workstation', x: () => `${IS_TOUCH ? 'Use' : 'E'} opens its recipes. Each town has a forge, a workbench, a tanning rack, a loom, a bakehouse and an alchemy table: tan a hide into leather, or steep woundwort into a healing draught. ${IS_TOUCH ? 'Items → Crafting' : 'C'} shows what you can make by hand.` },
   ladder: { t: 'Ladders and hatches', x: () => `Walk into a ladder's foot to climb, or ${IS_TOUCH ? 'tap Use' : 'press E'}. A shut hatch is pushed open as you come up to it; ${IS_TOUCH ? 'Use' : 'E'} by a hatch opens or shuts it. On the rungs you fight one-handed: no shield, bow or long spell, and a heavy blow knocks you off.`, fight: true },
   tower: { t: 'Inside a tower', x: () => 'Store room, rooms above and a fighting top: ladders join them through hatches, and doors at the walls\' height open onto the walks. Shoot out through the slits; stand on a shut hatch and a foe below must heave at it.' },
   breach: { t: 'A breach', x: () => 'Siege stones have brought a wall or a tower down. The rubble is a way in for the attackers, and the garrison fights to hold it. In peace the keep rebuilds it behind scaffolding.' },
@@ -305,15 +317,20 @@ function guideMade(rec) {
 // a new character's first moments belong to the first-steps note: other hints wait for it (08h_farming.js asks)
 function guideQuiet() {
   const L = GAME.prog && GAME.prog.lore;
-  return !!(L && LORE.fresh && (!L.seen.includes('start') || performance.now() < LORE.noteUntil));
+  return !!(L && LORE.fresh && (!L.seen.includes('start') || LORE.noteReplay.has('start') || performance.now() < LORE.noteUntil));
+}
+// Reuse the selected prompt already computed by updateHUD; notes must not rescan interactions.
+function guideNotePrompt() {
+  const pr = $('prompt');
+  return pr && !pr.hidden && pr.classList.contains('on') ? ($('prompt-t')?._t || '') : '';
 }
 // which queued note may show now: the first steps first; in a fight only a note about the fight; a note that means
 // nothing here waits
 function guideNoteIndex() {
   const P = GAME.player, prog = GAME.prog, Q = LORE.queue;
-  if (Q.includes('start')) return Q.indexOf('start');
-  if (LORE.fresh && !prog.lore.seen.includes('start')) return -1;
   const fight = GAME.t < P.combatUntil;
+  if (Q.includes('start') && (!fight || FIELD_NOTES.start.fight)) return Q.indexOf('start');
+  if (!fight && LORE.fresh && !prog.lore.seen.includes('start')) return -1;
   for (let i = 0; i < Q.length; i++) {
     const N = FIELD_NOTES[Q[i]];
     if (!N) return i;
@@ -329,17 +346,21 @@ function guideNoteIndex() {
 /* the How to play screen, from every system's own lines               */
 /* ------------------------------------------------------------------ */
 function guideKeysHTML() {
-  if (IS_TOUCH) return `<div class="keys">
-    <kbd>Left thumb</kbd><span>Drag on the left to walk; to the edge to run.</span>
-    <kbd>Right thumb</kbd><span>Drag to look around. Tap a creature, soldier or gate to target it.</span>
-    <kbd>Ability buttons</kbd><span>Learned abilities stay beside your right thumb. More shows all eight, including what you unlock next.</span>
+  if (IS_TOUCH) {
+    const walkSide = MOBILE_PREFS.hand === 'left' ? 'right' : 'left';
+    const lookSide = MOBILE_PREFS.hand === 'left' ? 'left' : 'right';
+    return `<div class="keys">
+    <kbd>${capFirst(walkSide)} thumb</kbd><span>Drag on the lower ${walkSide} to walk; to the edge to run.</span>
+    <kbd>${capFirst(lookSide)} thumb</kbd><span>Drag on the ${lookSide} to look around. Tap a creature, soldier or gate to target it.</span>
+    <kbd>Ability buttons</kbd><span>Learned abilities stay on the ${lookSide}. Tap Skills to read all eight, including what you unlock next.</span>
     <kbd>Use</kbd><span>Does what the prompt over the buttons says (a door, a ladder, a fire, a boat, water). Tap the prompt itself too.</span>
-    <kbd>Target · Jump · Ride</kbd><span>Target and Jump stay in the dock (Rise in deep water). Open More to ride your horse.</span>
-    <kbd>Potion · Kit</kbd><span>Potion stays in the dock. Open More, then Kit &amp; bags, for gear, crafting and goods.</span>
-    <kbd>Food and water</kbd><span>Open More and tap your food and water bars to eat or drink the best you carry. A warning appears when you need them.</span>
+    <kbd>Target · Jump · Ride</kbd><span>Target and Jump stay in the dock (Rise in deep water). Open Menu → Explore → Ride for your horse.</span>
+    <kbd>Potion · Items</kbd><span>Potion stays in the dock. Tap Items for gear, crafting and goods.</span>
+    <kbd>Food and water</kbd><span>Open Menu → Explore and tap your food or water bar to eat or drink the best you carry. A warning appears when you need them.</span>
     <kbd>Your path</kbd><span>Under your frame: the next step and which way (the gold gem on the minimap). Tap to unfold it.</span>
-    <kbd>More</kbd><span>Beside the minimap: Map, Kit, Animals, Build, Players, Chronicle and Settings. Tap your name for Character, or the minimap for Map.</span>${classHelpKeys() /* [classes] 10d_classes_ui.js */}
+    <kbd>Menu</kbd><span>Explore: Map, Ride, Animals, Build and Chronicle. Skills: abilities, Inventory and Character. Social: Players &amp; chat. Options: Graphics &amp; sound, How to play and touch controls. Tap your name for Character, or the minimap for Map.</span>${classHelpKeys() /* [classes] 10d_classes_ui.js */}
     <kbd>Gift</kbd><span>The round gift button: your realm's great gift, from realm rank 5 or level 30.</span></div>`; // [guide2] each in a line or two on a phone
+  }
   return `<div class="keys">
     <kbd>W A S D</kbd><span>Move, relative to the camera. Shift to run, Space to jump.</span>
     <kbd>Mouse drag</kbd><span>Turn the camera. Right-drag also turns you. Scroll to zoom.</span>
@@ -394,22 +415,22 @@ function chronGoals() {
   const mw = RECIPES.filter((r) => r.mw && (!r.cls || r.cls.includes(P.cls))).length;
   const goods = (id) => (GOODS[id] ? goodsCount(id) : 0);
   const aims = guideAims().map((a) => `<li><b>${a.t}</b>${a.m ? `<span class="meter"><i><b style="width:${(clamp(a.m[0], 0, 1) * 100).toFixed(1)}%"></b></i>${a.m[1]}</span>` : ''}${a.x ? `<small>${a.x}</small>` : ''}</li>`).join('');
-  return `<p class="lead">The path takes a recruit to the frontier and through the first deeds of the war. Past level 20 the March rises to meet you: the frontier's soldiers, the Barrow, Cinderwing and the champions all keep pace with your level, and new things open every ten levels.</p>
+  return `<p class="lead">The path takes a recruit to the frontier and through the first deeds of the war. New characters and creatures begin at level 1 and grow through their own experience. Shared world development opens new possibilities; your abilities and ranks follow your personal level.</p>
     <h3 data-cf-open>Now</h3><ul class="gd-aims">${aims}</ul>
     <div class="gd-tier"${tierOpen(20)}><h4>Level 20 ${lvlOk(20)}</h4><ul class="plain">
-      <li><b>Your seventh ability</b>, and the frontier's soldiers, the Barrow and Cinderwing now rise with you.</li>
+      <li><b>Your seventh ability</b> opens.</li>
       <li><b>Command the warbands</b> of ${R.name} from the map (also from realm rank 3, or at the war table of a keep your realm holds).</li>
-      <li><b>Borderland champions</b>: ${champs.length} named camps on the wild edges of the homelands, for levels 20 to 40. Each drops two pieces of good gear and a trophy.</li>
-      <li><b>The Hollow King</b> rises with you: his hoard is two levels above yours, the best gear in the land.</li></ul></div>
+      <li><b>Borderland champions</b>: ${champs.length} named camps on the wild edges of the homelands. Check each champion's current level. Each drops two pieces of good gear and a trophy.</li>
+      <li><b>The Hollow King</b> guards a hoard two levels above yours, among the best gear in the land.</li></ul></div>
     <div class="gd-tier"${tierOpen(30)}><h4>Level 30 ${lvlOk(30)}</h4><ul class="plain">
       <li><b>Your eighth ability</b>, and every ability reaches rank II.</li>
       <li><b>Your realm's great gift</b>${gift ? `, ${esc(gift.ult.name)},` : ''} on ${IS_TOUCH ? 'the gift button' : 'key 9'} (or at realm rank 5): it turns a big fight. You are realm rank ${rr} now.</li>
       <li><b>Cinderwing</b> is a fight for a seasoned band: three pieces of rare gear or better and a dragon scale.</li></ul></div>
     <div class="gd-tier"${tierOpen(40)}><h4>Level 40 ${lvlOk(40)}</h4><ul class="plain">
-      <li><b>Rank III.</b> The risen of the borderlands: the three farthest camps of every homeland rise with you, each led by a risen champion with its own name (the Deeds page).${'' /* [late2] 10l_late.js */}</li>
+      <li><b>Rank III.</b> Separately, shared world development at level 40 unlocks risen champions in the three farthest camps of every homeland. Each starts at level 1 and earns its own experience (the Deeds page).${'' /* [late2] 10l_late.js */}</li>
       <li><b>Named masterworks</b> (${mw} for your calling): item level 50, made at the forge, the workbench, the tanning rack or the loom by a master's hand (crafting 85 and up) from dragon scales, grave-iron from the Barrow's dead and champions' trophies. You carry ${goods('dragon_scale')} scale${goods('dragon_scale') === 1 ? '' : 's'}, ${goods('grave_iron')} grave-iron and ${goods('trophy')} troph${goods('trophy') === 1 ? 'y' : 'ies'}.</li></ul></div>
     <div class="gd-tier"${tierOpen(50)}><h4>Level 50 ${lvlOk(50)}</h4><ul class="plain">
-      <li><b>Rank IV</b>, the height of your powers. Gear drops and is made to item level 50; the whole war rises to meet you. Your experience goes on into <b>veterancy</b>, and every rank of it is a boon to learn.${'' /* [late2] 10l_late.js */}</li>
+      <li><b>Rank IV</b>, the height of your powers. Gear drops and is made to item level 50; your own experience goes on into <b>veterancy</b>, and every rank of it is a boon to learn.${'' /* [late2] 10l_late.js */}</li>
       <li><b>Win campaigns</b> for ${R.name}: lead its warbands, take keeps, carry hallows home. Each victory pays you a share of the spoils (gold, realm points and an epic piece), and the Chronicle keeps the record.</li></ul></div>
     ${chronExtra('goals')}`;
 }
@@ -419,7 +440,7 @@ function chronGear() {
     ${gsChronHTML() /* [gearstats] what each stat does, with your numbers (10g_gearstats.js) */}
     <h3>Grades and levels</h3>
     <div class="cons">${QUALITY.map((Q) => `<span style="--c:${Q.col}"><i></i>${Q.name}</span>`).join('')}</div>
-    <p>Foes drop gear of about their own level, all the way to 50: a champion's spoils a little above it, a keep lord's more, and the Hollow King's and Cinderwing's hoards two above yours. The brighter the beam over a find, the better it is. Merchants and your path pay gear at your level. ${IS_TOUCH ? 'Kit' : 'I'} shows what you wear and carry; compare a piece before you put it on, and sell what you do not need.</p>
+    <p>Foes drop gear of about their own level, all the way to 50: a champion's spoils a little above it, a keep lord's more, and the Hollow King's and Cinderwing's hoards two above yours. The brighter the beam over a find, the better it is. Merchants and your path pay gear at your level. ${IS_TOUCH ? 'Items' : 'I'} shows what you wear and carry; compare a piece before you put it on, and sell what you do not need.</p>
     <h3>Wear and weather</h3>
     <ul class="plain">
       <li><b>Wear.</b> Every blow you take or give wears your gear a little. Worn gear gives all its stats until it breaks; broken gear gives nothing at all until it is mended: by a merchant in town, at a keep hall's armourer's bench, or at a forge with iron (with your own hammer, good as new).</li>
@@ -479,7 +500,7 @@ LOADING_TIPS.push(
   'Frost kills tender crops. Sow hardier strains, or wait for spring.',
   'In deep water, dive (U or Dive) and look along the bed: lost arrows, old blades, purses and now and then a sunken chest.',
   'Every town keeps rowing boats at a jetty on its lake. Step in and row; the river carries you downstream.',
-  'Past level 20 the frontier, the Barrow, Cinderwing and the champions all rise with you. The Chronicle\'s Aims page says what opens at 30, 40 and 50.',
+  'Every new character and creature starts at level 1. Each earns its own experience, while shared world development opens new possibilities. The Chronicle\'s Aims page explains your personal milestones.',
   'Named masterworks of item level 50 need a master crafter, dragon scales, grave-iron from the Barrow and champions\' trophies.',
   'Your realm\'s great gift opens at realm rank 5 or level 30: it turns a big fight, then waits a long while.',
   'A bed you build is where you wake when you fall at home.',

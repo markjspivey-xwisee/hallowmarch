@@ -27,6 +27,8 @@ function fixture(bootstrap) {
     location: { search: '', reload() { assert.fail('No page reload'); } },
     window: { __hm: {}, __HM_GAMING: bootstrap ? { worldAuthority: bootstrap } : {} },
     GAME: { ready: false, started: true, player: null }, FIELD_NOTES: {}, GUIDE_HELP: [], LOADING_TIPS: [],
+    // Explicit live-play fixture for the world-recovery transport state machine.
+    netHumanLive: () => true, netHumanSync() {},
     NET: { peers: new Map(), stats: {}, link: null, state: 'on' }, NETUI: { open: false },
     $: () => ({ addEventListener() {} }),
     uiToast: message => toasts.push(message), uiLog: message => logs.push(message), netNote() {},

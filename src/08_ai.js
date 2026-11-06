@@ -11,12 +11,14 @@ function siteWorld(S, lx, ly, lz) { const p = siteToWorld(S, lx, lz); return { x
 /* spawning helpers                                                    */
 /* ------------------------------------------------------------------ */
 function spawnRealmUnit(realm, cls, level, role, x, z, extra = {}) {
+  if (['soldier', 'guard', 'lord', 'guardian', 'muster', 'escort'].includes(role)) level = 1;
   const name = randomName(realm);
   const look = classLook(cls, realm, Math.random, name);
   if (role === 'lord') { look.outfit = OUTFIT.lord; look.mask = (look.mask & ~(WB.helmet | WB.hairShort | WB.hairLong)) | WB.circlet | WB.cape | WB.hairShort; }
   // on a low platform (the temple dais, a rune circle, a stair foot) a body stands on top of it, not inside it
   const e = makeEnt({ kind: 'humanoid', faction: realm, role, cls, level, name, x, z, y: floorAt(x, z, heightAt(x, z) + 0.9), yaw: Math.random() * TAU, look, radius: 0.45, scale: look.scale, ...extra });
   if (role in WAR_LEVEL_OFF) e.wlOff = level - warLevel();
+  if (typeof worldActorDevelop === 'function' && role !== 'companion') worldActorDevelop(e);
   setupStats(e);
   return e;
 }
@@ -24,31 +26,25 @@ function spawnRealmUnit(realm, cls, level, role, x, z, extra = {}) {
 /* ------------------------------------------------------------------ */
 /* the frontier keeps pace with you                                    */
 /* ------------------------------------------------------------------ */
-// past level 20 every realm's troops, gates and wardens rise with the strongest player,
-// keeping the same steps between them as at 20
-const WAR_LEVEL_OFF = { soldier: [-5, 0], guard: [0, 0], lord: [4, 4], guardian: [2, 2], muster: [10, 10] };
-function warUnitLevel(role) { const o = WAR_LEVEL_OFF[role] || [0, 0]; return warLevel() + o[0] + Math.floor(Math.random() * (o[1] - o[0] + 1)); }
+// A cohort's training and each actor's own experience are shared world state.
+const WAR_LEVEL_OFF = { soldier: [0, 0], guard: [0, 0], lord: [0, 0], guardian: [0, 0], muster: [0, 0] };
+function warUnitLevel() { return 1; }
 const DOOR_HP = { keep: 3600, temple: 2400 };
-const doorHpScale = () => baseDmg(warLevel() + 2) / baseDmg(22);
-const barrowBoost = () => Math.max(0, warLevel() - 20);
+const doorHpScale = () => 1;
+const barrowBoost = () => 0;
 function scaleDoor(door) {
   const f = door.maxHp > 0 ? door.hp / door.maxHp : 1;
-  door.level = warLevel() + 2;
+  door.level = 1;
   door.maxHp = (door.keepRef ? DOOR_HP.keep : DOOR_HP.temple) * doorHpScale();
   if (door.alive) door.hp = door.maxHp * f;
 }
 function rescaleWar() {
-  const w = warLevel(), boost = barrowBoost();
   for (const e of ENT) {
     if (e.kind === 'door') { if (e.keepRef || e.templeRef) scaleDoor(e); continue; }
-    if (!e.alive || e.role === 'player') continue;
-    let lv = e.level;
-    if (e.faction <= 2 && e.wlOff != null) lv = w + e.wlOff;
-    else if (e.baseLevel != null) lv = e.baseLevel + boost;
-    else if (e.role === 'boss' && e.mobType === 'dragon') lv = Math.max(DRAGON_LEVEL, w + 4);
-    if (lv !== e.level) { e.level = lv; setupStats(e, true); }
+    if (!e.alive || e.role === 'player' || e.role === 'remote') continue;
+    if (typeof worldActorDevelop === 'function') worldActorDevelop(e);
   }
-  VENT_SRC.level = 18 + boost;
+  VENT_SRC.level = 1;
   late2Rescale(); // [late2] the risen camps keep pace (10l_late.js)
 }
 function mobLook(M, type, lvl, sc, elite) {
@@ -72,8 +68,7 @@ function mobLook(M, type, lvl, sc, elite) {
 }
 function spawnMob(camp, elite = false) {
   const M = MOBS[camp.type];
-  const band = late2Band(camp); // [late2] past 40 the farthest borderland camps rise with you (10l_late.js)
-  const lvl = elite ? band[1] + band[2] : band[0] + Math.floor(Math.random() * (band[1] - band[0] + 1));
+  const lvl = 1;
   let a = Math.random() * TAU, r = Math.random() * camp.r * (elite ? 0.4 : 1);
   let x = camp.x + Math.cos(a) * r, z = camp.z + Math.sin(a) * r;
   // [look5] not inside what the camp stands round: its fire pit (at its middle, where a champion was most often set
@@ -95,6 +90,7 @@ function spawnMob(camp, elite = false) {
   });
   if (elite) { e.elite = true; e.properName = true; e.tweak = { hp: 2.8, dmg: 1.3 }; camp.eliteId = e.id; }
   late2OnSpawn(e, camp, elite); // [late2] a risen champion's name and might (10l_late.js)
+  worldActorDevelop(e);
   setupStats(e);
   camp.members.add(e.id);
   return e;
@@ -106,24 +102,49 @@ function initCamps() {
     for (let i = 0; i < camp.count; i++) spawnMob(camp, camp.elite && i === 0);
   }
 }
-function villagerLook(realm) {
-  const fem = Math.random() < 0.5 ? 1 : 0, r = Math.random;
+function villagerLook(realm, r = Math.random) {
+  const fem = r() < 0.5 ? 1 : 0;
   const dyes = [[0.55, 0.42, 0.28], [0.36, 0.42, 0.3], [0.5, 0.3, 0.24], [0.62, 0.56, 0.42], [0.32, 0.36, 0.46], [0.44, 0.24, 0.3]];
   return { tabard: pick(r, dyes), armor: [0.4, 0.33, 0.25], skin: r() * 0.8, hair: r(), mask: WB.skirt | WB.belt | hairAndBeard(r, fem, realm) | (fem && r() < 0.5 ? WB.robe : 0), flags: 0, scale: 0.9 + r() * 0.1, outfit: OUTFIT.villager, emblem: 3, fem, bulk: r() < 0.3 ? 0.35 : 0 };
+}
+// A cold world has no title-screen ticks to free an unlucky spawn from a prop.
+function townVillagerSpawn(x, z) {
+  const radius = 0.45 * 0.9, near = [];
+  for (let i = 0; i < 24; i++) {
+    const a = i * 2.399, d = i ? 0.75 * Math.sqrt(i) : 0;
+    const p = { x: x + Math.cos(a) * d, z: z + Math.sin(a) * d };
+    resolveCollisions(p, radius, heightAt(p.x, p.z), FACTION_NEUTRAL);
+    if (!isWalkable(p.x, p.z)) continue;
+    const y = heightAt(p.x, p.z);
+    collidersNear(p.x, p.z, radius + 2, near);
+    if (near.some((c) => c.active && !(c.tag === 'door' && c.owner === FACTION_NEUTRAL)
+      && (c.vert ? !(y > (c.y0 ?? c.baseY) + c.h - 0.55 || y + 1.7 < (c.y0 ?? c.baseY))
+        : y <= c.baseY + c.h + 0.5)
+      && collCovers(c, p.x, p.z, radius - 1e-4))) continue;
+    return p;
+  }
+  return null;
 }
 function initTowns() {
   for (const R of REALMS) {
     const S = R.town;
     const hp = siteWorld(S, 3.5, 0, 9);
-    const herald = makeEnt({ kind: 'humanoid', faction: FACTION_NEUTRAL, role: 'herald', cls: 'priest', level: 30, name: `${R.name} Herald`, x: hp.x, z: hp.z, y: heightAt(hp.x, hp.z), yaw: S.yaw + Math.PI, look: { ...classLook('priest', R.id, Math.random, 'herald'), mask: WB.cape | WB.staff | WB.robe | WB.tabard | WB.circlet | WB.belt | WB.hairShort | WB.beard, outfit: OUTFIT.herald }, radius: 0.5 });
+    const herald = makeEnt({ kind: 'humanoid', faction: FACTION_NEUTRAL, realmHome: R.id, role: 'herald', cls: 'priest', level: 1, name: `${R.name} Herald`, x: hp.x, z: hp.z, y: heightAt(hp.x, hp.z), yaw: S.yaw + Math.PI, look: { ...classLook('priest', R.id, Math.random, 'herald'), mask: WB.cape | WB.staff | WB.robe | WB.tabard | WB.circlet | WB.belt | WB.hairShort | WB.beard, outfit: OUTFIT.herald }, radius: 0.5 });
     setupStats(herald);
     herald.ai.post = { x: hp.x, z: hp.z };
     R.herald = herald;
+    if (typeof netNpcRegister === 'function') netNpcRegister(herald, `town:${R.id}:herald:0`);
     for (let i = 0; i < 6; i++) {
-      const a = Math.random() * TAU, rr = 6 + Math.random() * 12;
-      const x = S.x + Math.cos(a) * rr, z = S.z + Math.sin(a) * rr;
-      const v = makeEnt({ kind: 'humanoid', faction: FACTION_NEUTRAL, role: 'villager', level: 5, name: pick(Math.random, VILLAGER_NAMES), x, z, y: heightAt(x, z), look: villagerLook(R.id), home: { x: S.x, z: S.z, r: 20 }, speed: 2.2 });
+      // Stable bootstrap slots never depend on device quality or entity IDs.
+      // The elected page's live frame becomes authoritative once admitted.
+      const rng = mulberry(0x4e5043 ^ ((R.id + 1) * 65537) ^ (i * 31337));
+      const a = rng() * TAU, rr = 6 + rng() * 12;
+      const p = townVillagerSpawn(S.x + Math.cos(a) * rr, S.z + Math.sin(a) * rr);
+      if (!p) continue;
+      const { x, z } = p;
+      const v = makeEnt({ kind: 'humanoid', faction: FACTION_NEUTRAL, realmHome: R.id, role: 'villager', level: 1, name: pick(rng, VILLAGER_NAMES), x, z, y: heightAt(x, z), look: villagerLook(R.id, rng), home: { x: S.x, z: S.z, r: 20 }, speed: 2.2 });
       v.maxHp = v.hp = 300;
+      if (typeof netNpcRegister === 'function') netNpcRegister(v, `town:${R.id}:villager:${i}`);
     }
     // muster wardens: very strong guards that keep the portal safe
     const M = R.musterSite;
@@ -150,9 +171,10 @@ function keepSlots(K) {
   return { walls: castlePostSlots(K) || walls, court, lord }; // castles: posts up on the walks and tower tops (04g_castles.js)
 }
 function initWar() {
+  if (typeof realmPublicWorksReset === 'function') realmPublicWorksReset();
   for (const R of REALMS) {
     R.keepSites.forEach((S, k) => {
-      const door = makeEnt({ kind: 'door', faction: R.id, role: 'door', name: `${S.name} gate`, level: warLevel() + 2, x: 0, z: 0, radius: 3.2 });
+      const door = makeEnt({ kind: 'door', faction: R.id, role: 'door', name: `${S.name} gate`, level: 1, x: 0, z: 0, radius: 3.2 });
       const gp = siteWorld(S, 0, 0, S.gateLocal.z);
       door.x = gp.x; door.z = gp.z; door.y = S.y;
       door.maxHp = door.hp = DOOR_HP.keep * doorHpScale();
@@ -165,7 +187,7 @@ function initWar() {
       fillGarrison(K, true);
     });
     const S = R.templeSite;
-    const door = makeEnt({ kind: 'door', faction: R.id, role: 'door', name: `${S.name} gate`, level: warLevel() + 2, x: 0, z: 0, radius: 3.4 });
+    const door = makeEnt({ kind: 'door', faction: R.id, role: 'door', name: `${S.name} gate`, level: 1, x: 0, z: 0, radius: 3.4 });
     const gp = siteWorld(S, 0, 0, S.gateLocal.z);
     door.x = gp.x; door.z = gp.z; door.y = S.y;
     door.maxHp = door.hp = DOOR_HP.temple * doorHpScale();
@@ -183,6 +205,8 @@ function initWar() {
   updateRelicBonuses();
 }
 function fillGarrison(K, all) {
+  if (typeof realmPublicWorksHosted === 'function' && realmPublicWorksHosted()
+    && !(typeof realmPublicWorksRecruiting === 'function' && realmPublicWorksRecruiting(K))) return;
   const R = K.realm, S = K.site;
   const lvl = warUnitLevel('guard');
   if (!K.lord || !getEnt(K.lord) || !getEnt(K.lord).alive) {
@@ -296,6 +320,7 @@ function dropRelic(e) {
   updateRelicBonuses();
 }
 function deliverRelic(rel, e) {
+  if (typeof netEntityRelicDelivered === 'function') netEntityRelicDelivered(rel, e);
   const T = WAR.temples[e.faction];
   e.carrying = null;
   rel.carrier = null;
@@ -999,12 +1024,14 @@ function updateWar(dt) {
     let hostile = 0;
     forNear(K.site.x, K.site.z, 34, (o) => { if (o.alive && isActor(o) && o.faction <= 2 && o.faction !== K.realm && !war4Allied(o.faction, K.realm)) hostile++; }); // [war4] an ally of the pact is no foe at the walls (08l_war4.js)
     if (hostile > 0) { K.lastEnemyNear = now; if (hostile >= 2 || K.door.hp < K.door.maxHp * 0.98) { if (now > K.underSiegeUntil && K.realm === (GAME.player && GAME.player.faction)) { news(`${K.site.name} is under attack!`, K.realm, 'alarm'); sndKeepAlarm(K); /* [audio2] its bell rings (11c_sound.js) */ } K.underSiegeUntil = now + 20; } }
-    // door repair or rebuild
-    const D = K.door;
-    if (D.alive && now - D.lastHitAt > 25 && D.hp < D.maxHp) D.hp = Math.min(D.maxHp, D.hp + D.maxHp * 0.015 * dt);
-    if (!D.alive && now - K.lastEnemyNear > 40 && now - D.deadAt > 40 && !war4GateMends(K)) { setDoorState(D, true, 0.35); news(`${K.site.name} has rebuilt its gate.`, K.realm, 'normal'); } // [war4] mended behind a scaffold instead (08l_war4.js)
-    // reinforcements trickle in when the keep is quiet
-    if (now > K.nextGuardAt && now - K.lastEnemyNear > 12) { K.nextGuardAt = now + 14; if (loopsTrickleOk(K)) war4Trickle(K); } // [loops] a guard comes only if the keep's stores can feed him (08m_loops.js) // [war4] out of the hall's door to their posts (08l_war4.js)
+    if (typeof realmPublicWorksKeepTick !== 'function' || !realmPublicWorksKeepTick(K, dt)) {
+      // door repair or rebuild
+      const D = K.door;
+      if (D.alive && now - D.lastHitAt > 25 && D.hp < D.maxHp) D.hp = Math.min(D.maxHp, D.hp + D.maxHp * 0.015 * dt);
+      if (!D.alive && now - K.lastEnemyNear > 40 && now - D.deadAt > 40 && !war4GateMends(K)) { setDoorState(D, true, 0.35); news(`${K.site.name} has rebuilt its gate.`, K.realm, 'normal'); } // [war4] mended behind a scaffold instead (08l_war4.js)
+      // reinforcements trickle in when the keep is quiet
+      if (now > K.nextGuardAt && now - K.lastEnemyNear > 12) { K.nextGuardAt = now + 14; if (loopsTrickleOk(K)) war4Trickle(K); } // [loops] a guard comes only if the keep's stores can feed him (08m_loops.js) // [war4] out of the hall's door to their posts (08l_war4.js)
+    }
   }
   for (const T of WAR.temples) {
     const D = T.door;
@@ -1051,11 +1078,14 @@ function news(text, realm, kind = 'normal') {
 /* simulation step for every NPC                                       */
 /* ------------------------------------------------------------------ */
 function updateNPCs(dt0) {
+  if (typeof realmPublicWorksFrame === 'function') realmPublicWorksFrame(0);
   const P = GAME.player;
   for (let i = ENT.length - 1; i >= 0; i--) {
     const e = ENT[i];
     if (e.removed) continue;
     if (e.role === 'remote') { netRemoteStep(e, dt0); continue; } // [net] another page's player: moved by what its page says (14n_net.js)
+    if (typeof netNpcStep === 'function' && netNpcStep(e, dt0)) continue; // one admitted town, including work, deaths and seated poses
+    if (typeof netEntityStep === 'function' && netEntityStep(e, dt0)) continue;
     let dt = dt0; // [phones] townsfolk and kept beasts far from the player live at half rate (below)
     if (!e.alive) {
       if (GAME.t > e.removeAt && e.kind !== 'door') removeEnt(e);
@@ -1064,7 +1094,7 @@ function updateNPCs(dt0) {
     }
     if (e.kind === 'door' || e.role === 'player') continue;
     // home-zone creatures far from the player rest
-    const far = P ? dist2(e.x, e.z, P.x, P.z) : 0;
+    const far = typeof netEntityHumanDistance === 'function' ? netEntityHumanDistance(e) : P ? dist2(e.x, e.z, P.x, P.z) : 0;
     if ((e.role === 'mob' || e.role === 'villager' || e.role === 'critter') && far > 170 * 170) { e.prevX = e.x; e.prevZ = e.z; continue; }
     // [phones] 90 m off, townsfolk and the town's and the wild's beasts think every other step, with two steps' time
     if (far > 90 * 90 && e.alive && (e.role === 'villager' || (e.role === 'animal' && e.tame && e.tame.owner !== 'player'))) { e._half = !e._half; if (e._half) continue; dt = dt0 * 2; }
@@ -1121,3 +1151,4 @@ function updateNPCs(dt0) {
     updateAnim(e, dt);
   }
 }
+

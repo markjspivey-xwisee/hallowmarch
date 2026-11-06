@@ -19,7 +19,7 @@ plays a new player's first steps by touch).
 usage: python3 tools/tests/touch_flows.py [only=fish,build,...]"""
 import asyncio, json, sys, pathlib, time
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
-from hmlib import setup, OUT
+from hmlib import setup, OUT, human_play
 from playwright.async_api import async_playwright
 
 ARGS = sys.argv[1:]
@@ -138,7 +138,8 @@ async def company_flow(p):
             except Exception: await asyncio.sleep(0.25)
         url = f'ws://127.0.0.1:{port}/ws'
         b, page, logs = await setup(p, touch=True, w=390, h=780, init='window.__HM_NET = { room: "tfco", user: "uTouchCo", noRoom: true, server: "' + url + '" };')
-        await page.evaluate("__hm.start({realm:1, cls:'mage', level:30}); __hm.setTod(0.5); __hm.dbg.WEATHER.mode = 'clear'; 0")
+        await page.evaluate("(async () => { await __hm.start({realm:1, cls:'mage', level:30}); __hm.setTod(0.5); __hm.dbg.WEATHER.mode = 'clear'; return 0; })()")
+        await human_play(page)
         await page.evaluate(HELP)
         await page.wait_for_function("() => { const l = document.getElementById('loading'); return !l || l.hidden || getComputedStyle(l).pointerEvents === 'none'; }", timeout=60000)
         await page.evaluate("TF.calm(); 0")
@@ -205,10 +206,19 @@ async def main():
         # [net] the stand-in for the artifact's room (src/00n_netstub.js): the March shared, for the party and chat flow
         b, page, logs = await setup(p, touch=True, w=390, h=780, init='window.__HM_NET = { room: "tf-' + str(int(time.time())) + '", user: "uTouch", noDb: true };' if want('net') else None)
         cdp = await page.context.new_cdp_session(page)
-        await page.evaluate("__hm.start({realm:0, cls:'warrior', level:24}); __hm.setTod(0.5); __hm.dbg.WEATHER.mode = 'clear'; 0")
+        await page.evaluate("(async () => { await __hm.start({realm:0, cls:'warrior', level:24}); __hm.setTod(0.5); __hm.dbg.WEATHER.mode = 'clear'; return 0; })()")
         await page.evaluate(HELP)
         # the loading veil fades on the wall clock: the first tap waits for it
         await page.wait_for_function("() => { const l = document.getElementById('loading'); return !l || l.hidden || getComputedStyle(l).pointerEvents === 'none'; }", timeout=60000)
+        # Quartermasters are initialized by the first live world step. A cold
+        # title screen has done no simulation, and a trusted gesture alone does
+        # not guarantee that an animation frame ran before the first flow.
+        await human_play(page)
+        live_start = await page.evaluate("""(() => { const H = __hm, t = H.GAME.t;
+          H.simulate(0.1); return { advanced: H.GAME.t - t,
+            quartermasters: H.REALMS.filter(R => R.quartermaster && R.quartermaster.alive).length }; })()""")
+        check(live_start['advanced'] >= 0.099 and live_start['quartermasters'] == 3,
+              f"trusted start advances the world and initializes the three quartermasters ({live_start})")
         touch = await page.evaluate("document.body.classList.contains('touch')")
         check(touch, 'the phone plays by touch (the pad shows)')
 
@@ -485,7 +495,7 @@ async def main():
         if want('season'):
             # [loops] the Chronicle's Season page by touch: the menu's Chronicle, the Season page in its row, a vote for the
             # realm's next work and gold given to its treasury, each a tap (08n_season.js)
-            await page.evaluate("""(() => { const H = TF.H; if (!document.getElementById('menu').hidden) document.getElementById('btn-resume').click(); H.UI.modal = null; TF.calm(); H.INV.gold = Math.max(H.INV.gold, 600);
+            await page.evaluate("""(() => { const H = TF.H; if (!document.getElementById('menu').hidden) document.getElementById('menu-close').click(); H.UI.modal = null; TF.calm(); H.INV.gold = Math.max(H.INV.gold, 600);
               H.LORE.openChronicle('path'); return 0; })()""")
             await page.evaluate("(() => { const b = document.querySelector('.chron-nav [data-sec=\"season\"]'); if (b) b.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'instant' }); return 0; })()")
             okg = await tap(page, '.chron-nav [data-grp="war"]')
@@ -501,7 +511,7 @@ async def main():
             r = await page.evaluate("(() => { const H = TF.H, RS = H.season.rs(), R = RS.realms[H.GAME.player.faction]; return { sec: H.LORE.state.chronSec, gold: H.INV.gold, act: R.act, votes: Object.keys(R.votes), you: H.season.SEASONP.you }; })()")
             pid = sel.split(':')[1] if sel else None
             check(ok1 and ok2 and ok3 and r['sec'] == 'season' and g0 - r['gold'] == 100 and (r['act'] == pid or pid in r['votes']) and box and box[1] >= 40, f"season: taps open the Season page, give 100 gold and vote for {pid} ({r}, button {box})")
-            await page.evaluate("(() => { if (!document.getElementById('menu').hidden) document.getElementById('btn-resume').click(); return 0; })()")
+            await page.evaluate("(() => { if (!document.getElementById('menu').hidden) document.getElementById('menu-close').click(); return 0; })()")
         if want('wartable'):
             r = await page.evaluate("""(() => { const H = TF.H, h = H.fn.halls().find((q) => q.realm === 0 && q.state !== 'ruin'), sp = h.hallSpots.table; const dx = h.x - sp.x, dz = h.z - sp.z, d = Math.hypot(dx, dz) || 1; const x = sp.x + dx / d * 1.1, z = sp.z + dz / d * 1.1;
               if (h.door && h.door.leaf) H.fn.setHouseDoor && H.fn.setHouseDoor(h, true);
@@ -601,13 +611,13 @@ async def main():
         if want('guide'):
             # [guide] the path tracker: a tap on the step opens your path in the Chronicle, a tap on Aims the late game's
             # goals; a field note is tapped away
-            await page.evaluate("(() => { const H = TF.H; if (!document.getElementById('menu').hidden) document.getElementById('btn-resume').click(); H.UI.modal = null; TF.calm(); const e = document.getElementById('lore-path'); if (e && !e.classList.contains('min')) e.querySelector('[data-act=min]').click(); return 0; })()")
+            await page.evaluate("(() => { const H = TF.H; if (!document.getElementById('menu').hidden) document.getElementById('menu-close').click(); H.UI.modal = null; TF.calm(); const e = document.getElementById('lore-path'); if (e && !e.classList.contains('min')) e.querySelector('[data-act=min]').click(); return 0; })()")
             ok = await tap(page, '#lore-path [data-act="open"]')
             r = await page.evaluate("({ modal: __hm.UI.modal, sec: __hm.LORE.state.chronSec })")
             ok2 = await tap(page, '.chron-nav [data-sec="goals"]')
             t = await page.evaluate("(document.querySelector('.chron-body') || {}).textContent || ''")
             check(ok and r['modal'] == 'menu' and r['sec'] in ('path', 'goals') and ok2 and 'Level 30' in t, f'guide: a tap on the path opens it in the Chronicle, and a tap its Aims ({r})')
-            await tap(page, '#btn-resume')
+            await tap(page, '#menu-close')
             await page.evaluate("(() => { const L = __hm.GAME.prog.lore; L.seen = L.seen.filter((x) => x !== 'ladder'); __hm.LORE.state.noteUntil = 0; __hm.hud.note('ladder'); const ns = [...document.querySelectorAll('#banners .lore-note:not(.hl-old)')], d = ns[ns.length - 1]; if (d) d.id = 'tf-note'; return 0; })()")
             n0 = await page.evaluate("document.querySelectorAll('#banners .lore-note').length")
             ok = await tap(page, '#tf-note')
@@ -619,7 +629,7 @@ async def main():
         if want('sound'):
             # [audio2] the sound's settings by touch alone (11c_sound.js): the menu's button, its Settings, then Effects Low,
             # Ambience High, Volume Off and back to Medium; each button scrolled into view first (the sheet scrolls on a phone)
-            await page.evaluate("(() => { const H = TF.H; if (!document.getElementById('menu').hidden) document.getElementById('btn-resume').click(); H.UI.modal = null; TF.calm(); return 0; })()")
+            await page.evaluate("(() => { const H = TF.H; if (!document.getElementById('menu').hidden) document.getElementById('menu-close').click(); H.UI.modal = null; TF.calm(); return 0; })()")
             ok = [await tap(page, '#btn-menu'), await tap(page, '#menu-tabs [data-tab="settings"]')]
             async def tap_row(sel):
                 await page.evaluate(f"(() => {{ const el = document.querySelector('{sel}'); if (el) el.scrollIntoView({{ block: 'center' }}); return 0; }})()")
@@ -629,11 +639,11 @@ async def main():
             ok.append(await tap_row('#set-s [data-v="medium"]'))
             on = await page.evaluate("__hm.fn.AUDIO.on")
             check(all(ok) and r['fx'] == 0.5 and r['amb'] == 1.4 and not r['on'] and r['saved'] == [0.5, 1.4, False] and on, f"sound: taps on the menu's Settings set Effects Low, Ambience High and Volume Off, and Volume back on ({ok}, {json.dumps(r)}, on again {on})")
-            await tap(page, '#btn-resume')
+            await tap(page, '#menu-close')
         if want('deeds'):
             # [late2] the Chronicle's Deeds page by touch: a tap on your path opens the Chronicle, a tap its Deeds page, and a
             # tap on a name's button wears it (a character with two names: the Blooded, worn, and Kingsbane)
-            await page.evaluate("""(() => { const H = TF.H, L = H.late; if (!document.getElementById('menu').hidden) document.getElementById('btn-resume').click(); H.UI.modal = null; TF.calm();
+            await page.evaluate("""(() => { const H = TF.H, L = H.late; if (!document.getElementById('menu').hidden) document.getElementById('menu-close').click(); H.UI.modal = null; TF.calm();
               H.GAME.prog.realmKills = Math.max(H.GAME.prog.realmKills || 0, 30); L.late2CheckNames(true); L.late2Deed('king'); L.late2Wear('blooded');
               const e = document.getElementById('lore-path'); if (e && !e.classList.contains('min')) e.querySelector('[data-act=min]').click(); return 0; })()""")
             ok = await tap(page, '#lore-path [data-act="open"], #lore-path [data-act="aims"]')
@@ -660,7 +670,7 @@ async def main():
             ok6 = await tap(page, '#t-use')
             st2 = await page.evaluate("({ at: !!__hm.late.LATE2.std.at })")
             check(ok4 and ok5 and st['made'] and st['at'] and st['modal'] is None and lab == 'Take up your standard' and ok6 and not st2['at'], f"deeds: a tap has the standard made, another plants it before you ({st}), and Use beside it takes it up ({lab}, {st2})")
-            await page.evaluate("(() => { if (!document.getElementById('menu').hidden) document.getElementById('btn-resume').click(); __hm.GAME.prog.level = 24; return 0; })()")
+            await page.evaluate("(() => { if (!document.getElementById('menu').hidden) document.getElementById('menu-close').click(); __hm.GAME.prog.level = 24; return 0; })()")
 
         if want('net'):
             # [net] others in the March by touch: the Players button, a tap invites a player of your realm to a party (it

@@ -24,10 +24,10 @@ async def ev(page, label, js, quiet=False):
 HELP = r"""
 window.LT = {
   H: __hm, F: __hm.fn, G: __hm.gear, B: __hm.bal,
-  fresh(cls, lvl) {
+  async fresh(cls, lvl) {
     const H = this.H, F = this.F;
     if (H.GAME.player) F.newCharacter();
-    H.start({ realm: 0, cls, level: lvl });
+    await H.start({ realm: 0, cls, level: lvl });
     const P = H.GAME.player;
     P.hp = P.maxHp;
     return P;
@@ -75,9 +75,9 @@ window.LT = {
     return e;
   },
   clear() { for (const e of this.H.ENT.slice()) if (e.testFoe) { e.damagers = null; if (e.alive) this.F.killEnt(e, null); this.F.removeEnt(e); } },
-  compare(cls, lvl, foeOf) {
+  async compare(cls, lvl, foeOf) {
     const G = this.G;
-    const P = this.fresh(cls, lvl);
+    const P = await this.fresh(cls, lvl);
     const foe = foeOf(P);
     const out = {};
     for (const old of [true, false]) {
@@ -115,7 +115,7 @@ async def main():
         # ---- drops, hoards and merchants at 20, 35 and 50 ----
         table = {}
         for L in (20, 35, 50):
-            r = await ev(page, f'drops {L}', f"""(() => {{ const T = LT, H = T.H, G = T.G, P = T.fresh('warrior', {L}); const M = H.FACTION_MONSTER, L = {L};
+            r = await ev(page, f'drops {L}', f"""(async () => {{ const T = LT, H = T.H, G = T.G, P = await T.fresh('warrior', {L}); const M = H.FACTION_MONSTER, L = {L};
               const out = {{}};
               out.mob = T.range(T.drops({{ faction: M, mobType: 'bandit', role: 'mob', level: L }}, 60));
               out.champion = T.range(T.drops({{ faction: M, mobType: 'bandit', role: 'mob', level: L, elite: true }}, 12));
@@ -144,7 +144,7 @@ async def main():
             print(f"  {L:>2}  " + '  '.join(f"{k} {v[0]}-{v[1]}" for k, v in r.items() if isinstance(v, list)), flush=True)
 
         # ---- a named masterwork against a drop of its grade and level ----
-        r = await ev(page, 'masterwork', """(() => { const T = LT, H = T.H, G = T.G, P = T.fresh('warrior', 50); const D = H.depth;
+        r = await ev(page, 'masterwork', """(async () => { const T = LT, H = T.H, G = T.G, P = await T.fresh('warrior', 50); const D = H.depth;
           const out = {};
           for (const [id, slot] of [['mw_warrior', 'weapon'], ['mw_warrior2', 'chest'], ['mw_cloak', 'cloak']]) {
             const rec = D.DP_RECIPES ? D.DP_RECIPES.find((r) => r.id === id) : null;

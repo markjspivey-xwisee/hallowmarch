@@ -47,18 +47,21 @@ function mtnMountAt(x, z) {
   return Math.max(mount, outer);
 }
 // a priority flood from the map's edge and the lakes: the height each texel would spill over at
-function mtnFlood(H) {
+// eslint-disable-next-line no-unused-vars -- Retain the synchronous API used by CPU tools and direct callers.
+function mtnFlood(H) { return worldBuildDrain(mtnFloodChunks(H)); }
+function* mtnFloodChunks(H) {
+  let chunkWork = 0;
   const N = HN, N2 = N * N, F = new Float32Array(N2), done = new Uint8Array(N2), heap = new Int32Array(N2);
   let hn = 0;
   const less = (a, b) => F[heap[a]] < F[heap[b]];
   const push = (k) => { let i = hn++; heap[i] = k; while (i > 0) { const p = (i - 1) >> 1; if (!less(i, p)) break; const t = heap[i]; heap[i] = heap[p]; heap[p] = t; i = p; } };
   const pop = () => { const top = heap[0]; heap[0] = heap[--hn]; let i = 0; for (;;) { const l = i * 2 + 1, r = l + 1; let m = i; if (l < hn && less(l, m)) m = l; if (r < hn && less(r, m)) m = r; if (m === i) break; const t = heap[i]; heap[i] = heap[m]; heap[m] = t; i = m; } return top; };
-  for (let k = 0; k < N2; k++) {
+  for (let k = 0; k < N2; k++) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'mtnFlood';
     const i = k % N, j = (k / N) | 0;
     F[k] = H[k];
     if (i === 0 || j === 0 || i === N - 1 || j === N - 1 || H[k] < WATER_Y) { done[k] = 1; push(k); }
   }
-  while (hn) {
+  while (hn) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'mtnFlood';
     const k = pop(), i = k % N, j = (k / N) | 0;
     for (let q = 0; q < 4; q++) {
       const ii = i + (q === 0 ? 1 : q === 1 ? -1 : 0), jj = j + (q === 2 ? 1 : q === 3 ? -1 : 0);
@@ -74,40 +77,43 @@ function mtnFlood(H) {
 /* 1. the faces: reshaping the ground no one can reach                 */
 /* ------------------------------------------------------------------ */
 // called by buildWorld (01_world.js) once the walk mask is made and before anything is placed on the land
-function mtnShape(H, walk) {
+// eslint-disable-next-line no-unused-vars -- Retain the synchronous API used by CPU tools and direct callers.
+function mtnShape(H, walk) { return worldBuildDrain(mtnShapeChunks(H, walk)); }
+function* mtnShapeChunks(H, walk) {
+  let chunkWork = 0;
   const N = HN, N2 = N * N;
   const mount = new Float32Array(N2);
-  for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) mount[j * N + i] = mtnMountAt(-HALF + i * HS, -HALF + j * HS);
+  for (let j = 0; j < N; j++) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'mtnShape'; for (let i = 0; i < N; i++) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'mtnShape'; mount[j * N + i] = mtnMountAt(-HALF + i * HS, -HALF + j * HS); } }
   MTN.mount = mount;
   // ground any body could stand on: anything walkable (the roads' ground, and the pockets up on the heights no road
   // joins: later placements still look there), and water a swimmer might cross
   const free = new Uint8Array(N2);
-  for (let k = 0; k < N2; k++) free[k] = walk[k] === 0 || H[k] < WATER_Y + 0.6 ? 1 : 0;
+  for (let k = 0; k < N2; k++) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'mtnShape'; free[k] = walk[k] === 0 || H[k] < WATER_Y + 0.6 ? 1 : 0; }
   MTN.free = free;
   // how far each texel lies from it (m, chamfer)
   const D = new Float32Array(N2);
-  for (let k = 0; k < N2; k++) D[k] = free[k] ? 0 : 1e4;
+  for (let k = 0; k < N2; k++) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'mtnShape'; D[k] = free[k] ? 0 : 1e4; }
   const d1 = HS, d2 = HS * Math.SQRT2;
-  for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+  for (let j = 0; j < N; j++) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'mtnShape'; for (let i = 0; i < N; i++) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'mtnShape';
     const k = j * N + i; let v = D[k];
     if (i > 0) v = Math.min(v, D[k - 1] + d1);
     if (j > 0) { v = Math.min(v, D[k - N] + d1); if (i > 0) v = Math.min(v, D[k - N - 1] + d2); if (i < N - 1) v = Math.min(v, D[k - N + 1] + d2); }
     D[k] = v;
-  }
-  for (let j = N - 1; j >= 0; j--) for (let i = N - 1; i >= 0; i--) {
+  } }
+  for (let j = N - 1; j >= 0; j--) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'mtnShape'; for (let i = N - 1; i >= 0; i--) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'mtnShape';
     const k = j * N + i; let v = D[k];
     if (i < N - 1) v = Math.min(v, D[k + 1] + d1);
     if (j < N - 1) { v = Math.min(v, D[k + N] + d1); if (i < N - 1) v = Math.min(v, D[k + N + 1] + d2); if (i > 0) v = Math.min(v, D[k + N - 1] + d2); }
     D[k] = v;
-  }
+  } }
   MTN.dfree = D;
   // which texels may change: mountain with nothing walkable within two texels (so every height, slope and normal read
   // anywhere a body can stand is as it was), high and dry, off the rivers, and clear of the hollows (the mountain ponds
   // and their brims stay as they were)
-  const H0 = H.slice(), F0 = mtnFlood(H0), hollow = new Uint8Array(N2);
-  for (let k = 0; k < N2; k++) if (F0[k] - H0[k] > 0.02) { const i = k % N, j = (k / N) | 0; for (let dj = -3; dj <= 3; dj++) for (let di = -3; di <= 3; di++) { const ii = i + di, jj = j + dj; if (ii >= 0 && jj >= 0 && ii < N && jj < N) hollow[jj * N + ii] = 1; } }
+  const H0 = H.slice(), F0 = (yield* mtnFloodChunks(H0)), hollow = new Uint8Array(N2);
+  for (let k = 0; k < N2; k++) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'mtnShape'; if (F0[k] - H0[k] > 0.02) { const i = k % N, j = (k / N) | 0; for (let dj = -3; dj <= 3; dj++) for (let di = -3; di <= 3; di++) { const ii = i + di, jj = j + dj; if (ii >= 0 && jj >= 0 && ii < N && jj < N) hollow[jj * N + ii] = 1; } } }
   const ok = new Uint8Array(N2), w = new Float32Array(N2), slope = new Float32Array(N2);
-  for (let j = 1; j < N - 1; j++) for (let i = 1; i < N - 1; i++) {
+  for (let j = 1; j < N - 1; j++) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'mtnShape'; for (let i = 1; i < N - 1; i++) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'mtnShape';
     const k = j * N + i;
     slope[k] = Math.hypot(H[k + 1] - H[k - 1], H[k + N] - H[k - N]) / (2 * HS);
     if (mount[k] < 0.12 || D[k] < 5.7 || H[k] < WATER_Y + 3 || hollow[k]) continue;
@@ -115,10 +121,10 @@ function mtnShape(H, walk) {
     if (LAKES.some((L) => dist2(x, z, L.x, L.z) < (L.r + 24) ** 2) || nearRiver(x, z, 12)) continue;
     ok[k] = 1;
     w[k] = sstep(5.7, 12, D[k]) * sstep(0.12, 0.45, mount[k]);
-  }
+  } }
   const gully = new Float32Array(N2);
   // gradients of the broad shape (over 3 texels), for the fall line
-  for (let j = 3; j < N - 3; j++) for (let i = 3; i < N - 3; i++) {
+  for (let j = 3; j < N - 3; j++) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'mtnShape'; for (let i = 3; i < N - 3; i++) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'mtnShape';
     const k = j * N + i;
     if (!ok[k] || w[k] <= 0) continue;
     const x = -HALF + i * HS, z = -HALF + j * HS, h = H0[k], wk = w[k], sl = slope[k];
@@ -141,14 +147,14 @@ function mtnShape(H, walk) {
     const T = P * (Math.floor(t) + sstep(0.28, 0.72, t - Math.floor(t))) - dip;
     h1 += wk * 0.55 * sstep(0.55, 1.15, sl) * (T - h1);
     H[k] = h1;
-  }
+  } }
   // fill what the reshaping hollowed out, on the reshaped ground only; where it deepened a hollow that reaches
   // ground anyone can stand on, the reshaping round it is taken back
   let reverted = 0, filled = 0;
-  for (let pass2 = 0; pass2 < 3; pass2++) {
-    const F = mtnFlood(H);
+  for (let pass2 = 0; pass2 < 3; pass2++) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'mtnShape';
+    const F = (yield* mtnFloodChunks(H));
     let bad = 0;
-    for (let k = 0; k < N2; k++) {
+    for (let k = 0; k < N2; k++) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'mtnShape';
       if (F[k] - H[k] < 0.004 && F0[k] - H0[k] < 0.004) continue;
       if (ok[k]) { if (F[k] - H[k] > 0.004 && H[k] !== H0[k]) { H[k] = F[k]; filled++; } continue; }
       if (Math.abs(F[k] - F0[k]) > 0.004) {
@@ -166,11 +172,11 @@ function mtnShape(H, walk) {
   }
   // a last pass: a hollow left on the reshaped ground after the take-backs is filled; and if any spill height off it
   // still moved, the reshaping is given up altogether (the land stays as it was)
-  { const F = mtnFlood(H); for (let k = 0; k < N2; k++) if (ok[k] && F[k] - H[k] > 0.004) { H[k] = F[k]; filled++; } }
-  { const F = mtnFlood(H); for (let k = 0; k < N2; k++) if (!ok[k] && Math.abs(F[k] - F0[k]) > 0.004) { H.set(H0); gully.fill(0); MTN.gaveUp = true; break; } }
+  { const F = (yield* mtnFloodChunks(H)); for (let k = 0; k < N2; k++) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'mtnShape'; if (ok[k] && F[k] - H[k] > 0.004) { H[k] = F[k]; filled++; } } }
+  { const F = (yield* mtnFloodChunks(H)); for (let k = 0; k < N2; k++) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'mtnShape'; if (!ok[k] && Math.abs(F[k] - F0[k]) > 0.004) { H.set(H0); gully.fill(0); MTN.gaveUp = true; break; } } }
   let n = 0;
   const shaped = new Uint8Array(N2);
-  for (let k = 0; k < N2; k++) if (H[k] !== H0[k]) { shaped[k] = 1; n++; }
+  for (let k = 0; k < N2; k++) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'mtnShape'; if (H[k] !== H0[k]) { shaped[k] = 1; n++; } }
   MTN.shaped = shaped; MTN.gully = gully; MTN.nShaped = n; MTN.reverted = reverted; MTN.filled = filled;
 }
 
@@ -178,7 +184,10 @@ function mtnShape(H, walk) {
 /* 2. the crags                                                         */
 /* ------------------------------------------------------------------ */
 // called at the end of buildWorld, once the water, the trees, the rocks and the camps are in place
-function mtnPlaceCrags() {
+// eslint-disable-next-line no-unused-vars -- Retain the synchronous API used by CPU tools and direct callers.
+function mtnPlaceCrags() { return worldBuildDrain(mtnPlaceCragsChunks()); }
+function* mtnPlaceCragsChunks() {
+  let chunkWork = 0;
   const D = MTN.dfree, M = MTN.mount, rnd = mulberry(9157);
   const crags = [], grid = new Map(), G = 16;
   const gkey = (x, z) => Math.floor(x / G) * 4096 + Math.floor(z / G);
@@ -190,7 +199,7 @@ function mtnPlaceCrags() {
     return false;
   };
   const treeGrid = new Map();
-  for (const t of W.trees) { const k = gkey(t.x, t.z); let L = treeGrid.get(k); if (!L) treeGrid.set(k, L = []); L.push(t); }
+  for (const t of W.trees) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'mtnPlaceCrags';  const k = gkey(t.x, t.z); let L = treeGrid.get(k); if (!L) treeGrid.set(k, L = []); L.push(t); }
   const nearTree = (x, z, r) => {
     for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) {
       const L = treeGrid.get((Math.floor(x / G) + a) * 4096 + Math.floor(z / G) + b);
@@ -214,7 +223,7 @@ function mtnPlaceCrags() {
     }
     return nearRiver(x, z, r + 6) ? null : lo;
   };
-  for (let gz = -HALF + 4; gz < HALF - 4; gz += step) for (let gx = -HALF + 4; gx < HALF - 4; gx += step) {
+  for (let gz = -HALF + 4; gz < HALF - 4; gz += step) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'mtnPlaceCrags'; for (let gx = -HALF + 4; gx < HALF - 4; gx += step) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'mtnPlaceCrags';
     const x = gx + (rnd() - 0.5) * step * 0.9, z = gz + (rnd() - 0.5) * step * 0.9, u1 = rnd(), u2 = rnd(), u3 = rnd(), u4 = rnd();
     const k = mtnK(x, z);
     if (M[k] < 0.18 || D[k] < 4.5) continue;
@@ -243,7 +252,7 @@ function mtnPlaceCrags() {
     // the widest the shader can make it (lobes, ledges, facets: 1.4 of the half-width) and its lean; where it will not
     // fit, a smaller one (the faces between the walkable ledges are narrow)
     let r = 0, lo = null;
-    for (let tries = 0; tries < 3 && lo === null; tries++) {
+    for (let tries = 0; tries < 3 && lo === null; tries++) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'mtnPlaceCrags';
       if (tries) { wd *= 0.72; dp *= 0.72; above *= 0.8; }
       r = Math.max(wd, dp) * 0.5 * 1.4 + (kind === 1 ? 0.14 : 0.07) * (above + 8);
       if (wd < 2.4 || nearCrag(x, z, r) || nearTree(x, z, r)) break;
@@ -256,12 +265,12 @@ function mtnPlaceCrags() {
     const c = { x, z, y0, h: top - y0, w: wd, d: dp, yaw, sl: Math.min(2.4, sl), kind, seed: Math.min(0.999, u4 * 0.5 + rnd() * 0.5), r };
     crags.push(c);
     const gk = gkey(x, z); let L = grid.get(gk); if (!L) grid.set(gk, L = []); L.push(c);
-  }
+  } }
   // boulders shed from the crags lie in the scree below them (kind 4)
   const nMain = crags.length;
-  for (let n = 0; n < nMain; n++) {
+  for (let n = 0; n < nMain; n++) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'mtnPlaceCrags';
     const c0 = crags[n], want = rnd() < 0.7 ? 1 + (rnd() < 0.4 ? 1 : 0) : 0;
-    for (let b = 0, tries = 0; b < want && tries < 8; tries++) {
+    for (let b = 0, tries = 0; b < want && tries < 8; tries++) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'mtnPlaceCrags';
       const a = c0.yaw + (rnd() - 0.5) * 1.8, dd = c0.r * (0.75 + rnd() * 0.8), x = c0.x + Math.sin(a) * dd, z = c0.z + Math.cos(a) * dd;
       const wd = 1.3 + rnd() * 1.6, dp = 1.1 + rnd() * 1.3, r = Math.max(wd, dp) * 0.7 + 0.25;
       if (nearTree(x, z, r)) continue;
@@ -275,24 +284,24 @@ function mtnPlaceCrags() {
   MTN.crags = crags;
   // the highest rock over every texel: the camera keeps out of it
   const top = new Float32Array(HN * HN).fill(-1e9);
-  for (const c of crags) {
+  for (const c of crags) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'mtnPlaceCrags';
     const rr = c.r + 1.5, i0 = Math.max(0, Math.floor((c.x - rr + HALF) / HS)), i1 = Math.min(HN - 1, Math.ceil((c.x + rr + HALF) / HS));
     const j0 = Math.max(0, Math.floor((c.z - rr + HALF) / HS)), j1 = Math.min(HN - 1, Math.ceil((c.z + rr + HALF) / HS));
-    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+    for (let j = j0; j <= j1; j++) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'mtnPlaceCrags'; for (let i = i0; i <= i1; i++) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'mtnPlaceCrags';
       if (dist2(-HALF + i * HS, -HALF + j * HS, c.x, c.z) > (rr + 1.42) ** 2) continue;
       const q = j * HN + i;
       top[q] = Math.max(top[q], c.y0 + c.h * 1.12 + 0.3 * c.sl * c.d + 0.5); // its top rises with the slope behind it
-    }
+    } }
   }
   MTN.top = top;
   // round each crag the ground is bare rock with scree shed below it, and no grass or flowers grow (on ground no one
   // can reach: what people walk on keeps its masks); a few boulders lie in the scree
   const halo = new Float32Array(HN * HN), scree = new Float32Array(HN * HN);
-  for (const c of crags) {
+  for (const c of crags) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'mtnPlaceCrags';
     const rr = c.r * 2.4 + 4, i0 = Math.max(0, Math.floor((c.x - rr + HALF) / HS)), i1 = Math.min(HN - 1, Math.ceil((c.x + rr + HALF) / HS));
     const j0 = Math.max(0, Math.floor((c.z - rr + HALF) / HS)), j1 = Math.min(HN - 1, Math.ceil((c.z + rr + HALF) / HS));
     const dx = Math.sin(c.yaw), dz = Math.cos(c.yaw), hc = c.y0 + 1.5;
-    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+    for (let j = j0; j <= j1; j++) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'mtnPlaceCrags'; for (let i = i0; i <= i1; i++) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'mtnPlaceCrags';
       const x = -HALF + i * HS, z = -HALF + j * HS, q = j * HN + i, d = Math.hypot(x - c.x, z - c.z);
       const down = ((x - c.x) * dx + (z - c.z) * dz) / Math.max(d, 1e-3);
       if (D[q] > 5.7) {
@@ -302,10 +311,10 @@ function mtnPlaceCrags() {
       }
       // the scree fan: below the crag, widening down the slope
       if (W.H[q] < hc + c.h * 0.3) scree[q] = Math.max(scree[q], sstep(c.r * 2.4 + 3, c.r * 0.9, d) * sstep(-0.3, 0.5, down) * 0.85);
-    }
+    } }
   }
   MTN.halo = halo; MTN.scree = scree;
-  mtnBakeMap();
+  (yield* mtnBakeMapChunks());
 }
 // the highest crag over (x, z), or -1e9
 function mtnTopAt(x, z) {
@@ -327,15 +336,18 @@ function mtnCoverAll() { for (const c of MTN.crags) coverCircle(c.x, c.z, c.r * 
 /* ------------------------------------------------------------------ */
 /* 3. the land map: mountain, scree, gullies, heather                  */
 /* ------------------------------------------------------------------ */
-function mtnBakeMap() {
+// eslint-disable-next-line no-unused-vars -- Retain the synchronous API used by CPU tools and direct callers.
+function mtnBakeMap() { return worldBuildDrain(mtnBakeMapChunks()); }
+function* mtnBakeMapChunks() {
+  let chunkWork = 0;
   const N = HN, N2 = N * N, H = W.H, M = MTN.mount, b = new Uint8Array(N2 * 4);
   const slope = new Float32Array(N2), steep = new Float32Array(N2);
-  for (let j = 1; j < N - 1; j++) for (let i = 1; i < N - 1; i++) {
+  for (let j = 1; j < N - 1; j++) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'mtnBakeMap'; for (let i = 1; i < N - 1; i++) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'mtnBakeMap';
     const k = j * N + i;
     slope[k] = Math.hypot(H[k + 1] - H[k - 1], H[k + N] - H[k - N]) / (2 * HS);
     steep[k] = sstep(0.95, 1.6, slope[k]);
-  }
-  for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+  } }
+  for (let j = 0; j < N; j++) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'mtnBakeMap'; for (let i = 0; i < N; i++) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'mtnBakeMap';
     const k = j * N + i, m = M[k], x = -HALF + i * HS, z = -HALF + j * HS;
     b[k * 4] = Math.round(clamp(MTN.halo ? MTN.halo[k] : 0, 0, 1) * 255);
     b[k * 4 + 2] = Math.round(clamp(MTN.gully[k] || 0, 0, 1) * 255);
@@ -360,7 +372,7 @@ function mtnBakeMap() {
       ht *= sstep(0.35, 0.62, vnoise(x * 0.035 + 2.2, z * 0.035 - 7.1));
     }
     b[k * 4 + 3] = Math.round(clamp(ht, 0, 1) * 255);
-  }
+  } }
   MTN.map = b;
 }
 function mtnUploadMap() {

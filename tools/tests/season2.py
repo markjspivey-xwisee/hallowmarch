@@ -11,7 +11,7 @@
 usage: python3 tools/tests/season2.py [only=field,offense,ui,shots] [noshots]"""
 import asyncio, sys, pathlib, time, base64
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
-from hmlib import setup, OUT
+from hmlib import setup, OUT, human_play
 OUT = pathlib.Path(OUT)
 from playwright.async_api import async_playwright
 
@@ -24,7 +24,10 @@ def want(k): return (ONLY is None and (k != 'shots' or not NOSHOTS)) or (ONLY is
 def check(cond, what):
     print(('  ok   ' if cond else '  FAIL ') + what, flush=True)
     if not cond: FAILS.append(what)
-async def ev(page, js): return await page.evaluate(js)
+async def ev(page, js):
+    # This suite models a human actively playing each field/season step.
+    await human_play(page)
+    return await page.evaluate(js)
 
 HELP = r"""(() => {
   const H = __hm, fn = H.fn, WAR = H.WAR, S2 = H.season2;
@@ -44,7 +47,14 @@ HELP = r"""(() => {
 async def main():
     async with async_playwright() as p:
         b, page, logs = await setup(p, w=640, h=360)
-        await ev(page, "(() => { __hm.start({ realm: 0, cls: 'warrior', level: 30 }); __hm.UI.modal = null; return 0; })()")
+        await page.evaluate("(async () => { await __hm.start({ realm: 0, cls: 'warrior', level: 30 }); __hm.UI.modal = null; return 0; })()")
+        idle = await page.evaluate("""() => { const H = __hm, t = H.GAME.t;
+          document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Shift', bubbles: true }));
+          H.simulate(1); return { before: t, after: H.GAME.t }; }""")
+        check(idle['after'] == idle['before'], 'programmatic start and synthetic input leave the simulation asleep')
+        await human_play(page)
+        live = await page.evaluate("() => { const t = __hm.GAME.t; __hm.simulate(1); return __hm.GAME.t > t; }")
+        check(live, 'trusted Playwright input wakes active human play')
         await ev(page, HELP)
         await ev(page, "__hm.simulate(1); 0")
         # the season into its war (the muster is its first week), the live war quiet, the player a hardy one
@@ -160,7 +170,7 @@ async def main():
             await b.close()
             b, page, logs2 = await setup(p, w=960, h=540)
             logs += logs2
-            await ev(page, "(() => { __hm.start({ realm: 0, cls: 'warrior', level: 30 }); __hm.UI.modal = null; return 0; })()")
+            await ev(page, "(async () => { await __hm.start({ realm: 0, cls: 'warrior', level: 30 }); __hm.UI.modal = null; return 0; })()")
             await ev(page, HELP)
             await ev(page, r"""(() => { const H = __hm, S = H.season; H.fn.setQuality('medium'); S.away(8 * 86400); __s2.town(); H.simulate(2); const RS = __s2.rs(); RS.keeps.forEach((K) => { K.h = K.home; K.siege = null; K.g = 8; }); S.apply(); RS.armies.length = 0; RS.offs.length = 0; __s2.calm(); RS.realms[2].lev = 40; RS.realms[2].aim = 0; S.realmSimOrder(RS, 2, { type: 'muster' }, { name: 'test', rank: 9 }); __s2.keepNear(0, 70); __s2.step(3); return 0; })()""")
             # the band marching in, seen from behind the player toward it

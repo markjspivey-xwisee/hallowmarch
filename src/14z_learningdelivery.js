@@ -125,7 +125,8 @@ async function marchLearningRun(action) {
 }
 async function marchLearningFlush() {
   const state = MARCH_LEARNING;
-  if (state.busy || !state.delivery || !state.enabledUntil || document.hidden) return;
+  if (state.busy || !state.delivery || !state.enabledUntil || document.hidden
+    || typeof netHumanLive === 'function' && !netHumanLive()) return;
   if (state.enabledUntil <= Date.now()) { await marchLearningRun(marchLearningStop); return; }
   if (Date.now() - state.lastBatchAt < 30000) return;
   state.lastBatchAt = Date.now();

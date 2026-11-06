@@ -290,7 +290,7 @@ function mineStart(i) {
   const need = pick ? 3 : 5;
   let swings = 0;
   setAct(P, 1, 0.62);
-  survStartJob({ kind: 'mine', label: pick ? 'Mining' : 'Breaking stone', dur: 0.95, n: need, i: 0, yaw, rock: i, tool: WB.axe, done: (J) => {
+  survStartJob({ kind: 'mine', label: pick ? 'Mining' : 'Breaking stone', dur: 0.95 / skillWorkRate('mining'), n: need, i: 0, yaw, rock: i, tool: WB.axe, done: (J) => {
     swings++;
     J.i = swings;
     const ux = Math.sin(yaw), uz = Math.cos(yaw);
@@ -305,7 +305,15 @@ function mineStart(i) {
   } });
 }
 function mineYield(i, pick) {
-  const r = W.rocks[i];
+  const r = Number.isInteger(i) && W.rocks[i];
+  if (!r || r.s < 0.55) return false;
+  if (typeof netWorldPartsRequest === 'function' && netWorldPartsRequest('resource.mine', { i, pick: !!pick })) return false;
+  if (pick && !goodsHave('tool_pick')) return false;
+  const previous = CRAFT.rocks.get(i);
+  if (previous && previous.n <= 0) {
+    if (GAME.t < previous.until) return false;
+    CRAFT.rocks.delete(i);
+  }
   const rocky = sampleGrid(W.rock, r.x, r.z) > 0.25 || r.y > 12;
   const got = [];
   const give = (id, n) => { const k = goodsAdd(id, n, true); if (k) { got.push(`${k} ${goodName(id, k).toLowerCase()}`); activityRecord('resource.gathered', id, k, { success: true }); } };
@@ -318,9 +326,44 @@ function mineYield(i, pick) {
   R.n--;
   if (R.n <= 0) { R.until = GAME.t + 900; uiLog('This rock is worked out for now.', 'sys'); }
   CRAFT.rocks.set(i, R);
-  skillGain('craft', 0.3);
+  if (got.length) skillGain('mining', 0.3);
   sfx('loot');
   saveSoon();
+  return true;
+}
+// Sparse shared depletion; remaining cooldowns survive a keeper with a different clock.
+const CRAFT_SHARED_ROCK_CAP = 900;
+function craftRocksSharedSave() {
+  if (CRAFT.rocks.size > CRAFT_SHARED_ROCK_CAP) throw Error('Shared mineral capacity exceeded');
+  const rocks = [];
+  for (const [i, r] of CRAFT.rocks) {
+    if (!Number.isInteger(i) || i < 0 || i >= CRAFT_SHARED_ROCK_CAP || !r
+      || !Number.isInteger(r.n) || r.n < 0 || r.n > 2 || !Number.isFinite(r.until))
+      throw Error('Invalid shared mineral state');
+    const left = r.n === 0 ? Math.ceil(Math.max(0, Math.min(900, r.until - GAME.t))) : 0;
+    if (r.n === 0 && left === 0) continue;
+    rocks.push([i, r.n, left]);
+  }
+  rocks.sort((a, b) => a[0] - b[0]);
+  return { v: 1, rocks };
+}
+function craftRocksSharedApply(value) {
+  const next = new Map();
+  if (value != null) {
+    if (!value || value.v !== 1 || !Array.isArray(value.rocks) || value.rocks.length > CRAFT_SHARED_ROCK_CAP)
+      throw Error('Invalid shared mineral state');
+    for (const row of value.rocks) {
+      if (!Array.isArray(row) || row.length !== 3) throw Error('Invalid shared mineral state');
+      const [i, n, left] = row;
+      if (!Number.isInteger(i) || i < 0 || i >= CRAFT_SHARED_ROCK_CAP || next.has(i)
+        || !Number.isInteger(n) || n < 0 || n > 2 || !Number.isInteger(left) || left < 0 || left > 900
+        || n > 0 && left !== 0) throw Error('Invalid shared mineral state');
+      next.set(i, { n, until: n === 0 ? GAME.t + left : 0 });
+    }
+  }
+  CRAFT.rocks.clear();
+  for (const [i, row] of next) CRAFT.rocks.set(i, row);
+  CRAFT.rockT = 0;
 }
 function stepRocks(dt) {
   CRAFT.rockT -= dt;
@@ -586,3 +629,16 @@ function drawCraftUI() {
   const bar = document.querySelector('#craft-card .cprog .bar i');
   if (bar && J) bar.style.width = (clamp(J.t / J.dur, 0, 1) * 100).toFixed(1) + '%';
 }
+
+
+// Job animation stays with its player; depletion and yields belong to the world.
+queueMicrotask(() => {
+  if (typeof netWorldPartsRegister === 'function')
+    netWorldPartsRegister('resources', { save: craftRocksSharedSave, apply: craftRocksSharedApply });
+  if (typeof netWorldPartsRegisterCommand !== 'function') return;
+  netWorldPartsRegisterCommand('resource.mine', {
+    tools: ['tool_pick'], range: 5,
+    point: a => Number.isInteger(a?.i) && W.rocks[a.i] || { x: Infinity, z: Infinity },
+    run: a => mineYield(a.i, a.pick === true),
+  });
+});

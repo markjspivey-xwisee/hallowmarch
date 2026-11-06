@@ -81,7 +81,7 @@ export function createNativeAgentAuthority(options = {}) {
     async register(owner, body) {
       if (!exact(body, ['grantId', 'graphIri'])) fail('native_reference_only');
       const principal = ownerPrincipal(owner);
-      const result = await room().execute(principal, { type: 'registerNativeCompanion', ...body,
+      const result = await room().executeOwnerControl(principal, { type: 'registerNativeCompanion', ...body,
         commandId: 'native-register:' + hash([principal.playerId, body]) });
       return { reference: result.result.reference, authority: { roomId: room().id, version: result.version, durable: true } };
     },
@@ -150,7 +150,7 @@ export function createNativeAgentAuthority(options = {}) {
       // Local stop precedes slow CAS. A successful reply confirms durable game
       // revocation. Owner-pod revoked:true publication is a separate operation.
       revokeLeases(body.grantId);
-      const result = await room().execute(principal, { type: 'revokeNativeCompanion', grantId: body.grantId,
+      const result = await room().executeOwnerControl(principal, { type: 'revokeNativeCompanion', grantId: body.grantId,
         commandId: 'native-revoke:' + hash([principal.playerId, body.grantId]) });
       return { ...result.result, ownerPodRevocation: 'requires-owner-publication', authority: { roomId: room().id, version: result.version, durable: true } };
     },

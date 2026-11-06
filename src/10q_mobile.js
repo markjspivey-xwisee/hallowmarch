@@ -102,16 +102,7 @@ function mobileNameplateEligible(e, P) {
 }
 
 function mobileStopInput() {
-  const ids = [...INPUT.pointers.keys()];
-  if (INPUT.joy) ids.push(INPUT.joy.id);
-  for (const id of ids) {
-    try { if (canvas.hasPointerCapture(id)) canvas.releasePointerCapture(id); } catch (e) { /* already released */ }
-  }
-  INPUT.keys.clear(); INPUT.pointers.clear(); INPUT.joy = null; INPUT.look = null; INPUT.drag = null;
-  hideJoystick();
-  if (GAME.player && CLS.hold) classHold(false);
-  for (const b of document.querySelectorAll('#tpad .cls-btn.hold')) b.classList.remove('on');
-  for (const b of document.querySelectorAll('#tpad .is-pressed')) b.classList.remove('is-pressed');
+  cancelPlayerInput();
 }
 function mobileViewport() {
   if (!IS_TOUCH) return;
@@ -151,13 +142,32 @@ function mobileTray(open = UI.modal !== 'mobile', focus = true, section = 'world
   }
 }
 function mobileBind() {
-  if (!IS_TOUCH || MOBILE_UI.bound || !$('mobile-tray')) return;
+  if (MOBILE_UI.bound) return;
   MOBILE_UI.bound = true;
-  // A synchronous observer also covers menus opened outside this file, including
-  // an open/close pair between frames while a movement key is held.
+  // Modal input cancellation applies to desktop too: a drawn bow must never
+  // fire through a map or menu, even if the sheet opens/closes between frames.
   let modal = UI.modal;
   Object.defineProperty(UI, 'modal', { configurable: true, enumerable: true,
-    get() { return modal; }, set(value) { if (modal !== value) { modal = value; mobileModalChanged(value); } } });
+    get() { return modal; }, set(value) {
+      if (modal === value) return;
+      if (value === 'dialog' && typeof dialogFocusStart === 'function') dialogFocusStart();
+      modal = value;
+      if (IS_TOUCH && $('mobile-tray')) mobileModalChanged(value);
+      else if (value) cancelPlayerInput();
+    } });
+  // These are modal game screens on keyboard desktops as well as phones.
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Tab' || !['kit', 'map', 'dialog', 'death', 'net'].includes(UI.modal)) return;
+    const panel = $(UI.modal === 'map' ? 'mapov' : UI.modal === 'net' ? 'netsheet' : UI.modal);
+    const fs = [...panel.querySelectorAll('button, input, select, textarea, summary, a[href], [tabindex]')]
+      .filter((el) => !el.disabled && el.tabIndex >= 0 && !el.closest('[hidden], [inert]') && el.getClientRects().length);
+    if (!fs.length) return;
+    const first = fs[0], last = fs[fs.length - 1];
+    if (!fs.includes(document.activeElement)) { e.preventDefault(); (e.shiftKey ? last : first).focus(); }
+    else if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+  });
+  if (!IS_TOUCH || !$('mobile-tray')) { if (modal) cancelPlayerInput(); return; }
   mobileModalChanged(modal);
   mobilePreferences();
   mobileBindNoZoom();
@@ -209,17 +219,6 @@ function mobileBind() {
     if (!fs.length) return;
     const first = fs[0], last = fs[fs.length - 1];
     if (!tray.contains(document.activeElement)) { e.preventDefault(); (e.shiftKey ? last : first).focus(); }
-    else if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
-    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
-  });
-  document.addEventListener('keydown', (e) => {
-    if (e.key !== 'Tab' || !['kit', 'map'].includes(UI.modal)) return;
-    const panel = UI.modal === 'kit' ? $('kit') : $('mapov');
-    const fs = [...panel.querySelectorAll('button, input, select, a[href], [tabindex="0"]')]
-      .filter((el) => !el.disabled && el.tabIndex >= 0 && el.getClientRects().length);
-    if (!fs.length) return;
-    const first = fs[0], last = fs[fs.length - 1];
-    if (!panel.contains(document.activeElement)) { e.preventDefault(); (e.shiftKey ? last : first).focus(); }
     else if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
     else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
   });
@@ -317,6 +316,11 @@ function mobileSync() {
       util.appendChild(el);
     }
   }
+  const keep = $('btn-keep-character');
+  if (keep && keep.parentElement !== util) {
+    keep.dataset.mobileSection = 'world character social options';
+    util.prepend(keep);
+  }
   const needs = $('needs'), extra = $('mobile-extra-actions');
   if (needs && extra && needs.nextElementSibling !== extra) util.insertBefore(needs, extra);
   const P = GAME.player;
@@ -352,7 +356,7 @@ function mobileHUD(dt) {
   }
   const alert = $('mobile-needs-alert');
   if (alert) {
-    const text = SURV.thirst < 0.4 ? 'Thirsty · More to drink' : SURV.hunger < 0.4 ? 'Hungry · More to eat' : '';
+    const text = SURV.thirst < 0.4 ? 'Thirsty · Menu → Explore' : SURV.hunger < 0.4 ? 'Hungry · Menu → Explore' : '';
     alert.hidden = !text; setT(alert, text);
   }
   const notice = $('mobile-notice'), net = $('btn-net');

@@ -12,6 +12,13 @@
   "seeAlso": "https://github.com/markjspivey-xwisee/hallowmarch/blob/main/docs/gameplay-activity-profile.md",
   "versions": [
     {
+      "id": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.1.0",
+      "wasRevisionOf": [
+        "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0"
+      ],
+      "generatedAtTime": "2026-10-27T12:00:00Z"
+    },
+    {
       "id": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
       "generatedAtTime": "2026-10-17T03:39:57Z"
     }
@@ -25,7 +32,7 @@
     {
       "id": "urn:interego:gaming:activity:verb:ability.executed",
       "type": "Verb",
-      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.1.0",
       "prefLabel": {
         "en": "ability.executed"
       },
@@ -36,7 +43,7 @@
     {
       "id": "urn:interego:gaming:activity:verb:ability.refused",
       "type": "Verb",
-      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.1.0",
       "prefLabel": {
         "en": "ability.refused"
       },
@@ -47,7 +54,7 @@
     {
       "id": "urn:interego:gaming:activity:verb:combat.defeated",
       "type": "Verb",
-      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.1.0",
       "prefLabel": {
         "en": "combat.defeated"
       },
@@ -58,7 +65,7 @@
     {
       "id": "urn:interego:gaming:activity:verb:combat.died",
       "type": "Verb",
-      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.1.0",
       "prefLabel": {
         "en": "combat.died"
       },
@@ -69,7 +76,7 @@
     {
       "id": "urn:interego:gaming:activity:verb:combat.healed",
       "type": "Verb",
-      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.1.0",
       "prefLabel": {
         "en": "combat.healed"
       },
@@ -80,7 +87,7 @@
     {
       "id": "urn:interego:gaming:activity:verb:resource.gathered",
       "type": "Verb",
-      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.1.0",
       "prefLabel": {
         "en": "resource.gathered"
       },
@@ -91,7 +98,7 @@
     {
       "id": "urn:interego:gaming:activity:verb:resource.harvested",
       "type": "Verb",
-      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.1.0",
       "prefLabel": {
         "en": "resource.harvested"
       },
@@ -102,7 +109,7 @@
     {
       "id": "urn:interego:gaming:activity:verb:craft.completed",
       "type": "Verb",
-      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.1.0",
       "prefLabel": {
         "en": "craft.completed"
       },
@@ -113,7 +120,7 @@
     {
       "id": "urn:interego:gaming:activity:verb:craft.refused",
       "type": "Verb",
-      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.1.0",
       "prefLabel": {
         "en": "craft.refused"
       },
@@ -124,7 +131,7 @@
     {
       "id": "urn:interego:gaming:activity:verb:bounty.completed",
       "type": "Verb",
-      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.1.0",
       "prefLabel": {
         "en": "bounty.completed"
       },
@@ -135,7 +142,7 @@
     {
       "id": "urn:interego:gaming:activity:verb:bounty.claimed",
       "type": "Verb",
-      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.1.0",
       "prefLabel": {
         "en": "bounty.claimed"
       },
@@ -146,7 +153,7 @@
     {
       "id": "urn:interego:gaming:activity:verb:supply.delivered",
       "type": "Verb",
-      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.1.0",
       "prefLabel": {
         "en": "supply.delivered"
       },
@@ -157,7 +164,7 @@
     {
       "id": "urn:interego:gaming:activity:verb:path.completed",
       "type": "Verb",
-      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.1.0",
       "prefLabel": {
         "en": "path.completed"
       },
@@ -168,7 +175,7 @@
     {
       "id": "urn:interego:gaming:activity:verb:character.respawned",
       "type": "Verb",
-      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.1.0",
       "prefLabel": {
         "en": "character.respawned"
       },
@@ -179,7 +186,7 @@
     {
       "id": "urn:interego:gaming:activity:verb:intervention.started",
       "type": "Verb",
-      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.1.0",
       "prefLabel": {
         "en": "intervention.started"
       },
@@ -190,7 +197,7 @@
     {
       "id": "urn:interego:gaming:activity:verb:agent.command-accepted",
       "type": "Verb",
-      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.1.0",
       "prefLabel": {
         "en": "agent.command-accepted"
       },
@@ -201,7 +208,7 @@
     {
       "id": "urn:interego:gaming:activity:object:ability",
       "type": "ActivityType",
-      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.1.0",
       "prefLabel": {
         "en": "ability game activity"
       },
@@ -212,7 +219,7 @@
     {
       "id": "urn:interego:gaming:activity:object:bounty",
       "type": "ActivityType",
-      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.1.0",
       "prefLabel": {
         "en": "bounty game activity"
       },
@@ -223,7 +230,7 @@
     {
       "id": "urn:interego:gaming:activity:object:character",
       "type": "ActivityType",
-      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.1.0",
       "prefLabel": {
         "en": "character game activity"
       },
@@ -234,7 +241,7 @@
     {
       "id": "urn:interego:gaming:activity:object:combat",
       "type": "ActivityType",
-      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.1.0",
       "prefLabel": {
         "en": "combat game activity"
       },
@@ -245,7 +252,7 @@
     {
       "id": "urn:interego:gaming:activity:object:craft",
       "type": "ActivityType",
-      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.1.0",
       "prefLabel": {
         "en": "craft game activity"
       },
@@ -256,7 +263,7 @@
     {
       "id": "urn:interego:gaming:activity:object:intervention",
       "type": "ActivityType",
-      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.1.0",
       "prefLabel": {
         "en": "intervention game activity"
       },
@@ -267,7 +274,7 @@
     {
       "id": "urn:interego:gaming:activity:object:path",
       "type": "ActivityType",
-      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.1.0",
       "prefLabel": {
         "en": "path game activity"
       },
@@ -278,7 +285,7 @@
     {
       "id": "urn:interego:gaming:activity:object:resource",
       "type": "ActivityType",
-      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.1.0",
       "prefLabel": {
         "en": "resource game activity"
       },
@@ -289,7 +296,7 @@
     {
       "id": "urn:interego:gaming:activity:object:supply",
       "type": "ActivityType",
-      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.1.0",
       "prefLabel": {
         "en": "supply game activity"
       },
@@ -300,7 +307,7 @@
     {
       "id": "urn:interego:gaming:activity:object:agent",
       "type": "ActivityType",
-      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.1.0",
       "prefLabel": {
         "en": "agent game activity"
       },
@@ -311,7 +318,7 @@
     {
       "id": "urn:interego:gaming:activity:context",
       "type": "ContextExtension",
-      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.1.0",
       "prefLabel": {
         "en": "Observed game context"
       },
@@ -323,7 +330,7 @@
     {
       "id": "urn:interego:gaming:activity:observation",
       "type": "ResultExtension",
-      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.1.0",
       "prefLabel": {
         "en": "Owner-browser observation provenance"
       },
@@ -335,9 +342,9 @@
   ],
   "templates": [
     {
-      "id": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.0.0/ability.executed",
+      "id": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.1.0/ability.executed",
       "type": "StatementTemplate",
-      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.1.0",
       "prefLabel": {
         "en": "ability.executed observation"
       },
@@ -388,7 +395,7 @@
           "location": "$.context.contextActivities.category[*].id",
           "presence": "included",
           "any": [
-            "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0"
+            "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.1.0"
           ]
         },
         {
@@ -415,9 +422,9 @@
       ]
     },
     {
-      "id": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.0.0/ability.refused",
+      "id": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.1.0/ability.refused",
       "type": "StatementTemplate",
-      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.1.0",
       "prefLabel": {
         "en": "ability.refused observation"
       },
@@ -468,7 +475,7 @@
           "location": "$.context.contextActivities.category[*].id",
           "presence": "included",
           "any": [
-            "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0"
+            "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.1.0"
           ]
         },
         {
@@ -502,9 +509,9 @@
       ]
     },
     {
-      "id": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.0.0/combat.defeated",
+      "id": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.1.0/combat.defeated",
       "type": "StatementTemplate",
-      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.1.0",
       "prefLabel": {
         "en": "combat.defeated observation"
       },
@@ -555,7 +562,7 @@
           "location": "$.context.contextActivities.category[*].id",
           "presence": "included",
           "any": [
-            "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0"
+            "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.1.0"
           ]
         },
         {
@@ -582,9 +589,9 @@
       ]
     },
     {
-      "id": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.0.0/combat.died",
+      "id": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.1.0/combat.died",
       "type": "StatementTemplate",
-      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.1.0",
       "prefLabel": {
         "en": "combat.died observation"
       },
@@ -635,7 +642,7 @@
           "location": "$.context.contextActivities.category[*].id",
           "presence": "included",
           "any": [
-            "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0"
+            "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.1.0"
           ]
         },
         {
@@ -662,9 +669,9 @@
       ]
     },
     {
-      "id": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.0.0/combat.healed",
+      "id": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.1.0/combat.healed",
       "type": "StatementTemplate",
-      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.1.0",
       "prefLabel": {
         "en": "combat.healed observation"
       },
@@ -715,7 +722,7 @@
           "location": "$.context.contextActivities.category[*].id",
           "presence": "included",
           "any": [
-            "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0"
+            "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.1.0"
           ]
         },
         {
@@ -742,9 +749,9 @@
       ]
     },
     {
-      "id": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.0.0/resource.gathered",
+      "id": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.1.0/resource.gathered",
       "type": "StatementTemplate",
-      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.1.0",
       "prefLabel": {
         "en": "resource.gathered observation"
       },
@@ -795,7 +802,7 @@
           "location": "$.context.contextActivities.category[*].id",
           "presence": "included",
           "any": [
-            "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0"
+            "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.1.0"
           ]
         },
         {
@@ -822,9 +829,9 @@
       ]
     },
     {
-      "id": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.0.0/resource.harvested",
+      "id": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.1.0/resource.harvested",
       "type": "StatementTemplate",
-      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.1.0",
       "prefLabel": {
         "en": "resource.harvested observation"
       },
@@ -875,7 +882,7 @@
           "location": "$.context.contextActivities.category[*].id",
           "presence": "included",
           "any": [
-            "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0"
+            "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.1.0"
           ]
         },
         {
@@ -902,9 +909,9 @@
       ]
     },
     {
-      "id": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.0.0/craft.completed",
+      "id": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.1.0/craft.completed",
       "type": "StatementTemplate",
-      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.1.0",
       "prefLabel": {
         "en": "craft.completed observation"
       },
@@ -955,7 +962,7 @@
           "location": "$.context.contextActivities.category[*].id",
           "presence": "included",
           "any": [
-            "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0"
+            "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.1.0"
           ]
         },
         {
@@ -982,9 +989,9 @@
       ]
     },
     {
-      "id": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.0.0/craft.refused",
+      "id": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.1.0/craft.refused",
       "type": "StatementTemplate",
-      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.1.0",
       "prefLabel": {
         "en": "craft.refused observation"
       },
@@ -1035,7 +1042,7 @@
           "location": "$.context.contextActivities.category[*].id",
           "presence": "included",
           "any": [
-            "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0"
+            "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.1.0"
           ]
         },
         {
@@ -1069,9 +1076,9 @@
       ]
     },
     {
-      "id": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.0.0/bounty.completed",
+      "id": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.1.0/bounty.completed",
       "type": "StatementTemplate",
-      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.1.0",
       "prefLabel": {
         "en": "bounty.completed observation"
       },
@@ -1122,7 +1129,7 @@
           "location": "$.context.contextActivities.category[*].id",
           "presence": "included",
           "any": [
-            "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0"
+            "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.1.0"
           ]
         },
         {
@@ -1149,9 +1156,9 @@
       ]
     },
     {
-      "id": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.0.0/bounty.claimed",
+      "id": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.1.0/bounty.claimed",
       "type": "StatementTemplate",
-      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.1.0",
       "prefLabel": {
         "en": "bounty.claimed observation"
       },
@@ -1202,7 +1209,7 @@
           "location": "$.context.contextActivities.category[*].id",
           "presence": "included",
           "any": [
-            "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0"
+            "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.1.0"
           ]
         },
         {
@@ -1229,9 +1236,9 @@
       ]
     },
     {
-      "id": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.0.0/supply.delivered",
+      "id": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.1.0/supply.delivered",
       "type": "StatementTemplate",
-      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.1.0",
       "prefLabel": {
         "en": "supply.delivered observation"
       },
@@ -1282,7 +1289,7 @@
           "location": "$.context.contextActivities.category[*].id",
           "presence": "included",
           "any": [
-            "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0"
+            "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.1.0"
           ]
         },
         {
@@ -1309,9 +1316,9 @@
       ]
     },
     {
-      "id": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.0.0/path.completed",
+      "id": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.1.0/path.completed",
       "type": "StatementTemplate",
-      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.1.0",
       "prefLabel": {
         "en": "path.completed observation"
       },
@@ -1362,7 +1369,7 @@
           "location": "$.context.contextActivities.category[*].id",
           "presence": "included",
           "any": [
-            "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0"
+            "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.1.0"
           ]
         },
         {
@@ -1389,9 +1396,9 @@
       ]
     },
     {
-      "id": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.0.0/character.respawned",
+      "id": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.1.0/character.respawned",
       "type": "StatementTemplate",
-      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.1.0",
       "prefLabel": {
         "en": "character.respawned observation"
       },
@@ -1442,7 +1449,7 @@
           "location": "$.context.contextActivities.category[*].id",
           "presence": "included",
           "any": [
-            "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0"
+            "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.1.0"
           ]
         },
         {
@@ -1469,9 +1476,9 @@
       ]
     },
     {
-      "id": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.0.0/intervention.started",
+      "id": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.1.0/intervention.started",
       "type": "StatementTemplate",
-      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.1.0",
       "prefLabel": {
         "en": "intervention.started observation"
       },
@@ -1522,7 +1529,7 @@
           "location": "$.context.contextActivities.category[*].id",
           "presence": "included",
           "any": [
-            "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0"
+            "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.1.0"
           ]
         },
         {
@@ -1553,9 +1560,9 @@
       ]
     },
     {
-      "id": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.0.0/agent.command-accepted",
+      "id": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.1.0/agent.command-accepted",
       "type": "StatementTemplate",
-      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.1.0",
       "prefLabel": {
         "en": "agent.command-accepted observation"
       },
@@ -1606,7 +1613,7 @@
           "location": "$.context.contextActivities.category[*].id",
           "presence": "included",
           "any": [
-            "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0"
+            "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.1.0"
           ]
         },
         {
@@ -1661,32 +1668,32 @@
   ],
   "patterns": [
     {
-      "id": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/patterns/1.0.0/observed-event",
+      "id": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/patterns/1.1.0/observed-event",
       "type": "Pattern",
-      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.1.0",
       "alternates": [
-        "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.0.0/ability.executed",
-        "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.0.0/ability.refused",
-        "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.0.0/combat.defeated",
-        "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.0.0/combat.died",
-        "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.0.0/combat.healed",
-        "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.0.0/resource.gathered",
-        "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.0.0/resource.harvested",
-        "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.0.0/craft.completed",
-        "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.0.0/craft.refused",
-        "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.0.0/bounty.completed",
-        "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.0.0/bounty.claimed",
-        "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.0.0/supply.delivered",
-        "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.0.0/path.completed",
-        "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.0.0/character.respawned",
-        "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.0.0/intervention.started",
-        "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.0.0/agent.command-accepted"
+        "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.1.0/ability.executed",
+        "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.1.0/ability.refused",
+        "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.1.0/combat.defeated",
+        "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.1.0/combat.died",
+        "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.1.0/combat.healed",
+        "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.1.0/resource.gathered",
+        "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.1.0/resource.harvested",
+        "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.1.0/craft.completed",
+        "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.1.0/craft.refused",
+        "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.1.0/bounty.completed",
+        "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.1.0/bounty.claimed",
+        "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.1.0/supply.delivered",
+        "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.1.0/path.completed",
+        "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.1.0/character.respawned",
+        "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.1.0/intervention.started",
+        "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.1.0/agent.command-accepted"
       ]
     },
     {
-      "id": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/patterns/1.0.0/observation-stream",
+      "id": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/patterns/1.1.0/observation-stream",
       "type": "Pattern",
-      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.0.0",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.1.0",
       "primary": true,
       "prefLabel": {
         "en": "Observed gameplay stream"
@@ -1694,7 +1701,71 @@
       "definition": {
         "en": "One or more actual observations, in timestamp order within one session registration. The stream has no required completion, pass or intervention outcome. A fresh session has a fresh registration. This pattern describes observation records only."
       },
-      "oneOrMore": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/patterns/1.0.0/observed-event"
+      "oneOrMore": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/patterns/1.1.0/observed-event"
+    },
+    {
+      "id": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/patterns/1.1.0/ability-recovery",
+      "type": "Pattern",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.1.0",
+      "primary": false,
+      "prefLabel": {
+        "en": "Ability refusal followed by execution"
+      },
+      "definition": {
+        "en": "Secondary analytic pair of actual observations for the same ability object. Match only within the same profile version and registration, observing actor, body and controller context. Project relevant events for that identity before matching this two-statement sequence; unrelated observations may intervene in the full stream. A missing first or second event stays unmatched or incomplete. This motif describes temporal game observations, not learning or intervention effectiveness."
+      },
+      "sequence": [
+        "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.1.0/ability.refused",
+        "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.1.0/ability.executed"
+      ]
+    },
+    {
+      "id": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/patterns/1.1.0/craft-recovery",
+      "type": "Pattern",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.1.0",
+      "primary": false,
+      "prefLabel": {
+        "en": "Recipe refusal followed by completion"
+      },
+      "definition": {
+        "en": "Secondary analytic pair of actual observations for the same recipe object. Match only within the same profile version and registration, observing actor, body and controller context. Project relevant events for that identity before matching this two-statement sequence; unrelated observations may intervene in the full stream. A missing first or second event stays unmatched or incomplete. This motif describes temporal game observations, not learning or intervention effectiveness."
+      },
+      "sequence": [
+        "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.1.0/craft.refused",
+        "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.1.0/craft.completed"
+      ]
+    },
+    {
+      "id": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/patterns/1.1.0/bounty-reward",
+      "type": "Pattern",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.1.0",
+      "primary": false,
+      "prefLabel": {
+        "en": "Bounty target followed by reward claim"
+      },
+      "definition": {
+        "en": "Secondary analytic pair of actual observations for the same bounty object. Match only within the same profile version and registration, observing actor, body and controller context. Project relevant events for that identity before matching this two-statement sequence; unrelated observations may intervene in the full stream. A missing first or second event stays unmatched or incomplete. This motif describes temporal game observations, not learning or intervention effectiveness."
+      },
+      "sequence": [
+        "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.1.0/bounty.completed",
+        "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.1.0/bounty.claimed"
+      ]
+    },
+    {
+      "id": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/patterns/1.1.0/character-recovery",
+      "type": "Pattern",
+      "inScheme": "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/versions/1.1.0",
+      "primary": false,
+      "prefLabel": {
+        "en": "Character death followed by release"
+      },
+      "definition": {
+        "en": "Secondary analytic pair of actual observations for the same character body; death and release objects differ. Match only within the same profile version and registration, observing actor, body and controller context. Project relevant events for that identity before matching this two-statement sequence; unrelated observations may intervene in the full stream. A missing first or second event stays unmatched or incomplete. This motif describes temporal game observations, not learning or intervention effectiveness."
+      },
+      "sequence": [
+        "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.1.0/combat.died",
+        "https://march-production-f6d9.up.railway.app/gaming/activity-profile.jsonld/templates/1.1.0/character.respawned"
+      ]
     }
   ]
 }

@@ -38,6 +38,7 @@ async def begin(page, realm, cls):
     """Pick a realm and a calling on the title screen and enter the realm, as a player would."""
     await ev(page, f"document.querySelector('#realm-pick [data-realm=\"{realm}\"]').click(); document.querySelector('#class-pick [data-cls=\"{cls}\"]').click()")
     await page.click('#btn-begin')
+    await page.wait_for_function("() => { const H=__hm, S=window.__hmStartup; if(S?.stopped || S?.titleError || H.errors.length) throw new Error(S?.titleError || H.errors.join('; ') || 'Graphics stopped before entry'); return H.GAME.started && H.GAME.player; }", timeout=180000, polling=100)
     await frames(page, 2)
 
 async def desktop(p):
@@ -74,9 +75,10 @@ async def desktop(p):
     await page.keyboard.press('ArrowRight')
     check(await ev(page, "__hm.LORE.state.pro.i") == 2, 'the right arrow key turns the page')
     await page.click('#lore-pro [data-pro="skip"]')
-    r = await ev(page, "({ modal: __hm.UI.modal, hidden: document.getElementById('lore-pro').hidden, p: __hm.LORE.progress() })")
+    # A frame can move the note from queue to seen; read both in one snapshot.
+    r = await ev(page, "({ modal: __hm.UI.modal, hidden: document.getElementById('lore-pro').hidden, p: __hm.LORE.progress(), queue: [...__hm.LORE.state.queue] })")
     check(r['modal'] is None and r['hidden'] and r['p']['pro'] == 1, 'Skip closes the prologue and the character remembers it')
-    check('start' in r['p']['seen'] or 'start' in await ev(page, "__hm.LORE.state.queue"), 'the first-steps note follows the prologue')
+    check('start' in r['p']['seen'] or 'start' in r['queue'], 'the first-steps note follows the prologue')
     t2 = await ev(page, "__hm.GAME.t")
     await frames(page, 2)
     check(await ev(page, "__hm.GAME.t") > t2, 'the world runs again')
@@ -89,7 +91,8 @@ async def desktop(p):
     await shot(page, 'lore_path_desktop')
     await ev(page, world(False))
     # 1. speak with the herald: walk up and press E, then say farewell
-    await ev(page, "(() => { const P = __hm.GAME.player, H = __hm.REALMS[P.faction].herald; __hm.teleport(H.x + 1.6, H.z + 0.4); __hm.simulate(0.2); __hm.fn.playerInteract(); })()")
+    await ev(page, "(() => { const P = __hm.GAME.player, H = __hm.REALMS[P.faction].herald; __hm.teleport(H.x + 1.6, H.z + 0.4); __hm.simulate(0.2); })()")
+    await page.keyboard.press('KeyE')
     check(await ev(page, "__hm.UI.modal") == 'dialog', 'pressing E by the herald opens his dialog')
     await ev(page, "__hm.LORE.check()")
     check(await ev(page, "__hm.LORE.progress().done.includes('herald')") is False, 'no step completes over an open window')
@@ -234,8 +237,10 @@ async def phone(p):
     await ev(page, "__hm.simulate(1)")
     await ev(page, world(True))
     await frames(page, 1)
-    r = await ev(page, "(() => { const e = document.getElementById('lore-path'), r = e.getBoundingClientRect(), f = document.getElementById('pf').getBoundingClientRect(); return { min: e.classList.contains('min'), top: r.top, pfb: f.bottom, right: r.right, h: r.height }; })()")
-    check(r['min'] and r['top'] >= r['pfb'] and r['right'] <= 390 and r['h'] < 50, f'the path sits folded under the player frame ({r})')
+    r = await ev(page, "(() => { const e = document.getElementById('lore-path'), r = e.getBoundingClientRect(), f = document.getElementById('pf').getBoundingClientRect(), css = getComputedStyle(e); return { min: e.classList.contains('min'), top: r.top, pfb: f.bottom, right: r.right, h: r.height, target: parseFloat(css.getPropertyValue('--mobile-target')), border: parseFloat(css.borderTopWidth) + parseFloat(css.borderBottomWidth), buttons: [...e.querySelectorAll('button')].map(b => b.getBoundingClientRect().height) }; })()")
+    # A folded row must fit the configured touch target plus its border; the
+    # former h<50 rejected the existing 48px controls inside their 2px border.
+    check(r['min'] and r['top'] >= r['pfb'] and r['right'] <= 390 and r['h'] <= r['target'] + r['border'] + 0.5 and all(h >= r['target'] for h in r['buttons']), f'the path sits folded under the player frame with usable touch actions ({r})')
     await ev(page, "document.getElementById('zonetoast').classList.remove('on')")  # the zone name fades by itself after a few seconds
     await shot(page, 'lore_phone_path')
     await page.click('#lore-path [data-act="max"]')

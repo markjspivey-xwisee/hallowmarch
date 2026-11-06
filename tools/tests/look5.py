@@ -60,7 +60,7 @@ async def main():
         # the page's own frames held (only the frames a check asks for are drawn: SwiftShader is slow), as guide2.py does
         await ev(page, """(() => { if (window.__rafWrapped) { window.__rafHold = true; return 0; } window.__rafWrapped = true; window.__rafHold = true; const raf = window.requestAnimationFrame.bind(window);
           window.requestAnimationFrame = (cb) => raf((t) => { if (window.__rafHold) window.requestAnimationFrame(cb); else cb(t); }); return 0; })()""")
-        await ev(page, "__hm.start({ realm: 0, cls: 'priest', level: 30 }); __hm.setTod(0.45); __hm.dbg.WEATHER.mode = 'clear'; L5.calm(); L5.sim(0.5); __hm.GAME.prog.lore.seen.push('start'); __hm.LORE.state.queue.length = 0; __hm.frame(1/30); 0")
+        await ev(page, "(async () => { await __hm.start({ realm: 0, cls: 'priest', level: 30 }); __hm.setTod(0.45); __hm.dbg.WEATHER.mode = 'clear'; L5.calm(); L5.sim(0.5); __hm.GAME.prog.lore.seen.push('start'); __hm.LORE.state.queue.length = 0; __hm.frame(1/30); return 0; })()")
         print(f'started [{time.time() - T0:.0f}s]', flush=True)
 
         # ---- camps: nobody in the fire pit ----

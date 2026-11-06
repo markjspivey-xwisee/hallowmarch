@@ -11,6 +11,8 @@
  * This authorizes personal pod access; it conveys no learning-export consent.
  */
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
+import { isAsyncFunction } from 'node:util/types';
+import { renderPlayerIdentityFinish } from './player-browser-assets.js';
 
 const NATIVE_RELAY = 'https://relay.interego.xwisee.com';
 const NATIVE_IDENTITY = 'https://identity.interego.xwisee.com';
@@ -80,25 +82,24 @@ function acceptsHtml(req) {
   });
 }
 function browserFailure(res, status, code, browserCeremony) {
+  if (res.headersSent) { if (!res.writableEnded) res.end(); return; }
   const safeCode = ['native_owner_mismatch', 'identity_authorization_declined'].includes(code)
     ? code : 'identity_connection_failed';
-  // Only fixed copy, allowlisted codes and a server-generated public correlation
-  // nonce enter this page. OAuth values, owner data and internal errors do not.
-  const evidence = /^[A-Za-z0-9_-]{43}$/.test(browserCeremony ?? '')
-    ? `<meta name="hallowmarch-identity-ceremony" content="${browserCeremony}">` : '';
-  const message = safeCode === 'native_owner_mismatch'
-    ? 'This sign-in belongs to a different identity. Your character has not been switched. Return to the game and choose your original identity.'
-    : safeCode === 'identity_authorization_declined'
-      ? 'Identity sign-in was declined. Return to the game to try again.'
-      : 'The identity connection could not be completed. Return to the game to try again.';
-  res.writeHead(status, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', Pragma: 'no-cache',
-    'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer',
-    'Content-Security-Policy': "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'" });
-  res.end('<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">'
-    + '<meta name="color-scheme" content="dark"><meta name="hallowmarch-identity-error" content="' + safeCode + '">' + evidence
-    + '<title>Return to Hallowmarch</title><link rel="stylesheet" href="/gaming/identity/assets/finish.css"><main><h1>Identity connection incomplete</h1>'
-    + '<p id="status" role="status">' + message + '</p><button id="return" type="button">Return to the game</button></main>'
-    + '<script type="module" src="/gaming/identity/assets/finish.mjs"></script></html>');
+  // Only fixed copy, allowlisted codes and public ceremony metadata enter the
+  // shared view. A failure never gains a claim path or an external-script fallback.
+  let page;
+  try { page = renderPlayerIdentityFinish({ failureCode: safeCode, browserCeremony }); }
+  catch {
+    // Source unavailability cannot reject the HTTP handler, expose an error, or
+    // create a second claim path. This fixed fallback has no executable content.
+    res.writeHead(503, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', Pragma: 'no-cache',
+      'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer',
+      'Content-Security-Policy': "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'" });
+    res.end('<!doctype html><html lang="en"><meta charset="utf-8"><title>Sign-in did not finish</title>'
+      + '<h1>Sign-in did not finish</h1><p>Your saved character has not been changed.</p><a href="/">Return to the game</a></html>');
+    return;
+  }
+  res.writeHead(status, page.headers); res.end(page.body);
 }
 async function bodyOf(req, supplied) {
   if (supplied !== undefined) {
@@ -166,6 +167,9 @@ function parseMcp(raw) {
  *     Honor context.signal for cancelable work; native credentials are absent.
  *     Optional bounded appSession is returned only through the same one-use
  *     browser/account-bound claim, including with a read-only native grant.
+ * Optional renderBrowserSuccess(req, res) synchronously serves a fixed HTML
+ *   page and returns true after ending the response. It runs only for an HTML
+ *   callback after verified binding and cookie setup, without grant/view data.
  *
  * handle(req, res, parsedBody?) consumes only paths it advertises. Mount before
  * other request-body consumers, or supply their already-parsed JSON body.
@@ -179,6 +183,9 @@ function parseMcp(raw) {
 export function createPlayerIdentityBridge(options = {}) {
   if (typeof options.authorizeGameAccount !== 'function' || typeof options.onVerified !== 'function') {
     throw new TypeError('Game account authorization and verified-binding callbacks are required');
+  }
+  if (options.renderBrowserSuccess !== undefined && (typeof options.renderBrowserSuccess !== 'function' || isAsyncFunction(options.renderBrowserSuccess))) {
+    throw new TypeError('Browser success rendering must be a synchronous host callback');
   }
   const publicUrl = httpsUrl(options.publicOrigin, 'publicOrigin', { origin: true });
   const identityUrl = httpsUrl(options.identityOrigin ?? NATIVE_IDENTITY, 'identityOrigin', { origin: true });
@@ -281,6 +288,9 @@ export function createPlayerIdentityBridge(options = {}) {
   }
   function verifyOwner(status, provider) {
     const identity = status.identity, agent = status.sessionAgent;
+    // A character claim requires an independently authenticated permanent owner.
+    // Missing lifecycle metadata fails closed only for this explicit ceremony.
+    if (options.requireCanonicalOwner === true && identity?.provisionalPlay !== false) fail('canonical_native_owner_required', 403);
     const userId = identity?.userId;
     if (typeof userId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(userId)) fail('unverified_native_owner', 502);
     const didHost = identityUrl.host.replace(/:/g, '%3A');
@@ -392,6 +402,20 @@ export function createPlayerIdentityBridge(options = {}) {
         // Replace the clearing cookie; neither the bearer nor a claim secret goes in a URL.
         setCookie(res, cookieName, ceremony, lifetime);
       }
+      if (acceptsHtml(req) && options.renderBrowserSuccess) {
+        // The trusted host serves its fixed page, with no grant or account data
+        // passed to the view. Retain the exact cookie and bounded claim checks.
+        res.setHeader('Pragma', 'no-cache');
+        try {
+          if (options.renderBrowserSuccess(req, res) !== true || !res.writableEnded) fail('identity_finish_unavailable', 503);
+        } catch {
+          // A host renderer may have begun a response before throwing. Never
+          // append a second HTML document or overwrite its committed headers.
+          if (res.headersSent) { if (!res.writableEnded) res.end(); return; }
+          fail('identity_finish_unavailable', 503);
+        }
+        return;
+      }
       res.writeHead(303, { Location: successPath, 'Cache-Control': 'no-store', Pragma: 'no-cache', 'Referrer-Policy': 'no-referrer' });
       res.end();
     } finally { active.delete(record); }
@@ -451,3 +475,4 @@ export function createPlayerIdentityBridge(options = {}) {
 }
 
 function hashBase64(value) { return createHash('sha256').update(value).digest('base64url'); }
+

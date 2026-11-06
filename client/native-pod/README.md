@@ -174,3 +174,12 @@ Tests use real pinned cryptography, the SDK's JSON/SSE transport and actual
 Chromium IndexedDB/CryptoKey structured cloning. Relay storage, identity responses
 and authorship verdicts are explicitly contract fixtures: these tests establish
 neither live pod provisioning nor live authentication or native durability.
+## Recover an existing character
+
+Passkey sign-in and character decryption are separate. If a private character cannot open, use **Check recovery options** to inspect an older hosted save without importing it, and **Check this browser** to look for an existing character key on this site. A record reference alone is not proof that a character has been opened.
+
+The browser check verifies the owner index and actual character through the existing native proofs before showing its name and progress. **Use this key on this site** rechecks that proof and selects the original protected browser key; it preserves the original entry and refuses to replace a different key. A recovery file is first opened in memory and checked, then waits for that same explicit choice. No character save or pod record is replaced by these checks.
+
+**Download older character backup** preserves a checked copy of an older hosted save. It does not import that save or claim it is the latest private character. If no matching key is found, use the original browser/profile and exact game website, or the character recovery file and its original passphrase. A PC sign-in identity backup is a separate file.
+
+Hosted operation remains supported. These checks and local-key selection do not enable federation or a public bridge.

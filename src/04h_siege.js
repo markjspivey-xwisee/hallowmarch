@@ -259,7 +259,7 @@ function siegeCreate(kind, realm, x, z, yaw, target, work) {
       E.sl = { x: tip.x, y: tip.y - TREB_SLING, z: tip.z, px: tip.x, py: tip.y - TREB_SLING, pz: tip.z };
     }
   }
-  const ent = makeEnt({ kind: 'door', faction: realm, role: 'engine', name: `${R.name} ${spec.label}`, level: warLevel() + 2, x, z, y: E.y, radius: spec.radius });
+  const ent = makeEnt({ kind: 'door', faction: realm, role: 'engine', name: `${R.name} ${spec.label}`, level: 1, x, z, y: E.y, radius: spec.radius });
   ent.maxHp = ent.hp = DOOR_HP.keep * doorHpScale() * spec.hp;
   ent.siegeEngine = E.id;
   E.ent = ent; E.lastHp = ent.hp;
@@ -883,7 +883,13 @@ function siegePlanFor(wb, O) {
       else kind = r < 0.34 ? 'ram' : r < 0.68 ? 'mangonel' : 'trebuchet';
       if (C.kind === 'timber' && kind === 'trebuchet') kind = 'mangonel'; // a palisade falls to less
     }
-    kind = loopsEngineKind(wb.realm, kind); // [loops] the engine the realm's timber and iron can raise, or none (08m_loops.js)
+    if (!(typeof realmPublicWorksHosted === 'function' && realmPublicWorksHosted())) {
+      kind = loopsEngineKind(wb.realm, kind); // Solo logistics pays here; hosted field engines are already paid.
+      if (!kind) return null;
+    }
+  }
+  if (typeof realmPublicWorksHosted === 'function' && realmPublicWorksHosted()) {
+    kind = realmPublicWorksEngineKind(wb, kind);
     if (!kind) return null;
   }
   let target, spot, work;
@@ -918,6 +924,7 @@ function siegePlanFor(wb, O) {
   return siegeCrewUp(E, wb, members, L);
 }
 function siegeCrewUp(E, wb, members, L) {
+  if (typeof realmPublicWorksEngineBuilt === 'function' && !realmPublicWorksEngineBuilt(wb, E)) { siegeRemove(E); return null; }
   E.wb = wb;
   const pool = members.filter((m) => m !== L && m.carrying == null && m.cls !== 'priest' && !m.siegeCrew).sort((a, b) => dist2(a.x, a.z, E.x, E.z) - dist2(b.x, b.z, E.x, E.z));
   pool.slice(0, E.spec.crew).forEach((m, i) => siegeAddCrew(E, m, i));

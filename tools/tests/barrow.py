@@ -84,7 +84,7 @@ async def king(page):
         # leaves his hall goes back to his throne whole)
         fails = []
         for cls in ['warrior', 'archer', 'mage', 'priest']:
-            await page.evaluate(f"""(() => {{ const H = __hm, F = H.fn; F.newCharacter(); H.start({{ realm: 1, cls: '{cls}', level: 28 }});
+            await page.evaluate(f"""(async () => {{ const H = __hm, F = H.fn; F.newCharacter(); await H.start({{ realm: 1, cls: '{cls}', level: 28 }});
               const P = H.GAME.player; H.bal.applyFairGear(P, 28); H.INV.potions = 3; P.hp = P.maxHp; P.power = P.maxPower; F.enterBarrow(); return 0; }})()""")
             # the way down fades on the wall clock: wait for it (a busy machine is slow)
             for _ in range(240):

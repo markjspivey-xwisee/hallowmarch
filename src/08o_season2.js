@@ -13,6 +13,8 @@
 // tells a player of the realm attacked or attacking, and its band comes onto the field near you.
 
 const S2 = {
+  pendingArmy: null, inventoryBusy: false, inventorySummary: null, inventoryBands: null,
+  fieldSeen: [], // recently settled/folded grants; duplicate transport never creates a second cohort
   bands: new Map(), // army id -> { wb, a (the army's description), mode: 'page'|'server', per, said, lost, at }
   t: 0, seen: [], max: 3,
   reach: 260,       // an army within this of the player comes onto the field...
@@ -22,6 +24,30 @@ const S2 = {
   stats: { taken: 0, folded: 0, fallen: 0, won: 0, beaten: 0, raided: 0, reports: 0, declined: 0, reissued: 0, released: 0, applied: 0 },
 };
 const s2Server = () => typeof NETWS !== 'undefined' && !!NETWS.url;
+// Canonical hosted cohorts have already been recruited and paid for in RS.
+const season2CanonicalWar = () => s2Server() && (typeof NETS === 'undefined' || !NETS.s || NETS.s.management?.v === 1);
+function season2StrategicArmies() {
+  if (!season2CanonicalWar() || typeof NETS === 'undefined' || !NETS.s) return [];
+  const realm = GAME.player?.faction;
+  return (NETS.s.armies || []).filter(a => a.r === realm).map(a => ({ ...a }));
+}
+function s2View() {
+  const p = typeof netRealmViewInterest === 'function' ? netRealmViewInterest() : null;
+  return p && Number.isFinite(p.x) && Number.isFinite(p.z) ? { x: p.x, z: p.z, radius: clamp(p.radius || 220, 40, S2.reach) } : null;
+}
+const s2Keeper = (pendingArmy = null) => {
+  const previous = S2.pendingArmy;
+  if (Number.isSafeInteger(pendingArmy) && pendingArmy > 0) S2.pendingArmy = pendingArmy;
+  try { return !s2Server() || typeof netEntityCanSimulateWorld !== 'function' || netEntityCanSimulateWorld(); }
+  finally { S2.pendingArmy = previous; }
+};
+function s2GrantKey(a) { return a.season + ':' + a.id + ':' + a.fieldLease; }
+function s2Remember(a) {
+  if (!a.fieldLease) return;
+  const key = s2GrantKey(a);
+  if (!S2.fieldSeen.includes(key)) S2.fieldSeen.push(key);
+  if (S2.fieldSeen.length > 64) S2.fieldSeen.splice(0, S2.fieldSeen.length - 64);
+}
 
 // where an army stands in the world: on the road from its muster to its mark, or before its keep's gate at a siege
 function s2Target(a) {
@@ -30,6 +56,7 @@ function s2Target(a) {
   return REALMS[a.r].musterSite;
 }
 function s2Pos(a) {
+  if (a.manual && Number.isFinite(a.fx) && Number.isFinite(a.fz)) return { x: a.fx, z: a.fz };
   const M = REALMS[a.r].musterSite, T = s2Target(a);
   if (a.state === 'siege' && a.k >= 0) {
     const g = siegeGatePoint(T);
@@ -50,7 +77,8 @@ function s2Spot(x, z) {
 }
 function s2Near(a, P) {
   if (!P || !P.alive || inDungeon(P)) return false;
-  const q = s2Pos(a);
+  const q = s2Pos(a), view = s2View();
+  if (view && (dist(view.x, view.z, q.x, q.z) <= view.radius || (a.k >= 0 && WAR.keeps[a.k] && dist(view.x, view.z, WAR.keeps[a.k].site.x, WAR.keeps[a.k].site.z) < S2.reachK))) return true;
   if (dist(P.x, P.z, q.x, q.z) < S2.reach) return true;
   if (a.k >= 0 && WAR.keeps[a.k]) { const s = WAR.keeps[a.k].site; if (dist(P.x, P.z, s.x, s.z) < S2.reachK) return true; }
   return false;
@@ -70,15 +98,30 @@ function s2Order(B) {
   const a = B.a;
   if (a.kind === 'raid') return { type: 'patrol', node: REALMS[a.q].nav.muster, until: GAME.t + 1e6, why: 'season' };
   const K = WAR.keeps[a.k];
+  if (a.manual && a.mission !== 'attack') return K && K.realm === a.r ? { type: 'defend', keep: K, since: GAME.t, why: 'ruler' } : { type: 'patrol', node: REALMS[a.r].nav.muster, until: GAME.t + 1e6, why: 'ruler' };
   return { type: 'attack', keep: K, why: a.off ? 'offensive' : K.orig === a.r ? 'retake' : 'season' };
 }
 // an army onto the field: a band of its realm where the army stands
 function s2Spawn(a, mode) {
   if (S2.bands.has(a.id)) return S2.bands.get(a.id);
+  if (mode === 'server' && !s2Keeper(a.id)) return null;
+  if (mode === 'server') s2Reconcile(a.id);
+  // A promoted keeper adopts the replicated cohort; it never mints another set of the same soldiers.
+  const existing = mode === 'server' && WAR.warbands.find(w => !w.dead && w.realm === a.r && w.season?.id === a.id
+    && (!w.season.season || w.season.season === a.season) && wbMembers(w).length);
+  if (existing) {
+    const count = wbMembers(existing).length, old = existing.season;
+    const per = Math.min(Number.isFinite(old.per) && old.per > 0 ? old.per : a.n / count, a.n / count);
+    existing.season = { ...old, arm: a.arm || 1, eng: a.eng || 0, season: a.season, fieldLease: a.fieldLease, per };
+    const B = { wb: existing, a, mode, per, said: false, lost: 0, at: GAME.t, n0: old.renderN || count, campaign: CAMPAIGN.n, rep: 0 };
+    S2.bands.set(a.id, B);
+    if (typeof realmPublicWorksArmy === 'function') realmPublicWorksArmy(existing, a);
+    return B;
+  }
   const q = s2Pos(a), c = s2Spot(q.x, q.z);
   if (!c) return null;
   const n = s2Size(a);
-  const wb = { id: WAR.nextWb++, realm: a.r, members: [], order: null, path: null, pathIdx: 0, created: GAME.t, engagedUntil: -99, lastProgress: GAME.t, progX: c.x, progZ: c.z, season: { id: a.id, kind: a.kind, n0: a.n } };
+  const wb = { id: WAR.nextWb++, realm: a.r, members: [], order: null, path: null, pathIdx: 0, created: GAME.t, engagedUntil: -99, lastProgress: GAME.t, progX: c.x, progZ: c.z, season: { id: a.id, kind: a.kind, n0: a.n, manual: a.manual === true, arm: a.arm || 1, eng: a.eng || 0, per: a.n / n, renderN: n, season: a.season || 0, fieldLease: a.fieldLease || '' } };
   for (let i = 0; i < n; i++) {
     const ang = (i / n) * TAU, rr = 2 + (i % 3) * 1.6;
     const s = s2Spot(c.x + Math.cos(ang) * rr, c.z + Math.sin(ang) * rr) || c;
@@ -89,13 +132,14 @@ function s2Spawn(a, mode) {
   }
   WAR.warbands.push(wb);
   wbOrd(wb);
-  const B = { wb, a, mode, per: a.n / n, said: false, lost: 0, at: GAME.t, n0: n, rep: 0 };
+  const B = { wb, a, mode, per: a.n / n, said: false, lost: 0, at: GAME.t, n0: n, campaign: CAMPAIGN.n, rep: 0 };
   S2.bands.set(a.id, B);
+  if (typeof realmPublicWorksArmy === 'function') realmPublicWorksArmy(wb, a);
   cwSetOrder(wb, s2Order(B), s2Order(B).why);
   S2.stats.taken++;
   const P = GAME.player;
   if (P) {
-    const where = a.kind === 'raid' ? `the fields of ${REALMS[a.q].name}` : WAR.keeps[a.k].site.name;
+    const where = a.kind === 'raid' ? `the fields of ${REALMS[a.q].name}` : WAR.keeps[a.k]?.site.name || REALMS[a.r].musterSite.name;
     const txt = `${s2Name(wb, true)} comes into sight: ${Math.round(a.n)} soldiers ${a.state === 'siege' ? 'before' : 'marching on'} ${where}.`;
     news(txt, a.r, a.off && (a.r === P.faction || (a.k >= 0 && WAR.keeps[a.k].realm === P.faction)) ? 'big' : 'normal');
   }
@@ -112,48 +156,65 @@ function s2Name(wb, withRealm) {
 // what is told back: the army's soldiers left (RS's measure), how far it has come, a siege laid; done or folded
 function s2Report(B, rep) {
   B.rep++; S2.stats.reports++;
-  if (B.mode === 'server') { if (typeof netWsSend === 'function') netWsSend({ t: 'sarmyrep', id: B.a.id, rep }); return; }
+  if (B.mode === 'server') { if (typeof netWsSend === 'function') netWsSend({ t: 'sarmyrep', id: B.a.id, season: B.a.season, fieldLease: B.a.fieldLease, rep }); return; }
   const RS = SEASONP.rs;
   if (RS) realmSimFieldReport(RS, B.a.id, rep, 'page');
 }
 function s2Remove(B) {
+  if (B.mode === 'server' && !s2Keeper()) return;
   for (const e of wbMembers(B.wb)) { if (e.siegeCrew) e.siegeCrew = null; removeEnt(e); }
   B.wb.members = []; B.wb.dead = true; B.wb.order = null;
 }
-// a band released to its realm: an ordinary band of the live war from here (it took its keep: it holds it as any band)
-function s2Release(B) { B.wb.season = null; B.wb.order = null; S2.stats.released++; }
+// Hosted soldiers return to canonical reserves/garrison; a solo band stays to hold its ground.
+function s2Release(B) {
+  s2Remember(B.a);
+  if (B.mode === 'server') s2Remove(B);
+  else { B.wb.season = null; B.wb.order = null; }
+  S2.stats.released++;
+}
 function s2BandStep(B) {
   const wb = B.wb, a = B.a, P = GAME.player, m = wbMembers(wb);
   const n = m.length * B.per;
-  const end = (rep, how) => { s2Report(B, rep); S2.bands.delete(a.id); S2.stats[how]++; };
-  if (!m.length || wb.dead) { end({ n: 0, done: 'fallen' }, 'fallen'); return; }
+  const end = (rep, how) => { s2Report(B, rep); s2Remember(a); S2.bands.delete(a.id); S2.stats[how]++; };
+  if (CAMPAIGN.state !== 'war' || (B.campaign != null && B.campaign !== CAMPAIGN.n)
+    || (B.mode === 'server' && typeof NETS !== 'undefined' && NETS.s && a.season !== NETS.s.n)) {
+    end({ n: m.length ? n : a.n, p: a.p || 0, fold: 1 }, 'folded'); s2Remove(B); return;
+  }
+  if (!m.length || wb.dead) { end({ n: 0, done: 'fallen' }, 'fallen'); s2Remove(B); return; }
+  if (a.manual && wb.order?.keep && ['attack', 'defend'].includes(wb.order.type)) {
+    if (a.k !== wb.order.keep.id || a.mission !== wb.order.type) { a.state = 'march'; a.p = 0; }
+    a.k = wb.order.keep.id; a.mission = wb.order.type;
+  }
   const L = wbLeader(wb), T = s2Target(a);
   // its keep taken (by this band or another of its realm): the army goes home into the garrison, the band holds it
-  if (a.k >= 0 && WAR.keeps[a.k] && WAR.keeps[a.k].realm === a.r) { end({ n, done: 'taken' }, 'won'); s2Release(B); return; }
+  if ((!a.manual || a.mission === 'attack') && a.k >= 0 && WAR.keeps[a.k] && WAR.keeps[a.k].realm === a.r) { end({ n, done: 'taken' }, 'won'); s2Release(B); return; }
   if (a.kind === 'raid' && dist(L.x, L.z, T.x, T.z) < 40) {
     end({ n, done: 'raided' }, 'raided');
     news(`${s2Name(wb, true)} burn and carry off what they can from ${possessive(REALMS[a.q].name)} fields by ${T.name}.`, a.r, 'normal');
-    s2Release(B); wbSetOrder(wb, { type: 'patrol', node: REALMS[a.r].nav.muster, until: GAME.t + 120, home: true, why: 'home' });
+    s2Release(B);
     return;
   }
   // beaten: under a third of what came onto the field, and not at its siege's work
-  if (m.length < Math.max(2, B.n0 / 3)) { end({ n, done: 'beaten' }, 'beaten'); s2Release(B); wbSetOrder(wb, { type: 'patrol', node: REALMS[a.r].nav.muster, until: GAME.t + 120, home: true, why: 'home' }); return; }
+  if (m.length < Math.max(2, B.n0 / 3)) { end({ n, done: 'beaten' }, 'beaten'); s2Release(B); return; }
   // its order: the season's, again if the stall guards gave it back (twice: it goes back to the season, out of sight)
-  if (CAMPAIGN.state === 'war' && (!wb.order || (wb.order.type !== s2Order(B).type) || (wb.order.keep && a.k >= 0 && wb.order.keep !== WAR.keeps[a.k]))) {
+  if (!a.manual && CAMPAIGN.state === 'war' && (!wb.order || (wb.order.type !== s2Order(B).type) || (wb.order.keep && a.k >= 0 && wb.order.keep !== WAR.keeps[a.k]))) {
     B.lost++;
     if (B.lost <= 2) { cwSetOrder(wb, s2Order(B), s2Order(B).why); S2.stats.reissued++; }
   }
   // how far it has come, and a siege laid
   const M = REALMS[a.r].musterSite, d0 = dist(M.x, M.z, T.x, T.z), d = dist(L.x, L.z, T.x, T.z);
-  const rep = { n, p: clamp(1 - d / Math.max(1, d0), a.p || 0, 1) };
+  const rep = { n, p: clamp(1 - d / Math.max(1, d0), a.p || 0, 1), ...(a.manual ? { x: L.x, z: L.z,
+    order: wb.order?.keep && ['attack', 'defend'].includes(wb.order.type) ? { type: wb.order.type, keep: wb.order.keep.id } : undefined } : {}) };
   const ph = wb.order && wb.order.phase;
   if (a.k >= 0 && a.state !== 'siege' && d < 70 && ph && ph !== 'travel') { rep.state = 'siege'; a.state = 'siege'; }
   // far from the player and out of sight (every soldier), or the live war at peace, or given up: folded back where it stands
-  const away = !P || m.every((e) => dist(e.x, e.z, P.x, P.z) > S2.fold) && !(a.k >= 0 && WAR.keeps[a.k] && dist(P.x, P.z, T.x, T.z) < S2.reachK);
+  const view = s2View();
+  const viewed = !!view && (m.some(e => dist(e.x, e.z, view.x, view.z) <= view.radius) || dist(T.x, T.z, view.x, view.z) < S2.reachK);
+  const away = B.mode !== 'server' && !viewed && (!P || m.every((e) => dist(e.x, e.z, P.x, P.z) > S2.fold) && !(a.k >= 0 && WAR.keeps[a.k] && dist(P.x, P.z, T.x, T.z) < S2.reachK));
   const hidden = !P || m.every((e) => dist(e.x, e.z, P.x, P.z) > 110);
   if ((away || (hidden && (CAMPAIGN.state !== 'war' || B.lost > 2)))) {
     rep.fold = 1;
-    s2Report(B, rep); S2.bands.delete(a.id); S2.stats.folded++;
+    s2Report(B, rep); s2Remember(a); S2.bands.delete(a.id); S2.stats.folded++;
     s2Remove(B);
     return;
   }
@@ -189,27 +250,63 @@ function s2PageStep() {
 function season2ServerMsg(m) {
   if (m.t === 'sarmy' && m.a && typeof m.a === 'object') {
     const a = s2Read(m.a);
-    if (!a) return;
-    if (S2.bands.has(a.id)) return;
-    if (!GAME.started || S2.bands.size >= S2.max || !s2Fits(a) || !s2Spawn(a, 'server')) { S2.stats.declined++; netWsSend({ t: 'sarmyrep', id: a.id, rep: { n: a.n, p: a.p, fold: 1 } }); }
+    if (!a || !a.fieldLease || !a.season || (typeof NETS !== 'undefined' && NETS.s && a.season !== NETS.s.n)) return;
+    if (S2.fieldSeen.includes(s2GrantKey(a))) return;
+    const previous = S2.bands.get(a.id);
+    if (previous) {
+      if (previous.a.fieldLease === a.fieldLease && previous.a.season === a.season) return;
+      s2Remember(previous.a);
+      if (previous.a.season !== a.season) s2Remove(previous);
+      S2.bands.delete(a.id); // same-season lease replacement adopts the existing injured cohort below
+    }
+    if (!GAME.started || !s2Keeper(a.id) || S2.bands.size >= S2.max || !s2Fits(a) || !s2Spawn(a, 'server')) {
+      s2Remember(a); S2.stats.declined++;
+      netWsSend({ t: 'sarmyrep', id: a.id, season: a.season, fieldLease: a.fieldLease, rep: { n: a.n, p: a.p, fold: 1 } });
+    }
   } else if (m.t === 'sarmyfold') {
     const B = S2.bands.get(m.id | 0);
-    if (B) { S2.bands.delete(B.a.id); s2Remove(B); S2.stats.folded++; }
+    if (B && B.a.fieldLease === m.fieldLease && B.a.season === m.season) { S2.bands.delete(B.a.id); s2Remember(B.a); s2Remove(B); S2.stats.folded++; }
   }
 }
 function s2Read(o) {
   const n = (v, a, b, d) => (Number.isFinite(+v) ? clamp(+v, a, b) : d);
-  const KINDS = ['raid', 'hallow', 'assault', 'offensive'];
+  const KINDS = ['raid', 'hallow', 'assault', 'offensive', 'company'];
   if (!KINDS.includes(o.kind)) return null;
-  const a = { id: n(o.id, 1, 1e9, 0) | 0, r: n(o.r, 0, 2, 0) | 0, n: n(o.n, 0, 200, 0), n0: n(o.n0, 1, 200, 1), kind: o.kind, k: n(o.k, -1, WAR.keeps.length - 1, -1) | 0, q: n(o.q, -1, 2, -1) | 0, eng: n(o.eng, 0, 4, 0) | 0, state: o.state === 'siege' ? 'siege' : 'march', p: n(o.p, 0, 1, 0), hungry: o.hungry ? 1 : 0, off: o.off ? 1 : 0 };
+  const a = { id: n(o.id, 1, 1e9, 0) | 0, r: n(o.r, 0, 2, 0) | 0, n: n(o.n, 0, 200, 0), n0: n(o.n0, 1, 200, 1), kind: o.kind, season: Number.isSafeInteger(o.season) && o.season > 0 ? o.season : 0, fieldLease: typeof o.fieldLease === 'string' && /^[a-zA-Z0-9-]{8,64}$/.test(o.fieldLease) ? o.fieldLease : '', arm: n(o.arm, 1, 1.5, 1), manual: o.manual === true && o.kind === 'company', mission: o.mission === 'attack' ? 'attack' : 'defend', fx: n(o.fx, -500, 500, NaN), fz: n(o.fz, -500, 500, NaN), k: n(o.k, -1, WAR.keeps.length - 1, -1) | 0, q: n(o.q, -1, 2, -1) | 0, eng: n(o.eng, 0, 4, 0) | 0, state: o.state === 'siege' ? 'siege' : 'march', p: n(o.p, 0, 1, 0), hungry: o.hungry ? 1 : 0, off: o.off ? 1 : 0 };
   return a.id ? a : null;
+}
+function season2InventoryReady() {
+  if (!season2CanonicalWar()) return true;
+  if (typeof netRealmSeasonProjectionFresh === 'function' && !netRealmSeasonProjectionFresh()) return false;
+  if (typeof NETS === 'undefined' || !NETS.s?.armyIdsComplete) return false;
+  if (S2.inventoryBusy) return true;
+  if (S2.inventorySummary !== NETS.s || S2.inventoryBands !== WAR.warbands) {
+    S2.inventoryBusy = true;
+    try { s2Reconcile(); S2.inventorySummary = NETS.s; S2.inventoryBands = WAR.warbands; }
+    finally { S2.inventoryBusy = false; }
+  }
+  return true;
+}
+function s2Reconcile(pendingArmy = S2.pendingArmy) {
+  if (typeof netRealmSeasonProjectionFresh === 'function' && !netRealmSeasonProjectionFresh()) return;
+  if (!s2Server() || !s2Keeper() || typeof NETS === 'undefined' || !NETS.s?.armyIdsComplete || !Array.isArray(NETS.s.armyIds)) return;
+  const ids = new Set(NETS.s.armyIds);
+  for (const wb of WAR.warbands) {
+    const stamp = wb.season;
+    if (!stamp || S2.bands.has(stamp.id) || stamp.id === pendingArmy) continue;
+    if ((stamp.season && stamp.season !== NETS.s.n) || !ids.has(stamp.id)) s2Remove({ wb, mode: 'server' });
+  }
 }
 function season2Update(dt) {
   S2.t += dt;
   if (S2.t < 1) return;
   S2.t = 0;
   if (!GAME.started || !GAME.player) return;
-  for (const B of [...S2.bands.values()]) s2BandStep(B);
+  s2Reconcile();
+  for (const B of [...S2.bands.values()]) {
+    if (B.mode === 'server' && !s2Keeper()) { s2Remember(B.a); S2.bands.delete(B.a.id); continue; }
+    s2BandStep(B);
+  }
   if (!s2Server()) s2PageStep();
   s2Note();
 }
@@ -317,5 +414,5 @@ queueMicrotask(() => {
 });
 queueMicrotask(() => {
   if (!window.__hm) return;
-  window.__hm.season2 = { S2, s2Pos, s2Spawn, s2Spot, s2Near, s2Size, s2Armies, season2HudLine, season2WarText, season2ChronHTML, season2ServerMsg, season2Update, s2Read, s2Name, step: () => { S2.t = 1; season2Update(0); } };
+  window.__hm.season2 = { S2, season2CanonicalWar, season2StrategicArmies, season2InventoryReady, s2Reconcile, s2Pos, s2Spawn, s2Spot, s2Near, s2Size, s2Armies, season2HudLine, season2WarText, season2ChronHTML, season2ServerMsg, season2Update, s2Read, s2Name, step: () => { S2.t = 1; season2Update(0); } };
 });

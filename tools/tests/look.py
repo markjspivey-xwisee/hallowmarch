@@ -17,7 +17,7 @@ usage: python3 tools/tests/look.py [views=a,b,...|group] [q=high,medium,low] [v=
 import json, asyncio, sys, time, pathlib, base64, io, os
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 import hm
-from hmlib import OUT
+from hmlib import OUT, human_play
 from playwright.async_api import async_playwright
 try:
     from PIL import Image
@@ -65,19 +65,32 @@ async def setup(p, w, h, touch=False):
     await page.route('http://hm.test/', doc_route)
     await page.goto('http://hm.test/', wait_until='commit')
     await page.wait_for_function('window.__hm && window.__hm.ready', timeout=300000, polling=500)
+    # Boot may yield through RAF. Once ready, only the fixture advances play.
+    await page.evaluate("""() => {
+      window.__rafHold = true;
+      window.__hmGalleryRenders = 0;
+      const renderer = __hm.dbg.renderer, render = renderer.render;
+      renderer.render = function(...args) {
+        window.__hmGalleryRenders++;
+        return render.apply(this, args);
+      };
+    }""")
     return b, page, logs
 
 async def grab(page, path, frames=2):
-    url = await page.evaluate(f"(() => {{ for (let i = 0; i < {frames}; i++) __hm.frame(1/30); return __hm.dbg.renderer.domElement.toDataURL('image/png'); }})()")
+    await human_play(page)
+    url = await page.evaluate(f"(() => {{ const before = window.__hmGalleryRenders; for (let i = 0; i < {frames}; i++) __hm.frame(1/30); if (window.__hmGalleryRenders <= before) throw Error('Gallery render requires active human play'); return __hm.dbg.renderer.domElement.toDataURL('image/png'); }})()")
     data = base64.b64decode(url.split(',', 1)[1])
     if Image: Image.open(io.BytesIO(data)).convert('RGB').save(path)
     else: pathlib.Path(path).write_bytes(data)
 
 async def start(page):
-    await page.evaluate("__hm.start({realm:0, cls:'warrior', level:30}); 0")
+    await page.evaluate("(async () => { await __hm.start({realm:0, cls:'warrior', level:30}); return 0; })()")
+    await human_play(page)
     await page.evaluate(VIEWS_JS.read_text() + '\n;0')
     # the war gets going and the towns wake up, then the world holds still between the views
-    await page.evaluate("LK.boot(); 0")
+    advanced = await page.evaluate("() => { const t = __hm.GAME.t; LK.boot(); return __hm.GAME.t - t; }")
+    check(advanced >= 29.9, f"trusted input runs the full gallery warmup ({advanced:.2f} game seconds)")
     if 'net' in FLAGS: await page.evaluate(pathlib.Path(__file__).with_name('net_fake.js').read_text() + '\n;0')  # [look7] players without pages (l7_others)
 
 async def serve():
@@ -148,6 +161,7 @@ async def main():
                 await page.evaluate(f"__hm.fn.setQuality('{q}'); 0")
                 for v in views:
                     for var in VARIANTS:
+                        await human_play(page)
                         try:
                             info = await page.evaluate(f"LK.set('{v}', '{var}')")
                         except Exception as e:

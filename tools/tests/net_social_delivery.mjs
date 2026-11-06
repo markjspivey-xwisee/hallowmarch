@@ -3,12 +3,14 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
+import { createHumanPlayGate } from '../../server/human-play.js';
 
 // Execute actual client send/receive and server routing code with controlled
 // browser/transport ports. No game frame, physics, token or native service bypass.
 const repo = fileURLToPath(new URL('../../', import.meta.url)).replace(/\/$/, '');
 const clientSource = ['14n_net.js', '14o_netui.js'].map(name => readFileSync(repo + '/src/' + name, 'utf8')).join('\n');
 const serverSource = readFileSync(repo + '/server/server.js', 'utf8');
+const roomHostSource = serverSource.slice(serverSource.indexOf('function roomNeedsWarbandOrders('), serverSource.indexOf('const send =', serverSource.indexOf('function roomHost(')));
 const evForSource = serverSource.slice(serverSource.indexOf('function evFor('), serverSource.indexOf('/* ------------------------------------------------------------------ */', serverSource.indexOf('function evFor(')));
 const onFastSource = serverSource.slice(serverSource.indexOf('function onFast('), serverSource.indexOf('/* ------------------------------------------------------------------ */', serverSource.indexOf('function onFast(')));
 const plain = value => JSON.parse(JSON.stringify(value));
@@ -19,6 +21,8 @@ function client(name = 'owner', realm = 0) {
   const sends = [], received = [], logs = [], errors = [];
   const player = { name, faction: realm, x: 0, y: 30, z: 0, prevX: 0, prevZ: 0, yaw: 0, hp: 100, maxHp: 100, alive: true, buffs: [] };
   const context = vm.createContext({
+    // This transport fixture represents an already live human; lease/idle behavior has dedicated integration tests.
+    netHumanSync() {}, netHumanLive: () => true, NET_HUMAN_PLAY: { activity: 1 },
     setTimeout(fn, ms) { const id = ++nextTimer; timers.set(id, { fn, at: now + ms }); return id; },
     clearTimeout(id) { timers.delete(id); },
     performance: { now: () => now }, Date, Map, Set, Math, Number, Object, Array, JSON,
@@ -51,19 +55,21 @@ function client(name = 'owner', realm = 0) {
 function server() {
   let now = 100000;
   const kept = [], packets = [];
+  const humanPlay = createHumanPlayGate({ clock: () => now });
   const context = vm.createContext({
     Date: { now: () => now }, Map, Object, Array, JSON, Math, Number,
+    isHumanPlaying: humanPlay.isPlaying,
     STATS: { badMsgs: 0, paceDropped: 0, chatKept: 0, hitsFar: 0, evDropped: 0, relayed: 0, evRelayed: 0, farRelayed: 0, thinned: 0 },
-    CFG: { maxPace: 35, interest: 260, farEvery: 2500 }, WORLD: { ports: [] },
+    CFG: { maxPace: 35, interest: 260, farEvery: 2500 }, WORLD: { ports: [] }, WORLDS: {},
     regionOf: () => 'a', regionsTell() {}, worldNow: () => null, KEEP_REGION: {},
     dist: (a, b) => Math.hypot(a.x - b.x, a.z - b.z), legitJump: () => false,
     SEASON: { chatIn: (...args) => kept.push(args) }, cleanName: x => x,
     send: (who, message) => packets.push({ who: who.peer, message: plain(message) }),
   });
-  vm.runInContext(evForSource + '\n' + onFastSource + '\nglobalThis.onFast = onFast;', context);
+  vm.runInContext(roomHostSource + '\n' + evForSource + '\n' + onFastSource + '\nglobalThis.onFast = onFast;', context);
   const room = { clients: new Map() };
-  const add = (peer, realm, party = '') => { const c = { peer, realm, party, region: 'a', room, acct: { name: peer }, pos: { x: 0, z: 0 }, posT: now, evSeq: 0 }; room.clients.set(peer, c); return c; };
-  return { add, packets, kept, onFast: context.onFast, advance(ms) { now += ms; } };
+  const add = (peer, realm, party = '') => { const c = { peer, realm, party, since: now, slow: { on: 1, r: realm, pt: party, sharedScene: 1, realmManagement: 1, seasonField: 2, sharedCombat: 1, actorDevelopment: 1 }, region: 'a', room, acct: { id: 'account-' + peer, name: peer }, pos: { x: 0, z: 0 }, posT: now, evSeq: 0 }; room.clients.set(peer, c); humanPlay.update(c, { on: 1, humanLive: 1, humanActivity: 1 }); return c; };
+  return { add, packets, kept, pause: c => humanPlay.forget(c), onFast: context.onFast, advance(ms) { now += ms; } };
 }
 
 for (const kind of ['inv', 'pa', 'say']) {
@@ -117,6 +123,16 @@ test('actual server preserves invite target, realm/party chat scope and sequence
   s.advance(150); s.onFast(owner, { ...base, s: 2 });
   assert.deepEqual(eventsFor('target').map(e => e[0]), [1, 2, 3], 'repeated ring not a second delivery');
   assert.equal(s.kept.length, 1);
+});
+
+test('actual server rejects social and position traffic after the human lease ends', () => {
+  const s = server(), owner = s.add('owner', 0, 'party123');
+  s.add('target', 0, 'party123');
+  s.pause(owner);
+  s.onFast(owner, { s: 1, t: 10000, p: [0, 30, 0], y: 0,
+    ev: [[1, 'say', 0, ['r', 'idle traffic', '']]] });
+  assert.equal(s.packets.length, 0);
+  assert.equal(s.kept.length, 0);
 });
 
 test('social timer sends without any render pump, with changed party profile before fast event', () => {

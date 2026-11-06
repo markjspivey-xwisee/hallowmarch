@@ -407,3 +407,63 @@ function landAxe() {
     A.on = false; A.look = null;
   }
 }
+
+
+// Reconcile a canonical land image. The ordinary save loader is deliberately
+// additive at boot; live snapshots must first remove old terrain contributions.
+function landSharedApply(L, { restoreApplied = false } = {}) {
+  if (!NATURE.built) return;
+  const value = L && L.v === 1 ? L : { v: 1 };
+  for (const K of NATURE.craters) {
+    for (let j = K.j0; j <= K.j1; j++) for (let i = K.i0; i <= K.i1; i++) {
+      const v = K.d[(j - K.j0) * K.w + i - K.i0];
+      if (v) W.H[j * HN + i] -= v * K.k;
+    }
+    natTerrainUpdate(K.i0, K.j0, K.i1, K.j1);
+  }
+  NATURE.craters.length = 0;
+  const touched = new Set([...NATURE.dyn, ...NATURE.felled, ...(NATURE.growing || [])]);
+  for (const key of ['fel', 'grow', 'dyn']) for (const a of value[key] || []) {
+    const t = Array.isArray(a) && landTree(a[0]); if (t) touched.add(t);
+  }
+  for (const t of touched) {
+    if (t.logColl) { bCollRemove(t.logColl); t.logColl = null; }
+    t.felled = false; t.chopped = false; t.log = false; t.fall = null;
+    t.grow = 1; t.char = 0; t.leaf = 1; t.fire = 0; t.notch = 0; t.collapseAt = 0;
+    if (t.coll) { t.coll.stump = false; t.coll.r = t.collR || TREE_DIM[t.kind].r * t.s0; t.coll.h = 8; t.coll.active = true; }
+    natRelease(t);
+  }
+  NATURE.felled.length = 0; NATURE.growing = []; NATURE.dyn.length = 0;
+  for (const key of NATURE.tileKeys) {
+    const ti = (key % 32) * 32, tj = Math.floor(key / 32) * 32;
+    for (let j = 0; j < 32; j++) for (let i = 0; i < 32; i++) {
+      const at = natIdx(ti + i, tj + j) * 4; NAT.data.fill(0, at, at + 4);
+    }
+    natMark(ti, tj, ti + 31, tj + 31);
+  }
+  NATURE.tiles.clear(); NATURE.tileKeys.length = 0; NATURE.fire.clear(); NATURE.fireList.length = 0;
+  for (const p of NATURE.piles) {
+    if (p.coll) bCollRemove(p.coll);
+    for (let i = FIRES.length - 1; i >= 0; i--)
+      if (p.lit && Math.abs(FIRES[i].x - p.x) < 0.1 && Math.abs(FIRES[i].z - p.z) < 0.1 && FIRES[i].size === 0.85) FIRES.splice(i, 1);
+  }
+  NATURE.piles.length = 0;
+  const got = { craters: 0, felled: 0, grow: 0, dyn: 0, piles: 0, tiles: 0, fire: 0, houses: 0, walls: 0 };
+  landCraters(value.cr, got); landMap(value.map, value.fire, got); landTrees(value, got); landPiles(value.piles, got);
+  const hs = new Map((value.hs || []).filter(Array.isArray).map(a => [a[0], a]));
+  for (const H of HOUSES) {
+    const row = hs.get(H.num), code = row && row[1], current = LAND_HOUSE[H.state];
+    if (!row) { if (current) houseRestore(H); continue; }
+    if (code === current) {
+      H.stT = landNum(row[2], 0, 1e5) / 10; H.fall = landNum(row[7], 0, 99) / 100;
+      if (H.burn && code === 1) H.burn.R = landNum(row[4], 4, 1e4) / 10;
+    } else { houseRestore(H); landHouses([row], got); }
+  }
+  const walls = new Map((value.ws || []).filter(Array.isArray).map(a => [a[0] + ':' + a[1], a]));
+  CASTLES.forEach((C, ci) => (C.sections || []).forEach((wall, wi) => {
+    const row = walls.get(ci + ':' + wi);
+    if (!row && (wall.state !== 'whole' || wall.wear > 0)) castleRepairDone(wall, restoreApplied);
+    else if (row) { castleRepairDone(wall, restoreApplied); landWalls([row], got); }
+  }));
+  LAND.restored = { t: GAME.t, ...got };
+}

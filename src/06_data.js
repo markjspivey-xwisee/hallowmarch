@@ -2,8 +2,71 @@
 /* game data: classes, abilities, monsters, names, progression         */
 /* ================================================================== */
 const LEVEL_CAP = 50;
-// past 20, the frontier, the barrow and the dragon rise to meet the strongest of you
-function warLevel() { return clamp(GAME.prog ? GAME.prog.level : 20, 20, LEVEL_CAP); }
+// The shared realms develop through their work and battles, never a visitor's level.
+function worldDevelopmentView() {
+  if (typeof NETWS !== 'undefined' && NETWS.url) {
+    if (typeof NETS === 'undefined' || typeof netRealmSeasonProjectionFresh === 'function' && !netRealmSeasonProjectionFresh()) return null;
+    return NETS.s?.development || null;
+  }
+  return typeof SEASONP !== 'undefined' && SEASONP.rs && typeof realmDevelopmentView === 'function' ? realmDevelopmentView(SEASONP.rs) : null;
+}
+function warRealmLevel(realm) {
+  const level = worldDevelopmentView()?.realms?.[realm]?.level;
+  return Number.isInteger(level) ? clamp(level, 1, LEVEL_CAP) : 1;
+}
+function warLevel() { return Math.max(1, ...[0, 1, 2].map(warRealmLevel)); }
+function worldActorGrowthRead(value) {
+  if (!value || value.v !== 1 || value.base !== 1
+    || !Number.isFinite(value.xp) || value.xp < 0 || value.xp > 1e9
+    || !Number.isSafeInteger(value.kills) || value.kills < 0 || value.kills > 1e6) return null;
+  const skills = value.skills || {};
+  if (!skills || typeof skills !== 'object' || Array.isArray(skills)
+    || Object.keys(skills).some(k => !['woodcutting', 'mining', 'farming'].includes(k)
+      || !Number.isFinite(skills[k]) || skills[k] < 0 || skills[k] > 1e6)) return null;
+  return { v: 1, base: 1, xp: value.xp, kills: value.kills, ...(Object.keys(skills).length ? { skills: { ...skills } } : {}) };
+}
+function worldActorCanDevelop(e) {
+  return !!e && !e.bot && !e.tame && !['player', 'remote', 'bot', 'debug', 'test', 'companion', 'pet', 'animal', 'hound', 'door', 'engine'].includes(e.role)
+    && (e.kind === 'humanoid' || e.mobType || e.role === 'boss' || e.role === 'dungeonBoss');
+}
+function worldActorGrowthLevel(growth) {
+  let level = growth.base, xp = growth.xp;
+  while (level < LEVEL_CAP && xp >= xpToNext(level)) { xp -= xpToNext(level); level++; }
+  return level;
+}
+function worldActorDevelop(e) {
+  if (!worldActorCanDevelop(e)) return false;
+  e.growth = worldActorGrowthRead(e.growth) || { v: 1, base: 1, xp: 0, kills: 0 };
+  const level = worldActorGrowthLevel(e.growth);
+  if (level !== e.level) { e.level = level; if (typeof setupStats === 'function') setupStats(e, true); }
+  return true;
+}
+function worldActorExperience(killer, victim) {
+  const death = Number.isFinite(victim?.deadAt) ? victim.deadAt : GAME.t;
+  if (typeof netEntityCanSimulateWorld === 'function' && !netEntityCanSimulateWorld()
+    || !killer?.alive || !victim || victim.alive || victim.worldExperienceCredited === death || killer === victim
+    || !worldActorCanDevelop(killer) || !worldActorCanDevelop(victim) && !['player', 'remote'].includes(victim.role)
+    || killer.faction === victim.faction || victim.faction === 4 || victim.bot || victim.role === 'hound') return false;
+  if (!worldActorDevelop(killer)) return false;
+  victim.worldExperienceCredited = death;
+  const level = Math.max(1, Math.min(LEVEL_CAP, Number.isFinite(victim.level) ? victim.level : 1));
+  const points = Math.round(14 * level * (victim.role === 'boss' || victim.role === 'dungeonBoss' ? 3 : 1));
+  killer.growth.kills = Math.min(1e6, killer.growth.kills + 1);
+  return worldActorPractice(killer, 'combat', points);
+}
+function worldActorPractice(actor, activity, points) {
+  if (typeof netEntityCanSimulateWorld === 'function' && !netEntityCanSimulateWorld()
+    || !['combat', 'training', 'woodcutting', 'mining', 'farming'].includes(activity) || !Number.isFinite(points) || points <= 0 || points > 1e4
+    || !actor?.alive || !worldActorDevelop(actor)) return false;
+  if (['woodcutting', 'mining', 'farming'].includes(activity)) {
+    actor.growth.skills ||= {}; actor.growth.skills[activity] = Math.min(1e6, (actor.growth.skills[activity] || 0) + points);
+  } else actor.growth.xp = Math.min(1e9, actor.growth.xp + points);
+  worldActorDevelop(actor); return true;
+}
+function worldActorWorkRate(actor, skill) {
+  const experience = worldActorGrowthRead(actor?.growth)?.skills?.[skill] || 0;
+  return 1 + Math.min(0.25, experience / 400);
+}
 // every ten levels past 20 an ability grows a rank stronger
 const abilityRank = (lvl) => 1 + Math.floor(Math.max(0, lvl - 20) / 10);
 const rankMult = (lvl) => 1 + 0.12 * (abilityRank(lvl) - 1);

@@ -132,7 +132,8 @@ function hudLayout(dt) {
   const pfR = $('pf') && hudShown($('pf')) ? hudRect($('pf')) : { x: S.l + 12, y: top, w: 0, h: 0 };
   const rightCol = hudUnion(['#mmwrap', '#topright > .iconbtns'].map((s) => document.querySelector(s)).filter((e) => e && hudShown(e)).map(hudRect)) || { x: W - S.r - 12, y: top, w: 0, h: 0 };
   const inside = (r) => r.x >= S.l + 2 && r.y >= S.t + 2 && r.x + r.w <= W - S.r - 2 && r.y + r.h <= H - S.b - 2;
-  const free = (r) => inside(r) && !placed.some((p) => hudHit(p, r));
+  // Touch panels contain tap targets: keep their eight-pixel gap when placing them.
+  const free = (r) => inside(r) && !placed.some((p) => hudHit(p, r, touch ? 8 : 4));
   // the log on a desk keeps its corner, else stops short of what it would cover (the hotbar, the class panel, the
   // builder's bar), else rises over them (shorter: there is less room up there); with no room at all it waits
   // [v9] the class panel and the builder's bar are in the way too
@@ -265,7 +266,9 @@ function hudWatch() {
   if (els.length < 6) return; // (the HUD is not built yet)
   // (a size that changed by less than a pixel, a number in a panel ticking, is no change to its place)
   HUDL5.ro = new ResizeObserver((es) => { for (const en of es) { const r = en.contentRect, k = en.target, o = k._l5sz; if (!o || Math.abs(o[0] - r.width) > 0.75 || Math.abs(o[1] - r.height) > 0.75) { k._l5sz = [r.width, r.height]; HUDL5.dirty = true; HUDL5.why = (k.id || k.className) + ':size'; } } });
-  const noise = (m) => m.attributeName === 'class' && String(m.oldValue || '').replace(/\s*\bhl-[a-z]+\b/g, '').trim() === String(m.target.className || '').replace(/\s*\bhl-[a-z]+\b/g, '').trim();
+  const ownedClasses = new Set(['hl-compact', 'hl-off', 'hl-brief', 'hl-brief1', 'hl-old']);
+  const unownedClasses = (value) => String(value || '').split(/[\t\n\f\r ]+/).filter((token) => token && !ownedClasses.has(token)).join(' ');
+  const noise = (m) => m.attributeName === 'class' && unownedClasses(m.oldValue) === unownedClasses(m.target.className);
   HUDL5.mo = new MutationObserver((list) => { for (const m of list) if (m.type === 'childList' || !noise(m)) { HUDL5.dirty = true; HUDL5.why = (m.target.id || String(m.target.className).slice(0, 24)) + ':' + (m.attributeName || m.type); return; } });
   for (const el of els) {
     HUDL5.ro.observe(el);
@@ -287,6 +290,7 @@ const _npCn = [];
 function npSeen(e, d) {
   if (e._losT > renderTime) return e._los;
   e._losT = renderTime + 0.25 + Math.random() * 0.1;
+  if (towerSightBlocked(GAME.player, e)) return (e._los = false);
   const cx = camera.position.x, cy = camera.position.y, cz = camera.position.z;
   if (INDOOR.on) return (e._los = d < 30 && segmentClear(GAME.player.x, GAME.player.z, e.x, e.z, 0.1)); // under the barrow: solid rock
   const hy = e.y + 1.6 * (e.scale || 1);

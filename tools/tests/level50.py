@@ -45,11 +45,11 @@ window.T = {
     return e;
   },
   clearAround(x, z, r) { for (const e of this.H.ENT) if (e.alive && e.role !== 'player' && e.kind !== 'door' && Math.hypot(e.x - x, e.z - z) < r) { e.damagers = null; this.F.killEnt(e, null); this.F.removeEnt(e); } },
-  fresh(cls, lvl, realm = 0) {
+  async fresh(cls, lvl, realm = 0) {
     const H = this.H, F = this.F;
     for (const e of H.ENT.slice()) if (e.testFoe) { e.damagers = null; if (e.alive) F.killEnt(e, null); F.removeEnt(e); }
     if (H.GAME.player) F.newCharacter();
-    H.start({ realm, cls, level: lvl });
+    await H.start({ realm, cls, level: lvl });
     const P = H.GAME.player;
     const s = this.spot(P);
     H.teleport(s.x, s.z);
@@ -78,7 +78,7 @@ async def main():
         await page.evaluate("() => {" + HELPERS + "; return 0; }")  # a function, so Playwright does not serialise __hm back
 
         # ---- scaling: a level 35 player meets a level 35 frontier ----
-        r = await ev(page, 'scaling', """(() => { const H = __hm, F = H.fn; H.start({ realm: 0, cls: 'warrior', level: 35 }); const P = H.GAME.player;
+        r = await ev(page, 'scaling', """(async () => { const H = __hm, F = H.fn; await H.start({ realm: 0, cls: 'warrior', level: 35 }); const P = H.GAME.player;
           const keeps = H.WAR.keeps.map((K) => ({ door: [K.door.level, Math.round(K.door.maxHp)], lord: (F.getEnt(K.lord) || {}).level, guards: [...K.guards].map((id) => F.getEnt(id)).filter(Boolean).map((g) => g.level) }));
           const temples = H.WAR.temples.map((T) => ({ door: [T.door.level, Math.round(T.door.maxHp)], guardians: [...T.guardians].map((id) => F.getEnt(id)).filter(Boolean).map((g) => g.level) }));
           const king = F.getEnt(H.BARROW_STATE.king), warden = F.getEnt(H.BARROW_STATE.warden);
@@ -101,7 +101,7 @@ async def main():
         check(r['n'] == sum(len(x) for x in r['per']), 'every borderland camp has its champion')
 
         # ---- warrior: whirlwind and leap strike ----
-        r = await ev(page, 'whirl', """(() => { const P = T.fresh('warrior', 35); const H = T.H, F = T.F;
+        r = await ev(page, 'whirl', """(async () => { const P = await T.fresh('warrior', 35); const H = T.H, F = T.F;
           const foes = [0, 2.1, 4.2].map((a) => T.foe(1, P.x + Math.sin(a) * 2.6, P.z + Math.cos(a) * 2.6, 33));
           const hp0 = foes.map((f) => f.hp), yaw0 = P.yaw;
           const why = F.useAbility(P, 'whirl', null);
@@ -115,7 +115,7 @@ async def main():
         await shot(page, 'l50_whirl', """(() => { const H = T.H, F = T.F, P = H.GAME.player; P.cds = {}; P.power = P.maxPower; F.useAbility(P, 'whirl', null); H.simulate(0.36); """ + CAM + """(3.6, 2.2, 5.4, 1.0); })()""")
         await page.evaluate("T.H.UI.modal = null; T.H.CAM.mode = 'play'")
 
-        r = await ev(page, 'leap', """(() => { const P = T.fresh('warrior', 35); const H = T.H, F = T.F;
+        r = await ev(page, 'leap', """(async () => { const P = await T.fresh('warrior', 35); const H = T.H, F = T.F;
           const tx = P.x + Math.sin(P.yaw) * 14, tz = P.z + Math.cos(P.yaw) * 14;
           const t = T.foe(1, tx, tz, 33); P.target = t.id; const g0 = P.y, hp0 = t.hp;
           const why = F.useAbility(P, 'leap', t);
@@ -131,7 +131,7 @@ async def main():
         await page.evaluate("T.H.UI.modal = null; T.H.CAM.mode = 'play'")
 
         # ---- archer: fire arrow and deadeye ----
-        r = await ev(page, 'archer', """(() => { const P = T.fresh('archer', 35); const H = T.H, F = T.F;
+        r = await ev(page, 'archer', """(async () => { const P = await T.fresh('archer', 35); const H = T.H, F = T.F;
           const t = T.foe(1, P.x + Math.sin(P.yaw) * 20, P.z + Math.cos(P.yaw) * 20, 33); t.maxHp *= 4; t.hp = t.maxHp; P.target = t.id;
           const hp0 = t.hp; F.useAbility(P, 'firearrow', t); H.simulate(0.8);
           const burning = t.buffs.some((b) => b.kind === 'burn'), hp1 = t.hp; H.simulate(3.0); const hp2 = t.hp;
@@ -146,7 +146,7 @@ async def main():
         await page.evaluate("T.H.UI.modal = null; T.H.CAM.mode = 'play'")
 
         # ---- mage: chain lightning and blizzard ----
-        r = await ev(page, 'mage', """(() => { const P = T.fresh('mage', 35); const H = T.H, F = T.F;
+        r = await ev(page, 'mage', """(async () => { const P = await T.fresh('mage', 35); const H = T.H, F = T.F;
           const fx = Math.sin(P.yaw), fz = Math.cos(P.yaw), sx = Math.cos(P.yaw), sz = -Math.sin(P.yaw);
           const foes = [[16, 0], [19, 4], [21, -4], [24, 1]].map(([f, s]) => T.foe(1, P.x + fx * f + sx * s, P.z + fz * f + sz * s, 33));
           foes.forEach((f) => { f.maxHp *= 4; f.hp = f.maxHp; });
@@ -171,7 +171,7 @@ async def main():
         await page.evaluate("T.H.UI.modal = null; T.H.CAM.mode = 'play'")
 
         # ---- priest: pillar of dawn and mass renewal ----
-        r = await ev(page, 'priest', """(() => { const P = T.fresh('priest', 35); const H = T.H, F = T.F;
+        r = await ev(page, 'priest', """(async () => { const P = await T.fresh('priest', 35); const H = T.H, F = T.F;
           const fx = Math.sin(P.yaw), fz = Math.cos(P.yaw);
           const foe = T.foe(1, P.x + fx * 14, P.z + fz * 14, 33); foe.maxHp *= 4; foe.hp = foe.maxHp; foe.swingAt = 1e9; foe.ai.nextAbility = 1e9; // ([v14] the foe holds its blows: striking the friend beside it, it took more than the column gave back now and then)
           const ally = T.foe(0, P.x + fx * 13 + 1.5, P.z + fz * 13 - 1.0, 33); ally.hp = ally.maxHp * 0.4;

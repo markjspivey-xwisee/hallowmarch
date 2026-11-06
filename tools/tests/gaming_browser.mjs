@@ -88,7 +88,7 @@ try {
     }
     if (fullPage && name === 'alice') {
       await page.waitForFunction(() => window.__hm?.ready, undefined, { timeout: 180000 });
-      await page.evaluate(() => { window.__hm.fn.setQuality('low'); window.__hm.start({ name: 'Alice', realm: 0 }); });
+      await page.evaluate(async () => { window.__hm.fn.setQuality('low'); await window.__hm.start({ name: 'Alice', realm: 0 }); });
     }
     await page.waitForFunction(() => window.__hm.gaming.enabled && document.querySelector('#gaming-sheet').hidden === false);
     await page.locator('#gaming-enter').click();

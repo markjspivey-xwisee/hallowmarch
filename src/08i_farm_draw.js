@@ -802,8 +802,18 @@ function drawFarming(dt) {
   const ctx = FARM.ctx;
   farmUpdateOutline(ctx && ctx.type === 'till' && GAME.started && !UI.modal && PL && PL.alive ? ctx.T : null);
 }
+// A leaf on a dark diamond: vector strokes keep the service readable without a font glyph.
+function drawFarmSellerIcon(ctx, x, y, size) {
+  ctx.save(); ctx.translate(x, y); ctx.scale(size, size);
+  ctx.globalAlpha = 1; ctx.lineWidth = 0.16; ctx.lineJoin = 'round';
+  ctx.fillStyle = '#122019'; ctx.strokeStyle = '#c8e7a4';
+  ctx.beginPath(); ctx.moveTo(0, -1); ctx.lineTo(1, 0); ctx.lineTo(0, 1); ctx.lineTo(-1, 0); ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(-0.45, 0.5); ctx.bezierCurveTo(-0.45, -0.3, 0.1, -0.65, 0.65, -0.65);
+  ctx.bezierCurveTo(0.6, 0.15, 0.1, 0.55, -0.45, 0.5); ctx.lineTo(0.2, -0.15); ctx.stroke();
+  ctx.restore();
+}
 // the farms on the maps: beds and strips as small patches in their crop's colour
-function drawFarmMap(ctx, toXY, k) {
+function drawFarmMap(ctx, toXY, k, sellers = true) {
   for (const P of FARM.plots) {
     const [x, y] = toXY(P.x, P.z);
     const T = P.stand;
@@ -816,10 +826,19 @@ function drawFarmMap(ctx, toXY, k) {
     ctx.restore();
   }
   ctx.globalAlpha = 1;
+  if (sellers) for (const id of FARM.farmers) {
+    const e = getEnt(id); if (!farmSeedSeller(e)) continue;
+    const [x, y] = toXY(e.x, e.z); drawFarmSellerIcon(ctx, x, y, Math.max(6, WSIZE * k * 0.018));
+  }
 }
 function farmMapSide() {
   const P = GAME.player, t = P ? farmTempAt(P.x, P.z) : SEASON.temp;
   const own = FARM.plots.filter((Q) => Q.own === 'p');
   const ripe = own.filter((Q) => Q.plants.some((q) => q && !q.dead && q.g >= 1)).length;
-  return `<p class="farmside"><b>${esc(seasonLabel())}</b> · ${Math.round(t)}°C${own.length ? ` · ${own.length} bed${own.length === 1 ? '' : 's'}${ripe ? `, ${ripe} ripe` : ''}` : ''}</p>`;
+  const seller = P && FARM.farmers.map(getEnt).find((e) => farmSeedSeller(e) && e.farmTown === P.faction);
+  const d = seller ? dist(P.x, P.z, seller.x, seller.z) : 0;
+  const where = seller ? d < 1 ? 'Less than 1 m away' : `${Math.round(d)} m ${GUIDE_DIRS[Math.round(Math.atan2(seller.x - P.x, P.z - seller.z) / TAU * 8 + 8) % 8]}` : '';
+  const leaf = '<svg width="18" height="18" viewBox="-1.2 -1.2 2.4 2.4" aria-hidden="true" style="flex:none" fill="#122019" stroke="#c8e7a4" stroke-width=".16" stroke-linejoin="round"><path d="M 0 -1 L 1 0 L 0 1 L -1 0 Z"/><path fill="none" d="M -0.45 0.5 C -0.45 -0.3 0.1 -0.65 0.65 -0.65 C 0.6 0.15 0.1 0.55 -0.45 0.5 L 0.2 -0.15"/></svg>';
+  return `<p class="farmside"><b>${esc(seasonLabel())}</b> · ${Math.round(t)}°C${own.length ? ` · ${own.length} bed${own.length === 1 ? '' : 's'}${ripe ? `, ${ripe} ripe` : ''}` : ''}</p>
+    <div class="legend"><span>${leaf}Seeds &amp; tools</span></div>${seller ? `<p class="farmside"><b>${esc(seller.name)}</b><br>${esc(where)} · current location</p>` : ''}`;
 }

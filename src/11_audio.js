@@ -259,6 +259,7 @@ function updateAudio(dt) {
   }
 }
 document.addEventListener('visibilitychange', () => {
+  if (document.hidden) musicImpulsePrepareCancel();
   if (!AUDIO.ctx) return;
   if (document.hidden) AUDIO.ctx.suspend?.();
   else if (AUDIO.on) AUDIO.ctx.resume?.();

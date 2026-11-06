@@ -1,0 +1,73 @@
+name: Desktop graphics recovery
+on:
+  pull_request:
+    paths:
+      - src/02_render.js
+      - src/05i_aurora.js
+      - src/13_main.js
+      - src/13p_perf.js
+      - src/13y_gpu_diagnostic.js
+      - src/13o_title_compile.js
+      - tools/tests/startup_graphics.mjs
+      - tools/tests/aurora_visibility.mjs
+      - tools/tests/startup_graphics.py
+      - tools/tests/gpu_diagnostic.mjs
+      - tools/tests/title_compile.test.mjs
+      - .github/workflows/desktop-graphics.yml
+permissions:
+  contents: read
+concurrency:
+  group: desktop-graphics-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  desktop-graphics:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Use bounded Ubuntu archive downloads
+        run: |
+          sudo python3 - <<'PY'
+          from pathlib import Path
+          import re
+          apt_root = Path('/etc/apt')
+          sources = [apt_root / 'sources.list']
+          sources += list((apt_root / 'sources.list.d').glob('*.list'))
+          sources += list((apt_root / 'sources.list.d').glob('*.sources'))
+          sources += list(apt_root.glob('apt-mirrors*.txt'))
+          azure = re.compile(r'https?://azure\.archive\.ubuntu\.com/ubuntu(?=/|\s|$)')
+          for source in sources:
+              if not source.is_file():
+                  continue
+              original = source.read_text()
+              updated = azure.sub('https://archive.ubuntu.com/ubuntu', original)
+              if updated != original:
+                  source.write_text(updated)
+                  print('Using the official Ubuntu archive in', source)
+          (apt_root / 'apt.conf.d' / '99-hallowmarch-ci').write_text(
+              'Acquire::Retries "1";\nAcquire::http::Timeout "20";\nAcquire::https::Timeout "20";\n')
+          PY
+      - name: Install graphics test dependencies
+        run: |
+          npm ci --prefix tools
+          npm ci --prefix server
+          python -m pip install playwright==1.55.0 Pillow==11.3.0
+          python -m playwright install --with-deps chromium
+      - name: Build and lint the actual page
+        run: bash tools/lint.sh 80
+      - name: Verify recovery choice and frozen title isolation
+        run: node --test tools/tests/aurora_visibility.mjs tools/tests/startup_graphics.mjs tools/tests/title_compile.test.mjs tools/tests/gpu_diagnostic.mjs tools/tests/idle_client_network.test.mjs
+      - name: Verify visible title pixels, GPU completion and context loss in software rendering
+        run: python tools/tests/startup_graphics.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: desktop-graphics-evidence
+          path: tools/out/
+          retention-days: 14

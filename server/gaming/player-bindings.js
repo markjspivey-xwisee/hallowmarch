@@ -96,8 +96,17 @@ export function createPlayerBindingLedger({ store, now = Date.now, streamId = 'p
     if (!Number.isFinite(Date.parse(verifiedAt)) || new Date(verifiedAt).toISOString() !== verifiedAt) fail('Invalid owner verification time.');
     const issuer = url(value.issuer, 'identity issuer');
     if (issuer.protocol !== 'https:') fail('Identity issuer requires HTTPS.');
-    return { subjectDid, webId, userId, podUrl: bases[0].href + userId + '/', authenticatedAgentDid,
+    const result = { subjectDid, webId, userId, podUrl: bases[0].href + userId + '/', authenticatedAgentDid,
       verifiedAt, issuer: issuer.href, verificationMethod: text(value.verificationMethod, 'verification method', 128) };
+    if (value.provisional !== undefined) {
+      if (value.provisional !== true || !/^[A-Za-z0-9_-]{43}$/.test(value.proofKeyThumbprint || '')
+        || !Array.isArray(value.capabilities) || !equal(value.capabilities, ['human-play', 'own-pod-checkpoint'])
+        || typeof value.expiresAt !== 'string' || !Number.isFinite(Date.parse(value.expiresAt))
+        || new Date(Date.parse(value.expiresAt)).toISOString() !== value.expiresAt) fail('Invalid provisional owner binding.');
+      Object.assign(result, { provisional: true, proofKeyThumbprint: value.proofKeyThumbprint,
+        expiresAt: value.expiresAt, capabilities: ['human-play', 'own-pod-checkpoint'] });
+    }
+    return result;
   }
   function accountIdOf(value) { return text(value, 'game account ID', 256); }
   function summaryOf(value, accountId) {
@@ -127,11 +136,12 @@ export function createPlayerBindingLedger({ store, now = Date.now, streamId = 'p
       || Object.keys(value).some(key => !['schema', 'bindings'].includes(key))) fail('Native participation state is malformed.');
     const accounts = new Set(), dids = new Set();
     const bindings = value.bindings.map(entry => {
-      if (!plain(entry) || Object.keys(entry).some(key => !['accountId', 'binding', 'accountSummary', 'records'].includes(key))) fail('Native participation entry is malformed.');
+      if (!plain(entry) || Object.keys(entry).some(key => !['accountId', 'binding', 'accountSummary', 'records', 'claim'].includes(key))) fail('Native participation entry is malformed.');
       const accountId = accountIdOf(entry.accountId), binding = bindingOf(entry.binding);
       if (!equal(entry.binding, binding) || accounts.has(accountId) || dids.has(binding.subjectDid)) fail('Native participation ownership is ambiguous.');
       accounts.add(accountId); dids.add(binding.subjectDid);
       const result = { accountId, binding };
+      if (entry.claim !== undefined) result.claim = claimOf(entry.claim);
       const accountSummary = summaryOf(entry.accountSummary, accountId);
       if (accountSummary !== undefined) {
         if (!equal(accountSummary, entry.accountSummary)) fail('Native public account summary is malformed.');
@@ -146,6 +156,16 @@ export function createPlayerBindingLedger({ store, now = Date.now, streamId = 'p
       return result;
     });
     return { schema: SCHEMA, bindings };
+  }
+  function claimOf(value) {
+    if (!plain(value) || Object.keys(value).some(key => !['sourceDid', 'sourceKeyThumbprint', 'targetDid', 'targetAccountId', 'operationId', 'recordedAt', 'pointerDigest'].includes(key))
+      || !/^[A-Za-z0-9_-]{43}$/.test(value.sourceKeyThumbprint || '') || !/^[a-f0-9]{64}$/.test(value.pointerDigest || '')) fail('Invalid provisional claim marker.');
+    const result = { sourceDid: text(value.sourceDid, 'claim source DID', 512), sourceKeyThumbprint: value.sourceKeyThumbprint,
+      targetDid: text(value.targetDid, 'claim target DID', 512), targetAccountId: accountIdOf(value.targetAccountId),
+      operationId: operation(value.operationId), recordedAt: text(value.recordedAt, 'claim time', 32), pointerDigest: value.pointerDigest };
+    if (!result.sourceDid.startsWith('did:') || !result.targetDid.startsWith('did:') || !Number.isFinite(Date.parse(result.recordedAt))
+      || new Date(result.recordedAt).toISOString() !== result.recordedAt || !equal(result, value)) fail('Invalid provisional claim marker.');
+    return result;
   }
   function snapshotOf(value) {
     if (!plain(value) || !Number.isSafeInteger(value.version) || value.version < 0
@@ -227,6 +247,8 @@ export function createPlayerBindingLedger({ store, now = Date.now, streamId = 'p
     const recordedAt = timestamp();
     return mutate('bind', operationId, signal, (state, version) => {
       const requested = state.bindings.find(entry => entry.accountId === accountId);
+      if (binding.provisional && ((requested?.binding.provisional && requested.claim)
+        || state.bindings.some(entry => entry.claim?.sourceDid === binding.subjectDid))) fail('Provisional owner was already claimed.', 'PROVISIONAL_OWNER_CLAIMED', 409);
       if (requested && requested.binding.subjectDid !== binding.subjectDid) fail('Game account already belongs to another native identity.', 'PLAYER_BINDING_CONFLICT', 409);
       const existing = state.bindings.find(entry => entry.binding.subjectDid === binding.subjectDid);
       if (existing) return { result: { accountId: existing.accountId, binding: copy(existing.binding), restored: existing.accountId !== accountId, version } };
@@ -256,9 +278,64 @@ export function createPlayerBindingLedger({ store, now = Date.now, streamId = 'p
         confirm: persisted => equal(persisted.bindings.find(item => item.accountId === accountId)?.records.character, pointer) };
     });
   }
+  /** Trusted claim port. Both owner proofs and personal checkpoint readback are
+   * checked by the host first; this CAS commits the public transition atomically.
+   * Source retirement prevents an old guest key becoming a second live owner. */
+  async function promoteProvisional(sourceAccountId, sourceDid, value, record, { operationId, expectedTargetRecord = null,
+    checkpointDigest = '', signal } = {}) {
+    accountIdOf(sourceAccountId); text(sourceDid, 'claim source DID', 512); operation(operationId);
+    const binding = bindingOf(value), recordedAt = timestamp();
+    if (binding.provisional) fail('A canonical owner is required.');
+    if (checkpointDigest && !/^[a-f0-9]{64}$/.test(checkpointDigest)) fail('Invalid checkpoint acknowledgement.');
+    const pointer = pointerOf(record, binding), pointerDigest = hash(canonical(pointer) + ':' + checkpointDigest);
+    return mutate('claim', operationId, signal, (state, version) => {
+      const prior = state.bindings.find(entry => entry.claim?.operationId === operationId);
+      if (prior) {
+        const marker = prior.claim, target = state.bindings.find(entry => entry.accountId === marker.targetAccountId);
+        if (marker.sourceDid !== sourceDid || marker.targetDid !== binding.subjectDid || marker.pointerDigest !== pointerDigest
+          || target?.binding.subjectDid !== binding.subjectDid) fail('Claim operation changed.', 'IDEMPOTENCY_CONFLICT', 409);
+        return { result: { accountId: target.accountId, binding: copy(target.binding), pointer: copy(pointer), restored: target.accountId !== sourceAccountId, version } };
+      }
+      const source = state.bindings.find(entry => entry.accountId === sourceAccountId);
+      if (!source || source.binding.subjectDid !== sourceDid || source.binding.provisional !== true || source.claim) fail('Unclaimed provisional owner is required.', 'PLAYER_BINDING_CONFLICT', 409);
+      const target = state.bindings.find(entry => entry.binding.subjectDid === binding.subjectDid);
+      if ((target?.binding.provisional && target !== source) || target?.claim?.sourceDid === sourceDid) fail('Canonical claim target is unavailable.', 'PLAYER_BINDING_CONFLICT', 409);
+      const existingPointer = target?.records.character ?? null;
+      if (!equal(existingPointer, expectedTargetRecord)) fail('Canonical character changed during claim.', 'CLAIM_TARGET_CHANGED', 409);
+      if (existingPointer && !equal(existingPointer, pointer)) fail('Existing canonical character must be preserved.', 'CLAIM_CHARACTER_CONFLICT', 409);
+      const targetAccountId = target?.accountId ?? sourceAccountId;
+      const marker = claimOf({ sourceDid, sourceKeyThumbprint: source.binding.proofKeyThumbprint, targetDid: binding.subjectDid,
+        targetAccountId, operationId, recordedAt, pointerDigest });
+      const next = copy(state), retired = next.bindings.find(entry => entry.accountId === sourceAccountId);
+      retired.claim = marker;
+      if (target && target !== source) next.bindings.find(entry => entry.accountId === targetAccountId).records.character = pointer;
+      else { retired.binding = binding; retired.records = { character: pointer }; }
+      return { state: next, event: { kind: 'provisional-player-claimed', sourceDid, targetDid: binding.subjectDid, targetAccountId, pointerDigest, recordedAt },
+        result: { accountId: targetAccountId, binding: copy(target && target !== source ? target.binding : binding), pointer: copy(pointer), restored: targetAccountId !== sourceAccountId },
+        confirm: persisted => persisted.bindings.some(entry => equal(entry.claim, marker))
+          && equal(persisted.bindings.find(entry => entry.accountId === targetAccountId)?.records.character, pointer) };
+    });
+  }
+  /** Read-only reconciliation of an already confirmed claim. It never replays
+   * a promotion or depends on a process-local OAuth ceremony. */
+  async function recoverProvisionalClaim(operationId, record, checkpointDigest) {
+    operation(operationId);
+    if (!/^[a-f0-9]{64}$/.test(checkpointDigest || '')) fail('Invalid checkpoint acknowledgement.');
+    const current = await refresh();
+    const source = current.state.bindings.find(entry => entry.claim?.operationId === operationId);
+    if (!source) return null;
+    const marker = source.claim;
+    const target = current.state.bindings.find(entry => entry.accountId === marker.targetAccountId);
+    if (!target || target.binding.provisional || target.binding.subjectDid !== marker.targetDid) fail('Claim target changed.', 'IDEMPOTENCY_CONFLICT', 409);
+    const pointer = pointerOf(record, target.binding);
+    if (hash(canonical(pointer) + ':' + checkpointDigest) !== marker.pointerDigest) fail('Claim operation changed.', 'IDEMPOTENCY_CONFLICT', 409);
+    return { accountId: target.accountId, binding: copy(target.binding), pointer: copy(pointer),
+      sourceAccountId: source.accountId, marker: copy(marker), version: current.version };
+  }
   return Object.freeze({ ready, get enabled() { return configured && healthy; }, refresh,
     status: () => ({ configured, ready: healthy, version: healthy ? snapshot.version : null,
       bindings: healthy ? snapshot.state.bindings.length : 0, error: lastError?.code ?? null }),
     bindingForAccount: accountId => lookup(entry => entry.accountId === accountId),
-    bindingForDid: did => lookup(entry => entry.binding.subjectDid === did), bindVerified, linkRecord });
+    bindingForDid: did => lookup(entry => entry.binding.subjectDid === did), bindVerified, linkRecord, promoteProvisional, recoverProvisionalClaim });
 }
+

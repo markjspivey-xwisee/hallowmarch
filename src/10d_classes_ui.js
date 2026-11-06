@@ -47,7 +47,7 @@ function classHotbar() {
   const tech = tp.querySelector('.cls-btn.tech'), hold = tp.querySelector('.cls-btn.hold');
   tech.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); classTechniqueUI(); });
   hold.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); try { hold.setPointerCapture(e.pointerId); } catch (err) { /* synthetic */ } classHold(true, 'touch'); hold.classList.add('on'); });
-  const up = (e) => { e.preventDefault(); if (CLS.holdSrc === 'touch') classHold(false); hold.classList.remove('on'); };
+  const up = (e) => { e.preventDefault(); if (CLS.holdSrc === 'touch') classHold(false, e.type === 'pointerup' ? 'touch' : 'cancel'); hold.classList.remove('on'); };
   hold.addEventListener('pointerup', up); hold.addEventListener('pointercancel', up); hold.addEventListener('lostpointercapture', up);
   UI.slots = (UI.slots || []).filter((s) => !s.classList.contains('cls-btn'));
 }
@@ -180,15 +180,13 @@ function classHUD(dt) {
 
 /* ---- keys: T the technique, X held for the shield, the draw or prayer, Y the arrows ---- */
 window.addEventListener('keydown', (e) => {
-  if (!GAME.started || UI.modal) return;
-  const a = document.activeElement;
-  if (a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA')) return;
+  if (!GAME.started || UI.modal || typing() || gameplayKeyIgnored(e) || e.defaultPrevented) return;
   if (e.code === 'KeyX' && !e.repeat) classHold(true, 'key');
   else if (e.code === 'KeyT' && !e.repeat) classTechniqueUI();
   else if (e.code === 'KeyY' && !e.repeat) cycleArrow(GAME.player);
 });
 window.addEventListener('keyup', (e) => { if (e.code === 'KeyX' && CLS.holdSrc === 'key') classHold(false); });
-window.addEventListener('blur', () => { if (CLS.hold) classHold(false); });
+window.addEventListener('blur', () => { if (CLS.hold) classHold(false, 'cancel'); });
 
 /* ---- the help screen's lines for the callings ---- */
 function classHelpKeys() {

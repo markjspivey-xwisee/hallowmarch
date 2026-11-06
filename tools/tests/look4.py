@@ -140,7 +140,7 @@ async def main():
     async with async_playwright() as p:
         b, page, logs = await setup(p, 960, 540)
         print(f'booted [{time.time() - T0:.0f}s]', flush=True)
-        await page.evaluate("__hm.start({realm:0, cls:'warrior', level:30}); 0")
+        await page.evaluate("(async () => { await __hm.start({realm:0, cls:'warrior', level:30}); return 0; })()")
         await page.evaluate(VIEWS_JS.read_text() + '\n;0')
         await page.evaluate("LK.boot(); 0")
         await page.evaluate(T4)

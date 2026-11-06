@@ -17,7 +17,9 @@ function client(name = 'observer', realm = 0) {
   let now = 10000;
   const fast = [], slow = [], errors = [];
   const look = () => ({ tabard: [0.5, 0.6, 0.7], armor: [0.4, 0.4, 0.4], skin: 0.2, hair: 0.2, mask: 3, flags: 0, scale: 1, outfit: 0, emblem: 3, fem: 0, bulk: 0 });
-  const context = vm.createContext({ console, Map, Set, Math, Number, Object, Array, JSON, Date,
+  const context = vm.createContext({
+    // This transport fixture represents an already live human; lease/idle behavior has dedicated integration tests.
+    netHumanSync() {}, netHumanLive: () => true, NET_HUMAN_PLAY: { activity: 1 }, console, Map, Set, Math, Number, Object, Array, JSON, Date,
     performance: { now: () => now }, NETWS: { acct: { id: name }, generation: 1, ws: {} }, UI: { modal: null },
     window: {}, TAU: Math.PI * 2, LEVEL_CAP: 60, WB: { torch: 1 << 20, beater: 1 << 21, hammer: 1 << 22, cape: 1 << 5 },
     CLASSES: { warrior: {}, mage: {}, archer: {}, priest: {} }, WAR_LEVEL_OFF: {}, DRAGON: { e: null }, WAR: { keeps: [] },

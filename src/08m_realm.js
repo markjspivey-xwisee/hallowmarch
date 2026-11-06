@@ -80,7 +80,7 @@ function rsmGeo() {
   for (let r = 0; r < 3; r++) {
     const a = (brg[r] * Math.PI) / 180, dx = Math.sin(a), dz = -Math.cos(a), px = -dz, pz = dx;
     const at = (al, lat) => [dx * al + px * lat, dz * al + pz * lat];
-    P.keep.push(at(118, -64), at(118, 64));
+    P.keep.push(at(118, 64), at(118, -64));
     P.temple.push(at(170, 0));
     P.muster.push(at(214, 0));
   }
@@ -88,6 +88,52 @@ function rsmGeo() {
 }
 const RSM_GEO = rsmGeo();
 const rsmDist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
+
+// Development is earned by completed work, paid training and resolved combat.
+// It is independent of the season clock and every player's private level.
+function realmDevelopmentLevel(xp) {
+  let level = 1, left = Math.max(0, Math.min(1e9, Number.isFinite(xp) ? xp : 0));
+  while (level < 50) { const need = Math.round(55 * Math.pow(level, 1.55) + 40); if (left < need) break; left -= need; level++; }
+  return level;
+}
+function realmDevelopmentTotal(sources) {
+  return Math.min(1e9, ['training', 'work', 'combat'].reduce((sum, key) => sum + sources[key], 0));
+}
+function realmDevelopmentInit(RS, saved) {
+  if (saved === undefined && RS.development?.v === 1) return RS.development;
+  const valid = saved?.v === 1 && Array.isArray(saved.realms) && saved.realms.length === 3;
+  RS.development = { v: 1, revision: valid ? Math.floor(rsmNum(saved.revision, 0, 0, 1e12)) : 0,
+    realms: [0, 1, 2].map(r => {
+      const row = valid ? saved.realms[r] : null;
+      const sources = Object.fromEntries(['training', 'work', 'combat'].map(k => [k, rsmNum(row?.sources?.[k], 0, 0, 1e9)]));
+      const total = realmDevelopmentTotal(sources), prior = rsmNum(row?.xp, total, 0, 1e9);
+      // Retained records from earlier addition order remain byte-exact; large
+      // discrepancies are invalid totals and are rebuilt from earned sources.
+      const tolerance = Math.max(1e-8, total * Number.EPSILON * 1024);
+      return { xp: Math.abs(prior - total) <= tolerance ? prior : total, sources };
+    }) };
+  return RS.development;
+}
+function realmDevelopmentEarn(RS, realm, source, points) {
+  if (!RS || !Number.isInteger(realm) || realm < 0 || realm > 2
+    || !['training', 'work', 'combat'].includes(source) || !Number.isFinite(points) || points <= 0 || points > 1e5) return false;
+  const development = realmDevelopmentInit(RS), row = development.realms[realm];
+  const earned = Math.min(points, 1e9 - row.xp, 1e9 - row.sources[source]);
+  if (!(earned > 0)) return false;
+  row.sources[source] += earned;
+  row.xp = Math.max(row.xp, realmDevelopmentTotal(row.sources));
+  development.revision = Math.min(1e12, development.revision + 1);
+  return true;
+}
+function realmDevelopmentFed(RS, realm) {
+  const R = RS.realms[realm], M = R?.management;
+  return !!R && R.hungry <= 2 && (!M || M.needs?.bread > 0 && M.stock?.bread > 0);
+}
+function realmDevelopmentView(RS) {
+  const development = RS.development || { v: 1, revision: 0, realms: [0, 1, 2].map(() => ({ xp: 0, sources: { training: 0, work: 0, combat: 0 } })) };
+  return { v: 1, revision: development.revision, realms: development.realms.map((row, realm) =>
+    ({ realm, level: realmDevelopmentLevel(row.xp), xp: Math.floor(row.xp), sources: { ...row.sources } })) };
+}
 
 function realmSimInit(seed, opts = {}) {
   const days = rsmNum(opts.days, RSM.days, 0.01, 400);
@@ -109,11 +155,13 @@ function realmSimInit(seed, opts = {}) {
     log: [], past: [],
     stats: { captures: 0, sieges: 0, relief: 0, raids: 0, battles: 0 },
   };
+  realmDevelopmentInit(RS, null);
   if (opts.names && Array.isArray(opts.names.realms)) RS.names.realms = opts.names.realms.slice(0, 3).map(String);
   if (opts.names && Array.isArray(opts.names.keeps)) RS.names.keeps = opts.names.keeps.slice(0, homes.length).map(String);
   RS.names.realms = RS.names.realms.map((s) => s.slice(0, 40));
   RS.names.keeps = RS.names.keeps.map((s) => s.slice(0, 60));
   rsmLog(RS, -1, `The ${rsmOrd(RS.n)} season of the March begins: ${Math.round(days)} days, the muster first (${rsmDur(RS.len * RSM.muster)}). Raise your stores, build and train: no keep can fall until the war.`);
+  if (typeof realmManageInit === 'function') realmManageInit(RS);
   return RS;
 }
 const RSM_ORD = ['zeroth', 'first', 'second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth', 'ninth', 'tenth'];
@@ -162,6 +210,7 @@ function rsmSub(RS, dt) {
   const ph = rsmPhaseOf(RS);
   if (ph !== RS.phase) rsmPhase(RS, RS.phase, ph);
   if (RS.t >= RS.len) { rsmNewSeason(RS); return; }
+  if (typeof realmManageStep === 'function') realmManageStep(RS, dt);
   for (let r = 0; r < 3; r++) {
     const R = RS.realms[r];
     if (!RS.live) rsmEconomy(RS, r, R, hr);
@@ -187,6 +236,8 @@ function rsmNewSeason(RS) {
   const rec = { n: RS.n, w: RS.winner != null ? RS.winner : [0, 1, 2].sort((a, b) => RS.realms[b].sp - RS.realms[a].sp)[0], sp: RS.realms.map((R) => Math.round(R.sp)), keeps: RS.keeps.map((K) => K.h), end: Math.round(RS.t0 / 1000 + RS.t) };
   RS.past.push(rec);
   while (RS.past.length > 12) RS.past.shift();
+  // Settlement infrastructure persists across military seasons; diplomatic deadlines reset with the season clock.
+  if (RS.management) { RS.management.offers = []; for (const p of RS.management.relations) { p.treaty = 'war'; p.expires = 0; } RS.management.revision++; }
   RS.n++; RS.t = 0; RS.phase = 'muster'; RS.winner = null; RS.armies = []; RS.offs = [];
   RS.t0 += RS.len * 1000;
   if (RS.nextLen) { RS.len = RS.nextLen; RS.nextLen = 0; } // (a length chosen for the next season)
@@ -204,12 +255,13 @@ function rsmNewSeason(RS) {
 function rsmEconomy(RS, r, R, hr) {
   const land = rsmLandK(RS, r), up = 1 + RSM.catchUp * rsmBehind(RS, r);
   for (let g = 0; g < 8; g++) {
-    let p = RSM.prod[g] * (g === 6 ? 1 + 0.6 * R.proj.yard : land * up) * (R.pk ? R.pk[g] : 1); // (R.pk: a test's or a server's knob on a realm's work)
+    // Managed town buildings replace the old automatic town yield; keep land retains its territorial yield.
+    let p = (R.management && typeof realmManageStep === 'function' ? 0 : RSM.prod[g]) * (g === 6 ? 1 + 0.6 * R.proj.yard : land * up) * (R.pk ? R.pk[g] : 1); // (R.pk: a test's or a server's knob on a realm's work)
     for (const K of RS.keeps) if (K.h === r) p += RSM.keepProd[g];
     rsmAdd(R, g, p * hr);
   }
   // the soldiers eat (the levy, the garrisons of the keeps it holds, the armies in the field)
-  let mouths = R.lev;
+  let mouths = R.lev + (typeof rmEscortCount === 'function' ? rmEscortCount(RS, r) : 0);
   for (const K of RS.keeps) if (K.h === r) mouths += K.g;
   for (const A of RS.armies) if (A.r === r) mouths += A.n;
   const want = mouths * RSM.eat * hr;
@@ -219,8 +271,8 @@ function rsmEconomy(RS, r, R, hr) {
   // levies trained from the town (food and gear a soldier) up to the realm's strength
   if (RS.t >= R.levyAt) {
     R.levyAt = RS.t + RSM.levyEvery * 3600;
-    const fieldN = RS.armies.filter((A) => A.r === r).reduce((a, A) => a + A.n, 0);
-    if (R.lev + fieldN < RSM.levyMax * (1 + 0.15 * R.proj.smithy) && rsmPay(R, RSM.levyCost)) { R.lev++; R.stats.trained++; }
+    const fieldN = typeof rmFieldCount === 'function' ? rmFieldCount(RS, r) : RS.armies.filter((A) => A.r === r).reduce((a, A) => a + A.n, 0);
+    if (R.lev + fieldN + (R.management?.training?.units || 0) < RSM.levyMax * (1 + 0.15 * R.proj.smithy) && rsmPay(R, RSM.levyCost)) { R.lev++; R.stats.trained++; if (realmDevelopmentFed(RS, r)) realmDevelopmentEarn(RS, r, 'training', 8); }
   }
   // a keep short of its garrison is sent a soldier from the levy
   if (RS.t >= R.refillAt) {
@@ -239,32 +291,38 @@ function rsmPay(R, cost) {
   return true;
 }
 
+// One quote source for both gradual public works and the government view.
+function rsmProjectCost(R, id) {
+  return Object.hasOwn(RSM.projects, id) ? RSM.projects[id].cost : null;
+}
+
 // the realm's project: its goods drawn over its days (faster with the players' work), done once all are in
 function rsmProject(RS, r, R, hr) {
-  const id = R.act, P = RSM.projects[id];
-  if (!P) return;
+  const id = R.act, P = RSM.projects[id], cost = rsmProjectCost(R, id);
+  if (!P || !cost) return;
   if (R.proj[id] >= P.max) { rsmNextProject(RS, r, R); return; }
-  const banked = P.cost.reduce((a, c, g) => (c > 0 ? Math.min(a, R.bank[g] / c) : a), 1);
+  const banked = cost.reduce((a, c, g) => (c > 0 ? Math.min(a, R.bank[g] / c) : a), 1);
   const pace = hr / (P.days * 24) * (1 + Math.min(3, R.work / 20) + 4 * banked); // the players' work (hours given) and goods brought quicken it
   let got = 1;
   // (it draws only above a reserve of half the target: the war's own needs come first)
   // the treasury buys at the border fairs what the work lacks this step (above the reserve the war keeps)
   for (let g = 0; g < 7; g++) {
-    if (!(P.cost[g] > 0)) continue;
-    const want = P.cost[g] * pace - (Math.max(0, R.s[g] - RSM.target[g] * 0.5) + R.bank[g]);
+    if (!(cost[g] > 0)) continue;
+    const want = cost[g] * pace - (Math.max(0, R.s[g] - RSM.target[g] * 0.5) + R.bank[g]);
     if (want <= 0) continue;
     const n = Math.min(want * 0.3, Math.max(0, R.s[7] - RSM.target[7] * 0.25) / RSM.price[g]); // (a fair sells a little at a time)
     if (n > 0) { R.s[7] -= n * RSM.price[g]; R.bank[g] += n; R.stats.bought += n; }
   }
   // (the goods the players brought for the works, R.bank, first)
-  for (let g = 0; g < 8; g++) if (P.cost[g] > 0) got = Math.min(got, (Math.max(0, R.s[g] - RSM.target[g] * 0.5) + R.bank[g]) / (P.cost[g] * pace + 1e-9));
+  for (let g = 0; g < 8; g++) if (cost[g] > 0) got = Math.min(got, (Math.max(0, R.s[g] - RSM.target[g] * 0.5) + R.bank[g]) / (cost[g] * pace + 1e-9));
   got = rsmClamp(got, 0, 1);
   if (got <= 0) return;
-  for (let g = 0; g < 8; g++) { const n = P.cost[g] * pace * got, b = Math.min(R.bank[g], n); R.bank[g] -= b; R.s[g] = Math.max(0, R.s[g] - (n - b)); R.stats.poured += n; }
+  for (let g = 0; g < 8; g++) { const n = cost[g] * pace * got, b = Math.min(R.bank[g], n); R.bank[g] -= b; R.s[g] = Math.max(0, R.s[g] - (n - b)); R.stats.poured += n; }
   R.prog += pace * got;
   R.work = Math.max(0, R.work - hr * 4);
   if (R.prog >= 1) {
     R.prog = 0; R.proj[id]++; R.stats.made++;
+    if (realmDevelopmentFed(RS, r)) realmDevelopmentEarn(RS, r, 'work', 40);
     R.sp += id === 'walls' ? RSM.sp.tier : id === 'engines' ? RSM.sp.project / 4 : RSM.sp.project;
     let what = P.name;
     if (id === 'walls') {
@@ -335,27 +393,27 @@ function rsmDecide(RS, r, R) {
   // a raid on an enemy's fields and yards, now and then
   if (RS.t >= R.raidAt && R.lev >= 16 && !RS.armies.some((A) => A.r === r && A.kind === 'raid')) {
     R.raidAt = RS.t + RSM.hours.raid * 3600 * (0.7 + 0.6 * rsmRand(RS));
-    const foes = [0, 1, 2].filter((q) => q !== r);
-    const q = rsmRand(RS) < 0.6 ? foes.sort((a, b) => RS.realms[b].sp - RS.realms[a].sp)[0] : foes[rsmRand(RS) < 0.5 ? 0 : 1];
-    rsmArmy(RS, r, 8, 'raid', -1, q);
+    const foes = [0, 1, 2].filter((q) => q !== r && !(typeof realmManageAllied === 'function' && realmManageAllied(RS, r, q)));
+    const q = rsmRand(RS) < 0.6 ? foes.sort((a, b) => RS.realms[b].sp - RS.realms[a].sp)[0] : foes[Math.floor(rsmRand(RS) * foes.length)];
+    if (q != null) rsmArmy(RS, r, 8, 'raid', -1, q);
   }
   // a hallow raid: a realm holding three keeps or more on an enemy temple whose realm has lost a keep
   if (!RS.live && rsmKeepsOf(RS, r) >= 3 && R.lev >= 24 && !RS.armies.some((A) => A.r === r && A.kind === 'hallow')) {
-    const q = [0, 1, 2].find((t) => t !== r && RS.hallows[t] === t && rsmKeepsOf(RS, t) < 2);
+    const q = [0, 1, 2].find((t) => t !== r && !(typeof realmManageAllied === 'function' && realmManageAllied(RS, r, t)) && RS.hallows[t] === t && rsmKeepsOf(RS, t) < 2);
     if (q != null && rsmRand(RS) < 0.35) rsmArmy(RS, r, 14, 'hallow', -1, q);
   }
   // a keep of its own in other hands with no offensive for it: take it back
-  const lostK = RS.keeps.findIndex((K) => K.home === r && K.h !== r && !RS.armies.some((A) => A.r === r && A.k === RS.keeps.indexOf(K)));
+  const lostK = RS.keeps.findIndex((K) => K.home === r && K.h !== r && !(typeof realmManageAllied === 'function' && realmManageAllied(RS, r, K.h)) && !RS.armies.some((A) => A.r === r && A.k === RS.keeps.indexOf(K)));
   if (lostK >= 0 && R.lev >= 26 && !planned) rsmArmy(RS, r, Math.min(R.lev - 6, 30), 'assault', lostK);
 }
 // what an offensive goes for: the keep it can take that weighs most (the leader's first, a keep of its own back)
 function rsmTarget(RS, r) {
   const R = RS.realms[r];
-  if (R.aim >= 0 && RS.keeps[R.aim] && RS.keeps[R.aim].h !== r) return R.aim;
+  if (R.aim >= 0 && RS.keeps[R.aim] && RS.keeps[R.aim].h !== r && !(typeof realmManageAllied === 'function' && realmManageAllied(RS, r, RS.keeps[R.aim].h))) return R.aim;
   const lead = [0, 1, 2].sort((a, b) => RS.realms[b].sp - RS.realms[a].sp)[0];
   let best = -1, bs = -1e9;
   RS.keeps.forEach((K, i) => {
-    if (K.h === r) return;
+    if (K.h === r || (typeof realmManageAllied === 'function' && realmManageAllied(RS, r, K.h))) return;
     if (RS.offs.some((O) => O.k === i && O.state !== 'done')) return;
     let s = -K.g * 1.5 - K.tier * 4 + (K.home === r ? 12 : 0) + (K.h === lead && lead !== r ? 10 : 0);
     s -= rsmDist(RSM_GEO.muster[r], RSM_GEO.keep[i]) / 60;
@@ -365,16 +423,20 @@ function rsmTarget(RS, r) {
   return best;
 }
 function rsmArmy(RS, r, n, kind, k, q = -1) {
+  if (RS.armies.length >= 40) return null; // the saved canonical army bound
+  const holder = k >= 0 ? RS.keeps[k]?.h : q;
+  if (typeof realmManageAllied === 'function' && realmManageAllied(RS, r, holder)) return null;
   const R = RS.realms[r];
   n = Math.min(n | 0, R.lev);
   if (n < 4) return null;
   R.lev -= n;
   const from = RSM_GEO.muster[r], to = k >= 0 ? RSM_GEO.keep[k] : q >= 0 ? (kind === 'hallow' ? RSM_GEO.temple[q] : RSM_GEO.muster[q]) : from;
-  const eng = kind === 'assault' || kind === 'offensive' ? Math.min(R.proj.engines, kind === 'offensive' ? 4 : 1) : 0;
+  const eng = kind === 'assault' || kind === 'offensive' || kind === 'company' ? Math.min(R.proj.engines, kind === 'offensive' ? 4 : 1) : 0;
   R.proj.engines -= eng;
   const A = { id: RS.nextArmy++, r, n, n0: n, kind, k, q, eng, p: 0, len: Math.max(60, rsmDist(from, to)), state: 'march', t0: Math.round(RS.t), siegeH: 0, hungry: R.hungry > 2 ? 1 : 0, arm: 1 + 0.12 * R.proj.smithy };
   RS.armies.push(A);
-  if (kind === 'raid') rsmLog(RS, r, `${rsmRN(RS, r)} sends ${n} raiders against the fields and yards of ${rsmRN(RS, q)}.`);
+  if (kind === 'company') rsmLog(RS, r, `${rsmRN(RS, r)} mobilizes a paid company of ${n} soldiers to defend its land.`);
+  else if (kind === 'raid') rsmLog(RS, r, `${rsmRN(RS, r)} sends ${n} raiders against the fields and yards of ${rsmRN(RS, q)}.`);
   else if (kind === 'hallow') rsmLog(RS, r, `${rsmRN(RS, r)} sends ${n} riders to steal ${rsmRN(RS, q)}'s hallow while its temple stands open.`, 'big');
   else rsmLog(RS, r, `${rsmRN(RS, r)} marches ${n} soldiers${eng ? ` and ${eng} engine${eng > 1 ? 's' : ''}` : ''} on ${rsmKN(RS, k)}.`, kind === 'offensive' ? 'big' : 'news');
   return A;
@@ -389,8 +451,22 @@ function rsmArmyHome(RS, A, why) {
 function rsmArmies(RS, hr) {
   for (const A of RS.armies) {
     if (A.state === 'gone') continue;
+    const holder = A.k >= 0 ? RS.keeps[A.k]?.h : A.q;
+    if (typeof realmManageAllied === 'function' && realmManageAllied(RS, A.r, holder)) { rsmArmyHome(RS, A, 'the realms have agreed to peace'); continue; }
     if (A.onField) { if (RS.t - A.onField.at <= RSM.field.stale) continue; A.onField = null; A.s2fold = (A.s2fold || 0) + 1; } // [season2] the page's, or folded back unheard
     const R = RS.realms[A.r];
+    if (A.manual) {
+      const K = A.k >= 0 ? RS.keeps[A.k] : null, to = K ? RSM_GEO.keep[A.k] : RSM_GEO.muster[A.r];
+      if (A.mission === 'defend' && K && K.h !== A.r) { A.k = -1; A.mission = 'defend'; continue; }
+      const dx = to[0] - A.fx, dz = to[1] - A.fz, d = Math.hypot(dx, dz), travel = 4 * hr * 3600;
+      if (d > 4) { const q = Math.min(1, travel / d); A.fx += dx * q; A.fz += dz * q; A.p = Math.min(1, (A.p || 0) + travel / Math.max(1, A.len)); continue; }
+      A.p = 1;
+      if (A.mission === 'attack' && K && K.h !== A.r) {
+        if (A.state !== 'siege') { A.state = 'siege'; K.siege = { a: A.id, t: Math.round(RS.t) }; RS.stats.sieges++; }
+        rsmSiege(RS, A, R, hr);
+      }
+      continue;
+    }
     if (A.state === 'march') {
       A.p += (RSM.march * hr) / A.len;
       if (A.p < 1) continue;
@@ -423,25 +499,30 @@ function rsmSiege(RS, A, R, hr) {
   // [season2] an offensive's keep, warned: the holder keeps feeding its walls from the levy while the siege lasts
   if (A.kind === 'offensive' && D.lev > 6) { const n = Math.min(D.lev - 6, RSM.brace.feed * hr, Math.max(0, RSM.garrison * RSM.brace.room - K.g)); D.lev -= n; K.g += n; }
   const att = A.n * A.arm * hungryA * (1 + 0.3 * A.eng) * (1 + 0.4 * rsmBehind(RS, A.r));
-  const def = (K.g + 3) * (1 + 0.12 * D.proj.smithy) * hungryD * (1 + 0.3 * K.tier) * (K.gate > 0 ? 1.5 : 1) * (1 + RSM.catchUp * rsmBehind(RS, K.h));
+  const watchSupport = typeof realmManageDefenseSupport === 'function' ? realmManageDefenseSupport(RS, A.k) : 0;
+  const def = (K.g + 3) * (1 + 0.12 * D.proj.smithy) * hungryD * (1 + 0.3 * K.tier) * (K.gate > 0 ? 1.5 : 1) * (1 + RSM.catchUp * rsmBehind(RS, K.h)) * (1 + watchSupport);
   // the gate gives way to the engines and the rams
   K.gate = Math.max(0, K.gate - hr * (0.03 + 0.07 * A.eng) * (1 - 0.15 * K.tier));
   const lossA = def * 0.07 * hr * (0.8 + 0.4 * rsmRand(RS)), lossD = att * 0.05 * hr * (K.gate > 0 ? 0.5 : 1) * (0.8 + 0.4 * rsmRand(RS));
+  const actualA = Math.min(A.n, lossA), actualD = Math.min(K.g, lossD);
   A.n = Math.max(0, A.n - lossA); K.g = Math.max(0, K.g - lossD);
   R.stats.lost += lossA; D.stats.lost += lossD;
+  realmDevelopmentEarn(RS, A.r, 'combat', Math.min(actualD, 1000) * 14);
+  realmDevelopmentEarn(RS, K.h, 'combat', Math.min(actualA, 1000) * 14);
   if (K.g < 0.5) {
     const old = K.h;
     K.h = A.r; K.g = Math.min(RSM.garrison, A.n); A.n -= K.g; K.gate = Math.max(K.gate, 0.3); K.siege = null;
     // the keep's stores go with it: a share of the loser's
     for (const g of [0, 1, 2, 3]) { const take = Math.min(RS.realms[old].s[g] * 0.08, RSM.target[g] * 0.5); RS.realms[old].s[g] -= take; rsmAdd(R, g, take); }
     RS.stats.captures++; R.stats.taken++;
+    realmDevelopmentEarn(RS, A.r, 'combat', 100);
     const O = RS.offs.find((q) => q.r === A.r && q.k === A.k && q.state === 'siege');
     if (O) { O.state = 'done'; O.res = 'taken'; R.sp += RSM.sp.offensive; R.stats.won++; }
     rsmLog(RS, A.r, `${rsmKN(RS, A.k)} has fallen to ${rsmRN(RS, A.r)}${O ? ' in its offensive' : ''}, taken from ${rsmRN(RS, old)}.`, 'big');
     rsmArmyHome(RS, A, '');
     return;
   }
-  if (A.n < A.n0 * 0.3 || A.siegeH > RSM.siegeHours || RS.phase !== 'war') {
+  if (A.n < A.n0 * 0.3 || A.siegeH > RSM.siegeHours || (RS.phase !== 'war' && !A.manual)) {
     const O = RS.offs.find((q) => q.r === A.r && q.k === A.k && q.state === 'siege');
     if (O) { O.state = 'done'; O.res = 'held'; D.sp += RSM.sp.offensive * 0.6; }
     K.siege = null;
@@ -452,11 +533,12 @@ function rsmRaid(RS, A, field) {
   const V = RS.realms[A.q], R = RS.realms[A.r];
   // the victim's own levy may catch them: the raid's worth by the numbers ([season2] or as the field decided)
   const caught = field ? field === 'caught' : rsmRand(RS) < rsmClamp(V.lev / (V.lev + A.n * 3), 0.1, 0.7);
-  if (caught) { const lost = Math.ceil(A.n * 0.5); A.n -= lost; R.stats.lost += lost; rsmLog(RS, A.q, `${rsmRN(RS, A.q)} caught ${rsmRN(RS, A.r)}'s raiders in its fields: ${lost} fell.`); }
+  if (caught) { const lost = Math.ceil(A.n * 0.5), actual = Math.min(A.n, lost); A.n -= lost; R.stats.lost += lost; realmDevelopmentEarn(RS, A.q, 'combat', Math.min(actual, 1000) * 14); rsmLog(RS, A.q, `${rsmRN(RS, A.q)} caught ${rsmRN(RS, A.r)}'s raiders in its fields: ${lost} fell.`); }
   else {
     const loot = [];
     for (const g of [0, 1, 4]) { const take = Math.min(V.s[g] * 0.12, RSM.target[g] * 0.6); V.s[g] -= take; rsmAdd(R, g, take * 0.6); if (take >= 1) loot.push(`${Math.round(take)} ${RSM_GOODS[g]}`); }
     RS.stats.raids++; R.stats.raids++;
+    realmDevelopmentEarn(RS, A.r, 'combat', loot.length * 20);
     rsmLog(RS, A.r, `${rsmRN(RS, A.r)}'s raiders burnt and carried off ${loot.join(', ') || 'little'} from ${rsmRN(RS, A.q)}'s fields and yards.`);
   }
   rsmArmyHome(RS, A, '');
@@ -535,7 +617,7 @@ function realmSimOrder(RS, realm, order, who) {
   const R = RS && RS.realms[realm | 0];
   if (!R || !order || typeof order !== 'object') return false;
   const rank = rsmNum(who && who.rank, 1, 0, 20), name = String((who && who.name) || 'someone').slice(0, 40), officer = rank >= 5;
-  if (order.type === 'project' && RSM.projects[order.id]) {
+  if (order.type === 'project' && Object.hasOwn(RSM.projects, order.id)) {
     if (order.id !== 'walls' && R.proj[order.id] >= RSM.projects[order.id].max) return false;
     if (officer || R.act === '' || R.prog < 0.02) { if (R.act !== order.id) { R.act = order.id; R.prog = 0; rsmLog(RS, realm, `${name} sets ${rsmRN(RS, realm)}'s work: ${RSM.projects[order.id].name}.`, 'proj'); } }
     else R.votes[order.id] = (R.votes[order.id] || 0) + 1 + rank / 5;
@@ -543,13 +625,24 @@ function realmSimOrder(RS, realm, order, who) {
   }
   if (order.type === 'target') {
     const k = order.keep | 0;
-    if (!RS.keeps[k] || RS.keeps[k].h === realm) return false;
+    if (!RS.keeps[k] || RS.keeps[k].h === realm || (typeof realmManageAllied === 'function' && realmManageAllied(RS, realm, RS.keeps[k].h))) return false;
     if (!officer) return false;
     R.aim = k;
     rsmLog(RS, realm, `${name} names ${rsmKN(RS, k)} for ${rsmRN(RS, realm)}'s next offensive.`);
     return true;
   }
   if (order.type === 'muster') {
+    if (officer && who?.manual === true) {
+      if (RS.phase === 'reckon') return false;
+      const n = Math.min(30, Math.floor(R.lev - 4));
+      if (n < 4 || R.s[0] < n * 1.5) return false;
+      const k = RS.keeps.findIndex(K => K.h === realm);
+      const A = rsmArmy(RS, realm, n, 'company', k);
+      if (!A) return false;
+      R.s[0] -= n * 1.5;
+      Object.assign(A, { manual: true, mission: 'defend', fx: RSM_GEO.muster[realm][0], fz: RSM_GEO.muster[realm][1] });
+      return true;
+    }
     if (!officer) return false; // [season2] (while a player is in the page too: its army comes onto the field near the player)
     const k = R.aim >= 0 ? R.aim : rsmTarget(RS, realm);
     return k >= 0 && RS.phase === 'war' && !!rsmArmy(RS, realm, Math.min(R.lev - 4, 30), 'assault', k);
@@ -560,9 +653,9 @@ function realmSimOrder(RS, realm, order, who) {
 function realmSimLive(RS, ev) {
   if (!RS || !ev) return;
   if (ev.type === 'keep' && RS.keeps[ev.keep] && ev.holder >= 0 && ev.holder < 3) {
-    if (RS.phase !== 'war') return; // the muster's skirmishes: the keeps go back at the battle's end
+    if (RS.phase !== 'war' && !ev.manual) return; // the muster's skirmishes: the keeps go back at the battle's end
     const K = RS.keeps[ev.keep];
-    if (K.h === ev.holder) return;
+    if (K.h === ev.holder || (typeof realmManageAllied === 'function' && realmManageAllied(RS, ev.holder, K.h))) return;
     const old = K.h;
     K.h = ev.holder; K.siege = null; K.g = Math.max(K.g * 0.5, 3);
     const O = RS.offs.find((q) => q.r === ev.holder && q.k === ev.keep && (q.state === 'live' || q.state === 'siege')); // [season2] (an offensive's army in the field: 'siege')
@@ -572,6 +665,7 @@ function realmSimLive(RS, ev) {
     for (const A of RS.armies) if (A.state !== 'gone' && A.r === ev.holder && A.k === ev.keep && !A.onField) { const n = Math.max(0, Math.min(A.n, RSM.garrison * 1.5 - K.g)); K.g += n; A.n -= n; rsmArmyHome(RS, A, ''); }
     RS.armies = RS.armies.filter((A) => A.state !== 'gone');
     RS.stats.captures++;
+    realmDevelopmentEarn(RS, ev.holder, 'combat', 100);
     rsmLog(RS, ev.holder, `${rsmKN(RS, ev.keep)} has fallen to ${rsmRN(RS, ev.holder)} in the field, taken from ${rsmRN(RS, old)}.`, 'big');
   } else if (ev.type === 'battle' && ev.winner >= 0 && ev.winner < 3) {
     if (RS.phase === 'reckon') return;
@@ -596,12 +690,14 @@ function realmSimSummary(RS, realm, since = -1) {
   for (const L of news.slice(-8)) lines.push(L.x);
   return {
     n: RS.n, phase: RS.phase, day: Math.floor(RS.t / rsmDay) + 1, days: Math.round(RS.len / rsmDay),
+    development: realmDevelopmentView(RS),
     clock: RS.phase === 'muster' ? `war in ${rsmDur(toWar)}` : RS.phase === 'war' ? `reckoning in ${rsmDur(toReckon)}` : `next season in ${rsmDur(RS.len - RS.t)}`,
     sp: RS.realms.map((q) => Math.round(q.sp)), place: order.indexOf(realm | 0) + 1, lead: order[0],
     stores: RSM_GOODS.map((g, i) => ({ g, v: Math.round(R.s[i]), fill: R.s[i] / RSM.target[i] })),
     short: R.short.slice(), hungry: R.hungry > 2,
     project: P ? { id: R.act, name: P.name, prog: Math.round(R.prog * 100), votes: Object.assign({}, R.votes) } : null,
-    built: Object.assign({}, R.proj), keeps: RS.keeps.map((K, i) => ({ k: i, name: rsmKN(RS, i), h: K.h, home: K.home, g: Math.round(K.g), tier: K.tier, siege: !!K.siege })),
+    built: Object.assign({}, R.proj), keeps: RS.keeps.map((K, i) => ({ k: i, name: rsmKN(RS, i), h: K.h, home: K.home, g: Math.round(K.g), tier: K.tier, siege: !!K.siege,
+      defenseSupport: typeof realmManageDefenseSupport === 'function' ? realmManageDefenseSupport(RS, i) : 0 })),
     lev: Math.round(R.lev), offs, lines, past: RS.past.slice(-3),
   };
 }
@@ -613,6 +709,8 @@ function realmSimSanitize(o, opts = {}) {
   base.log = [];
   const RS = base;
   RS.rs = (o.rs | 0) || 1; RS.n = rsmNum(o.n, 1, 1, 1e6) | 0; RS.t = rsmNum(o.t, 0, 0, RS.len); RS.t0 = rsmNum(o.t0, 0, 0, 1e14);
+  realmDevelopmentInit(RS, o.development || null);
+  if (!Object.hasOwn(o, 'development')) delete RS.development;
   RS.phase = rsmPhaseOf(RS); RS.winner = Number.isInteger(o.winner) && o.winner >= 0 && o.winner < 3 ? o.winner : null;
   o.realms.forEach((q, r) => {
     if (!q || typeof q !== 'object') return;
@@ -621,7 +719,7 @@ function realmSimSanitize(o, opts = {}) {
     if (Array.isArray(q.bank)) for (let g = 0; g < 8; g++) R.bank[g] = rsmNum(q.bank[g], 0, 0, 1e5);
     R.lev = rsmNum(q.lev, R.lev, 0, RSM.levyMax * 2); R.sp = rsmNum(q.sp, 0, 0, 1e7); R.del = rsmNum(q.del, 0, 0, 1e9); R.work = rsmNum(q.work, 0, 0, 200);
     if (q.proj && typeof q.proj === 'object') for (const id of RSM_PROJ) R.proj[id] = rsmNum(q.proj[id], 0, 0, RSM.projects[id].max) | 0;
-    R.act = RSM.projects[q.act] ? q.act : q.act === '' ? '' : 'granary'; R.prog = rsmNum(q.prog, 0, 0, 1);
+    R.act = Object.hasOwn(RSM.projects, q.act) ? q.act : q.act === '' ? '' : 'granary'; R.prog = rsmNum(q.prog, 0, 0, 1);
     if (q.votes && typeof q.votes === 'object') for (const id of RSM_PROJ) if (q.votes[id]) R.votes[id] = rsmNum(q.votes[id], 0, 0, 1e4);
     R.aim = rsmNum(q.aim, -1, -1, RS.keeps.length - 1) | 0; R.hungry = rsmNum(q.hungry, 0, 0, 48);
     R.dDay = rsmNum(q.dDay, -1, -1, 1e5) | 0; R.dWorth = rsmNum(q.dWorth, 0, 0, 1e9); // [season2]
@@ -641,14 +739,14 @@ function realmSimSanitize(o, opts = {}) {
   RS.nextArmy = rsmNum(o.nextArmy, 1, 1, 1e9) | 0;
   RS.ln = rsmNum(o.ln, 0, 0, 1e12);
   RS.nextLen = rsmNum(o.nextLen, 0, 0, 400 * rsmDay);
-  const KINDS = ['raid', 'hallow', 'assault', 'offensive'];
+  const KINDS = ['raid', 'hallow', 'assault', 'offensive', 'company'];
   if (Array.isArray(o.armies)) for (const A of o.armies.slice(0, 40)) {
     if (!A || typeof A !== 'object' || !KINDS.includes(A.kind)) continue;
     const r = rsmClamp(A.r | 0, 0, 2), k = rsmNum(A.k, -1, -1, RS.keeps.length - 1) | 0;
     if ((A.kind === 'assault' || A.kind === 'offensive') && k < 0) continue;
     const q = rsmNum(A.q, -1, -1, 2) | 0;
     if ((A.kind === 'raid' || A.kind === 'hallow') && (q < 0 || q === r)) continue;
-    RS.armies.push({ id: A.id | 0, r, n: rsmNum(A.n, 0, 0, 200), n0: rsmNum(A.n0, 1, 1, 200), kind: A.kind, k, q, eng: rsmNum(A.eng, 0, 0, 4) | 0, p: rsmNum(A.p, 0, 0, 2), len: rsmNum(A.len, 100, 60, 2000), state: A.state === 'siege' ? 'siege' : 'march', t0: rsmNum(A.t0, 0, 0, RS.len), siegeH: rsmNum(A.siegeH, 0, 0, 1000), hungry: A.hungry ? 1 : 0, arm: rsmNum(A.arm, 1, 1, 1.5) });
+    RS.armies.push({ id: A.id | 0, r, n: rsmNum(A.n, 0, 0, 200), n0: rsmNum(A.n0, 1, 1, 200), kind: A.kind, k, q, eng: rsmNum(A.eng, 0, 0, 4) | 0, p: rsmNum(A.p, 0, 0, 2), len: rsmNum(A.len, 100, 60, 2000), state: A.state === 'siege' ? 'siege' : 'march', t0: rsmNum(A.t0, 0, 0, RS.len), siegeH: rsmNum(A.siegeH, 0, 0, 1000), hungry: A.hungry ? 1 : 0, arm: rsmNum(A.arm, 1, 1, 1.5), ...(A.manual === true && A.kind === 'company' ? { manual: true, mission: A.mission === 'attack' ? 'attack' : 'defend', fx: rsmNum(A.fx, RSM_GEO.muster[r][0], -500, 500), fz: rsmNum(A.fz, RSM_GEO.muster[r][1], -500, 500) } : {}) });
   }
   const ST = ['planned', 'march', 'siege', 'live', 'done'];
   if (Array.isArray(o.offs)) for (const O of o.offs.slice(-30)) {
@@ -660,6 +758,12 @@ function realmSimSanitize(o, opts = {}) {
   if (Array.isArray(o.log)) for (const L of o.log.slice(-RSM.maxLog)) if (L && typeof L === 'object') RS.log.push({ t: rsmNum(L.t, 0, 0, RS.len), r: rsmNum(L.r, -1, -1, 2) | 0, k: ['news', 'big', 'proj'].includes(L.k) ? L.k : 'news', x: String(L.x || '').slice(0, 300) });
   if (Array.isArray(o.past)) for (const p of o.past.slice(-12)) if (p && typeof p === 'object') RS.past.push({ n: p.n | 0, w: rsmClamp(p.w | 0, 0, 2), sp: Array.isArray(p.sp) ? p.sp.slice(0, 3).map((v) => rsmNum(v, 0, 0, 1e7)) : [0, 0, 0], keeps: Array.isArray(p.keeps) ? p.keeps.slice(0, 12).map((h) => rsmClamp(h | 0, 0, 2)) : [], end: rsmNum(p.end, 0, 0, 1e12) });
   if (o.stats && typeof o.stats === 'object') for (const f in RS.stats) RS.stats[f] = rsmNum(o.stats[f], 0, 0, 1e9);
+  // Old confirmed native heads must validate byte-for-byte before runtime migration.
+  // The first authoritative management view or active step adopts their infrastructure.
+  const legacyManagement = !Object.hasOwn(o, 'management') && !Object.hasOwn(o, 'managementReceipts')
+    && o.realms.every(q => !q || !Object.hasOwn(q, 'management'));
+  if (legacyManagement) { delete RS.management; delete RS.managementReceipts; for (const R of RS.realms) delete R.management; }
+  else if (typeof realmManageSanitize === 'function') realmManageSanitize(RS, o);
   RS.live = false;
   return RS;
 }
@@ -674,7 +778,7 @@ function realmSimSanitize(o, opts = {}) {
 //     its road), state ('march'|'siege'), done ('' | 'fallen' | 'beaten' | 'taken' | 'home' | 'raided' | 'caught'), fold }
 //   realmSimFieldFold(RS, who)       every army on `who`'s field folded back where it last stood (a page gone)
 function rsmFieldDesc(RS, A) {
-  return { id: A.id, r: A.r, n: Math.round(A.n * 10) / 10, n0: A.n0, kind: A.kind, k: A.k, q: A.q, eng: A.eng, state: A.state, p: Math.round(A.p * 1000) / 1000, arm: A.arm, hungry: A.hungry, off: RS.offs.some((O) => O.army === A.id && O.state === 'siege') ? 1 : 0 };
+  return { id: A.id, r: A.r, n: Math.round(A.n * 10) / 10, n0: A.n0, kind: A.kind, k: A.k, q: A.q, eng: A.eng, state: A.state, p: Math.round(A.p * 1000) / 1000, arm: A.arm, ...(A.manual ? { manual: true, mission: A.mission, fx: A.fx, fz: A.fz } : {}), hungry: A.hungry, off: RS.offs.some((O) => O.army === A.id && O.state === 'siege') ? 1 : 0 };
 }
 function realmSimFieldTake(RS, id, who) {
   const A = RS && RS.armies.find((q) => q.id === (id | 0) && q.state !== 'gone');
@@ -693,15 +797,27 @@ function realmSimFieldReport(RS, id, rep, who) {
   if (!A || !A.onField || !rep || typeof rep !== 'object' || (who != null && A.onField.who !== String(who))) return false;
   const R = RS.realms[A.r];
   A.onField.at = RS.t;
+  if (A.manual) {
+    if (Number.isFinite(rep.x) && Number.isFinite(rep.z) && Math.abs(rep.x) <= 500 && Math.abs(rep.z) <= 500) { A.fx = rep.x; A.fz = rep.z; }
+    const O = rep.order, K = O && Number.isSafeInteger(O.keep) ? RS.keeps[O.keep] : null;
+    if (K && ((O.type === 'attack' && K.h !== A.r && !(typeof realmManageAllied === 'function' && realmManageAllied(RS, A.r, K.h))) || (O.type === 'defend' && K.h === A.r))) {
+      if (A.k !== O.keep || A.mission !== O.type) {
+        const previous = A.k >= 0 ? RS.keeps[A.k] : null;
+        if (previous?.siege?.a === A.id) previous.siege = null;
+        A.state = 'march'; A.siegeH = 0; A.p = 0;
+      }
+      A.k = O.keep; A.mission = O.type;
+    }
+  }
   const n = rsmNum(rep.n, A.n, 0, A.n); // (an army never grows on the field)
   if (n < A.n) { R.stats.lost += A.n - n; A.flost = (A.flost || 0) + A.n - n; A.n = n; }
   if (A.state === 'march' && rep.p != null) A.p = rsmNum(rep.p, A.p, 0, 1);
   const K = A.k >= 0 ? RS.keeps[A.k] : null;
-  if (rep.state === 'siege' && K && K.h !== A.r && RS.phase === 'war' && A.state === 'march') { A.state = 'siege'; K.siege = { a: A.id, t: Math.round(RS.t) }; RS.stats.sieges++; }
+  if (rep.state === 'siege' && K && K.h !== A.r && (RS.phase === 'war' || A.manual) && A.state === 'march') { A.state = 'siege'; K.siege = { a: A.id, t: Math.round(RS.t) }; RS.stats.sieges++; }
   const done = typeof rep.done === 'string' ? rep.done : '';
   const O = RS.offs.find((q) => q.army === A.id && q.state === 'siege');
   if (done === 'taken' && K) {
-    if (K.h !== A.r) realmSimLive(RS, { type: 'keep', keep: A.k, holder: A.r });
+    if (K.h !== A.r) realmSimLive(RS, { type: 'keep', keep: A.k, holder: A.r, manual: A.manual === true });
     if (K.h === A.r) { const m = Math.max(0, Math.min(A.n, RSM.garrison * 1.5 - K.g)); K.g += m; A.n -= m; }
     if (O && O.state === 'siege') { O.state = 'done'; O.res = 'taken'; R.sp += RSM.sp.offensive; R.stats.won++; }
     rsmArmyHome(RS, A, '');
@@ -719,4 +835,4 @@ function realmSimFieldReport(RS, id, rep, who) {
 
 /* global module */
 // Node: export the contract (the page concatenates this file into one module; there `module` is undefined)
-if (typeof module !== 'undefined' && module && module.exports) module.exports = { RSM, RSM_V, RSM_GOODS, RSM_PROJ, RSM_GEO, realmSimFieldTake, realmSimFieldReport, realmSimFieldFold, realmSimInit, realmSimStep, realmSimContribute, realmSimOrder, realmSimSummary, realmSimSanitize, realmSimLive };
+if (typeof module !== 'undefined' && module && module.exports) module.exports = { RSM, RSM_V, RSM_GOODS, RSM_PROJ, RSM_GEO, realmDevelopmentLevel, realmDevelopmentInit, realmDevelopmentEarn, realmDevelopmentView, realmSimFieldTake, realmSimFieldReport, realmSimFieldFold, realmSimInit, realmSimStep, realmSimContribute, realmSimOrder, realmSimSummary, realmSimSanitize, realmSimLive };

@@ -16,7 +16,7 @@
 // drawDepth, depthOnStart.
 const DEPTH = {
   at: 0, slow: 0, job: null, grub: new Set(), pendGrub: null, pendForage: null, burn: [], birds: [], birdT: 0, nests: [], herd: null,
-  doorT: 0, wellT: 0, moultT: 0, fx: null, ready: false,
+  doorT: 0, wellT: 0, moultT: 0, fx: null, ready: false, offspring: [], production: [], hatchClaims: new Set(), nextHatch: 1, claimAt: -Infinity,
   stats: { burnt: 0, cutBushes: 0, felledApples: 0, grubbed: 0, birdsShot: 0, feathers: 0, hatched: 0, herded: 0, npcDoors: 0, spared: 0, masterworks: 0 },
 };
 const DP_BURN = { bush: 1, apple: 1, nettle: 1, heal: 1, mana: 1, frost: 1, storm: 1 }; // mushrooms in their damp shade do not burn
@@ -231,7 +231,7 @@ function depthOffers(P, offer) {
   // with a brand in hand: set a bush or an apple tree alight
   if (P.brand) {
     const b = dpPlantNear(P, 2.4, (p) => DP_BURN[p.k] && !p.gone && !(p.fire > 0) && (p.char || 0) < 0.6 && !(p.cut && !p.log));
-    if (b && (b.p.k === 'bush' || b.p.k === 'apple')) offer(Math.min(b.d, 0.05), 2.6, `Set the ${FORAGE_KINDS[b.p.k].name} alight`, () => { if (dpIgnite(b.p, 1)) { setAct(P, 5, 0.6); uiLog(`The ${FORAGE_KINDS[b.p.k].name} catches.`, 'warn'); } else uiError('It is too wet to catch'); }, 0.3);
+    if (b && (b.p.k === 'bush' || b.p.k === 'apple')) offer(Math.min(b.d, 0.05), 2.6, `Set the ${FORAGE_KINDS[b.p.k].name} alight`, () => { const lit = dpPlayerIgnite(b.p); if (lit === true) { setAct(P, 5, 0.6); uiLog(`The ${FORAGE_KINDS[b.p.k].name} catches.`, 'warn'); } else if (lit === false) uiError('It is too wet to catch'); }, 0.3);
     return;
   }
   const blade = dpKnife() || dpAxe();
@@ -263,7 +263,7 @@ function dpStartJob(kind, p, t = null) {
   const need = kind === 'cutbush' ? (axe ? 2 : 3) : kind === 'chop' ? (axe ? 3 : 6) : kind === 'split' ? (axe ? 2 : 4) : (pick ? 3 : 4);
   DEPTH.job = { kind, p, t, px: P.x, pz: P.z, yaw, tt: 0, next: 0.15, hitAt: 0, swings: 0, need, ax, az };
   P.yaw = yaw; P.target = null;
-  natureCut(ax, az, 1.6, 0.8, false);
+  if (typeof netWorldPartsCanSimulate !== 'function' || netWorldPartsCanSimulate()) natureCut(ax, az, 1.6, 0.8, false);
   const what = kind === 'cutbush' ? 'Cutting the bush down' : kind === 'chop' ? 'Chopping the apple tree' : kind === 'split' ? 'Cutting the apple tree up' : 'Grubbing out the stump';
   uiToast(`${what}. Move to stop.`, 'hint');
 }
@@ -284,22 +284,63 @@ function dpJobStep(dt) {
   if (J.kind === 'cutbush') {
     for (let i = 0; i < 10; i++) fxAlpha.emit(p.x + (Math.random() - 0.5) * 0.7, p.y + 0.4 + Math.random() * 0.4, p.z + (Math.random() - 0.5) * 0.7, (Math.random() - 0.5) * 1.6, 0.6 + Math.random(), (Math.random() - 0.5) * 1.6, 1.0, 0.2, 0.3, 0.1, 0.05, 6, 0.6);
     natSfx('split', p.x, p.z);
-    if (J.swings >= J.need) dpCutBush(p);
+    if (J.swings >= J.need) dpWorkFinish(J);
   } else if (J.kind === 'chop') {
     natChips(p.x - ux * 0.2 * p.s, p.y + 0.4, p.z - uz * 0.2 * p.s, -ux, -uz, 10);
     natSfx('chop', p.x, p.z);
     p.shakeT = GAME.t;
     if (Math.random() < 0.7) for (let i = 0; i < 5; i++) fxAlpha.emit(p.x + (Math.random() - 0.5) * 2, p.y + 2 + Math.random(), p.z + (Math.random() - 0.5) * 2, (Math.random() - 0.5) * 0.8, -0.4, (Math.random() - 0.5) * 0.8, 2.2, 0.22, 0.34, 0.1, 0.07, 0.6, 1.4);
-    if (J.swings >= J.need) { dpFell(p, p.x - P.x, p.z - P.z); DEPTH.job = null; }
+    if (J.swings >= J.need) dpWorkFinish(J);
   } else if (J.kind === 'split') {
     natChips(J.ax, gy + 0.3, J.az, -ux, -uz, 9);
     natSfx('split', J.ax, J.az);
-    if (J.swings >= J.need) dpSplitApple(p);
+    if (J.swings >= J.need) dpWorkFinish(J);
   } else {
     FX.dust(J.ax, gy + 0.1, J.az, 8, [0.36, 0.28, 0.2]);
     natSfx('chop', J.ax, J.az);
-    if (J.swings >= J.need) { if (p) dpGrubPlant(p); else dpGrubTree(J.t); DEPTH.job = null; }
+    if (J.swings >= J.need) dpWorkFinish(J);
   }
+}
+function dpWorkPoint(a) {
+  const target = a?.type === 'tree' ? W.trees[a.id] : a?.type === 'plant' ? FORAGE.list[a.id] : null;
+  return Number.isInteger(a?.id) && target || { x: Infinity, z: Infinity };
+}
+function dpApplyWork(a) {
+  if (!a || !Number.isInteger(a.id) || !['cutbush', 'chop', 'split', 'grub'].includes(a.kind)) return false;
+  const p = a.type === 'plant' ? FORAGE.list[a.id] : null, t = a.type === 'tree' ? W.trees[a.id] : null;
+  if (t) {
+    if (a.kind !== 'grub' || !(dpAxe() || dpPick()) || !NATURE.felled.includes(t)
+      || t.grubbed || t.log || !t.fall?.done) return false;
+    dpGrubTree(t); return true;
+  }
+  if (!p || p.gone || p.fire > 0 || !['bush', 'apple'].includes(p.k)) return false;
+  if (a.kind === 'cutbush') {
+    if (p.k !== 'bush' || !dpStanding(p) || !(dpKnife() || dpAxe())) return false;
+    dpCutBush(p);
+  } else if (a.kind === 'chop') {
+    if (p.k !== 'apple' || !dpStanding(p)) return false;
+    dpFell(p, p.x - GAME.player.x, p.z - GAME.player.z);
+  } else if (a.kind === 'split') {
+    if (p.k !== 'apple' || !p.log || !p.fall?.done) return false;
+    dpSplitApple(p);
+  } else {
+    if (!(dpAxe() || dpPick()) || !p.cut || p.log) return false;
+    dpGrubPlant(p);
+  }
+  return true;
+}
+function dpWorkFinish(J) {
+  const a = { kind: J.kind, type: J.p ? 'plant' : 'tree', id: J.p ? J.p.i : J.t?.i };
+  DEPTH.job = null;
+  if (typeof netWorldPartsRequest === 'function' && netWorldPartsRequest('depth.work', a)) return false;
+  return dpApplyWork(a);
+}
+function dpPlayerIgnite(p) {
+  if (!p) return false;
+  if (typeof netWorldPartsRequest === 'function' && netWorldPartsRequest('depth.ignite', { id: p.i })) {
+    if (GAME.player) setAct(GAME.player, 5, 0.6); return null;
+  }
+  return dpIgnite(p, 1);
 }
 function dpCutBush(p) {
   DEPTH.job = null;
@@ -406,7 +447,7 @@ function dpDugEarth(x, z, r) {
   natTouchRect(i0, j0, i1, j1);
   natMark(i0, j0, i1, j1);
 }
-function dpGrubTree(t) {
+function dpGrubTree(t, quiet = false) {
   if (!t || t.grubbed) return;
   t.grubbed = true; t.felled = true; t.regrowAt = 0;
   const i = NATURE.felled.indexOf(t); if (i >= 0) NATURE.felled.splice(i, 1);
@@ -415,10 +456,12 @@ function dpGrubTree(t) {
   natShowRegular(t, 0);
   DEPTH.grub.add(t.i);
   dpDugEarth(t.x, t.z, 1.3);
-  const got = goodsAdd('firewood', 1, true) + goodsAdd('stick', 2, true);
-  uiLog(`You grub out the ${t.kind} stump, roots and all${got ? ': firewood and sticks' : ''}. The ground is clear.`, 'loot');
-  DEPTH.stats.grubbed++;
-  saveSoon();
+  if (!quiet) {
+    const got = goodsAdd('firewood', 1, true) + goodsAdd('stick', 2, true);
+    uiLog(`You grub out the ${t.kind} stump, roots and all${got ? ': firewood and sticks' : ''}. The ground is clear.`, 'loot');
+    DEPTH.stats.grubbed++;
+    saveSoon();
+  }
 }
 function dpGrubPlant(p) {
   p.gone = true; p.cut = true; p.regrowAt = 0; p.ripe = 0; p.at = GAME.t + 1e7; // never fruits again
@@ -631,79 +674,249 @@ function depthOnKill(e) {
   if (e.elite && e.faction === FACTION_MONSTER && !inDungeon(e)) { dropGood('trophy', 1, e.x, e.z, e.y + 0.8); uiLog(`You take a trophy from ${e.name}.`, 'loot'); }
 }
 // hens in a paddock moult: feathers lie about to be gathered (walk over them)
+function dpMoultOne(e) {
+  const r = e?.tame;
+  if (!e?.alive || !r || r.k !== 'hen' || r.cmd !== 'pen' || !anAdult(r)) return false;
+  const near = LOOT.filter((L) => L.item && L.item.goods === 'feather' && dist2(L.x, L.z, e.x, e.z) < 12 * 12).length;
+  if (near < 6) {
+    dropGood('feather', 1 + (Math.random() < 0.4 ? 1 : 0), e.x + (Math.random() - 0.5) * 0.4, e.z + (Math.random() - 0.5) * 0.4, e.y + 0.3);
+    DEPTH.stats.feathers++;
+  }
+  return true;
+}
 function dpMoult(dt) {
   DEPTH.moultT -= dt;
   if (DEPTH.moultT > 0) return;
   DEPTH.moultT = 5;
   for (const e of ANIMALS.list) {
     const r = e.tame;
-    if (!e.alive || !r || r.k !== 'hen' || r.owner !== 'player' || r.cmd !== 'pen' || !anAdult(r)) continue;
+    if (!e.alive || !r || r.k !== 'hen' || r.owner !== 'player' || r.cmd !== 'pen' || !anAdult(r)
+      || dpHatchShared() && typeof anSharedOwnAnimal === 'function' && !anSharedOwnAnimal(e)) continue;
     r.moult = (r.moult || 0) + 5 * (0.5 + r.mood);
     if (r.moult < 240) continue;
     r.moult = 0;
-    const near = LOOT.filter((L) => L.item && L.item.goods === 'feather' && dist2(L.x, L.z, e.x, e.z) < 12 * 12).length;
-    if (near >= 6) continue;
-    dropGood('feather', 1 + (Math.random() < 0.4 ? 1 : 0), e.x + (Math.random() - 0.5) * 0.4, e.z + (Math.random() - 0.5) * 0.4, e.y + 0.3);
-    DEPTH.stats.feathers++;
+    if (dpHatchShared() && typeof anSharedProduction === 'function' && anSharedProduction(e, 'animal.moult')) continue;
+    dpMoultOne(e);
   }
 }
 
 /* ------------------------------------------------------------------ */
 /* eggs that hatch: a clutch in the nest, and fertile eggs in the pen  */
 /* ------------------------------------------------------------------ */
-const DP_HATCH = 150;
+const DP_HATCH = 150, DP_HATCH_MAX = 128, DP_NEST_MAX = 64, DP_PRODUCTION_MAX = 256;
 const dpCockNear = (e) => ANIMALS.list.find((o) => o !== e && o.alive && !o.removed && o.tame && o.tame.k === 'hen' && o.tame.sex === 'm' && anAdult(o.tame) && o.tame.owner === e.tame.owner && dist2(o.x, o.z, e.x, e.z) < 14 * 14);
-// a hen that has paired lays her clutch in the nest box in the shed (anBirth, 08h_animals.js)
-function depthClutch(e, sire) {
-  const rec = e.tame, pen = penById(rec.pen);
-  let x = e.x, z = e.z;
-  if (pen && pen.shedL) { const k = DEPTH.nests.filter((N) => N.pen === pen.id).length, s = penWorld(pen, pen.shedL.x + ((k % 3) - 1) * 0.7, pen.shedL.z + (Math.floor(k / 3) % 2 - 0.5) * 0.6); x = s.x; z = s.z; }
-  const n = 3 + Math.floor(Math.random() * 3);
-  DEPTH.nests.push({ x, z, y: floorAt(x, z, heightAt(x, z) + 0.5), eggs: n, at: GAME.t + DP_HATCH, ma: { aid: rec.aid, name: rec.name, gen: rec.gen, tr: JSON.parse(JSON.stringify(rec.tr)) }, pa: sire ? { aid: sire.aid, name: sire.name, gen: sire.gen || 0, tr: JSON.parse(JSON.stringify(sire.tr)) } : null, pen: rec.pen, owner: rec.owner, seed: Math.random() });
-  if (rec.owner === 'player') uiLog(`${rec.name} has laid a clutch of ${n} eggs in the nest. Leave them and they hatch in a few minutes; take them and they are breakfast.`, 'sys');
-  saveSoon();
+const dpHatchShared = () => typeof netWorldPartsActive === 'function' && netWorldPartsActive();
+function dpAnimalAccount(e, explicit = null) {
+  if (typeof explicit === 'string' && explicit.length > 0 && explicit.length <= 160) return explicit;
+  if (e?.netEntityOwner && e.netEntityOwner !== NET.self) {
+    const account = NET.peers.get(e.netEntityOwner)?.by;
+    return typeof account === 'string' ? account : null;
+  }
+  if (e?.tame?.owner === 'player' && (typeof anSharedOwnAnimal !== 'function' || anSharedOwnAnimal(e)))
+    return typeof anSharedAccount === 'function' ? anSharedAccount() : null;
+  return null;
 }
-// a laid egg is fertile when a cockerel runs with the flock (anLay, 08h_animals.js)
-function depthLaid(e, L) {
+function dpNestAccount(N) {
+  if (typeof N.ownerAccount === 'string' && N.ownerAccount.length > 0 && N.ownerAccount.length <= 160) return N.ownerAccount;
+  const pen = typeof penById === 'function' && penById(N.pen);
+  return pen?.sharedOwner && pen.sharedOwner !== 'player' ? pen.sharedOwner : null;
+}
+// A remote hen's public production carries its authenticated owner's account.
+function depthClutch(e, sire, ownerAccount = null) {
+  if (!e?.tame || DEPTH.nests.length >= DP_NEST_MAX) return false;
+  const rec = e.tame, pen = penById(rec.pen), account = dpAnimalAccount(e, ownerAccount);
+  let x = e.x, z = e.z;
+  if (pen && pen.shedL) { const k = DEPTH.nests.filter((N) => N.pen === pen.id).length, p = penWorld(pen, pen.shedL.x + ((k % 3) - 1) * 0.7, pen.shedL.z + (Math.floor(k / 3) % 2 - 0.5) * 0.6); x = p.x; z = p.z; }
+  const n = 3 + Math.floor(Math.random() * 3);
+  DEPTH.nests.push({ x, z, y: floorAt(x, z, heightAt(x, z) + 0.5), eggs: n, at: GAME.t + DP_HATCH,
+    ma: { aid: rec.aid, name: rec.name, gen: rec.gen, tr: JSON.parse(JSON.stringify(rec.tr)) },
+    pa: sire ? { aid: sire.aid, name: sire.name, gen: sire.gen || 0, tr: JSON.parse(JSON.stringify(sire.tr)) } : null,
+    pen: rec.pen, owner: account ? 'player' : rec.owner, ownerAccount: account, seed: Math.random() });
+  if (account && account === (typeof anSharedAccount === 'function' && anSharedAccount())) uiLog(rec.name + ' has laid a clutch of ' + n + ' eggs in the nest.', 'sys');
+  saveSoon(); return true;
+}
+function depthLaid(e, L, ownerAccount = null) {
   if (!L || !e.tame) return;
-  const cock = dpCockNear(e);
-  if (!cock || Math.random() > 0.5) return;
-  L.hatch = { at: GAME.t + DP_HATCH * 1.3, ma: { aid: e.tame.aid, name: e.tame.name, gen: e.tame.gen, tr: JSON.parse(JSON.stringify(e.tame.tr)) }, pa: { aid: cock.tame.aid, name: cock.tame.name, gen: cock.tame.gen, tr: JSON.parse(JSON.stringify(cock.tame.tr)) }, pen: e.tame.pen, owner: e.tame.owner };
+  const cock = dpCockNear(e); if (!cock || Math.random() > 0.5) return;
+  const account = dpAnimalAccount(e, ownerAccount);
+  L.hatch = { at: GAME.t + DP_HATCH * 1.3,
+    ma: { aid: e.tame.aid, name: e.tame.name, gen: e.tame.gen, tr: JSON.parse(JSON.stringify(e.tame.tr)) },
+    pa: { aid: cock.tame.aid, name: cock.tame.name, gen: cock.tame.gen, tr: JSON.parse(JSON.stringify(cock.tame.tr)) },
+    pen: e.tame.pen, owner: account ? 'player' : e.tame.owner, ownerAccount: account };
   L.until = Math.max(L.until, L.hatch.at + 60);
 }
+// Production is identified by the private animal's stable aid and a saved
+// owner cycle. Replaying a request after reload or authority handoff only ACKs
+// the existing outcome; it never lays another clutch or stack of eggs.
+function dpProductionRun(a, context, op, e, run) {
+  const account = context?.ownerAccount;
+  if (!Number.isSafeInteger(a?.aid) || a.aid < 1
+    || !Number.isSafeInteger(a.cycle) || a.cycle < 1 || typeof account !== 'string' || !account || account.length > 160) return false;
+  const rows = DEPTH.production ||= [];
+  let entry = rows.find(r => r.account === account && r.aid === a.aid && r.op === op);
+  const ack = () => ({ ok: true, result: { production: { op, aid: a.aid, cycle: a.cycle } } });
+  if (entry && a.cycle <= entry.cycle) return ack();
+  if (!e || e.tame?.aid !== a.aid) return false;
+  if (a.cycle !== (entry?.cycle || 0) + 1 || !entry && rows.length >= DP_PRODUCTION_MAX) return false;
+  if (run() !== true) return false;
+  if (entry) entry.cycle = a.cycle;
+  else rows.push({ account, aid: a.aid, op, cycle: a.cycle });
+  return ack();
+}
+function dpProductionLoad(rows) {
+  DEPTH.production = [];
+  if (!Array.isArray(rows)) return;
+  for (const r of rows.slice(0, DP_PRODUCTION_MAX)) {
+    if (!r || typeof r.account !== 'string' || !r.account || r.account.length > 160
+      || !Number.isSafeInteger(r.aid) || r.aid < 1 || !['animal.lay', 'animal.clutch', 'animal.moult'].includes(r.op)
+      || !Number.isSafeInteger(r.cycle) || r.cycle < 1) continue;
+    const before = DEPTH.production.find(p => p.account === r.account && p.aid === r.aid && p.op === r.op);
+    if (before) before.cycle = Math.max(before.cycle, r.cycle);
+    else DEPTH.production.push({ account: r.account, aid: r.aid, op: r.op, cycle: r.cycle });
+  }
+}
+function dpHatchBody(entry) {
+  if (entry.bodyId && typeof netEntityFind === 'function') {
+    const e = netEntityFind(entry.bodyId); if (e) return e;
+  }
+  return ANIMALS.list.find(e => !e.removed && e.tame?.reservedClaim === entry.id) || null;
+}
 function dpHatchOne(N, x, z) {
-  if (N.owner === 'town' && ANIMALS.list.filter((o) => o.tame && o.tame.pen === N.pen && o.alive).length > 22) return null;
+  const shared = dpHatchShared(), owned = N.owner !== 'town', account = dpNestAccount(N);
+  // Unknown legacy ownership is never reassigned to the current host. A full
+  // registry keeps its eggs waiting, rather than evicting another owner's claim.
+  if (shared && owned && (!account || DEPTH.offspring.length >= DP_HATCH_MAX)) return null;
+  if (!owned && ANIMALS.list.filter(o => o.tame && o.tame.pen === N.pen && o.alive).length > 22) return null;
   const tr = N.pa ? anInherit(N.ma.tr, N.pa.tr) : anWildTraits('hen');
-  const young = anRecord('hen', { owner: N.owner, age: 0, tr, gen: Math.max(N.ma.gen || 0, N.pa ? N.pa.gen || 0 : 0) + 1, ma: { aid: N.ma.aid, name: N.ma.name }, pa: N.pa ? { aid: N.pa.aid, name: N.pa.name } : null, cmd: N.pen != null ? 'pen' : 'follow', pen: N.pen, hunger: 0.9 });
+  const young = anRecord('hen', { owner: shared && owned ? 'town' : N.owner, age: 0, tr,
+    gen: Math.max(N.ma.gen || 0, N.pa ? N.pa.gen || 0 : 0) + 1,
+    ma: { aid: N.ma.aid, name: N.ma.name }, pa: N.pa ? { aid: N.pa.aid, name: N.pa.name } : null,
+    cmd: N.pen != null ? 'pen' : 'follow', pen: N.pen, hunger: 0.9 });
   young.breedAt = GAME.t + AKIND.hen.grow * 1.2;
+  let entry = null;
+  if (shared && owned) {
+    const id = 'hatch:' + Date.now().toString(36) + ':' + (DEPTH.nextHatch++).toString(36) + ':' + Math.floor(Math.random() * 1e9).toString(36);
+    young.reservedOwnerAccount = account; young.reservedClaim = id;
+    entry = { id, ownerAccount: account, state: 'pending', x, z, pen: N.pen ?? null, bodyId: null, animal: null };
+  }
   const c = anSpawn(young, x, z);
+  if (entry) {
+    if (typeof netEntityRegister === 'function') netEntityRegister(c);
+    entry.bodyId = c.netEntityId || null; entry.animal = anSaveRec(young, c);
+    DEPTH.offspring.push(entry);
+  }
   anHearts(c, 2);
   for (let i = 0; i < 5; i++) fxAlpha.emit(x, heightAt(x, z) + 0.06, z, (Math.random() - 0.5) * 0.5, 0.5 + Math.random() * 0.4, (Math.random() - 0.5) * 0.5, 1.0, 0.92, 0.88, 0.76, 0.03, 4, 0.5);
-  DEPTH.stats.hatched++;
-  return young;
+  DEPTH.stats.hatched++; return young;
+}
+function dpHatchRestoreBody(entry) {
+  if (entry.state !== 'pending' || dpHatchBody(entry)) return;
+  const o = entry.animal;
+  const rec = anRecord('hen', { owner: 'town', sex: o.s === 'm' ? 'm' : 'f', name: o.n,
+    age: Number.isFinite(o.age) ? o.age : 0, tr: anCleanTraits(o.tr, 'hen'), gen: o.g || 0,
+    ma: Array.isArray(o.ma) ? { aid: o.ma[0], name: o.ma[1] } : null,
+    pa: Array.isArray(o.pa) ? { aid: o.pa[0], name: o.pa[1] } : null,
+    cmd: entry.pen != null ? 'pen' : 'follow', pen: entry.pen, hunger: 0.9 });
+  rec.reservedOwnerAccount = entry.ownerAccount; rec.reservedClaim = entry.id;
+  const body = anSpawn(rec, entry.x, entry.z);
+  if (typeof netEntityRegister === 'function') netEntityRegister(body);
+  entry.bodyId = body.netEntityId || null;
+}
+function dpHatchClaim(args, context) {
+  const entry = DEPTH.offspring.find(e => e.id === args?.id);
+  if (!entry || entry.ownerAccount !== context.ownerAccount || entry.state === 'lost') return false;
+  if (entry.state === 'pending') {
+    const body = dpHatchBody(entry);
+    if (body && (!body.alive || body.tame?.reservedOwnerAccount !== entry.ownerAccount || body.tame?.reservedClaim !== entry.id)) {
+      entry.state = 'lost'; return false;
+    }
+    if (body) { entry.animal = anSaveRec(body.tame, body); removeEnt(body); }
+    entry.state = 'claimed';
+  }
+  return { ok: true, result: { animal: JSON.parse(JSON.stringify(entry.animal)), claimId: entry.id } };
+}
+function dpOwnHatchKnown(id) {
+  return DEPTH.hatchClaims.has(id) || typeof ANIMALS_SHARED !== 'undefined' && ANIMALS_SHARED.received.has(id)
+    || (typeof anMine === 'function' && anMine().some(e => e.tame?.sharedClaim === id));
+}
+function dpHatchReceive(result, receipt) {
+  if (!result || typeof result.claimId !== 'string' || DEPTH.hatchClaims.has(result.claimId)) return;
+  anSharedReceive(result, receipt);
+  if (dpOwnHatchKnown(result.claimId)) { DEPTH.hatchClaims.add(result.claimId); saveSoon(); }
+}
+function dpHatchClaimStep() {
+  if (!dpHatchShared() || typeof netWorldPartsConnected !== 'function' || !netWorldPartsConnected()
+    || typeof NETPARTS === 'undefined' || !NETPARTS.ready || NETPARTS.pending.size >= 8) return;
+  const now = performance.now(); if (now - DEPTH.claimAt < 1000) return;
+  DEPTH.claimAt = now;
+  const account = typeof anSharedAccount === 'function' && anSharedAccount();
+  const entry = DEPTH.offspring.find(e => e.ownerAccount === account && e.state !== 'lost' && !dpOwnHatchKnown(e.id)
+    && ![...NETPARTS.pending.values()].some(p => p.op === 'animal.hatch.claim' && p.args.id === e.id));
+  if (entry) netWorldPartsRequest('animal.hatch.claim', { id: entry.id }, [], true);
 }
 function dpHatchStep() {
   for (let i = DEPTH.nests.length - 1; i >= 0; i--) {
-    const N = DEPTH.nests[i];
-    if (GAME.t < N.at) continue;
-    DEPTH.nests.splice(i, 1);
-    const names = [];
-    for (let k = 0; k < N.eggs; k++) { const y = dpHatchOne(N, N.x + (Math.random() - 0.5) * 0.5, N.z + (Math.random() - 0.5) * 0.5); if (y) names.push(y.name); }
-    if (N.owner === 'player' && names.length) { uiToast(`The eggs in ${N.ma.name}'s nest have hatched: ${names.length} chick${names.length > 1 ? 's' : ''} (${names.join(', ')}).`, 'quest'); sfx('heal'); saveSoon(); }
+    const N = DEPTH.nests[i]; if (GAME.t < N.at) continue;
+    let hatched = 0;
+    for (let k = 0; k < N.eggs; k++) {
+      const y = dpHatchOne(N, N.x + (Math.random() - 0.5) * 0.5, N.z + (Math.random() - 0.5) * 0.5);
+      if (!y && dpHatchShared() && N.owner !== 'town') break;
+      hatched++;
+    }
+    N.eggs -= hatched;
+    if (N.eggs <= 0) DEPTH.nests.splice(i, 1); else N.at = GAME.t + 10;
   }
   for (let i = LOOT.length - 1; i >= 0; i--) {
-    const L = LOOT[i];
-    if (!L.hatch || !L.item || L.item.goods !== 'egg' || GAME.t < L.hatch.at) continue;
-    LOOT.splice(i, 1);
+    const L = LOOT[i]; if (!L.hatch || !L.item || L.item.goods !== 'egg' || GAME.t < L.hatch.at) continue;
     const y = dpHatchOne(L.hatch, L.x, L.z);
-    if (y && L.hatch.owner === 'player') uiLog(`An egg left lying in the paddock hatches: a chick, ${y.name}.`, 'sys');
+    if (!y && dpHatchShared() && L.hatch.owner !== 'town') { L.until = Math.max(L.until, GAME.t + 120); continue; }
+    if ((L.item.n || 1) > 1) L.item.n--; else LOOT.splice(i, 1);
   }
+  for (const entry of DEPTH.offspring) {
+    dpHatchRestoreBody(entry);
+    const body = dpHatchBody(entry);
+    if (entry.state !== 'pending') { if (body) removeEnt(body); continue; }
+    if (body && !body.alive) entry.state = 'lost';
+  }
+  dpHatchClaimStep();
+}
+function dpHatchSave() {
+  return DEPTH.offspring.slice(0, DP_HATCH_MAX).map(e => ({ id: e.id, ownerAccount: e.ownerAccount, state: e.state,
+    x: e.x, z: e.z, pen: e.pen, bodyId: e.bodyId, animal: JSON.parse(JSON.stringify(e.animal)) }));
+}
+function dpHatchLoad(rows) {
+  DEPTH.offspring = [];
+  for (const e of (Array.isArray(rows) ? rows : []).slice(0, DP_HATCH_MAX)) {
+    if (!e || typeof e.id !== 'string' || !e.id.startsWith('hatch:') || e.id.length > 120
+      || typeof e.ownerAccount !== 'string' || !e.ownerAccount || e.ownerAccount.length > 160
+      || !['pending', 'claimed', 'lost'].includes(e.state) || !Number.isFinite(e.x) || !Number.isFinite(e.z)
+      || Math.abs(e.x) > 4000 || Math.abs(e.z) > 4000 || !e.animal || e.animal.k !== 'hen' || !e.animal.tr
+      || DEPTH.offspring.some(x => x.id === e.id)) continue;
+    DEPTH.offspring.push({ ...e, bodyId: typeof e.bodyId === 'string' ? e.bodyId : null, animal: JSON.parse(JSON.stringify(e.animal)) });
+  }
+}
+// Nest identities survive canonical save/load and do not use local array slots.
+function dpNestId(N) {
+  if (typeof N.id === 'string' && N.id.length > 0 && N.id.length <= 128) return N.id;
+  N.id = ['nest', String(N.ma?.aid || 'unknown').replace(/[\u0000-\u001f]/g, '').slice(0, 64),
+    Math.round(N.x * 10), Math.round(N.z * 10), Math.round((N.seed || 0) * 1e9)].join(':');
+  return N.id;
+}
+function depthNestTake(N) {
+  if (!N || !DEPTH.nests.includes(N) || !(N.eggs > 0)) return false;
+  const args = { id: dpNestId(N), x: N.x, z: N.z };
+  if (typeof netWorldPartsRequest === 'function' && netWorldPartsRequest('animal.nest', args)) return false;
+  const k = goodsAdd('egg', N.eggs, true);
+  if (!(k > 0)) return false;
+  N.eggs -= k;
+  if (N.eggs <= 0) DEPTH.nests.splice(DEPTH.nests.indexOf(N), 1);
+  uiLog(`You take ${k} eggs from the nest.`, 'loot'); saveSoon(); return true;
 }
 function depthAnimalOffers(P, offer) {
   for (const N of DEPTH.nests) {
-    if (N.owner !== 'player') continue;
+    if (N.owner !== 'player' || dpHatchShared() && dpNestAccount(N) !== (typeof anSharedAccount === 'function' && anSharedAccount())) continue;
     const d = dist(P.x, P.z, N.x, N.z);
-    if (d < 2.2) offer(d, 2.2, `Take the eggs from the nest (${N.eggs})`, () => { const k = goodsAdd('egg', N.eggs, true); if (k) { DEPTH.nests.splice(DEPTH.nests.indexOf(N), 1); uiLog(`You take ${k} eggs from the nest.`, 'loot'); saveSoon(); } }, 0.05);
+    if (d < 2.2) offer(d, 2.2, `Take the eggs from the nest (${N.eggs})`, () => depthNestTake(N), 0.05);
   }
 }
 
@@ -1017,8 +1230,8 @@ function dpBuildNestFX() {
   const m = mat({ vertexShader: VS, fragmentShader: DP_EGG_FS });
   const egg = new THREE.SphereGeometry(1, 10, 7); egg.scale(0.022, 0.03, 0.022);
   const ring = new THREE.TorusGeometry(0.16, 0.055, 5, 12); ring.rotateX(Math.PI / 2);
-  const mk = (g, n) => { const M = new THREE.InstancedMesh(g, m, n); M.instanceMatrix.setUsage(THREE.DynamicDrawUsage); M.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(n * 3), 3); M.frustumCulled = false; M.count = 0; scene.add(M); return M; };
-  DEPTH.fx = { eggs: mk(egg, 60), rings: mk(ring, 12), m4: new THREE.Matrix4(), q: new THREE.Quaternion(), v: new THREE.Vector3(), s: new THREE.Vector3() };
+  const mk = (g, n) => { const M = new THREE.InstancedMesh(g, m, n); M.instanceMatrix.setUsage(THREE.DynamicDrawUsage); M.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(n * 3), 3); M.frustumCulled = false; M.count = 0; M.visible = false; scene.add(M); return M; };
+  DEPTH.fx = { eggs: mk(egg, 60), rings: mk(ring, 12), m4: new THREE.Matrix4(), q: new THREE.Quaternion(), v: new THREE.Vector3(), axis: new THREE.Vector3(), s: new THREE.Vector3() };
 }
 function drawDepth(dt) {
   if (!DEPTH.ready) return;
@@ -1031,11 +1244,12 @@ function drawDepth(dt) {
     F.rings.setMatrixAt(nr, F.m4); F.rings.instanceColor.setXYZ(nr, 0.62, 0.52, 0.3); nr++;
     for (let k = 0; k < N.eggs && ne < 60; k++) {
       const a = k * 2.3 + N.seed * 6, r = k ? 0.05 + 0.02 * (k % 2) : 0;
-      F.m4.compose(F.v.set(N.x + Math.sin(a) * r, N.y + 0.06, N.z + Math.cos(a) * r), F.q.setFromAxisAngle(F.v.set(Math.cos(a), 0, -Math.sin(a)).normalize(), 1.2), F.s.set(1, 1, 1));
+      F.m4.compose(F.v.set(N.x + Math.sin(a) * r, N.y + 0.06, N.z + Math.cos(a) * r), F.q.setFromAxisAngle(F.axis.set(Math.cos(a), 0, -Math.sin(a)).normalize(), 1.2), F.s.set(1, 1, 1));
       F.eggs.setMatrixAt(ne, F.m4); F.eggs.instanceColor.setXYZ(ne, 0.86 + 0.06 * fhash(k + N.seed * 10), 0.76, 0.6); ne++;
     }
   }
   F.eggs.count = ne; F.rings.count = nr;
+  F.eggs.visible = ne > 0; F.rings.visible = nr > 0;
   F.eggs.instanceMatrix.needsUpdate = true; F.rings.instanceMatrix.needsUpdate = true;
   F.eggs.instanceColor.needsUpdate = true; F.rings.instanceColor.needsUpdate = true;
 }
@@ -1071,6 +1285,12 @@ function depthChronAnimals() {
 /* ------------------------------------------------------------------ */
 // [motion] Body feathers take the first coat (iColA), the head and neck the second (iColB, the dark-fur material), the
 // pheasant's long tail the barred horn material, bill and legs the beak's; wings of flight feathers (birdBuild)
+// These pools are created on entry, often with no birds in view. An empty pool
+// has no draw work; the first sight of an actual bird can still compile its shaders.
+class GameBirdCrowd extends Crowd {
+  constructor(...args) { super(...args); this.mesh.visible = false; }
+  end() { super.end(); this.mesh.visible = this.geo.instanceCount > 0; }
+}
 function dpBirdCrowds() {
   if (crowdBeast.pheasant || !crowdBeast.hen) return;
   const fs = farmBeastFS();
@@ -1083,8 +1303,8 @@ function dpBirdCrowds() {
     const m = shareMat(beastMat, u);
     m.vertexShader = birdVS(false); m.fragmentShader = birdFS(fs);
     const hd = depthFrom(m, DEPTH_FS, birdVS(true));
-    crowdBeast[k] = [new Crowd(birdBuild(k, 0), m, 24, BEAST_ATTRS), new Crowd(birdBuild(k, 1), m, 40, BEAST_ATTRS)];
-    for (const c of crowdBeast[k]) shadowCaster(c.mesh, hd);
+    crowdBeast[k] = [new GameBirdCrowd(birdBuild(k, 0), m, 24, BEAST_ATTRS), new GameBirdCrowd(birdBuild(k, 1), m, 40, BEAST_ATTRS)];
+    for (const c of crowdBeast[k]) shadowCaster(c.mesh, hd).visible = false;
   }
 }
 
@@ -1104,14 +1324,14 @@ function depthOnStart() {
 }
 function updateDepth(dt) {
   if (!DEPTH.ready || !GAME.started) return;
-  if (DEPTH.pendGrub && NATURE.built) { for (const i of DEPTH.pendGrub) { const t = W.trees[i]; if (t) dpGrubTree(t); } DEPTH.pendGrub = null; }
+  if (DEPTH.pendGrub && NATURE.built) { for (const i of DEPTH.pendGrub) { const t = W.trees[i]; if (t) dpGrubTree(t, true); } DEPTH.pendGrub = null; }
   dpJobStep(dt);
   dpFallStep(dt);
   dpBurnStep(dt);
   dpBirdStep(dt);
   dpDoorsStep(dt);
   dpWellStep(dt);
-  dpMoult(dt);
+  if (!dpHatchShared()) dpMoult(dt);
   for (const p of FORAGE.list) if (p.logRotAt && p.log && GAME.t > p.logRotAt && p.fall && p.fall.done) { p.log = false; if (p.logColl) { p.logColl.active = false; p.logColl = null; } p.regrowAt = GAME.t + DP_REGROW.apple / (NATURE.speed || 1); p.at = p.regrowAt + FORAGE_KINDS.apple.regrow; FORAGE.dirty = true; }
   DEPTH.slow -= dt;
   if (DEPTH.slow <= 0) { DEPTH.slow = 1; dpForageSlow(1); dpHatchStep(); }
@@ -1125,8 +1345,8 @@ registerSavePart('world', 'depth', {
       f.push([p.i, p.gone ? 2 : p.cut ? 1 : 0, Math.round((p.char || 0) * 100), Math.round((p.grow ?? 1) * 100), p.regrowAt ? left(p.regrowAt) : 0, p.log && p.fall ? Math.round(p.fall.yaw * 100) / 100 : null, p.log && p.fall ? Math.round(p.fall.stop * 100) / 100 : null]);
       if (f.length >= 500) break;
     }
-    const nests = DEPTH.nests.filter((N) => N.owner === 'player').slice(0, 20).map((N) => ({ x: Math.round(N.x * 10) / 10, z: Math.round(N.z * 10) / 10, e: N.eggs, l: left(N.at), ma: N.ma, pa: N.pa, pen: N.pen }));
-    return { g: [...DEPTH.grub].slice(0, 600), f, n: nests };
+    const nests = DEPTH.nests.slice(0, DP_NEST_MAX).map((N) => ({ id: dpNestId(N), owner: N.owner === 'town' ? 'town' : 'player', ownerAccount: dpNestAccount(N), x: Math.round(N.x * 10) / 10, z: Math.round(N.z * 10) / 10, e: N.eggs, l: left(N.at), ma: N.ma, pa: N.pa, pen: N.pen }));
+    return { g: [...DEPTH.grub].slice(0, 600), f, n: nests, h: dpHatchSave(), p: (DEPTH.production || []).map(r => ({ ...r })), nextHatch: DEPTH.nextHatch };
   },
   load(d) {
     const o = d && typeof d === 'object' ? d : {};
@@ -1152,13 +1372,15 @@ registerSavePart('world', 'depth', {
       if (p.cut || p.gone || p.char > 0) { p.ripe = 0; p.at = (p.regrowAt || GAME.t) + FORAGE_KINDS[p.k].regrow * 0.5; }
     }
     DEPTH.nests = [];
-    if (Array.isArray(o.n)) for (const N of o.n.slice(0, 20)) {
+    if (Array.isArray(o.n)) for (const N of o.n.slice(0, DP_NEST_MAX)) {
       if (!N || !Number.isFinite(+N.x) || !Number.isFinite(+N.z) || !N.ma || !N.ma.tr) continue;
-      DEPTH.nests.push({ x: +N.x, z: +N.z, y: floorAt(+N.x, +N.z, heightAt(+N.x, +N.z) + 0.5), eggs: clamp(Math.round(+N.e || 1), 1, 8), at: GAME.t + clamp(+N.l || 0, 0, 3600), ma: N.ma, pa: N.pa && N.pa.tr ? N.pa : null, pen: N.pen ?? null, owner: 'player', seed: Math.random() });
+      DEPTH.nests.push({ id: dpNestId(N), x: +N.x, z: +N.z, y: floorAt(+N.x, +N.z, heightAt(+N.x, +N.z) + 0.5), eggs: clamp(Math.round(+N.e || 1), 1, 8), at: GAME.t + clamp(+N.l || 0, 0, 3600), ma: N.ma, pa: N.pa && N.pa.tr ? N.pa : null, pen: N.pen ?? null, owner: N.owner === 'town' ? 'town' : 'player', ownerAccount: dpNestAccount(N), seed: Math.random() });
     }
+    dpHatchLoad(o.h); dpProductionLoad(o.p);
+    DEPTH.nextHatch = Math.max(DEPTH.nextHatch, Number.isSafeInteger(o.nextHatch) ? o.nextHatch : 1);
     FORAGE.dirty = true;
   },
-  key(d) { return d ? JSON.stringify([d.g.length, d.f.map((a) => a[0] * 10 + a[1]), d.n.length]) : ''; },
+  key(d) { return d ? JSON.stringify([d.g.length, d.f.map((a) => a[0] * 10 + a[1]), d.n.length, d.h, d.p]) : ''; },
 });
 
 /* ------------------------------------------------------------------ */
@@ -1176,4 +1398,61 @@ queueMicrotask(() => {
     birds() { return DEPTH.birds.filter((e) => !e.removed).map((e) => ({ id: e.id, kind: e.kind, alive: e.alive, x: +e.x.toFixed(1), y: +e.y.toFixed(2), z: +e.z.toFixed(1), fly: !!e.bird.fly, water: e.bird.water })); },
     stats() { return { ...DEPTH.stats, burning: DEPTH.burn.length, nests: DEPTH.nests.length, birds: DEPTH.birds.filter((e) => e.alive && !e.removed).length, herd: DEPTH.herd ? DEPTH.herd.n : null }; },
   };
+});
+
+
+queueMicrotask(() => {
+  if (typeof netWorldPartsRegisterCommand !== 'function') return;
+  netWorldPartsRegisterCommand('depth.work', {
+    tools: ['tool_axe', 'tool_pick', 'tool_knife'], range: 12, point: dpWorkPoint,
+    run: a => {
+      const prior = DEPTH.job;
+      try { return dpApplyWork(a); } finally { DEPTH.job = prior; }
+    },
+  });
+  netWorldPartsRegisterCommand('animal.nest', {
+    range: 3,
+    point: a => DEPTH.nests.find(N => dpNestId(N) === a?.id)
+      || (Number.isFinite(a?.x) && Number.isFinite(a?.z) ? { x: a.x, z: a.z } : { x: Infinity, z: Infinity }),
+    run: (a, context) => {
+      const N = DEPTH.nests.find(n => dpNestId(n) === a?.id);
+      return N && N.owner === 'player' && (!dpHatchShared() || dpNestAccount(N) === context.ownerAccount) ? depthNestTake(N) : false;
+    },
+  });
+  const henPoint = a => { const e = typeof netEntityFind === 'function' && netEntityFind(a?.id); return e || GAME.player || null; };
+  const ownedHen = (a, context) => {
+    const e = typeof netEntityFind === 'function' && netEntityFind(a?.id);
+    return e?.alive && e.tame?.k === 'hen' && (e.netEntityOwner === context.from
+      || context.from === NET.self && (typeof anSharedOwnAnimal !== 'function' || anSharedOwnAnimal(e))) ? e : null;
+  };
+  netWorldPartsRegisterCommand('animal.lay', { range: 8000, point: henPoint,
+    run: (a, context) => dpProductionRun(a, context, 'animal.lay', ownedHen(a, context), () => { anLay(ownedHen(a, context), context.ownerAccount); return true; }),
+  });
+  netWorldPartsRegisterCommand('animal.moult', { range: 8000, point: henPoint,
+    run: (a, context) => { const e = ownedHen(a, context); return dpProductionRun(a, context, 'animal.moult', e, () => dpMoultOne(e)); },
+  });
+  netWorldPartsRegisterCommand('animal.clutch', { range: 8000, point: henPoint,
+    run: (a, context) => {
+      const e = ownedHen(a, context), sire = a?.sire;
+      if (!sire || !sire.tr || typeof sire.name !== 'string' || !Number.isFinite(sire.gen)) return false;
+      return dpProductionRun(a, context, 'animal.clutch', e, () => depthClutch(e, { aid: sire.aid, name: sire.name.slice(0, 24), gen: Math.max(0, Math.min(10000, sire.gen)), tr: anCleanTraits(sire.tr, 'hen') }, context.ownerAccount));
+    },
+  });
+  netWorldPartsRegisterCommand('animal.hatch.claim', { range: 8000,
+    point: a => DEPTH.offspring.find(e => e.id === a?.id) || null, run: dpHatchClaim,
+  });
+  if (typeof netWorldPartsRegisterResult === 'function') netWorldPartsRegisterResult('animal.hatch.claim', dpHatchReceive);
+  if (typeof registerSavePart === 'function') registerSavePart('char', 'hatchedClaims', {
+    save: () => [...DEPTH.hatchClaims].slice(0, DP_HATCH_MAX),
+    load: rows => { DEPTH.hatchClaims = new Set((Array.isArray(rows) ? rows : []).filter(id => typeof id === 'string' && id.startsWith('hatch:') && id.length <= 120).slice(0, DP_HATCH_MAX)); },
+    key: rows => JSON.stringify(rows),
+  });
+  netWorldPartsRegisterCommand('depth.ignite', {
+    range: 5, point: a => Number.isInteger(a?.id) && FORAGE.list[a.id] || { x: Infinity, z: Infinity },
+    run: a => {
+      const p = FORAGE.list[a.id], actor = GAME.player;
+      if (!p || !actor || !(actor.brand || (actor.look?.mask & WB.torch))) return false;
+      return dpIgnite(p, 1);
+    },
+  });
 });

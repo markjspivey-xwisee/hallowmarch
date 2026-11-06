@@ -4,6 +4,7 @@ import http from 'node:http';
 import { createPlayerAccountHost } from './player-account-host.js';
 import { createPlayerBindingLedger } from './player-bindings.js';
 import { createGameSessionTokens } from './game-session.js';
+import { createHash, generateKeyPairSync } from 'node:crypto';
 
 const ORIGIN = 'https://game.example';
 const RELAY = 'https://relay.interego.xwisee.com';
@@ -52,7 +53,8 @@ async function fixture(t, overrides = {}) {
   const gameTokens = createGameSessionTokens({ secret: 'synthetic-signed-host-test-secret', now: () => clock });
   const claims = new Map(), issued = [], restored = [], legacyReads = [], faults = [], remote = [];
   const token = (id, fields = {}) => {
-    const value = overrides.realTokens ? (fields.nativeDid ? gameTokens.issueNative(id, fields.nativeDid).token : gameTokens.issueLegacy(id)) : `game-session-${id}-${claims.size}`;
+    const value = overrides.realTokens ? (fields.nativeDid ? gameTokens.issueNative(id, fields.nativeDid, { provisional: fields.provisional === true,
+      ...(fields.ownerExpiresAt ? { expiresAt: fields.ownerExpiresAt } : {}) }).token : gameTokens.issueLegacy(id)) : `game-session-${id}-${claims.size}`;
     claims.set(value, overrides.realTokens ? gameTokens.read(value) : { id, exp: clock + 7_200_000, ...fields }); return value;
   };
   const aliceToken = token('guest-a'), bobToken = token('guest-b');
@@ -71,18 +73,21 @@ async function fixture(t, overrides = {}) {
     assert.deepEqual(JSON.parse(init.body).params, { name: 'get_pod_status', arguments: {} });
     const owner = nativeOwner(userId);
     return Response.json({ jsonrpc: '2.0', id: 1, result: { structuredContent: {
-      identity: { userId, did: owner.subjectDid, webId: owner.webId }, pod: `http://css.railway.internal:3456/${userId}/`,
+      identity: { userId, did: owner.subjectDid, webId: owner.webId,
+        ...(overrides.omitLifecycle ? {} : { provisionalPlay: overrides.oauthProvisionalPlay ?? false }) }, pod: `http://css.railway.internal:3456/${userId}/`,
       registry: { owner: owner.webId }, sessionAgent: { id: `gaming-client-${userId}`, did: owner.authenticatedAgentDid, scope: 'ReadWrite' },
     } } });
   };
   const host = createPlayerAccountHost({ store, publicOrigin: ORIGIN, now: () => clock, fetch: fetcher,
     tokenClaims: value => overrides.realTokens ? gameTokens.read(value) : claims.has(value) ? { ...claims.get(value) } : null,
-    ...(overrides.realTokens ? { reauthenticationClaims: value => gameTokens.readForReauthentication(value) } : {}),
+    ...(overrides.realTokens ? { reauthenticationClaims: value => gameTokens.readForReauthentication(value),
+      provisionalProofClaims: value => gameTokens.readForProvisionalProof(value) } : {}),
     getAccount: id => accounts.get(id) ?? null,
     restoreAccount: record => { restored.push(structuredClone(record)); const account = { ...record.accountSummary }; accounts.set(account.id, account); return account; },
     issueAppSession: (id, binding) => {
       issued.push({ id, binding: structuredClone(binding) });
-      return { token: token(id, { nativeDid: binding.subjectDid, nativeVerifiedAt: clock }),
+      return { token: token(id, { nativeDid: binding.subjectDid, nativeVerifiedAt: clock,
+        ...(binding.provisional ? { provisional: true, ownerExpiresAt: Date.parse(binding.expiresAt) } : {}) }),
         acct: { id, name: accounts.get(id).name, guest: accounts.get(id).guest }, nativeVerifiedUntil: clock + 3_600_000 };
     },
     readLegacySave: id => { legacyReads.push(id); return { character: id, inventory: ['old-wood'], privateSave: true }; },
@@ -118,7 +123,7 @@ async function fixture(t, overrides = {}) {
     assert.equal(response.status, 200); return { flow, payload: await response.json() };
   };
   return { host, store, accounts, claims, gameTokens, issued, restored, legacyReads, remote, request, start, callback, claim, connect, token,
-    aliceToken, bobToken, advance(ms) { clock += ms; }, nativeUser(value) { userId = value; }, clock: () => clock };
+    aliceToken, bobToken, advance(ms) { clock += ms; }, nativeUser(value) { userId = value; }, nativeScope(value) { scope = value; }, clock: () => clock };
 }
 
 const noNativeCredentials = value => {
@@ -134,6 +139,355 @@ test('unbound account status trusts the game bearer only and exposes no claimed 
   assert.equal((await f.start('forged-game-session', { accountId: 'guest-a', nativeDid: nativeOwner().subjectDid })).response.status, 401);
   assert.equal(f.store.commits.length, 0); assert.equal(f.host.principalFor({ acct: f.accounts.get('guest-a'), authClaims: f.claims.get(f.aliceToken) }), null);
 });
+
+const playKey = () => generateKeyPairSync('ec', { namedCurve: 'prime256v1' }).publicKey.export({ format: 'jwk' });
+const proofFixture = 'A'.repeat(86);
+async function provisionalFixture(t, options = {}) {
+  const publicKeyJwk = playKey(), verified = [];
+  let f, guestExpiresAt;
+  f = await fixture(t, { allowOwnerBrowserHandoff: true, playGrantSigner: async payload => ({ _signed_payload: JSON.stringify(payload), _signature: 'native-service-signature' }),
+    provisionalProofVerifier: async input => {
+      verified.push(structuredClone(input));
+      if (![proofFixture, 'B'.repeat(86)].includes(input.proof) || input.attestation !== 'provider-attestation') throw new Error('refused');
+      const owner = nativeOwner('u-play-player');
+      return { valid: true, provisional: true, issuer: 'https://identity.interego.xwisee.com', ownerDid: owner.subjectDid,
+        userId: owner.userId, webId: owner.webId, podUrl: owner.podUrl, authenticatedAgentDid: owner.authenticatedAgentDid,
+        publicKeyJwk, expiresAt: guestExpiresAt ??= Math.floor((f.clock() + 86400000) / 1000), capabilities: ['human-play', 'own-pod-checkpoint'] };
+    }, ...options });
+  async function begin(session = f.aliceToken) {
+    const challengeResponse = await f.request('/gaming/identity/play/challenge', { method: 'POST', session, body: { publicKeyJwk } });
+    assert.equal(challengeResponse.status, 200); const challenge = await challengeResponse.json();
+    const completeBody = { attestation: 'provider-attestation', challenge: challenge.challenge, proof: proofFixture };
+    const response = await f.request('/gaming/identity/play/complete', { method: 'POST', session, body: completeBody });
+    return { response, result: await response.json(), challenge, completeBody };
+  }
+  async function target(session) {
+    const challengeResponse = await f.request('/gaming/identity/play/claim-challenge', { method: 'POST', session, body: {} });
+    assert.equal(challengeResponse.status, 200); const challenge = await challengeResponse.json();
+    const response = await f.request('/gaming/identity/claim-owner/start', { method: 'POST', session, body: {
+      ownerPodWriteAccess: true, attestation: 'provider-attestation', challenge: challenge.challenge, proof: proofFixture } });
+    assert.equal(response.status, 200); const start = await response.json(), authorization = new URL(start.authorizationUrl);
+    const cookie = response.headers.get('set-cookie').split(';')[0]; f.nativeScope(authorization.searchParams.get('scope'));
+    const callback = await f.request('/gaming/identity/claim-owner/callback?' + new URLSearchParams({ code: 'test-code', state: authorization.searchParams.get('state') }), { cookie });
+    if (callback.status !== 303) { const result = await callback.json(); assert.notEqual(callback.status, 502, JSON.stringify(result)); return { callback, result }; }
+    assert.equal(callback.headers.get('location'), '/gaming/identity/finish?purpose=character-claim-target');
+    const handoff = await f.request('/gaming/identity/claim-owner/claim', { method: 'POST', session, cookie, body: { ownerPodWriteAccess: true } });
+    assert.equal(handoff.status, 200); return { callback, result: await handoff.json() };
+  }
+  return { ...f, publicKeyJwk, verified, begin, target };
+}
+const targetReference = () => ({ ...characterPointer, nativeRevision: 'sha256:' + 'a'.repeat(64), recordCid: 'sha256:target-record',
+  digest: 'sha256:target-digest', proofKind: 'owner-key-authenticated-checkpoint' });
+const finalizeBody = target => ({ claimOperationId: target.appSession.claimOperationId, attestation: 'provider-attestation',
+  proof: proofFixture, targetRecord: targetReference(), readConfirmed: true });
+
+test('native provisional admission confirms a durable owner before granting human-only play', async t => {
+  const f = await provisionalFixture(t), play = await f.begin(); assert.equal(play.response.status, 200);
+  assert.equal(play.challenge.audience, ORIGIN); assert.equal(play.challenge.relayUrl, RELAY);
+  assert.equal(play.result.binding.provisional, true); assert.equal(f.store.commits.length, 1);
+  const session = play.result.appSession.token, client = { acct: f.accounts.get('guest-a'), authClaims: f.claims.get(session) };
+  assert.equal(f.host.humanPrincipalFor(client), nativeOwner('u-play-player').subjectDid);
+  assert.equal(f.host.principalFor(client), null);
+  await assert.rejects(f.host.ownerForRequest({ headers: { authorization: 'Bearer ' + session } }), /native_signin_required/);
+  const status = await (await f.request('/gaming/identity/status', { session })).json();
+  assert.equal(status.verified, true); assert.equal(status.provisional, true); assert.equal(status.provisionalPlay.enabled, true);
+  const retry = await f.request('/gaming/identity/play/complete', { method: 'POST', body: play.completeBody });
+  assert.equal(retry.status, 200); assert.deepEqual(await retry.json(), play.result); assert.equal(f.store.commits.length, 1);
+  assert.equal((await f.request('/gaming/identity/play/complete', { method: 'POST', session: f.bobToken, body: play.completeBody })).status, 409);
+  assert.equal((await f.request('/gaming/identity/play/challenge', { method: 'POST', session, body: { publicKeyJwk: playKey() } })).status, 403);
+  f.advance(3600001); assert.equal(f.host.humanPrincipalFor(client), null);
+  const staleStatus = await (await f.request('/gaming/identity/status', { session })).json();
+  assert.equal(staleStatus.verified, false); assert.equal(staleStatus.provisional, true);
+  assert.equal(staleStatus.binding, null); assert.deepEqual(staleStatus.recordLinks, {});
+});
+
+test('provisional binding diagnostics distinguish a refused native commit and its exact-operation retry', async t => {
+  const f = await provisionalFixture(t), commit = f.store.commit.bind(f.store);
+  f.store.commit = async () => {
+    throw Object.assign(new Error('PRIVATE_PROVISIONAL_STORE_MESSAGE'), { code: 'NATIVE_COMMIT_CAPACITY' });
+  };
+  const first = await f.begin();
+  assert.equal(first.response.status, 503);
+  assert.deepEqual(first.result, { error: 'native_identity_unavailable' });
+  assert.equal(f.issued.length, 0); assert.equal(f.store.commits.length, 0);
+  const failed = f.host.status().verificationDiagnostics;
+  assert.deepEqual(failed.lastFailure, { stage: 'ledger-bind', code: 'NATIVE_COMMIT_CAPACITY' });
+  assert.equal(failed.attempts, 1); assert.equal(failed.failed, 1); assert.equal(failed.inFlight, 0);
+  assert.deepEqual(failed.ledger, { configured: true, ready: true });
+  assert(!JSON.stringify(failed).includes('PRIVATE_PROVISIONAL'));
+  f.store.commit = commit;
+  const retry = await f.request('/gaming/identity/play/complete', { method: 'POST', body: first.completeBody });
+  assert.equal(retry.status, 200);
+  const answer = await retry.json();
+  assert.equal(f.store.commits.length, 1); assert.equal(f.issued.length, 1);
+  const replay = await f.request('/gaming/identity/play/complete', { method: 'POST', body: first.completeBody });
+  assert.equal(replay.status, 200); assert.deepEqual(await replay.json(), answer);
+  const completed = f.host.status().verificationDiagnostics;
+  assert.equal(completed.attempts, 2); assert.equal(completed.succeeded, 1); assert.equal(completed.failed, 1);
+  assert.equal(completed.stages['issue-app-session'].entered, 1);
+  assert.equal(f.store.commits.length, 1); assert.equal(f.issued.length, 1);
+});
+
+test('provisional binding diagnostics never expose foreign exception details', async t => {
+  const f = await provisionalFixture(t);
+  const secret = 'PRIVATE_PROVISIONAL_TOKEN_OWNER_OPERATION';
+  f.store.commit = async () => { throw Object.assign(new Error(secret), { code: secret, token: secret, owner: secret }); };
+  const first = await f.begin();
+  assert.equal(first.response.status, 503);
+  assert.deepEqual(first.result, { error: 'native_identity_unavailable' });
+  const diagnostic = f.host.status().verificationDiagnostics;
+  assert.deepEqual(diagnostic.lastFailure, { stage: 'ledger-bind', code: 'other' });
+  assert.equal(diagnostic.inFlight, 0); assert.equal(diagnostic.failed, 1);
+  assert(!JSON.stringify([first.result, diagnostic]).includes(secret));
+});
+
+test('provisional diagnostics distinguish session issuance after an already confirmed native binding', async t => {
+  const f = await provisionalFixture(t, { issueAppSession: async () => {
+    throw Object.assign(new Error('PRIVATE_SESSION_ISSUER_DETAILS'), { code: 'DURABILITY_UNAVAILABLE' });
+  } });
+  const first = await f.begin();
+  assert.equal(first.response.status, 503);
+  assert.deepEqual(first.result, { error: 'native_identity_unavailable' });
+  assert.equal(f.store.commits.length, 1);
+  const diagnostic = f.host.status().verificationDiagnostics;
+  assert.deepEqual(diagnostic.lastFailure, { stage: 'issue-app-session', code: 'DURABILITY_UNAVAILABLE' });
+  assert.equal(diagnostic.stages['ledger-bind'].entered, 1);
+  assert.equal(diagnostic.stages['account-restore'].entered, 1);
+  assert(!JSON.stringify(diagnostic).includes('PRIVATE_SESSION'));
+});
+
+test('hour-two guest renewal needs fresh key proof and retains the exact owner, pod and fixed deadline', async t => {
+  const f = await provisionalFixture(t, { realTokens: true }), first = await f.begin();
+  const old = first.result.appSession.token, originalBinding = f.host.bindingForAccount('guest-a');
+  const commits = structuredClone(f.store.commits), issued = f.issued.length;
+  f.advance(3_600_001);
+  assert.equal(f.gameTokens.read(old), null); assert.equal(f.gameTokens.readForReauthentication(old), null);
+  const proofOnly = f.gameTokens.readForProvisionalProof(old);
+  assert.equal(proofOnly.purpose, 'provisional-play-proof-only');
+  const client = { acct: f.accounts.get('guest-a'), authClaims: proofOnly };
+  assert.equal(f.host.humanPrincipalFor(client), null); assert.equal(f.host.principalFor(client), null);
+  for (const route of ['/gaming/identity/status', '/gaming/identity/legacy-import']) {
+    assert.equal((await f.request(route, { session: old })).status, 401);
+  }
+  assert.equal((await f.start(old)).response.status, 401, 'guest proof is not generic OAuth reauthentication');
+  assert.equal((await f.request('/gaming/identity/play/claim-challenge', { method: 'POST', session: old, body: {} })).status, 401);
+  assert.equal((await f.request('/gaming/identity/record-link', { method: 'POST', session: old, body: characterPointer })).status, 401);
+  assert.equal((await f.request('/gaming/identity/play/challenge', { method: 'POST', session: old,
+    body: { publicKeyJwk: playKey() } })).status, 403, 'different browser key cannot refresh');
+  const badChallenge = await (await f.request('/gaming/identity/play/challenge', { method: 'POST', session: old,
+    body: { publicKeyJwk: f.publicKeyJwk } })).json();
+  const badProof = await f.request('/gaming/identity/play/complete', { method: 'POST', session: old,
+    body: { attestation: 'provider-attestation', challenge: badChallenge.challenge, proof: 'C'.repeat(86) } });
+  assert.notEqual(badProof.status, 200); assert.equal(f.issued.length, issued);
+  assert.deepEqual(f.store.commits, commits, 'a challenge or rejected proof has no binding/session effect');
+  const refreshed = await f.begin(old); assert.equal(refreshed.response.status, 200);
+  const fresh = f.gameTokens.read(refreshed.result.appSession.token);
+  assert.equal(fresh.provisional, true); assert.equal(fresh.nativeDid, originalBinding.subjectDid);
+  assert.equal(fresh.exp, f.clock() + 3_600_000);
+  assert.equal(f.host.bindingForAccount('guest-a').podUrl, originalBinding.podUrl);
+  assert.equal(f.host.bindingForAccount('guest-a').expiresAt, originalBinding.expiresAt);
+  assert.equal(refreshed.result.binding.expiresAt, originalBinding.expiresAt);
+  assert.deepEqual(f.store.commits, commits, 'renewal reuses the confirmed native owner');
+  assert.equal(f.host.humanPrincipalFor({ acct: f.accounts.get('guest-a'), authClaims: fresh }), originalBinding.subjectDid);
+  assert.equal(f.host.principalFor({ acct: f.accounts.get('guest-a'), authClaims: fresh }), null);
+  assert.equal(f.gameTokens.read(old), null, 'only the new one-hour game token is live');
+});
+
+test('guest proof renewal stops at the original guest deadline and never gives a fresh owner lifetime', async t => {
+  const f = await provisionalFixture(t, { realTokens: true }), first = await f.begin(), old = first.result.appSession.token;
+  const deadline = Date.parse(first.result.binding.expiresAt);
+  f.advance(23.5 * 3_600_000);
+  const last = await f.begin(old); assert.equal(last.response.status, 200);
+  assert.equal(f.gameTokens.read(last.result.appSession.token).exp, deadline, 'last game session is capped by the guest deadline');
+  f.advance(0.5 * 3_600_000);
+  assert(f.gameTokens.readForProvisionalProof(old), 'HMAC proof window alone is insufficient at the guest deadline');
+  assert.equal((await f.request('/gaming/identity/play/challenge', { method: 'POST', session: old,
+    body: { publicKeyJwk: f.publicKeyJwk } })).status, 401);
+  assert.equal(f.gameTokens.read(last.result.appSession.token), null);
+  assert.equal(f.host.bindingForAccount('guest-a').expiresAt, first.result.binding.expiresAt);
+});
+
+test('expired canonical, foreign-owner and forged tokens cannot use the provisional proof route', async t => {
+  const f = await provisionalFixture(t, { realTokens: true }), first = await f.begin();
+  const old = first.result.appSession.token, owner = first.result.binding.subjectDid;
+  const canonical = f.gameTokens.issueNative('guest-a', owner).token;
+  const foreign = f.gameTokens.issueNative('guest-a', nativeOwner('u-pk-foreign').subjectDid, { provisional: true }).token;
+  const foreignAccount = f.gameTokens.issueNative('guest-b', owner, { provisional: true }).token;
+  f.advance(3_600_001); const before = f.issued.length, verified = f.verified.length;
+  for (const session of [canonical, foreign, foreignAccount, 'forged', old.slice(0, -1) + '!']) {
+    assert.equal((await f.request('/gaming/identity/play/challenge', { method: 'POST', session,
+      body: { publicKeyJwk: f.publicKeyJwk } })).status, 401);
+  }
+  assert.equal(f.issued.length, before); assert.equal(f.verified.length, verified);
+});
+
+test('expired guest renewal rereads native ownership and refuses a source claimed by another host', async t => {
+  const f = await provisionalFixture(t, { realTokens: true }), first = await f.begin(), old = first.result.appSession.token;
+  const external = createPlayerBindingLedger({ store: f.store, now: f.clock }); await external.ready;
+  await external.promoteProvisional('guest-a', first.result.binding.subjectDid, nativeOwner(), targetReference(),
+    { operationId: 'external-confirmed-character-claim' });
+  assert.equal(f.host.bindingForAccount('guest-a').provisional, true, 'the local disposable view predates the external claim');
+  f.advance(3_600_001); const before = f.issued.length;
+  assert.equal((await f.request('/gaming/identity/play/challenge', { method: 'POST', session: old,
+    body: { publicKeyJwk: f.publicKeyJwk } })).status, 401);
+  assert.equal(f.host.bindingForAccount('guest-a').provisional, undefined, 'proof refresh observes the confirmed canonical transition');
+  assert.equal(f.issued.length, before);
+});
+
+test('claim OAuth is purpose limited until fresh source proof and exact target readback finalize durable ownership', async t => {
+  const f = await provisionalFixture(t), play = await f.begin(), session = play.result.appSession.token;
+  const target = (await f.target(session)).result;
+  assert(target.appSession, JSON.stringify(target));
+  assert.equal(target.appSession.purpose, 'character-claim-target'); assert.equal(target.appSession.token, undefined);
+  assert.equal(target.nativeSession.accessToken, 'native-access-secret'); assert.equal(f.store.commits.length, 1);
+  assert.equal(f.host.principalFor({ acct: f.accounts.get('guest-a'), authClaims: f.claims.get(session) }), null);
+  const body = finalizeBody(target);
+  assert.equal((await f.request('/gaming/identity/play/claim-complete', { method: 'POST', session: f.bobToken, body })).status, 409);
+  assert.equal((await f.request('/gaming/identity/play/claim-complete', { method: 'POST', session, body: { ...body, readConfirmed: false } })).status, 400);
+  const response = await f.request('/gaming/identity/play/claim-complete', { method: 'POST', session, body }); assert.equal(response.status, 200);
+  const claimed = await response.json(); assert.equal(claimed.claimed, true); assert.equal(claimed.provisional, false);
+  assert.equal(claimed.appSession.acct.id, 'guest-a'); assert.equal(f.store.commits.length, 2);
+  const client = { acct: f.accounts.get('guest-a'), authClaims: f.claims.get(claimed.appSession.token) };
+  assert.equal(f.host.principalFor(client), nativeOwner().subjectDid);
+  const retry = await f.request('/gaming/identity/play/claim-complete', { method: 'POST', session, body: { ...body, proof: 'B'.repeat(86) } });
+  assert.equal(retry.status, 200); assert.deepEqual(await retry.json(), claimed); assert.equal(f.store.commits.length, 2);
+  const canonicalRetry = await f.request('/gaming/identity/play/claim-complete', { method: 'POST', session: claimed.appSession.token,
+    body: { ...body, proof: 'B'.repeat(86) } });
+  assert.equal(canonicalRetry.status, 200); assert.deepEqual(await canonicalRetry.json(), claimed); assert.equal(f.store.commits.length, 2);
+  const otherCanonicalSession = f.token(claimed.appSession.acct.id, { nativeDid: claimed.binding.subjectDid, nativeVerifiedAt: f.clock() });
+  assert.equal((await f.request('/gaming/identity/play/claim-complete', { method: 'POST', session: otherCanonicalSession, body })).status, 409);
+  assert.equal((await f.request('/gaming/identity/play/claim-complete', { method: 'POST', session,
+    body: { ...body, targetRecord: { ...body.targetRecord, recordCid: 'sha256:changed' } } })).status, 409);
+  assert.equal(f.host.humanPrincipalFor({ acct: f.accounts.get('guest-a'), authClaims: f.claims.get(session) }), null);
+  assert(f.verified.some(value => value.challenge === target.appSession.sourceChallenge));
+  const reentry = await f.begin(f.bobToken); assert.equal(reentry.response.status, 409);
+});
+
+test('canonical character conflict preserves both owner records and never promotes guest progress', async t => {
+  const f = await provisionalFixture(t), existing = await f.connect(f.bobToken), canonicalToken = existing.payload.appSession.token;
+  const link = await f.request('/gaming/identity/record-link', { method: 'POST', session: canonicalToken, body: { ...characterPointer, cid: 'sha256:existing-character' } });
+  assert.equal(link.status, 200);
+  const play = await f.begin(), session = play.result.appSession.token, target = (await f.target(session)).result;
+  const before = structuredClone(f.store.streams.get('player-bindings-v1'));
+  const response = await f.request('/gaming/identity/play/claim-complete', { method: 'POST', session, body: finalizeBody(target) });
+  assert.equal(response.status, 409); assert.equal((await response.json()).error, 'claim_character_conflict');
+  assert.deepEqual(f.store.streams.get('player-bindings-v1'), before);
+  assert.equal(f.host.bindingForAccount('guest-a').provisional, true); assert.equal(f.issued.length, 2);
+});
+
+test('claim-only OAuth rejects provisional or absent lifecycle metadata before handoff', async t => {
+  for (const options of [{ oauthProvisionalPlay: true }, { omitLifecycle: true }]) await t.test(JSON.stringify(options), async child => {
+    const f = await provisionalFixture(child, options), play = await f.begin();
+    const target = await f.target(play.result.appSession.token); assert.equal(target.callback.status, 403);
+    assert.equal(target.result.error, 'canonical_native_owner_required'); assert.equal(f.store.commits.length, 1);
+  });
+});
+
+test('same-owner permanent credential claim keeps the account and owner pod', async t => {
+  const f = await provisionalFixture(t), play = await f.begin(); f.nativeUser('u-play-player');
+  const target = (await f.target(play.result.appSession.token)).result;
+  const reference = { ...targetReference(), descriptorUrl: 'https://gate.interego.xwisee.com/u-play-player/context-graphs/character.ttl' };
+  const response = await f.request('/gaming/identity/play/claim-complete', { method: 'POST', session: play.result.appSession.token,
+    body: { ...finalizeBody(target), targetRecord: reference } });
+  assert.equal(response.status, 200); const claimed = await response.json();
+  assert.equal(claimed.binding.subjectDid, play.result.binding.subjectDid); assert.equal(claimed.binding.provisional, undefined);
+  assert.equal(claimed.appSession.acct.id, 'guest-a');
+  assert.equal(f.host.principalFor({ acct: f.accounts.get('guest-a'), authClaims: f.claims.get(play.result.appSession.token) }), null);
+  assert.equal(f.host.humanPrincipalFor({ acct: f.accounts.get('guest-a'), authClaims: f.claims.get(play.result.appSession.token) }), null);
+});
+
+test('an uncertain native claim commit recovers by exact operation readback without restoring guest authority', async t => {
+  const f = await provisionalFixture(t), play = await f.begin(), session = play.result.appSession.token;
+  const target = (await f.target(session)).result, body = finalizeBody(target);
+  f.store.uncertainCommit = true;
+  const uncertain = await f.request('/gaming/identity/play/claim-complete', { method: 'POST', session, body });
+  assert.equal(uncertain.status, 503); assert.equal(f.issued.length, 1);
+  f.store.uncertainCommit = false;
+  const retry = await f.request('/gaming/identity/play/claim-complete', { method: 'POST', session, body });
+  assert.equal(retry.status, 200); const claimed = await retry.json();
+  assert.equal(claimed.claimed, true); assert.equal(f.store.commits.length, 2); assert.equal(f.issued.length, 2);
+  assert.equal(f.host.humanPrincipalFor({ acct: f.accounts.get('guest-a'), authClaims: f.claims.get(session) }), null);
+});
+
+test('committed claim receipt survives host restart, lease expiry and expired source token without another native write', async t => {
+  const f = await provisionalFixture(t, { realTokens: true }), play = await f.begin(), session = play.result.appSession.token;
+  const target = (await f.target(session)).result, body = finalizeBody(target);
+  const initial = await f.request('/gaming/identity/play/claim-complete', { method: 'POST', session, body });
+  assert.equal(initial.status, 200); const claimed = await initial.json(), baseline = structuredClone(f.store.commits);
+  f.host.close();
+  const restarted = await provisionalFixture(t, { realTokens: true, store: f.store, accounts: f.accounts,
+    provisionalProofVerifier: async input => {
+      assert.match(input.challenge, /^[A-Za-z0-9_-]{43}$/);
+      if (input.proof !== input.challenge + input.challenge || input.attestation !== 'provider-attestation') throw Error('refused');
+      const owner = nativeOwner('u-play-player');
+      return { valid: true, provisional: true, issuer: 'https://identity.interego.xwisee.com', ownerDid: owner.subjectDid,
+        userId: owner.userId, webId: owner.webId, podUrl: owner.podUrl, authenticatedAgentDid: owner.authenticatedAgentDid,
+        publicKeyJwk: f.publicKeyJwk, expiresAt: Math.floor(Date.parse(play.result.binding.expiresAt) / 1000), capabilities: ['human-play', 'own-pod-checkpoint'] };
+    } });
+  restarted.advance(3_600_001);
+  assert.equal(restarted.gameTokens.read(session), null);
+  assert.equal((await restarted.request('/gaming/identity/status', { session })).status, 401);
+  const challengeBody = { claimOperationId: body.claimOperationId, targetRecord: body.targetRecord, readConfirmed: true };
+  const reads = f.store.loadCalls;
+  assert.equal((await restarted.request('/gaming/identity/play/claim-recovery-challenge', { method: 'POST', session: 'forged', body: challengeBody })).status, 401);
+  assert.equal(f.store.loadCalls, reads, 'unauthenticated recovery cannot trigger native reads');
+  assert.equal((await restarted.request('/gaming/identity/play/claim-complete', { method: 'POST', session, body })).status, 409,
+    'the captured original completion packet cannot mint another canonical session');
+  assert.equal(restarted.issued.length, 0);
+  const challengeResponse = await restarted.request('/gaming/identity/play/claim-recovery-challenge', { method: 'POST', session, body: challengeBody });
+  assert.equal(challengeResponse.status, 200); const nonce = await challengeResponse.json();
+  assert.notEqual(nonce.challenge, target.appSession.sourceChallenge);
+  const recoveryBody = { ...body, recoveryChallenge: nonce.challenge, proof: nonce.challenge + nonce.challenge };
+  assert.notEqual((await restarted.request('/gaming/identity/play/claim-complete', { method: 'POST', session,
+    body: { ...recoveryBody, proof: body.proof } })).status, 200, 'a captured signature does not prove the new nonce');
+  assert.equal((await restarted.request('/gaming/identity/play/claim-complete', { method: 'POST', session: restarted.bobToken, body: recoveryBody })).status, 409);
+  assert.equal((await restarted.request('/gaming/identity/play/claim-complete', { method: 'POST', session,
+    body: { ...recoveryBody, claimOperationId: 'different-claim-operation' } })).status, 409);
+  assert.equal((await restarted.request('/gaming/identity/play/claim-complete', { method: 'POST', session,
+    body: { ...recoveryBody, targetRecord: { ...body.targetRecord, recordCid: 'sha256:changed' } } })).status, 409);
+  const response = await restarted.request('/gaming/identity/play/claim-complete', { method: 'POST', session, body: recoveryBody });
+  assert.equal(response.status, 200); const recovered = await response.json();
+  assert.equal(recovered.binding.subjectDid, claimed.binding.subjectDid); assert.equal(recovered.appSession.acct.id, claimed.appSession.acct.id);
+  assert.equal(restarted.gameTokens.read(recovered.appSession.token).provisional, undefined);
+  const duplicate = await restarted.request('/gaming/identity/play/claim-complete', { method: 'POST', session, body: recoveryBody });
+  assert.equal(duplicate.status, 200); assert.deepEqual(await duplicate.json(), recovered);
+  assert.equal(restarted.issued.length, 1, 'a consumed nonce returns its original session without minting another');
+  restarted.advance(120001);
+  assert.equal((await restarted.request('/gaming/identity/play/claim-complete', { method: 'POST', session, body: recoveryBody })).status, 409);
+  const freshNonce = await (await restarted.request('/gaming/identity/play/claim-recovery-challenge', { method: 'POST', session, body: challengeBody })).json();
+  assert.notEqual(freshNonce.challenge, nonce.challenge);
+  assert.notEqual((await restarted.request('/gaming/identity/play/claim-complete', { method: 'POST', session,
+    body: { ...recoveryBody, recoveryChallenge: freshNonce.challenge } })).status, 200, 'another nonce requires another key signature');
+  assert.equal(restarted.issued.length, 1);
+  assert.deepEqual(f.store.commits, baseline, 'receipt recovery must never repeat promotion or mutate a private/public save');
+  assert.equal((await restarted.request('/gaming/identity/play/challenge', { method: 'POST', session,
+    body: { publicKeyJwk: f.publicKeyJwk } })).status, 401, 'reconciliation does not revive the retired guest');
+});
+
+test('expired uncommitted claim lease cannot create ownership through receipt recovery', async t => {
+  const f = await provisionalFixture(t, { realTokens: true }), play = await f.begin(), session = play.result.appSession.token;
+  const target = (await f.target(session)).result, body = finalizeBody(target), baseline = structuredClone(f.store.commits);
+  f.advance(300_001);
+  const response = await f.request('/gaming/identity/play/claim-complete', { method: 'POST', session, body });
+  assert.equal(response.status, 409); assert.deepEqual(f.store.commits, baseline);
+  assert.equal(f.host.bindingForAccount('guest-a').provisional, true);
+});
+
+test('explicit use-existing readback preserves canonical character and does not merge guest participation', async t => {
+  const f = await provisionalFixture(t), existing = await f.connect(f.bobToken), canonicalToken = existing.payload.appSession.token;
+  const reference = targetReference();
+  assert.equal((await f.request('/gaming/identity/record-link', { method: 'POST', session: canonicalToken, body: characterPointer })).status, 200);
+  const play = await f.begin(), session = play.result.appSession.token, target = (await f.target(session)).result;
+  const response = await f.request('/gaming/identity/play/claim-complete', { method: 'POST', session,
+    body: { ...finalizeBody(target), targetRecord: reference, selection: 'use-existing' } });
+  assert.equal(response.status, 200); const claimed = await response.json(); assert.equal(claimed.appSession.acct.id, 'guest-b');
+  assert.equal(f.host.bindingForAccount('guest-a').provisional, true);
+  assert.equal(f.host.humanPrincipalFor({ acct: f.accounts.get('guest-a'), authClaims: f.claims.get(session) }), null);
+  const ledger = new createPlayerBindingLedger({ store: f.store }); await ledger.ready;
+  assert.deepEqual(ledger.bindingForAccount('guest-b').records.character, characterPointer);
+  assert.equal(ledger.bindingForAccount('guest-a').claim.targetAccountId, 'guest-b');
+});
+
 
 test('native callback commits the owner ledger before issuing a game session and read flow hands off no native bearer', async t => {
   const f = await fixture(t); const { payload } = await f.connect();
@@ -181,6 +535,103 @@ test('legacy import reads only the fresh native owner account and labels its sav
   const { payload } = await f.connect(); const response = await f.request('/gaming/identity/legacy-import?accountId=guest-b', { session: payload.appSession.token });
   assert.equal(response.status, 200); const imported = await response.json(); assert.equal(imported.save.character, 'guest-a');
   assert.equal(imported.source, 'legacy-local-import'); assert.equal(imported.authoritative, false); assert(!f.legacyReads.includes('guest-b'));
+});
+
+test('recovery diagnostics require the same current native owner proof before any legacy read', async t => {
+  const f = await fixture(t), { payload } = await f.connect(), baseline = structuredClone(f.store.commits);
+  for (const [session, status] of [[null, 401], ['forged-session', 401], [f.aliceToken, 403], [f.bobToken, 403],
+    [f.token('guest-a', { nativeDid: nativeOwner('u-pk-other').subjectDid, nativeVerifiedAt: f.clock() }), 403],
+    [f.token('guest-a', { nativeDid: nativeOwner().subjectDid, nativeVerifiedAt: f.clock() - 3_600_001 }), 403],
+    [f.token('guest-a', { nativeDid: nativeOwner().subjectDid, nativeVerifiedAt: f.clock(), exp: f.clock() - 1 }), 401]]) {
+    const response = await f.request('/gaming/identity/recovery-status', { session });
+    assert.equal(response.status, status); assert.deepEqual(Object.keys(await response.json()), ['error']);
+  }
+  assert.equal((await f.request('/gaming/identity/recovery-status', { session: payload.appSession.token, hostname: 'evil.example' })).status, 403);
+  const wrongMethod = await f.request('/gaming/identity/recovery-status', { method: 'POST', session: payload.appSession.token, body: {} });
+  assert.equal(wrongMethod.status, 405); assert.equal(wrongMethod.headers.get('allow'), 'GET');
+  assert.deepEqual(f.legacyReads, []); assert.deepEqual(f.store.commits, baseline);
+});
+
+test('advertised recovery GET summarizes only the proven account and stable full-save digest without mutation', async t => {
+  const save = { v: 1, savedAt: 1_760_616_000_000, char: { name: 'Ash Traveller', level: 17, cls: 'warrior', realm: 2,
+    bag: ['PRIVATE_INVENTORY'], gold: 731 }, world: { privateHistory: 'PRIVATE_WORLD' }, credentials: 'PRIVATE_SAVE_FIELD' };
+  const original = structuredClone(save), reads = [];
+  const f = await fixture(t, { readLegacySave: id => { reads.push(id); return save; } }), { payload } = await f.connect();
+  const session = payload.appSession.token;
+  assert.equal((await f.request('/gaming/identity/record-link', { method: 'POST', session, body: characterPointer })).status, 200);
+  const baseline = structuredClone(f.store.commits), issued = f.issued.length, remote = f.remote.length;
+  const document = await (await f.request('/gaming/identity/affordances')).json();
+  const operation = document['hydra:supportedOperation'].find(op => op['iep:action']['@id'] === 'urn:interego:identity:owner:recoveryStatus');
+  assert.equal(operation['hydra:method'], 'GET');
+  const target = new URL(operation['hydra:target']).pathname;
+  const response = await f.request(target + '?accountId=guest-b&subjectDid=did:example:other&podUrl=https://evil.example/', { session });
+  assert.equal(response.status, 200); assert.equal(response.headers.get('cache-control'), 'no-store');
+  assert.equal(response.headers.get('x-content-type-options'), 'nosniff');
+  const result = await response.json();
+  assert.deepEqual(result.owner, { accountId: 'guest-a', subjectDid: nativeOwner().subjectDid, podUrl: nativeOwner().podUrl });
+  assert.equal(result.readOnly, true);
+  assert.deepEqual(result.legacySave, { exists: true, hasCharacter: true,
+    character: { name: 'Ash Traveller', level: 17, class: 'warrior', realm: 2 }, savedAt: save.savedAt,
+    digest: 'sha256:' + createHash('sha256').update(JSON.stringify(save)).digest('hex'), digestFormat: 'json-stringify-sha256',
+    source: 'legacy-server', authoritative: false });
+  assert.deepEqual(result.nativeRecord, { pointer: characterPointer, hintOnly: true, verified: false });
+  const repeated = await (await f.request(target, { session })).json(); assert.deepEqual(repeated, result);
+  assert.deepEqual(reads, ['guest-a', 'guest-a']); assert.deepEqual(save, original);
+  assert.deepEqual(f.store.commits, baseline); assert.equal(f.issued.length, issued); assert.equal(f.remote.length, remote);
+  for (const secret of ['PRIVATE_INVENTORY', 'PRIVATE_WORLD', 'PRIVATE_SAVE_FIELD', 'native-access-secret', 'native-refresh-secret']) {
+    assert(!JSON.stringify(result).includes(secret));
+  }
+  save.char.gold++; const changed = await (await f.request(target, { session })).json();
+  assert.notEqual(changed.legacySave.digest, result.legacySave.digest, 'digest covers omitted private state, not just the summary');
+  assert.deepEqual(changed.legacySave.character, result.legacySave.character); assert.deepEqual(f.store.commits, baseline);
+});
+
+test('recovery diagnostics distinguish absent, empty and unfamiliar legacy saves without inventing native absence', async t => {
+  for (const save of [null, { v: 1, char: null }, { v: 1, char: {} }, { v: 1, char: { unfamiliar: true } }]) {
+    const f = await fixture(t, { readLegacySave: () => save }), { payload } = await f.connect();
+    const baseline = structuredClone(f.store.commits), before = structuredClone(save);
+    const result = await (await f.request('/gaming/identity/recovery-status', { session: payload.appSession.token })).json();
+    assert.equal(result.legacySave.exists, save !== null);
+    assert.equal(result.legacySave.hasCharacter, save?.char?.unfamiliar === true);
+    assert.deepEqual(result.legacySave.character, save?.char?.unfamiliar ? { name: null, level: null, class: null, realm: null } : null);
+    assert.equal(result.legacySave.savedAt, null);
+    assert.equal(result.legacySave.digest === null, save === null);
+    assert.deepEqual(result.nativeRecord, { pointer: null, hintOnly: true, verified: false });
+    assert.deepEqual(save, before); assert.deepEqual(f.store.commits, baseline);
+  }
+});
+
+test('recovery summary bounds text and refuses malformed metadata without returning arbitrary save fields', async t => {
+  const save = { v: 1, savedAt: -1, char: { name: '\u0000' + '🔥'.repeat(200), cls: 'x'.repeat(500),
+    realm: { secret: 'PRIVATE_REALM' }, level: 'PRIVATE_LEVEL' } };
+  const f = await fixture(t, { readLegacySave: () => save }), { payload } = await f.connect();
+  const result = await (await f.request('/gaming/identity/recovery-status', { session: payload.appSession.token })).json();
+  assert.equal(result.legacySave.hasCharacter, true); assert.equal(result.legacySave.savedAt, null);
+  assert(Buffer.byteLength(result.legacySave.character.name) <= 128); assert(!result.legacySave.character.name.includes('\u0000'));
+  assert.equal(Buffer.byteLength(result.legacySave.character.class), 64);
+  assert.equal(result.legacySave.character.realm, null); assert.equal(result.legacySave.character.level, null);
+  assert(!JSON.stringify(result).includes('PRIVATE_')); assert(JSON.stringify(result).length < 1600);
+});
+
+for (const change of ['revoke', 'expire']) test(`recovery diagnostics recheck authorization after a queued legacy read (${change})`, async t => {
+  let started, release; const reading = new Promise(resolve => { started = resolve; });
+  const gate = new Promise(resolve => { release = resolve; });
+  const f = await fixture(t, { readLegacySave: async () => { started(); await gate; return { v: 1, char: { name: 'PRIVATE_QUEUED_CHARACTER' } }; } });
+  const { payload } = await f.connect(), session = payload.appSession.token, baseline = structuredClone(f.store.commits);
+  const response = f.request('/gaming/identity/recovery-status', { session });
+  await reading;
+  if (change === 'revoke') f.claims.delete(session); else f.advance(3_600_001);
+  release(); const result = await response;
+  assert.equal(result.status, change === 'revoke' ? 401 : 403); assert.deepEqual(Object.keys(await result.json()), ['error']);
+  assert.deepEqual(f.store.commits, baseline); assert.equal(f.issued.length, 1);
+});
+
+test('unavailable legacy reads return a fixed private-data-free recovery failure and perform no write', async t => {
+  const f = await fixture(t, { readLegacySave: () => { throw new Error('PRIVATE_LEGACY_PATH_AND_TOKEN'); } });
+  const { payload } = await f.connect(), baseline = structuredClone(f.store.commits);
+  const response = await f.request('/gaming/identity/recovery-status', { session: payload.appSession.token });
+  assert.equal(response.status, 503); assert.deepEqual(await response.json(), { error: 'native_identity_unavailable' });
+  assert.deepEqual(f.store.commits, baseline); assert.equal(f.issued.length, 1);
 });
 
 test('a returning native owner restores the canonical account from the ledger without claiming a new guest', async t => {
@@ -452,7 +903,7 @@ test('public owner capability documents remain discoverable without bearer or na
   const f = await fixture(t, { store: null });
   const response = await f.request('/gaming/identity/affordances', { session: null }); assert.equal(response.status, 200);
   assert.match(response.headers.get('content-type'), /application\/ld\+json/);
-  const document = await response.json(); assert.equal(document['hydra:supportedOperation'].length, 4);
+  const document = await response.json(); assert.equal(document['hydra:supportedOperation'].length, 12);
   const schemas = await f.request('/gaming/identity/schemas', { session: null }); assert.equal(schemas.status, 200);
   assert.match(schemas.headers.get('content-type'), /application\/schema\+json/);
   assert((await schemas.json()).$defs.RecordLinkRequest);
@@ -557,3 +1008,4 @@ test('a fresh disposable game transport restores an existing native owner after 
   assert.equal(f.host.principalFor({ acct: f.accounts.get(originalAccount), authClaims: f.gameTokens.read(recovered.appSession.token) }), nativeOwner().subjectDid);
   noNativeCredentials(f.store.commits); noNativeCredentials(f.issued);
 });
+

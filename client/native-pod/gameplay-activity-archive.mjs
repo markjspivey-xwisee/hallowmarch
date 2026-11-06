@@ -1,6 +1,6 @@
 /** Immutable gameplay evidence, sealed by the existing owner-side pod client. */
 import { createNativePodClient, NativePodError } from './client.mjs';
-import { GAMEPLAY_EVENT_SCHEMA as EVENT_SCHEMA, GAMEPLAY_EVENT_TYPES, validateGameplayActivityEvent } from './gameplay-activity.mjs';
+import { GAMEPLAY_EVENT_SCHEMA as EVENT_SCHEMA, GAMEPLAY_EVENT_LEGACY_SCHEMA, GAMEPLAY_EVENT_TYPES, validateGameplayActivityEvent } from './gameplay-activity.mjs';
 
 const PAGE_SCHEMA = 'hallowmarch.gameplay-activity-page/v1';
 const TYPES = new Set(GAMEPLAY_EVENT_TYPES);
@@ -87,7 +87,7 @@ export function createOwnerGameplayActivityArchive({ binding, credential, relayU
     const output = safeJson(value), ids = new Set();
     for (let index = 0; index < output.length; index++) {
       const event = output[index];
-      if (!plain(event) || event.schema !== EVENT_SCHEMA || typeof event.id !== 'string' || !event.id.startsWith('urn:uuid:')
+      if (!plain(event) || ![EVENT_SCHEMA, GAMEPLAY_EVENT_LEGACY_SCHEMA].includes(event.schema) || typeof event.id !== 'string' || !event.id.startsWith('urn:uuid:')
         || !UUID.test(event.id.slice(9)) || ids.has(event.id) || event.sessionId !== sessionId || !TYPES.has(event.type)
         || !Number.isSafeInteger(event.sequence) || event.sequence < 1 || index > 0 && event.sequence !== output[index - 1].sequence + 1
         || typeof event.observedAt !== 'string' || !Number.isFinite(Date.parse(event.observedAt))

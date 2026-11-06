@@ -57,7 +57,7 @@ export function makeCompanies(cfg, store, stats, hooks) {
   const reindex = () => { byAcct.clear(); for (const co of Object.values(D.list)) for (const id of Object.keys(co.mem)) byAcct.set(id, co.id); };
   reindex();
   let timer = null;
-  C.save = (now) => { clearTimeout(timer); const w = () => { store.write('companies.json', D); C.dirty = false; stats.coSaves = (stats.coSaves || 0) + 1; }; if (now) w(); else timer = setTimeout(w, 1200); C.dirty = true; };
+  C.save = (now) => { clearTimeout(timer); C.dirty = true; const w = () => { store.write('companies.json', D); timer = null; C.dirty = false; stats.coSaves = (stats.coSaves || 0) + 1; }; if (now) w(); else timer = setTimeout(w, 1200); };
   const no = (why) => { C.stats.refused++; return { ok: false, why }; };
   // Eligibility is supplied by the authenticated host. Native participation
   // must not rename a guest, create a password, or turn a binding into proof.

@@ -408,46 +408,60 @@ function realmAt(x, z) {
   return w[0] > w[1] ? (w[0] > w[2] ? 0 : 2) : (w[1] > w[2] ? 1 : 2);
 }
 
-function buildWorld(seed = 7) {
+// The client can consume bounded work units between real paint/input yields.
+// Synchronous callers drain the same iterator, preserving seeded call order.
+// Short inner neighbour scans stay atomic; their enclosing sampled loops yield.
+const WORLD_CHUNK_WORK = 1024;
+function worldBuildDrain(iterator) {
+  let state;
+  do { state = iterator.next(); } while (!state.done);
+  return state.value;
+}
+// eslint-disable-next-line no-unused-vars -- Retain the synchronous API used by CPU tools and direct callers.
+function buildWorld(seed = 7) { return worldBuildDrain(buildWorldChunks(seed)); }
+function* buildWorldChunks(seed = 7) {
+  let chunkWork = 0;
   const rnd = mulberry(seed);
   const N2 = HN * HN;
   const H = new Float32Array(N2);
-  for (let j = 0; j < HN; j++) {
+  for (let j = 0; j < HN; j++) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'buildWorld';
     const z = -HALF + j * HS;
-    for (let i = 0; i < HN; i++) H[j * HN + i] = rawHeight(-HALF + i * HS, z);
+    for (let i = 0; i < HN; i++) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'buildWorld'; H[j * HN + i] = rawHeight(-HALF + i * HS, z); }
   }
   W.H = H;
-  const forTexels = (cx, cz, rad, fn) => {
+  const forTexels = (...args) => worldBuildDrain(forTexelsChunks(...args));
+  function* forTexelsChunks(cx, cz, rad, fn) {
+  let chunkWork = 0;
     const i0 = Math.max(0, Math.floor((cx - rad + HALF) / HS)), i1 = Math.min(HN - 1, Math.ceil((cx + rad + HALF) / HS));
     const j0 = Math.max(0, Math.floor((cz - rad + HALF) / HS)), j1 = Math.min(HN - 1, Math.ceil((cz + rad + HALF) / HS));
-    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) fn(j * HN + i, -HALF + i * HS, -HALF + j * HS);
-  };
+    for (let j = j0; j <= j1; j++) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'forTexels'; for (let i = i0; i <= i1; i++) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'forTexels'; fn(j * HN + i, -HALF + i * HS, -HALF + j * HS); } }
+  }
   // lakes
-  for (const L of LAKES) {
-    forTexels(L.x, L.z, L.r * 1.35, (k, x, z) => {
+  for (const L of LAKES) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'buildWorld';
+    (yield* forTexelsChunks(L.x, L.z, L.r * 1.35, (k, x, z) => {
       const d = dist(x, z, L.x, L.z);
       const w = sstep(L.r * 1.3, L.r * 0.4, d);
       H[k] = lerp(H[k], Math.min(H[k], WATER_Y - 3.2), w);
-    });
+    }));
   }
   // rivers run down into the lakes (01b_water.js)
   carveRivers(H, forTexels);
   // flatten sites
-  for (const S of SITES) {
+  for (const S of SITES) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'buildWorld';
     let t = 0;
     for (const [ox, oz] of [[0, 0], [6, 0], [-6, 0], [0, 6], [0, -6]]) t += heightAt(S.x + ox, S.z + oz);
     t = Math.max(t / 5, WATER_Y + 1.5);
     S.y = t;
-    forTexels(S.x, S.z, S.r + S.f, (k, x, z) => {
+    (yield* forTexelsChunks(S.x, S.z, S.r + S.f, (k, x, z) => {
       const d = dist(x, z, S.x, S.z);
       H[k] = lerp(H[k], t, sstep(S.r + S.f, S.r, d));
-    });
+    }));
   }
   // roads follow the navigation edges
   const ROADS = [];
   const seen = new Set();
-  for (const n of NAV.nodes) {
-    for (const e of n.adj) {
+  for (const n of NAV.nodes) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'buildWorld';
+    for (const e of n.adj) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'buildWorld';
       const key = Math.min(n.id, e.to) + ':' + Math.max(n.id, e.to);
       if (seen.has(key) || e.kind === 'door') continue;
       seen.add(key);
@@ -458,25 +472,25 @@ function buildWorld(seed = 7) {
   }
   W.roads = ROADS;
   const road = new Float32Array(N2);
-  for (const S of ROADS) {
+  for (const S of ROADS) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'buildWorld';
     const minx = Math.min(S.ax, S.bx) - S.w - 4, maxx = Math.max(S.ax, S.bx) + S.w + 4;
     const minz = Math.min(S.az, S.bz) - S.w - 4, maxz = Math.max(S.az, S.bz) + S.w + 4;
-    forTexels((minx + maxx) / 2, (minz + maxz) / 2, Math.max(maxx - minx, maxz - minz) / 2 + 2, (k, x, z) => {
+    (yield* forTexelsChunks((minx + maxx) / 2, (minz + maxz) / 2, Math.max(maxx - minx, maxz - minz) / 2 + 2, (k, x, z) => {
       // wobble the road edge a little so it does not look ruled
       const wob = (vnoise(x * 0.11, z * 0.11) - 0.5) * 1.6;
       const d = Math.sqrt(segDist2(x, z, S.ax, S.az, S.bx, S.bz)) + wob;
       const v = sstep(S.w + 1.6, S.w - 0.6, d);
       if (v > road[k]) road[k] = v;
-    });
+    }));
   }
   // plazas and courtyards read as packed earth
-  for (const S of SITES) {
+  for (const S of SITES) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'buildWorld';
     const inner = S.kind === 'town' ? 15 : S.kind === 'keep' ? 13 : S.kind === 'muster' ? 15 : S.kind === 'temple' ? 0 : 0;
     if (!inner) continue;
-    forTexels(S.x, S.z, inner + 4, (k, x, z) => {
+    (yield* forTexelsChunks(S.x, S.z, inner + 4, (k, x, z) => {
       const d = dist(x, z, S.x, S.z) + (vnoise(x * 0.2, z * 0.2) - 0.5) * 3;
       road[k] = Math.max(road[k], sstep(inner + 2, inner - 2, d) * 0.92);
-    });
+    }));
   }
   W.road = road;
   // smooth terrain under roads
@@ -485,40 +499,40 @@ function buildWorld(seed = 7) {
     const rad = 4;
     // separable box blur
     const tmp = new Float32Array(N2);
-    for (let j = 0; j < HN; j++) {
+    for (let j = 0; j < HN; j++) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'buildWorld';
       let acc = 0, cnt = 0;
-      for (let i = -rad; i < HN + rad; i++) {
+      for (let i = -rad; i < HN + rad; i++) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'buildWorld';
         const add = i + rad, rem = i - rad - 1;
         if (add >= 0 && add < HN) { acc += H[j * HN + add]; cnt++; }
         if (rem >= 0 && rem < HN) { acc -= H[j * HN + rem]; cnt--; }
         if (i >= 0 && i < HN) tmp[j * HN + i] = acc / cnt;
       }
     }
-    for (let i = 0; i < HN; i++) {
+    for (let i = 0; i < HN; i++) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'buildWorld';
       let acc = 0, cnt = 0;
-      for (let j = -rad; j < HN + rad; j++) {
+      for (let j = -rad; j < HN + rad; j++) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'buildWorld';
         const add = j + rad, rem = j - rad - 1;
         if (add >= 0 && add < HN) { acc += tmp[add * HN + i]; cnt++; }
         if (rem >= 0 && rem < HN) { acc -= tmp[rem * HN + i]; cnt--; }
         if (j >= 0 && j < HN) B[j * HN + i] = acc / cnt;
       }
     }
-    for (let k = 0; k < N2; k++) if (road[k] > 0) H[k] = lerp(H[k], B[k], road[k] * 0.75);
+    for (let k = 0; k < N2; k++) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'buildWorld'; if (road[k] > 0) H[k] = lerp(H[k], B[k], road[k] * 0.75); }
   }
   // re-level sites after road smoothing so buildings sit flat
-  for (const S of SITES) {
-    forTexels(S.x, S.z, S.r + 4, (k, x, z) => {
+  for (const S of SITES) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'buildWorld';
+    (yield* forTexelsChunks(S.x, S.z, S.r + 4, (k, x, z) => {
       const d = dist(x, z, S.x, S.z);
       H[k] = lerp(H[k], S.y, sstep(S.r + 4, S.r - 2, d));
-    });
+    }));
   }
   // the long barrow by the Lone Tree rises from its levelled ground
   applyBarrowMound(H, forTexels);
   // slope, walkability, masks
   const walk = new Uint8Array(N2), grass = new Float32Array(N2), flower = new Float32Array(N2), rock = new Float32Array(N2);
   const realmW = new Float32Array(N2 * 3), field = new Float32Array(N2);
-  for (let j = 0; j < HN; j++) {
-    for (let i = 0; i < HN; i++) {
+  for (let j = 0; j < HN; j++) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'buildWorld';
+    for (let i = 0; i < HN; i++) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'buildWorld';
       const k = j * HN + i, x = -HALF + i * HS, z = -HALF + j * HS;
       const hx = H[j * HN + Math.min(HN - 1, i + 1)] - H[j * HN + Math.max(0, i - 1)];
       const hz = H[Math.min(HN - 1, j + 1) * HN + i] - H[Math.max(0, j - 1) * HN + i];
@@ -542,32 +556,32 @@ function buildWorld(seed = 7) {
   {
     const R = REALMS[0];
     const fr = mulberry(77);
-    for (let f = 0; f < 6; f++) {
+    for (let f = 0; f < 6; f++) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'buildWorld';
       const a = (f / 6) * TAU + fr() * 0.4;
       if (Math.abs(angDiff(a, 0)) < 0.5 || Math.abs(angDiff(a, Math.PI)) < 0.5) continue;
       const cx = R.town.x + Math.sin(a + R.yaw) * 62, cz = R.town.z + Math.cos(a + R.yaw) * 62;
       const hw = 14 + fr() * 8, hd = 9 + fr() * 6, ang = fr() * Math.PI;
       const c = Math.cos(ang), s = Math.sin(ang);
       (W.fieldRects = W.fieldRects || []).push({ x: cx, z: cz, hw, hd, ang }); // [farming] the town fields' strips (08h_farming.js)
-      forTexels(cx, cz, Math.max(hw, hd) + 4, (k, x, z) => {
+      (yield* forTexelsChunks(cx, cz, Math.max(hw, hd) + 4, (k, x, z) => {
         const lx = (x - cx) * c - (z - cz) * s, lz = (x - cx) * s + (z - cz) * c;
         const v = sstep(2, -1, Math.max(Math.abs(lx) - hw, Math.abs(lz) - hd));
         field[k] = Math.max(field[k], v * (1 - road[k]));
-      });
+      }));
     }
   }
   Object.assign(W, { walk, grass, flower, rock, realmW, field });
   clearBarrowGround(W, forTexels);
   // no grass or flowers on a river bed (01b_water.js)
-  for (const Rv of RIVERS) forTexels((Rv.box[0] + Rv.box[2]) / 2, (Rv.box[1] + Rv.box[3]) / 2, Math.max(Rv.box[2] - Rv.box[0], Rv.box[3] - Rv.box[1]) / 2, (k, x, z) => {
+  for (const Rv of RIVERS) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'buildWorld'; (yield* forTexelsChunks((Rv.box[0] + Rv.box[2]) / 2, (Rv.box[1] + Rv.box[3]) / 2, Math.max(Rv.box[2] - Rv.box[0], Rv.box[3] - Rv.box[1]) / 2, (k, x, z) => {
     const n = riverNearest(Rv, x, z);
     if (n && n.d < n.hw + 0.9) { W.grass[k] = 0; W.flower[k] = 0; }
-  });
+  })); }
 
-  mtnShape(H, walk); // [land] the mountain faces no one can reach: crests, gullies, ledges (03c_land.js)
+  (yield* mtnShapeChunks(H, walk)); // [land] the mountain faces no one can reach: crests, gullies, ledges (03c_land.js)
   // structure colliders
-  for (const R of REALMS) {
-    for (const S of R.keepSites) buildKeepColliders(S, R.style);
+  for (const R of REALMS) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'buildWorld';
+    for (const S of R.keepSites) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'buildWorld'; buildKeepColliders(S, R.style); }
     buildTempleColliders(R.templeSite);
     buildMusterColliders(R.musterSite);
     buildTown(R.town, R, rnd);
@@ -576,9 +590,9 @@ function buildWorld(seed = 7) {
   // [seasons] gardens by the other towns, worked through the year like Brackenford's strips (08h_farming.js): Ériu's
   // herb and vegetable gardens and Thule's turnip and cabbage beds, off the road, clear of the houses and their yards
   // (so after the towns are built), before the trees are planted (none grows in them)
-  for (const R of [REALMS[1], REALMS[2]]) {
+  for (const R of [REALMS[1], REALMS[2]]) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'buildWorld';
     const fr = mulberry(310 + R.id * 41), want = R.id === 1 ? 3 : 2, mine = [];
-    for (let tries = 0; tries < 90 && mine.length < want; tries++) {
+    for (let tries = 0; tries < 90 && mine.length < want; tries++) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'buildWorld';
       const a = (tries % 2 ? 1 : -1) * (0.5 + fr() * 0.32) + (fr() < 0.5 ? 0 : Math.PI), d = 44 + fr() * 6;
       const cx = R.town.x + Math.sin(a + R.yaw) * d, cz = R.town.z + Math.cos(a + R.yaw) * d;
       const hw = R.id === 1 ? 7 + fr() * 2.5 : 6 + fr() * 2, hd = R.id === 1 ? 4.6 + fr() * 1.4 : 4.4 + fr() * 1.2, ang = a + R.yaw + (fr() - 0.5) * 0.3;
@@ -586,22 +600,22 @@ function buildWorld(seed = 7) {
       if ((W.fieldRects || []).some((F) => dist(F.x, F.z, cx, cz) < Math.hypot(F.hw, F.hd) + Math.hypot(hw, hd) + 3)) continue;
       if (LAKES.some((L) => dist(cx, cz, L.x, L.z) < L.r + 12 + hw) || nearRiver(cx, cz, Math.hypot(hw, hd) + 4)) continue;
       let ok = true, lo = Infinity, hi = -Infinity;
-      for (let i = -1; i <= 1 && ok; i += 0.25) for (let j = -1; j <= 1 && ok; j += 0.25) {
+      for (let i = -1; i <= 1 && ok; i += 0.25) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'buildWorld'; for (let j = -1; j <= 1 && ok; j += 0.25) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'buildWorld';
         const lx = i * (hw + 1.5), lz = j * (hd + 1.5), x = cx + lx * c + lz * s, z = cz - lx * s + lz * c;
         const k = hIndex(Math.round((x + HALF) / HS), Math.round((z + HALF) / HS)), h = H[k];
         if (road[k] > 0.03 || walk[k] || h < WATER_Y + 0.8) ok = false;
         lo = Math.min(lo, h); hi = Math.max(hi, h);
-      }
+      } }
       if (!ok || hi - lo > 2.2) continue;
       // nothing built on it, and a clear walk out to it from the plaza for the townsfolk who tend it
       const ex = cx - Math.sin(a + R.yaw) * hd, ez = cz - Math.cos(a + R.yaw) * hd, px = R.town.x + Math.sin(a + R.yaw) * 9, pz = R.town.z + Math.cos(a + R.yaw) * 9;
       if (!segmentClear(px, pz, ex, ez, 0.9) || !segmentClear(cx - c * hw, cz + s * hw, cx + c * hw, cz - s * hw, 1.2) || !segmentClear(cx - s * hd, cz - c * hd, cx + s * hd, cz + c * hd, 1.2)) continue;
       const F = { x: cx, z: cz, hw, hd, ang: Math.atan2(s, c), realm: R.id, garden: true, stripW: 3.2, gap: 1.2 };
       mine.push(F); W.fieldRects.push(F);
-      forTexels(cx, cz, Math.max(hw, hd) + 4, (k, x, z) => {
+      (yield* forTexelsChunks(cx, cz, Math.max(hw, hd) + 4, (k, x, z) => {
         const lx = (x - cx) * c - (z - cz) * s, lz = (x - cx) * s + (z - cz) * c;
         field[k] = Math.max(field[k], sstep(2, -1, Math.max(Math.abs(lx) - hw, Math.abs(lz) - hd)) * (1 - road[k]));
-      });
+      }));
     }
   }
   // the lone tree on the hill
@@ -639,8 +653,8 @@ function buildWorld(seed = 7) {
     }
     return null;
   };
-  for (let gz = -HALF + 4; gz < HALF - 4; gz += 5.5) {
-    for (let gx = -HALF + 4; gx < HALF - 4; gx += 5.5) {
+  for (let gz = -HALF + 4; gz < HALF - 4; gz += 5.5) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'buildWorld';
+    for (let gx = -HALF + 4; gx < HALF - 4; gx += 5.5) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'buildWorld';
       const x = gx + (hash2(gx * 7 | 0, gz * 3 | 0) - 0.5) * 5, z = gz + (hash2(gx * 5 | 0, gz * 11 | 0) - 0.5) * 5;
       const r = Math.hypot(x, z);
       if (r > 468) continue;
@@ -675,7 +689,7 @@ function buildWorld(seed = 7) {
   W.trees = trees;
   // rocks: on slopes and scattered in meadows
   const rocks = [];
-  for (let n = 0; n < 9000 && rocks.length < 900; n++) {
+  for (let n = 0; n < 9000 && rocks.length < 900; n++) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'buildWorld';
     const x = (rnd() * 2 - 1) * 470, z = (rnd() * 2 - 1) * 470;
     const k = hIndex(Math.round((x + HALF) / HS), Math.round((z + HALF) / HS));
     const rk = W.rock[k];
@@ -692,11 +706,11 @@ function buildWorld(seed = 7) {
   // standing stones: circles in the green glens and along the frontier
   const stones = [];
   const RE = REALMS[1];
-  for (const [al, la] of [[300, 40], [420, -60], [350, -150], [138, 0]]) {
+  for (const [al, la] of [[300, 40], [420, -60], [350, -150], [138, 0]]) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'buildWorld';
     const c = rp(RE, al, la);
     if (blocked(c.x, c.z, -10) && al !== 138) continue;
     const n = al === 138 ? 3 : 7;
-    for (let i = 0; i < n; i++) {
+    for (let i = 0; i < n; i++) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'buildWorld';
       const a = (i / n) * TAU;
       const rr = al === 138 ? 4 : 7;
       const x = c.x + Math.sin(a) * rr, z = c.z + Math.cos(a) * rr;
@@ -714,13 +728,13 @@ function buildWorld(seed = 7) {
     [['wolf', 1, 3], ['boar', 2, 4], ['wolf', 4, 6], ['draugr', 5, 8], ['bear', 7, 9], ['troll', 9, 12], ['draugr', 11, 13], ['wolf', 12, 15], ['troll', 14, 17], ['draugr', 16, 18], ['bear', 17, 19], ['troll', 19, 20]],
   ];
   const camps = [];
-  for (const R of REALMS) {
+  for (const R of REALMS) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'buildWorld';
     const list = MOBS_BY_REALM[R.id];
-    for (let ci = 0; ci < list.length; ci++) {
+    for (let ci = 0; ci < list.length; ci++) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'buildWorld';
       const [type, lmin, lmax] = list[ci];
       const want = 46 + ci * 13; // distance from town grows with level
       let best = null;
-      for (let tries = 0; tries < 400; tries++) {
+      for (let tries = 0; tries < 400; tries++) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'buildWorld';
         const a = rnd() * TAU, d = want + (rnd() - 0.5) * 24;
         const x = R.town.x + Math.sin(a) * d, z = R.town.z - Math.cos(a) * d;
         const r = Math.hypot(x, z);
@@ -733,7 +747,7 @@ function buildWorld(seed = 7) {
         if (W.fieldRects.some((F) => F.garden && dist2(F.x, F.z, x, z) < 30 * 30)) continue; // [seasons] not in the gardens
         if (camps.some((c) => dist2(c.x, c.z, x, z) < 48 * 48)) continue;
         let ok = true;
-        for (let s = 0; s < 8 && ok; s++) { const aa = (s / 8) * TAU; if (!isWalkable(x + Math.sin(aa) * 10, z + Math.cos(aa) * 10)) ok = false; }
+        for (let s = 0; s < 8 && ok; s++) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'buildWorld';  const aa = (s / 8) * TAU; if (!isWalkable(x + Math.sin(aa) * 10, z + Math.cos(aa) * 10)) ok = false; }
         if (!ok) continue;
         best = { x, z };
         break;
@@ -749,13 +763,13 @@ function buildWorld(seed = 7) {
     [['wisp', 20, 23], ['boar', 22, 25], ['bandit', 24, 27], ['wisp', 26, 29], ['bear', 28, 31], ['wolf', 30, 33], ['wisp', 32, 36], ['bear', 35, 40]],
     [['wolf', 20, 23], ['draugr', 22, 25], ['troll', 24, 27], ['bear', 26, 29], ['draugr', 28, 31], ['troll', 30, 33], ['wolf', 32, 36], ['troll', 35, 40]],
   ];
-  for (const R of REALMS) {
+  for (const R of REALMS) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'buildWorld';
     const list = LATE_BY_REALM[R.id];
-    for (let ci = 0; ci < list.length; ci++) {
+    for (let ci = 0; ci < list.length; ci++) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'buildWorld';
       const [type, lmin, lmax] = list[ci];
       const want = 150 + ci * 15;
       let best = null;
-      for (let tries = 0; tries < 900; tries++) {
+      for (let tries = 0; tries < 900; tries++) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'buildWorld';
         const a = rnd() * TAU, d = want + (rnd() - 0.5) * 34;
         const x = R.town.x + Math.sin(a) * d, z = R.town.z - Math.cos(a) * d;
         const r = Math.hypot(x, z);
@@ -768,7 +782,7 @@ function buildWorld(seed = 7) {
         if (camps.some((c) => dist2(c.x, c.z, x, z) < 44 * 44)) continue;
         if (SITES.some((S) => dist2(S.x, S.z, x, z) < (S.r + 30) ** 2)) continue;
         let ok = true;
-        for (let s = 0; s < 8 && ok; s++) { const aa = (s / 8) * TAU; if (!isWalkable(x + Math.sin(aa) * 11, z + Math.cos(aa) * 11)) ok = false; }
+        for (let s = 0; s < 8 && ok; s++) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'buildWorld';  const aa = (s / 8) * TAU; if (!isWalkable(x + Math.sin(aa) * 11, z + Math.cos(aa) * 11)) ok = false; }
         if (!ok) continue;
         best = { x, z };
         break;
@@ -778,7 +792,7 @@ function buildWorld(seed = 7) {
     }
   }
   W.camps = camps;
-  buildWaterGrid(); // where the water stands and how it flows (01b_water.js)
+  (yield* buildWaterGridChunks()); // where the water stands and how it flows (01b_water.js)
   // [heights] the crags are placed once the whole mountain is shaped, after everything else (mtnHeights, 03d_heights.js)
   W.ready = true;
   return W;

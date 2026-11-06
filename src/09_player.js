@@ -35,7 +35,41 @@ function createPlayer(save) {
 /* input                                                               */
 /* ------------------------------------------------------------------ */
 const typing = () => { const a = document.activeElement; return a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.tagName === 'SELECT' || a.isContentEditable); };
+// Browser shortcuts and IME composition belong to the browser or text editor.
+// Shift remains available for sprinting and reverse target selection.
+function gameplayKeyIgnored(e) { return !!(e.ctrlKey || e.metaKey || e.altKey || e.isComposing || e.keyCode === 229); }
+function gameplayControlKey(e) {
+  if (!['Space', 'Enter', 'NumpadEnter', 'Tab'].includes(e.code)) return false;
+  const active = document.activeElement;
+  return !!(active && active.closest && active.closest('button, a[href], summary, [role="button"], [role="tab"], [role="radio"]'));
+}
+// A busy renderer can delay release handling after the physical tap ended.
+// Native event timestamps share performance.now's millisecond time origin.
+// Ambiguous clocks keep the previous handling-time behavior.
+function pointerEventTimestamp(event, now) {
+  return event.isTrusted === true && Number.isFinite(event.timeStamp)
+    && event.timeStamp > 0 && event.timeStamp <= now + 1 ? event.timeStamp : null;
+}
+function pointerGestureDuration(event, startedEventAt, startedAt) {
+  const now = performance.now(), endedEventAt = pointerEventTimestamp(event, now);
+  return Number.isFinite(startedEventAt) && startedEventAt > 0 && endedEventAt !== null && endedEventAt >= startedEventAt
+    ? endedEventAt - startedEventAt : now - startedAt;
+}
+function cancelPlayerInput() {
+  const ids = new Set(INPUT.pointers.keys());
+  if (INPUT.joy) ids.add(INPUT.joy.id);
+  // Clear first: releasing capture synchronously dispatches lostpointercapture.
+  INPUT.keys.clear(); INPUT.pointers.clear(); INPUT.joy = null; INPUT.look = null; INPUT.drag = null; INPUT.wheel = 0;
+  for (const id of ids) {
+    try { if (canvas.hasPointerCapture(id)) canvas.releasePointerCapture(id); } catch (err) { /* already released */ }
+  }
+  hideJoystick();
+  if (GAME.player && CLS.hold) classHold(false, 'cancel');
+  for (const b of document.querySelectorAll('#tpad .cls-btn.hold')) b.classList.remove('on');
+  for (const b of document.querySelectorAll('#tpad .is-pressed')) b.classList.remove('is-pressed');
+}
 window.addEventListener('keydown', (e) => {
+  if (gameplayKeyIgnored(e) || e.defaultPrevented || gameplayControlKey(e)) return;
   const k = e.code;
   if (k === 'Escape' && GAME.started && !e.repeat) { e.preventDefault(); onEscape(); return; }
   if (typing()) return;
@@ -52,14 +86,16 @@ window.addEventListener('keydown', (e) => {
   if (k.startsWith('Digit')) { const n = parseInt(k.slice(5), 10); if (n >= 1 && n <= 8) playerUseSlot(n - 1); }
   if (k === 'Tab') cycleTarget(e.shiftKey);
   if (k === 'KeyF') { setPlayerTarget(GAME.player); }
-  if (k === 'KeyE') playerInteract();
+  if (k === 'KeyE') playerInteract(e);
   if (k === 'KeyR') toggleMount();
   if (k === 'KeyQ') usePotion();
   if (k === 'KeyL') toggleLog();
   if (k === 'KeyH') openMenu('help');
 });
 window.addEventListener('keyup', (e) => { INPUT.keys.delete(e.code); });
-window.addEventListener('blur', () => { INPUT.keys.clear(); INPUT.joy = null; });
+window.addEventListener('blur', cancelPlayerInput);
+document.addEventListener('visibilitychange', () => { if (document.hidden) cancelPlayerInput(); });
+document.addEventListener('focusin', () => { if (typing()) cancelPlayerInput(); });
 const keyDown = (...codes) => codes.some((c) => INPUT.keys.has(c));
 
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -75,7 +111,8 @@ canvas.addEventListener('pointerdown', (e) => {
       return;
     }
   }
-  INPUT.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, button: e.button, moved: 0, t: performance.now(), type: e.pointerType });
+  const now = performance.now();
+  INPUT.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, button: e.button, moved: 0, t: now, eventAt: pointerEventTimestamp(e, now), type: e.pointerType });
 });
 canvas.addEventListener('pointermove', (e) => {
   if (UI.modal) return;
@@ -104,7 +141,7 @@ function endPointer(e) {
   const p = INPUT.pointers.get(e.pointerId);
   INPUT.pointers.delete(e.pointerId);
   if (!p) return;
-  if (p.moved < 8 && performance.now() - p.t < 450 && GAME.started && !UI.modal && e.type === 'pointerup' && !buildTap(e.clientX, e.clientY, p.type)) pickAt(e.clientX, e.clientY); // [building] a tap places the piece while building (06k_build.js)
+  if (p.moved < 8 && pointerGestureDuration(e, p.eventAt, p.t) < 450 && GAME.started && !UI.modal && e.type === 'pointerup' && !buildTap(e.clientX, e.clientY, p.type)) pickAt(e.clientX, e.clientY); // [building] a tap places the piece while building (06k_build.js)
 }
 canvas.addEventListener('pointerup', endPointer);
 canvas.addEventListener('pointercancel', endPointer);
@@ -120,6 +157,13 @@ function screenOf(x, y, z) {
   if (_proj.z > 1 || _proj.z < -1) return null;
   return { x: (_proj.x * 0.5 + 0.5) * view.w, y: (-_proj.y * 0.5 + 0.5) * view.h, z: _proj.z };
 }
+// Selection follows the visible bodies, rather than their projected positions
+// through a wall. Reuse the nameplate visibility cache between target changes.
+function playerTargetVisible(e) {
+  const P = GAME.player;
+  if (!P || !e || e.removed || towerSightBlocked(P, e)) return false;
+  return e === P || npSeen(e, dist(e.x, e.z, camera.position.x, camera.position.z));
+}
 function pickAt(sx, sy) {
   const P = GAME.player;
   let best = null, bd = Infinity;
@@ -134,7 +178,7 @@ function pickAt(sx, sy) {
     if (!s) continue;
     const rad = clamp((e.kind === 'door' ? 900 : e.kind === 'dragon' ? 1400 : 260) / Math.max(d3, 1), 18, e.kind === 'dragon' ? 260 : 120) * (e.scale || 1);
     const d = Math.hypot(s.x - sx, (s.y - sy) * 0.8);
-    if (d < rad && d - rad * 0.3 * (e === P ? -1 : 0) < bd) { bd = d; best = e; }
+    if (d < rad && d - rad * 0.3 * (e === P ? -1 : 0) < bd && playerTargetVisible(e)) { bd = d; best = e; }
   }
   setPlayerTarget(best);
 }
@@ -148,15 +192,17 @@ function cycleTarget(back = false) {
   const P = GAME.player;
   const list = [];
   forNear(P.x, P.z, 40, (o) => {
-    if (!o.alive || !isEnemy(P, o) || o.kind === 'door') return;
+    if (!o.alive || o.removed || o.flying || !isEnemy(P, o) || o.kind === 'door') return;
     const ang = Math.abs(angDiff(CAM.yaw, Math.atan2(o.x - P.x, o.z - P.z)));
     if (ang > 1.4) return;
+    if (!playerTargetVisible(o)) return;
     list.push(o);
   });
   if (!list.length) { setPlayerTarget(null); return; }
   list.sort((a, b) => dist2(a.x, a.z, P.x, P.z) - dist2(b.x, b.z, P.x, P.z));
   const i = list.findIndex((o) => o.id === P.target);
-  setPlayerTarget(list[(i + (back ? list.length - 1 : 1) + list.length) % list.length] || list[0]);
+  const next = i < 0 ? (back ? list.length - 1 : 0) : (i + (back ? -1 : 1) + list.length) % list.length;
+  setPlayerTarget(list[next]);
 }
 function playerUseSlot(i) {
   const P = GAME.player;
@@ -177,7 +223,9 @@ function playerUseSlot(i) {
   const aim = !A.self && !A.friendly && (!t || !isEnemy(P, t) || !t.alive || far) ? houseFireAim(P, id) || natureFireAim(P, id) : null;
   const r = aim ? castAtHouse(P, id, aim) : useAbility(P, id, t);
   if (r !== true) {
-    const msg = { swimming: 'You cannot do that while swimming', cooldown: 'That ability is not ready yet', power: 'Not enough power', range: 'Your target is too far away', target: 'You need a hostile target', close: 'Too close to charge', held: 'Frost holds you fast' /* [balance3] */, level: `Learned at level ${A.level}`, stunned: 'You are stunned', busy: 'You are already casting', carrying: 'Your hands are full with the hallow', ladder: 'Not with one hand on the ladder', dead: '' }[r]; // [keeps] ladder
+    const msg = r === 'target' && t && t.alive && isEnemy(P, t) && towerSightBlocked(P, t)
+      ? 'Your target is hidden by a wall or floor'
+      : { swimming: 'You cannot do that while swimming', cooldown: 'That ability is not ready yet', power: 'Not enough power', range: 'Your target is too far away', target: 'You need a hostile target', close: 'Too close to charge', held: 'Frost holds you fast' /* [balance3] */, level: `Learned at level ${A.level}`, stunned: 'You are stunned', busy: 'You are already casting', carrying: 'Your hands are full with the hallow', ladder: 'Not with one hand on the ladder', dead: '' }[r]; // [keeps] ladder
     if (msg) uiError(msg);
   } else flashSlot(i);
 }
@@ -185,7 +233,7 @@ function playerUseSlot(i) {
 /* ------------------------------------------------------------------ */
 /* interactions                                                        */
 /* ------------------------------------------------------------------ */
-function currentInteraction() {
+function currentInteraction(event) {
   const P = GAME.player;
   if (!P || !P.alive) return null;
   const R = REALMS[P.faction];
@@ -201,7 +249,13 @@ function currentInteraction() {
     offer(dist(P.x, P.z, R.town.x, R.town.z), 4.8, `Step through the stones to ${R.name} Muster`, () => teleportPlayer(R.musterSite, 'frontier'));
     offer(dist(P.x, P.z, R.musterSite.x, R.musterSite.z), 4.8, `Step through the stones to ${R.townName}`, () => teleportPlayer(R.town, 'home'));
   }
-  if (R.herald) offer(dist(P.x, P.z, R.herald.x, R.herald.z), 4.5, `Speak with the ${R.name} Herald`, () => openHerald());
+  if (R.herald) {
+    const observed = typeof loreObservationScope === 'function' ? loreObservationScope(event, 'herald', R.herald) : null;
+    offer(dist(P.x, P.z, R.herald.x, R.herald.z), 4.5, `Speak with the ${R.name} Herald`, () => {
+      openHerald();
+      if (observed) loreObserve(observed);
+    });
+  }
   if (R.merchant) offer(dist(P.x, P.z, R.merchant.x, R.merchant.z), 4.6, `Trade with ${R.merchant.name}`, () => openKit('shop'));
   // the barrow: in through the door, out by the stair, and whatever the dead left behind
   if (inDungeon(P)) {
@@ -227,8 +281,8 @@ function currentInteraction() {
   loopsOffers(P, offer); // [loops] the quartermaster: the realm's stores (08m_loops.js)
   return best;
 }
-function playerInteract() {
-  const it = currentInteraction();
+function playerInteract(event) {
+  const it = currentInteraction(event);
   if (it) { it.act(); sfx('click'); }
 }
 function teleportPlayer(S, kind) {
@@ -248,12 +302,32 @@ function teleportPlayer(S, kind) {
 }
 
 /* bounties from the herald */
+function bountyCampInfo(c, P = GAME.player, prog = GAME.prog) {
+  if (!P || !prog || c.realm !== P.faction || c.elite || !MOBS[c.type]) return null;
+  const residents = guideCampResidents(c);
+  if (!residents.length) return null;
+  const levels = residents.map((e) => e.level), high = Math.max(...levels);
+  if (!(high <= prog.level + 1)) return null;
+  return { c, residents, low: Math.min(...levels), high };
+}
+function bountyAvailable(P = GAME.player, prog = GAME.prog) {
+  if (!P || !prog || prog.bounty) return false;
+  // The veteran offer precedes ordinary quarry in the herald's real dialog.
+  if (prog.level >= LATE2_RISE_AT && CAMPS.some((c) => c.realm === P.faction && late2Risen(c))) return true;
+  return prog.level < LEVEL_CAP && CAMPS.some((c) => bountyCampInfo(c, P, prog));
+}
 function chooseBounty() {
   const P = GAME.player, prog = GAME.prog;
-  const camps = CAMPS.filter((c) => c.realm === P.faction).map((c) => ({ c, mid: (c.lmin + c.lmax) / 2 }));
-  camps.sort((a, b) => Math.abs(a.mid - prog.level - 0.5) - Math.abs(b.mid - prog.level - 0.5));
-  const c = camps[Math.floor(Math.random() * Math.min(2, camps.length))].c;
-  return { type: c.type, camp: c.id, need: 6, have: 0, name: MOBS[c.type].names[mobTier(MOBS[c.type], (c.lmin + c.lmax) / 2)], reward: Math.round(xpToNext(prog.level) * 0.35) };
+  const camps = CAMPS.map((c) => bountyCampInfo(c, P, prog)).filter(Boolean);
+  camps.sort((a, b) => Math.abs(a.high - prog.level - 0.5) - Math.abs(b.high - prog.level - 0.5)
+    || dist2(P.x, P.z, a.c.x, a.c.z) - dist2(P.x, P.z, b.c.x, b.c.z));
+  if (!camps.length) return null;
+  const { c, residents, low, high } = camps[Math.floor(Math.random() * Math.min(2, camps.length))];
+  const names = [...new Set(residents.map((e) => e.name).filter((name) => typeof name === 'string' && name))];
+  // An observed common name, or the species when several tiers live together.
+  // Existing accepted bounties retain their saved target, progress and reward.
+  const name = names.length === 1 && MOBS[c.type].names.includes(names[0]) ? names[0] : MOB_PLURAL[c.type] || MOBS[c.type].names[0];
+  return { type: c.type, camp: c.id, need: 6, have: 0, name, minLevel: low, maxLevel: high, reward: Math.round(xpToNext(prog.level) * 0.35) };
 }
 function bountyOnKill(e) {
   const b = GAME.prog && GAME.prog.bounty;
@@ -346,6 +420,7 @@ function updatePlayer(dt) {
 /* camera                                                              */
 /* ------------------------------------------------------------------ */
 function cameraShake(amount, x, z) {
+  if (REDUCE_MOTION) { CAM.shake = 0; return; }
   const P = GAME.player;
   const d = P ? dist(P.x, P.z, x, z) : 0;
   CAM.shake = Math.max(CAM.shake, amount * clamp(1 - d / 40, 0, 1));
@@ -370,9 +445,10 @@ function cameraRoom(px, py, pz, cp, sp, dist) {
   return dist;
 }
 function updateCamera(dt) {
+  if (typeof throneRtsUpdateCamera === 'function' && throneRtsUpdateCamera(dt)) return;
   if (CAM.mode === 'fixed') return; // test and photo views place the camera themselves
   if (CAM.mode === 'title') {
-    CAM.orbitT += dt * 0.035;
+    if (!REDUCE_MOTION) CAM.orbitT += dt * 0.035;
     const a = CAM.orbitT + 2.2;
     const T = W.heroTree;
     const r = 34;
@@ -410,6 +486,7 @@ function updateCamera(dt) {
   if (hc) { cx = hc.x; cy = hc.y; cz = hc.z; }
   CAM.pos.set(cx, cy, cz);
   camera.position.copy(CAM.pos);
+  if (REDUCE_MOTION) CAM.shake = 0;
   if (CAM.shake > 0) {
     camera.position.x += (Math.random() - 0.5) * CAM.shake;
     camera.position.y += (Math.random() - 0.5) * CAM.shake;
@@ -430,7 +507,8 @@ function onPlayerDeath(killer) {
   INPUT.keys.clear();
   sfx('death');
   flashScreen([0.6, 0.05, 0.05], 0.6);
-  uiDeath(killer ? killer.name + (killer.faction <= 2 && killer.faction !== P.faction ? ` of ${REALMS[killer.faction].name}` : '') : 'the wilds');
+  const level = Number.isFinite(killer?.level) && killer.level > 0 ? ` (level ${Math.round(killer.level)})` : '';
+  uiDeath(killer ? killer.name + level + (killer.faction <= 2 && killer.faction !== P.faction ? ` of ${REALMS[killer.faction].name}` : '') : 'the wilds', killer);
 }
 function releasePlayer() {
   const P = GAME.player;

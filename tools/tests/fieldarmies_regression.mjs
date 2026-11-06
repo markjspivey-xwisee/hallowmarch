@@ -21,34 +21,35 @@ function fixture() {
   };
   const room = { regions: { f: 'a' }, clients: new Map() };
   const clients = ['a', 'b'].map(peer => ({ peer, realm: 0,
-    pos: { ...WORLD.keeps[0] }, region: 'f', ws: { readyState: 1 }, room }));
+    slow: { realmManagement: 1, seasonField: 2, sharedCombat: 1, actorDevelopment: 1 }, pos: { ...WORLD.keeps[0] }, region: 'f', ws: { readyState: 1 }, room }));
   for (const c of clients) room.clients.set(c.peer, c);
-  const season = { RS, M, dirty: false }, sent = [];
+  const season = { RS, M, dirty: false, fieldGrantConfirmed: () => true }, sent = [];
   const field = makeField(season, new Map([['march', room]]),
     (c, message) => sent.push([c.peer, message]), () => 'f', WORLD, {});
   field.step();
-  return { RS, army, room, clients, field, sent };
+  const report = (c, m) => field.report(c, { ...m, season: RS.n, fieldLease: field.held.get(m.id)?.lease });
+  return { RS, army, room, clients, field, sent, report };
 }
 
 test('only the region keeper holds and reports an army; losses cannot create soldiers', () => {
-  const { army, clients: [a, b], field, sent } = fixture();
+  const { army, clients: [a, b], field, sent, report } = fixture();
   assert.equal(field.held.size, 1);
   assert.equal(army.onField.who, 'peer:a');
   assert.equal(sent.filter(x => x[1].t === 'sarmy').length, 1);
   const n = army.n;
-  field.report(b, { id: army.id, rep: { n: 0, done: 'fallen' } });
+  report(b, { id: army.id, rep: { n: 0, done: 'fallen' } });
   assert.equal(army.n, n);
   assert.equal(field.stats.refused, 1);
-  field.report(a, { id: army.id, rep: { n: n - 6, p: 0.25 } });
+  report(a, { id: army.id, rep: { n: n - 6, p: 0.25 } });
   assert.equal(army.n, n - 6);
   assert.equal(army.p, 0.25);
-  field.report(a, { id: army.id, rep: { n: n + 100 } });
+  report(a, { id: army.id, rep: { n: n + 100 } });
   assert.equal(army.n, n - 6);
 });
 
 test('an unknown completion cannot orphan an active lease', () => {
-  const { army, clients: [a], field } = fixture();
-  field.report(a, { id: army.id, rep: { done: 'invalid' } });
+  const { army, clients: [a], field, report } = fixture();
+  report(a, { id: army.id, rep: { done: 'invalid' } });
   assert.equal(army.onField.who, 'peer:a');
   assert.equal(field.held.size, 1);
   field.step();
@@ -56,7 +57,7 @@ test('an unknown completion cannot orphan an active lease', () => {
 });
 
 test('a region handover transfers one lease and disconnect folds it back', () => {
-  const { army, room, clients: [a, b], field, sent } = fixture();
+  const { army, room, clients: [a, b], field, sent, report } = fixture();
   room.regions.f = 'b';
   field.step();
   assert.equal(field.held.size, 1);
@@ -70,8 +71,8 @@ test('a region handover transfers one lease and disconnect folds it back', () =>
 });
 
 test('a valid completion releases the tracked lease and the season army', () => {
-  const { RS, army, clients: [a], field } = fixture();
-  field.report(a, { id: army.id, rep: { n: 0, done: 'fallen' } });
+  const { RS, army, clients: [a], field, report } = fixture();
+  report(a, { id: army.id, rep: { n: 0, done: 'fallen' } });
   assert.equal(field.held.size, 0);
   assert.equal(RS.armies.some(x => x.id === army.id), false);
 });

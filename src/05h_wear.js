@@ -330,10 +330,12 @@ function strikeAt(c) {
   // down the trunk or the wall into the ground
   if (c.y - c.gy > 1) for (let i = 1; i <= 6; i++) path.push([c.x + (Math.random() - 0.5) * 0.3, lerp(c.y, c.gy, i / 6), c.z + (Math.random() - 0.5) * 0.3, 1.1]);
   WEATHER.bolts.push({ path, t: 0 });
-  spellRibbon(sky, top, 'bolt', [2.5, 2.8, 3.6], 0.9, 0.42);
+  if (!REDUCE_MOTION) spellRibbon(sky, top, 'bolt', [2.5, 2.8, 3.6], 0.9, 0.42);
   WEATHER.flash = 1;
-  lightFlash(c.x, c.y + 3, c.z, 70, [3.2, 3.4, 4.3], 0.6);
-  lightFlash(c.x, c.gy + 1.2, c.z, 16, [3.4, 3.4, 4.0], 0.45);
+  if (!REDUCE_MOTION) {
+    lightFlash(c.x, c.y + 3, c.z, 70, [3.2, 3.4, 4.3], 0.6);
+    lightFlash(c.x, c.gy + 1.2, c.z, 16, [3.4, 3.4, 4.0], 0.45);
+  }
   sfxAt('thunderNear', c.x, c.y, c.z, { now: true }); // [audio2] from where it struck (11c_sound.js)
   const P = GAME.player;
   if (P && dist2(P.x, P.z, c.x, c.z) < 40 * 40) cameraShake(0.32, c.x, c.z);
