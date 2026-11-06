@@ -8,6 +8,47 @@ const encoder = new TextEncoder();
 const copy = value => structuredClone(value);
 const object = value => value && typeof value === 'object' && !Array.isArray(value);
 const fail = (code, message) => { throw Object.assign(new Error(message), { code }); };
+
+function hostedTermsOf(terms) {
+  if (typeof terms?.version !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(terms.version)
+    || terms.url !== 'https://interego.xwisee.com/terms/' + terms.version + '/'
+    || terms.privacyUrl !== 'https://interego.xwisee.com/privacy/') {
+    fail('invalid_hosted_terms', 'The Hosted Interego Terms could not be loaded. Try again before starting guest access.');
+  }
+  return { version: terms.version, url: terms.url, privacyUrl: terms.privacyUrl };
+}
+
+function confirmHostedGuestTerms(terms, signal) {
+  const dialog = globalThis.document?.createElement('dialog');
+  if (!dialog?.showModal || signal.aborted) return Promise.resolve(false);
+  dialog.setAttribute('aria-label', 'Start Hosted Interego guest access');
+  dialog.innerHTML = `
+    <h2>Start guest access</h2>
+    <p>Hallowmarch uses Hosted Interego for this guest session.</p>
+    <p><label><input type="checkbox" autofocus> I am at least 18 and I agree to the <a target="_blank" rel="noopener noreferrer">Hosted Interego Terms of Service</a>.</label></p>
+    <p><a target="_blank" rel="noopener noreferrer">Privacy Notice</a></p>
+    <p><button type="button" value="cancel">Cancel</button> <button type="button" value="agree" disabled>Continue</button></p>`;
+  const [termsLink, privacyLink] = dialog.querySelectorAll('a');
+  termsLink.href = terms.url;
+  privacyLink.href = terms.privacyUrl;
+  const checkbox = dialog.querySelector('input');
+  const proceed = dialog.querySelector('button[value="agree"]');
+  checkbox.addEventListener('change', () => { proceed.disabled = !checkbox.checked; });
+  return new Promise(resolve => {
+    const cancel = () => dialog.close('cancel');
+    dialog.querySelector('button[value="cancel"]').addEventListener('click', cancel);
+    proceed.addEventListener('click', () => { if (checkbox.checked) dialog.close('agree'); });
+    dialog.addEventListener('close', () => {
+      signal.removeEventListener('abort', cancel);
+      dialog.remove();
+      resolve(dialog.returnValue === 'agree' && checkbox.checked);
+    }, { once: true });
+    signal.addEventListener('abort', cancel, { once: true });
+    document.body.append(dialog);
+    dialog.showModal();
+  });
+}
+
 function secureOrigin(value) {
   let url;
   try { url = new URL(value); } catch { fail('invalid_endpoint', 'A secure native endpoint is required.'); }
@@ -81,13 +122,14 @@ function credentialFrom(value, relayUrl, method, now) {
 export async function createProvisionalPlayerSession({ origin = globalThis.location?.origin,
   relayUrl, request, fetch: fetchImpl = globalThis.fetch, crypto = globalThis.crypto, now = Date.now,
   device = createProvisionalDevice({ origin, crypto, now }), accessCache = createBrowserAccessCache({ crypto, now }),
-  createProfile = createPlayerPodProfile, onSession = async () => {}, onState = () => {} } = {}) {
+  createProfile = createPlayerPodProfile, onSession = async () => {}, onState = () => {}, confirmTerms = confirmHostedGuestTerms } = {}) {
   const gameOrigin = secureOrigin(origin);
   const configuredRelay = relayUrl ? secureOrigin(relayUrl) : null;
   if (typeof request !== 'function' || typeof fetchImpl !== 'function') throw new TypeError('A game bridge and native network transport are required.');
   let metadata = null, current = null, sourceProfile = null, currentBinding = null, targetProfile = null;
   let save = null, journal = null, state = 'idle', closed = false, claimed = false, sourceQuota = false, chain = Promise.resolve();
   let acknowledgedPromotion = null, pendingCanonicalSave = null;
+  const sessionLifetime = new AbortController();
   const active = () => { if (closed) fail('closed', 'This provisional character connection is closed.'); };
   const change = (next, extra = {}) => { if (closed) return; state = next; onState({ ...status(), ...extra }); };
   const serialized = run => { const next = chain.then(() => { active(); return run(); }); chain = next.catch(() => {}); return next; };
@@ -128,6 +170,11 @@ export async function createProvisionalPlayerSession({ origin = globalThis.locat
     const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
     let data;
     try { data = JSON.parse(text); } catch { fail('native_unavailable', 'The native identity response could not be read.'); }
+    if (result.status === 428 && data?.error === 'hosted_terms_required') {
+      throw Object.assign(new Error('Guest access requires agreement to the Hosted Interego Terms.'), {
+        code: 'hosted_terms_required', terms: hostedTermsOf(data.terms),
+      });
+    }
     if (!result.ok) fail(data.code || data.error || 'native_unavailable', data.message || data.error_description || 'The native identity did not confirm this operation.');
     if (!object(data)) fail('native_unavailable', 'The native identity response is invalid.');
     active();
@@ -190,7 +237,7 @@ export async function createProvisionalPlayerSession({ origin = globalThis.locat
       throw cause;
     }
   }
-  async function provision(expectedBinding = null) {
+  async function provision(expectedBinding = null, termsVersion) {
     const prior = await device.peekMetadata(); metadata = prior;
     if (prior?.claimedOwnerDid) fail('already_claimed', 'This character belongs to its connected owner. Open that identity to continue.');
     if (prior && prior.guestExpiresAt <= now()) fail('guest_expired', 'This provisional character has expired.');
@@ -203,8 +250,17 @@ export async function createProvisionalPlayerSession({ origin = globalThis.locat
     if (configuredRelay && relay !== configuredRelay || challenge.audience && secureOrigin(challenge.audience) !== gameOrigin) fail('invalid_binding', 'The native play challenge belongs to another game or relay.');
     if (prior && (issuer !== prior.issuer || relay !== prior.relayUrl)) fail('guest_identity_changed', 'Reconnect the original provisional native service.');
     const provisionalEndpoint = endpoint(challenge.provisionalEndpoint, issuer);
-    const identity = await nativePost(provisionalEndpoint, { playGrant: challenge.playGrant, publicKeyJwk: publicKey.publicKeyJwk,
-      proof: await device.signBootstrap(challenge.playGrant) });
+    let identity;
+    try {
+      identity = await nativePost(provisionalEndpoint, { playGrant: challenge.playGrant, publicKeyJwk: publicKey.publicKeyJwk,
+        termsVersion, proof: await device.signBootstrap(challenge.playGrant, termsVersion) });
+    } catch (error) {
+      if (error.code !== 'hosted_terms_required' || termsVersion !== undefined) throw error;
+      if (!await confirmTerms(error.terms, sessionLifetime.signal)) fail('hosted_terms_declined', 'Guest access was cancelled.');
+      active();
+      // Reading the Terms can take longer than the short-lived game grant.
+      return provision(expectedBinding, error.terms.version);
+    }
     const ownerDid = identity.did || identity.ownerDid;
     const binding = bindingOf({ subjectDid: ownerDid, podUrl: identity.podUrl, userId: identity.userId });
     if (identity.provisional !== true || identity.proofKeyThumbprint !== publicKey.proofKeyThumbprint
@@ -577,7 +633,7 @@ export async function createProvisionalPlayerSession({ origin = globalThis.locat
     retrySession: () => serialized(retrySession),
     retry: () => serialized(async () => { if (!current) fail('not_connected', 'Resume the native character before retrying.'); await current.retry(); return status(); }),
     status, profile: () => current, claimProfile: () => targetProfile,
-    close() { closed = true; current?.close(); if (sourceProfile !== current) sourceProfile?.close(); if (targetProfile !== current) targetProfile?.close(); device.close(); void accessCache.close?.(); },
+    close() { closed = true; sessionLifetime.abort(); current?.close(); if (sourceProfile !== current) sourceProfile?.close(); if (targetProfile !== current) targetProfile?.close(); device.close(); void accessCache.close?.(); },
   });
 }
 
