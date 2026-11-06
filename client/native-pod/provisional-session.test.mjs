@@ -88,7 +88,7 @@ test('first Play confirms a private checkpoint; reload resumes it without provis
 });
 
 test('new Play can only retry enrollment with the version the player explicitly accepted', async () => {
-  const terms = { version: '2026-11-06', url: 'https://interego.xwisee.com/terms/2026-11-06/', privacyUrl: 'https://interego.xwisee.com/privacy/' };
+  const terms = { version: '2026-11-06-r2', url: 'https://interego.xwisee.com/terms/2026-11-06-r2/', privacyUrl: 'https://interego.xwisee.com/privacy/' };
   const f = fixture(), submitted = [], signed = [];
   const fetch = async (url, options) => {
     if (url.endsWith('/play/provisional')) {

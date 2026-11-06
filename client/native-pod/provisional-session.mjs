@@ -1,7 +1,7 @@
 /** Native provisional play and explicit, read-confirmed owner-pod claims. */
 import { createPlayerPodProfile } from './profile.mjs';
 import { createBrowserAccessCache } from './access-cache.mjs';
-import { createProvisionalDevice, provisionalBase64Url } from './provisional-device.mjs';
+import { createProvisionalDevice, isHostedTermsVersion, provisionalBase64Url } from './provisional-device.mjs';
 
 const SCHEMA = 'hallowmarch.provisional-character/v1';
 const encoder = new TextEncoder();
@@ -10,7 +10,7 @@ const object = value => value && typeof value === 'object' && !Array.isArray(val
 const fail = (code, message) => { throw Object.assign(new Error(message), { code }); };
 
 function hostedTermsOf(terms) {
-  if (typeof terms?.version !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(terms.version)
+  if (!isHostedTermsVersion(terms?.version)
     || terms.url !== 'https://interego.xwisee.com/terms/' + terms.version + '/'
     || terms.privacyUrl !== 'https://interego.xwisee.com/privacy/') {
     fail('invalid_hosted_terms', 'The Hosted Interego Terms could not be loaded. Try again before starting guest access.');
@@ -25,6 +25,7 @@ function confirmHostedGuestTerms(terms, signal) {
   dialog.innerHTML = `
     <h2>Start guest access</h2>
     <p>Hallowmarch uses Hosted Interego for this guest session.</p>
+    <p><strong>Hosted Interego is a beta prototype for testing. Bugs, outages, and data loss are possible.</strong></p>
     <p><label><input type="checkbox" autofocus> I am at least 18 and I agree to the <a target="_blank" rel="noopener noreferrer">Hosted Interego Terms of Service</a>.</label></p>
     <p><a target="_blank" rel="noopener noreferrer">Privacy Notice</a></p>
     <p><button type="button" value="cancel">Cancel</button> <button type="button" value="agree" disabled>Continue</button></p>`;
