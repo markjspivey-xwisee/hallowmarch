@@ -245,11 +245,15 @@ export function createProvisionalDevice({ origin = globalThis.location?.origin, 
         { ...record, revision: crypto.randomUUID(), metadata }));
       return clone(current.metadata);
     },
-    async signBootstrap(playGrant) {
+    async signBootstrap(playGrant, termsVersion) {
       if (!object(playGrant)) fail('invalid_proof', 'The native play grant is invalid.');
       const payload = bounded(playGrant._signed_payload, 65536, 'native grant payload');
       const signature = bounded(playGrant._signature, 2048, 'native grant signature');
-      return sign('interego-play-provisional-v1\n' + payload + '\n' + signature);
+      if (termsVersion !== undefined && (typeof termsVersion !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(termsVersion))) {
+        fail('invalid_proof', 'The Hosted Interego Terms version is invalid.');
+      }
+      const agreement = termsVersion ? '\nHosted-Interego-Terms: ' + termsVersion : '';
+      return sign('interego-play-provisional-v1\n' + payload + '\n' + signature + agreement);
     },
     async signProof({ attestation, audience, challenge } = {}) {
       bounded(attestation, 16384, 'provisional attestation'); bounded(challenge, 512, 'play challenge');
