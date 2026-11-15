@@ -1882,7 +1882,6 @@ function nativePlayerConnect(fresh = false, expiredChoice = null) {
     }
   };
   starting = nativePlayerTask(startSignIn, 'Opening sign-in…');
-  return starting;
 }
 async function nativePlayerReconnect(expected, notification) {
   const sameSession = () => expected && GAME.started && NETWS.acct?.id === expected.accountId && NETWS.host === expected.host
