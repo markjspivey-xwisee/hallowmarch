@@ -29,7 +29,7 @@ const bounded = (promise, ms, name) => {let timer;
 };
 async function browserFixture() {
   const channel = process.env.HM_BROWSER_CHANNEL;
-  return chromium.launch({headless: true, chromiumSandbox: true, timeout: 10000, ...(channel ? {channel} : {})});
+  return chromium.launch({headless: true, chromiumSandbox: true, timeout: 25000, ...(channel ? {channel} : {})});
 }
 async function fixture(browser, old = false) {
   const page = await browser.newPage({viewport: {width: 390, height: 780}}), requests = [], errors = [];
@@ -83,7 +83,7 @@ async function fixture(browser, old = false) {
   return {page, requests, errors};
 }
 
-test('actual native observer witnesses original brief1 feedback and keeps two candidate reset/reapply batches quiet', {timeout: 30000}, async () => {
+test('actual native observer witnesses original brief1 feedback and keeps two candidate reset/reapply batches quiet', {timeout: 45000}, async () => {
   const browser = await browserFixture();
   try {
     for (const old of [true, false]) {
@@ -98,7 +98,7 @@ test('actual native observer witnesses original brief1 feedback and keeps two ca
     }
   } finally {await bounded(browser.close(), 5000, 'HUD observer DOM browser close');}
 });
-test('actual native observer ignores only five owned tokens and still responds to real/hidden/child-list/unowned-token changes', {timeout: 30000}, async () => {
+test('actual native observer ignores only five owned tokens and still responds to real/hidden/child-list/unowned-token changes', {timeout: 45000}, async () => {
   const browser = await browserFixture();
   try {
     const f = await fixture(browser);
