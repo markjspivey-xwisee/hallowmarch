@@ -3,10 +3,11 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { makeSeason, loadRealmModule } from '../season.js';
 import { openHallowmarchWorldState } from './hallowmarch-world-state.js';
 
-const root = new URL('../../', import.meta.url).pathname;
+const root = fileURLToPath(new URL('../../', import.meta.url));
 const realmModule = loadRealmModule(root + 'src', root + 'server');
 
 test('timer season saves defer while explicit season.save and direct season writes capture an empty world immediately', async t => {

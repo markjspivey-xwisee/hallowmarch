@@ -17,9 +17,9 @@ FROM node:22-slim AS interego
 WORKDIR /opt/interego
 RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates && rm -rf /var/lib/apt/lists/*
 RUN git init . && git remote add origin https://github.com/markjspivey-xwisee/interego.git \
-    && git fetch --depth 1 origin 4f3c537713da8636672fd6fe3c207142e2e142c4 \
+    && git fetch --depth 1 origin fe6f2d86795cb0696e5246985be80d7c49945b70 \
     && git checkout --detach FETCH_HEAD \
-    && test "$(git rev-parse HEAD)" = 4f3c537713da8636672fd6fe3c207142e2e142c4
+    && test "$(git rev-parse HEAD)" = fe6f2d86795cb0696e5246985be80d7c49945b70
 RUN npm ci --workspace @interego/core --workspace @interego/solid --workspace @interego/pgsl --include-workspace-root=false --ignore-scripts --no-audit --no-fund \
     && npm run build --workspace @interego/core \
     && npm run build --workspace @interego/solid \

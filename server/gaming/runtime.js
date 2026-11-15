@@ -9,9 +9,9 @@ import { createLearningOutbox } from './outbox.js';
  */
 export function createGamingRuntime({ store = null, send, clock = Date.now, domain = createHallowmarchDomain(), roomId = 'march-proof', learningSink = null,
   persistenceMode = 'strict', checkpointIntervalMs = 1000, broadcastIntervalMs = 50, verifiedDidFor = () => null, requireVerifiedPlayers = false,
-  learningDeliveryAvailable = null, requireNativeAgents = requireVerifiedPlayers } = {}) {
+  learningDeliveryAvailable = null, requireNativeAgents = requireVerifiedPlayers, active = true } = {}) {
   if (!Number.isSafeInteger(broadcastIntervalMs) || broadcastIntervalMs < 1 || broadcastIntervalMs > 1000) throw new TypeError('Bounded snapshot interval required.');
-  let room = null, failure = store ? 'initializing' : 'native-service-unconfigured', stopping = false;
+  let room = null, failure = store ? 'initializing' : 'native-service-unconfigured', stopping = false, activityActive = active === true;
   const evidenceDomain = domain.evidenceDomain || domain.id;
   // Supplied only by a trusted, verified owner-pod composition; a transport or
   // OAuth identity alone is insufficient. This port must be synchronous/local:
@@ -34,6 +34,7 @@ export function createGamingRuntime({ store = null, send, clock = Date.now, doma
       ...(persistenceMode === 'realtime' ? { maxSnapshotHz: 1000 / broadcastIntervalMs } : {}) },
     ...(room ? { version: room.version } : {}) });
   const snapshot = async (client, refresh = false) => {
+    if (!activityActive || stopping) return;
     const principal = clients.has(client) ? principalOf(client) : null;
     if (principal && client.ws?.readyState === 1) {
       const state = refresh ? await room.observe(principal) : room.observeCommitted(principal);
@@ -44,13 +45,15 @@ export function createGamingRuntime({ store = null, send, clock = Date.now, doma
   };
   const broadcast = () => {
     broadcastTimer = null;
+    if (!activityActive || stopping) return;
     for (const client of clients.keys()) void snapshot(client).catch(() => clients.delete(client));
   };
   const scheduleBroadcast = () => {
+    if (!activityActive || stopping) return;
     if (persistenceMode !== 'realtime') { broadcast(); return; }
     // Coalesce a burst of inputs into one latest-state packet per client. The
     // simulation and action response never wait for this bounded fan-out rate.
-    if (broadcastTimer || stopping) return;
+    if (!activityActive || broadcastTimer || stopping) return;
     broadcastTimer = setTimeout(broadcast, broadcastIntervalMs); broadcastTimer.unref?.();
   };
   const ready = (async () => {
@@ -58,7 +61,7 @@ export function createGamingRuntime({ store = null, send, clock = Date.now, doma
     try {
       await store.ready?.();
       const candidate = await new AuthoritativeRoom({ roomId, store, domain, clock, persistenceMode, checkpointIntervalMs,
-        learningDeliveryAvailable: deliveryAvailable }).open();
+        learningDeliveryAvailable: deliveryAvailable, active: activityActive }).open();
       candidate.subscribe(scheduleBroadcast);
       room = candidate; failure = '';
       const guardedSink = deliveryConfigured ? { descriptor: learningSink.descriptor,
@@ -66,7 +69,7 @@ export function createGamingRuntime({ store = null, send, clock = Date.now, doma
           const fresh = await room.learningContext(512), consent = fresh.consent[context.actorId], now = clock();
           const entries = new Map(fresh.outbox.map(entry => [entry.event.id, entry]));
           const fields = ['enabled', 'expiresAt', 'recipient', 'actorDid', 'sessionId'];
-          if (consent?.enabled !== true || !Number.isSafeInteger(now) || !Number.isSafeInteger(consent.expiresAt)
+          if (!activityActive || consent?.enabled !== true || !Number.isSafeInteger(now) || !Number.isSafeInteger(consent.expiresAt)
             || consent.expiresAt <= now || consent.sessionId !== context.sessionId || consent.recipient !== context.recipient
             || !events.every(event => {
               const entry = entries.get(event.id);
@@ -99,6 +102,7 @@ export function createGamingRuntime({ store = null, send, clock = Date.now, doma
     if (count >= 8) { send(c, { t: 'gaming', op: 'result', requestId, ok: false, error: { code: 'busy', message: 'Too many pending game commands.' } }); return; }
     pending.set(c, count + 1);
     try {
+      if (!activityActive) throw new GameCommandError('human_play_required', 'The world is asleep until a human is actively playing.');
       if (stopping) throw new GameCommandError('restarting', 'The server is saving before a restart. Reconnect in a moment.');
       if (!room) throw new GameCommandError('unavailable', 'Shared expeditions are waiting for their native game service.');
       let principal, command, result;
@@ -145,11 +149,15 @@ export function createGamingRuntime({ store = null, send, clock = Date.now, doma
       send(c, { t: 'gaming', op: 'result', requestId, ok: false, error: { code: known ? error.code : 'durability_unavailable', message: known ? error.message : 'Saving is delayed. Check the encounter status before retrying.' } });
     } finally { const n = (pending.get(c) || 1) - 1; if (n) pending.set(c, n); else pending.delete(c); }
   }
-  return { ready, manifest, handle, shutdown() {
+  return { ready, manifest, handle, setActive(value) {
+      activityActive = value === true;
+      if (!activityActive && broadcastTimer) { clearTimeout(broadcastTimer); broadcastTimer = null; }
+      return room?.setActive(activityActive);
+    }, suspend(options) { activityActive = false; if (broadcastTimer) { clearTimeout(broadcastTimer); broadcastTimer = null; } return room?.suspend(options) ?? Promise.resolve({ durable: !!room }); }, shutdown(options) {
       stopping = true; if (broadcastTimer) { clearTimeout(broadcastTimer); broadcastTimer = null; }
-      return room?.close ? room.close() : Promise.resolve({ durable: !!room }); },
+      return room?.close ? room.close(options) : Promise.resolve({ durable: !!room }); },
     flushPersistence() { return room?.flushPersistence ? room.flushPersistence() : Promise.resolve({ durable: !!room }); },
-    flushLearning() { return outbox ? outbox.flush() : Promise.resolve({ ok: false, reason: 'native-service-unavailable' }); }, close(c) { clients.delete(c); pending.delete(c); },
+    flushLearning() { return activityActive && outbox ? outbox.flush() : Promise.resolve({ ok: false, reason: 'native-service-unavailable' }); }, close(c) { clients.delete(c); pending.delete(c); },
     metrics() { return room ? { ...room.stats, version: room.version, playerConnections: clients.size, eventWindow: room.current.events.length,
       learningExport: { configured: deliveryConfigured, pending: room.current.outbox.length,
         captureGaps: structuredClone(room.current.learningCaptureGaps || { total: 0 }) },

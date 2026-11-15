@@ -51,9 +51,96 @@ function musicEngine(ctx, dest, lite, rnd = Math.random) {
   E.ks = [[36, 3.6, 0.5, 0.9985], [48, 3.2, 0.42, 0.998], [60, 2.8, 0.38, 0.9972], [72, 2.2, 0.36, 0.996], [84, 1.6, 0.34, 0.994]].map(([m, sec, soft, dec]) => musicPluckBuffer(ctx, m, sec, soft, dec));
   return E;
 }
+// Only time-only doubles are prepared. Audio buffers, graphs and random draws
+// still belong to the original synchronous musicImpulse call below.
+const MUSIC_IMPULSE_PREP = { plan: null, token: 0, maxBytes: 2621440, chunk: 512, consumed: 0, fallbacks: 0 };
+function musicImpulsePrepareCancel() {
+  const p = MUSIC_IMPULSE_PREP.plan;
+  if (p) { p.env = p.k = p.ctx = null; p.status = 'cancelled'; }
+  MUSIC_IMPULSE_PREP.plan = null;
+}
+function musicImpulsePrepareFrame() {
+  const S = MUSIC_IMPULSE_PREP, ctx = AUDIO.ctx;
+  if (document.hidden || GRAPHICS_CONTEXT_LOST || GRAPHICS_STARTUP.stopped || MUSIC.E || !ctx) {
+    musicImpulsePrepareCancel(); return;
+  }
+  // Never start work in the live callback. A quick Begin/Continue uses the
+  // unchanged fallback; a completed plan may survive this handoff for its call.
+  if (!GAME.ready || GAME.started && UI.modal !== 'prologue') {
+    if (S.plan && S.plan.status !== 'complete') musicImpulsePrepareCancel();
+    return;
+  }
+  const sr = ctx.sampleRate, sec = IS_TOUCH || quality.level === 'low' ? 2.4 : 3.4;
+  let p = S.plan;
+  if (p && (p.ctx !== ctx || !Object.is(p.sr, sr) || !Object.is(p.sec, sec)
+    || p.exp !== Math.exp || p.min !== Math.min || p.floor !== Math.floor)) {
+    musicImpulsePrepareCancel(); p = null;
+  }
+  if (!p) {
+    if (!Number.isSafeInteger(sr) || sr <= 0) return;
+    const n = Math.floor(sr * sec), pre = Math.floor(sr * 0.014), length = n - pre;
+    if (!Number.isSafeInteger(length) || length <= 0 || length * 16 > S.maxBytes) return;
+    p = { ctx, sr, sec, n, pre, decay: 6.9 / sec, length, next: 0, token: ++S.token,
+      exp: Math.exp, min: Math.min, floor: Math.floor, env: null, k: null, status: 'preparing' };
+    S.plan = p;
+    try { p.env = new Float64Array(length); p.k = new Float64Array(length); }
+    catch { p.env = p.k = null; p.status = 'allocation-fallback'; return; }
+  }
+  if (p.status !== 'preparing') return;
+  const end = Math.min(p.length, p.next + S.chunk);
+  try {
+    for (let q = p.next; q < end; q++) {
+      const i = p.pre + q, tt = (i - p.pre) / p.sr;
+      p.env[q] = Math.exp(-p.decay * tt) * Math.min(1, tt / 0.04);
+      p.k[q] = 0.62 * Math.exp(-tt * 1.6) + 0.035;
+    }
+    p.next = end;
+    if (p.next === p.length) p.status = 'complete';
+  } catch { musicImpulsePrepareCancel(); }
+}
+function musicImpulsePreparedTake(p, ctx, sr, sec, n, pre, decay) {
+  if (!p || MUSIC_IMPULSE_PREP.plan !== p || p.status !== 'complete' || p.ctx !== ctx
+    || !Object.is(p.sr, sr) || !Object.is(p.sec, sec) || !Object.is(p.n, n)
+    || !Object.is(p.pre, pre) || !Object.is(p.decay, decay)
+    || p.exp !== Math.exp || p.min !== Math.min || p.floor !== Math.floor) return null;
+  MUSIC_IMPULSE_PREP.plan = null; p.status = 'consuming';
+  return p;
+}
+function musicImpulsePreparedRelease(p) {
+  if (!p) return;
+  if (MUSIC_IMPULSE_PREP.plan === p) MUSIC_IMPULSE_PREP.plan = null;
+  p.env = p.k = p.ctx = null; p.status = 'released';
+}
+function musicImpulsePreparationState() {
+  const S = MUSIC_IMPULSE_PREP, p = S.plan;
+  return { status: p?.status || 'none', samples: p?.next || 0, complete: p?.status === 'complete',
+    bytes: p?.env ? p.length * 16 : 0, consumed: S.consumed, fallbacks: S.fallbacks };
+}
 function musicImpulse(ctx, sec) {
-  const sr = ctx.sampleRate, n = Math.floor(sr * sec), buf = ctx.createBuffer(2, n, sr);
-  const pre = Math.floor(sr * 0.014), decay = 6.9 / sec;
+  const ownedPlan = MUSIC_IMPULSE_PREP.plan?.ctx === ctx ? MUSIC_IMPULSE_PREP.plan : null;
+  try {
+    const sr = ctx.sampleRate, n = Math.floor(sr * sec), buf = ctx.createBuffer(2, n, sr);
+    const pre = Math.floor(sr * 0.014), decay = 6.9 / sec;
+    const prepared = musicImpulsePreparedTake(ownedPlan, ctx, sr, sec, n, pre, decay);
+    if (prepared) {
+      for (let ch = 0; ch < 2; ch++) {
+        const d = buf.getChannelData(ch);
+        for (let k = 0; k < 10; k++) {
+          const at = pre + Math.floor(sr * (0.003 + Math.random() * 0.07));
+          if (at < n) d[at] += (Math.random() < 0.5 ? -1 : 1) * (0.7 - k * 0.05);
+        }
+        let lp = 0;
+        for (let i = pre; i < n; i++) {
+          const env = prepared.env[i - pre], k = prepared.k[i - pre];
+          lp += (Math.random() * 2 - 1 - lp) * k;
+          d[i] += lp * env * 0.7;
+        }
+      }
+      MUSIC_IMPULSE_PREP.consumed++;
+      return buf;
+    }
+    MUSIC_IMPULSE_PREP.fallbacks++;
+    // The original numerical fallback, including channel/random/float order.
   for (let ch = 0; ch < 2; ch++) {
     const d = buf.getChannelData(ch);
     for (let k = 0; k < 10; k++) {
@@ -69,7 +156,8 @@ function musicImpulse(ctx, sec) {
       d[i] += lp * env * 0.7;
     }
   }
-  return buf;
+    return buf;
+  } finally { musicImpulsePreparedRelease(ownedPlan); }
 }
 function musicPluckBuffer(ctx, m, sec, soft, decay) {
   const sr = ctx.sampleRate, f = mtof(m), N = Math.max(4, Math.round(sr / f - 0.5));
@@ -1205,6 +1293,7 @@ queueMicrotask(() => {
       const E = MUSIC.E;
       return {
         ctx: AUDIO.ctx ? AUDIO.ctx.state : 'none', on: AUDIO.on, vol: MUSIC.vol, level: musicLevelKey(), mood: MUSIC.mood, want: MUSIC.want,
+        impulsePreparation: musicImpulsePreparationState(),
         heat: Math.round(MUSIC.heat * 100) / 100, duckDb: Math.round(MUSIC.duckDb * 10) / 10, night: MUSIC.night, flavour: MUSIC.flavour,
         pieces: E ? E.pieces.map((p) => ({ name: p.name, flavour: p.flavour, target: p.target, gain: Math.round(p.fade.gain.value * 100) / 100, fading: AUDIO.ctx.currentTime < p.fadeEnd, bar: p.bar, sec: p.sec, layers: Object.fromEntries(Object.entries(p.layerOn).map(([k, v]) => [k, Math.round(v * 100) / 100])) })) : [],
         live: E ? E.live : 0, nodes: E ? E.nodes : 0, made: E ? E.made : 0, peak: E ? E.peak : 0, log: MUSIC.log.slice(-12), stingers: MUSIC.stingers.slice(-10),

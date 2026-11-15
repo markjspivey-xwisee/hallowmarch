@@ -1,0 +1,8 @@
+{
+  "kind": "Pinned7004 HUD collision/search expressions before touch clearance correction",
+  "source": "src/10p_hud.js",
+  "sourceRawSHA256": "cb91e89eccf700463b9b88b33fb26dce83ee683e4ebb5892c015cf603d7933d5",
+  "hudHit": "(a, b, m = 4) => a.x < b.x + b.w + m && b.x < a.x + a.w + m && a.y < b.y + b.h + m && b.y < a.y + a.h + m",
+  "free": "(r) => inside(r) && !placed.some((p) => hudHit(p, r))",
+  "seek": "(sel, r) => {\n    for (const a of pref[sel] || ['L']) {\n      const up = a.length > 1 && a.endsWith('B'), x = xs[up ? a.slice(0, -1) : a](r.w);\n      if (!(x >= S.l)) continue;\n      const y0 = top, y1 = H - S.b - 2 - r.h;\n      for (let i = 0; ; i++) {\n        const y = up ? y1 - i * 6 : y0 + i * 6;\n        if (y < y0 || y > y1) break;\n        const c = { x, y, w: r.w, h: r.h };\n        if (free(c)) return c;\n      }\n    }\n    return null;\n  }"
+}

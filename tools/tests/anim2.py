@@ -334,7 +334,7 @@ async def main():
         await ev(page, f"__hm.fn.setQuality('{Q}'); 0")
         await ev(page, HELP)
         if 'war' in ONLY:
-            await ev(page, "__hm.start({ realm: 0, cls: 'warrior', level: 20 }); A2T.calm(); __hm.setTod(0.45); __hm.simulate(150); 0")
+            await ev(page, "(async () => { await __hm.start({ realm: 0, cls: 'warrior', level: 20 }); A2T.calm(); __hm.setTod(0.45); __hm.simulate(150); return 0; })()")
             print(f'war booted [{time.time() - T0:.0f}s]', flush=True)
             await ev(page, "__hm.anim2.a2Reset(); 0")
             rounds = max(1, int(MIN * 60 / 20))
@@ -346,7 +346,7 @@ async def main():
             check(r['stats']['bodies'] > 1000, f"the war's bodies looked at ({r['stats']['bodies']})")
         need = any(k in ONLY for k in ('duels', 'player', 'ways', 'dead', 'dragon', 'weapons', 'shots'))
         if need and 'war' not in ONLY:
-            await ev(page, "__hm.start({ realm: 0, cls: 'warrior', level: 20 }); A2T.calm(); __hm.setTod(0.45); __hm.simulate(20); 0")
+            await ev(page, "(async () => { await __hm.start({ realm: 0, cls: 'warrior', level: 20 }); A2T.calm(); __hm.setTod(0.45); __hm.simulate(20); return 0; })()")
         if 'duels' in ONLY:
             for lvl, kind in ((20, 'skilled'), (50, 'simple')):
                 await ev(page, "__hm.anim2.a2Reset(); 0")

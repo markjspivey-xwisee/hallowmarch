@@ -821,7 +821,7 @@ function diveBindPad() {
   }, true);
 }
 window.addEventListener('keydown', (e) => {
-  if (e.code !== 'KeyU' || e.repeat || !GAME.started || UI.modal || typing()) return;
+  if (e.code !== 'KeyU' || e.repeat || !GAME.started || UI.modal || typing() || gameplayKeyIgnored(e)) return;
   diveToggle();
 });
 

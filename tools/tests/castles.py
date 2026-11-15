@@ -87,7 +87,7 @@ async def main():
         print('quality', QUALITY, f'[{time.time() - T0:.0f}s]', flush=True)
         await page.evaluate("() => {" + HELPERS + "; return 0; }")
         print('helpers', f'[{time.time() - T0:.0f}s]', flush=True)
-        await ev(page, 'start', "(() => { __hm.start({ realm: 0, cls: 'archer', level: 30 }); __hm.UI.modal = null; __hm.setTod(1.0); __hm.simulate(0.5); return { errors: __hm.errors.length, castles: __hm.fn.castles().length }; })()")
+        await ev(page, 'start', "(async () => { await __hm.start({ realm: 0, cls: 'archer', level: 30 }); __hm.UI.modal = null; __hm.setTod(1.0); __hm.simulate(0.5); return { errors: __hm.errors.length, castles: __hm.fn.castles().length }; })()")
         await ev(page, 'floors', "(() => __hm.fn.castles().map((C) => ({ name: C.S.name, kind: C.kind, floors: C.floors.length, colls: C.colls.length, posts: C.posts.length })))()")
         await ev(page, 'war quiet', "(() => { for (const S of __hm.REALMS.flatMap((R) => [...R.keepSites, R.templeSite])) T.quiet(S, 80); for (const w of __hm.WAR.warbands) w.dead = true; __hm.WAR.commanders.forEach((C) => { C.nextThink = 1e9; C.nextSpawn = 1e9; }); return __hm.WAR.warbands.length; })()")
 

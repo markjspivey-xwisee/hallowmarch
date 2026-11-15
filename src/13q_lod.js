@@ -53,14 +53,30 @@ function terrainLodGeo(g0, s) {
 }
 // far away, four chunks are drawn as one: a block of 2 x 2 chunks at 8 m cells (full detail round its rim), with its
 // own few vertices; craters rebuild it (natTerrainUpdate is followed)
-function terrainBlockGeo(bi, bj) {
-  const N = 128, i0 = bi * N, j0 = bj * N, map = new Map(), pos = [], nrm = [], idx = [], H = W.H;
-  let minY = 1e9, maxY = -1e9;
-  const v = (p) => {
-    const gi = i0 + p[0], gj = j0 + p[1], k = gj * HN + gi;
-    let id = map.get(k);
+// The sixteen far blocks share only CPU lattice coordinates and triangle order.
+// Each geometry still owns its height/normal data, Uint32Array and attributes.
+let TERRAIN_BLOCK_TOPOLOGY = null;
+function terrainBlockTopology() {
+  if (TERRAIN_BLOCK_TOPOLOGY) return TERRAIN_BLOCK_TOPOLOGY;
+  const map = new Map(), coords = [], indices = [];
+  const vertex = (p) => {
+    const key = p[1] * 129 + p[0];
+    let id = map.get(key);
     if (id === undefined) {
-      id = pos.length / 3; map.set(k, id);
+      id = coords.length / 2; map.set(key, id); coords.push(p[0], p[1]);
+    }
+    return id;
+  };
+  lodTris(128, 4, (a, b, c) => indices.push(vertex(a), vertex(b), vertex(c)));
+  TERRAIN_BLOCK_TOPOLOGY = { coords: new Uint16Array(coords), indices: new Uint32Array(indices) };
+  return TERRAIN_BLOCK_TOPOLOGY;
+}
+function terrainBlockGeo(bi, bj) {
+  const topology = terrainBlockTopology();
+  const N = 128, i0 = bi * N, j0 = bj * N, pos = [], nrm = [], idx = topology.indices, H = W.H;
+  let minY = 1e9, maxY = -1e9;
+  for (let v = 0; v < topology.coords.length; v += 2) {
+    const gi = i0 + topology.coords[v], gj = j0 + topology.coords[v + 1], k = gj * HN + gi;
       const y = H[k];
       pos.push(-HALF + gi * HS, y, -HALF + gj * HS);
       const hl = H[gj * HN + Math.max(0, gi - 1)], hr = H[gj * HN + Math.min(HN - 1, gi + 1)];
@@ -68,10 +84,7 @@ function terrainBlockGeo(bi, bj) {
       const nx = (hl - hr) / (2 * HS), nz = (hd - hu) / (2 * HS), l = Math.hypot(nx, 1, nz);
       nrm.push(nx / l, 1 / l, nz / l);
       if (y < minY) minY = y; if (y > maxY) maxY = y;
-    }
-    return id;
-  };
-  lodTris(N, 4, (a, b, c) => idx.push(v(a), v(b), v(c)));
+  }
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   g.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3));
@@ -271,17 +284,22 @@ function updateLod() {
     if (T.split && T.split.on) ver += T.gs[0].attributes.iPos.version * 7 + T.gs[0].instanceCount + T.x * 1e-3;
     st.trees[l]++;
   }
-  // [motion] the bands: sorted again when the camera moves 3 m or turns 5 degrees, or the split trees change
-  const L = LOD.bandAt || (LOD.bandAt = { x: 1e9, z: 1e9, f: new THREE.Vector3(), ver: -1, q: '' });
+  // [motion] the bands: sorted again after 3 m of panning, 1 m of height, a 5-degree turn,
+  // a projection change, or a change to the split trees. Vertical command-camera zoom changes the frustum too.
+  const L = LOD.bandAt || (LOD.bandAt = { x: 1e9, y: 1e9, z: 1e9, fov: -1, aspect: -1, viewX: 1e9, viewY: 1e9, f: new THREE.Vector3(), ver: -1, q: '' });
+  const viewX = camera.projectionMatrix?.elements?.[8] ?? 0, viewY = camera.projectionMatrix?.elements?.[9] ?? 0;
   const NT = U.uNearTree.value; ver += NT.x * 0.37 + NT.y * 0.61 + NT.z * 0.83; // the near-tree set moved
   _tbF.set(-camera.matrixWorld.elements[8], -camera.matrixWorld.elements[9], -camera.matrixWorld.elements[10]);
-  if (resort || ver !== L.ver || q !== L.q || Math.hypot(cx - L.x, cz - L.z) > 3 || _tbF.dot(L.f) < 0.996) {
-    L.x = cx; L.z = cz; L.ver = ver; L.q = q; L.f.copy(_tbF);
+  if (resort || ver !== L.ver || q !== L.q || Math.hypot(cx - L.x, cz - L.z) > 3
+    || Math.abs(camera.position.y - L.y) > 1 || camera.fov !== L.fov || camera.aspect !== L.aspect
+    || viewX !== L.viewX || viewY !== L.viewY || _tbF.dot(L.f) < 0.996) {
+    L.x = cx; L.y = camera.position.y; L.z = cz; L.fov = camera.fov; L.aspect = camera.aspect;
+    L.viewX = viewX; L.viewY = viewY; L.ver = ver; L.q = q; L.f.copy(_tbF);
     treeBandsFill(cx, cz, SD, RD2, !!SHADOW.rt);
   }
 }
 
-/* the phone's quality: a touch screen starts at low (it can be raised in the menu), a small or weak desk at medium */
+/* the phone's quality: a touch screen starts at low (it can be raised in the menu), a capable tablet at medium */
 function phoneQualityPick(ignoreRecovery = false) {
   if (BOOT_SAFE && !ignoreRecovery) return 'low';
   if (!IS_TOUCH) return null;

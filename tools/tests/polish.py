@@ -47,7 +47,7 @@ async def main():
         W, Hh = (960, 540) if SHOTS and 'small' not in sys.argv else (640, 360)
         b, page, logs = await setup(p, w=W, h=Hh)
         page.on('console', lambda m: logs.append(f'[{m.type}] {m.text[:300]}') if m.type == 'error' else None)
-        await page.evaluate("__hm.start({ realm: 2, cls: 'warrior', level: 20 }); __hm.setTod(0.42); 0")
+        await page.evaluate("(async () => { await __hm.start({ realm: 2, cls: 'warrior', level: 20 }); __hm.setTod(0.42); return 0; })()")
         await page.evaluate(HELP)
         await page.evaluate("(() => { const W = __hm.dbg.WEATHER; W.mode = 'clear'; W.kind = 'clear'; W.nextBolt = 1e9; PL.safe(); __hm.simulate(1); return 0; })()")
         print(f'booted [{time.time() - T0:.0f}s]', flush=True)

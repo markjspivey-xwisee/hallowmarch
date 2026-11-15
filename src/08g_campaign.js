@@ -75,8 +75,88 @@ function nodeSiteName(node) {
   const R = REALMS.find((q) => q.nav.muster === node);
   return R ? R.musterSite.name : 'the road';
 }
+// Metadata contains IDs, never independent copies of world objectives. Resolve only
+// canonical targets; an incomplete legacy order can then go back to its commander.
+const cwFinitePoint = (p) => !!p && Number.isFinite(p.x) && Number.isFinite(p.z);
+function cwOrderRef(list, ref) {
+  const id = ref && typeof ref === 'object' ? ref.id : ref;
+  return Number.isSafeInteger(id) && id >= 0 && list[id]?.id === id ? list[id] : null;
+}
+function cwOrderView(wb, O = wb.order) {
+  if (!O || typeof O !== 'object' || !REALMS[wb.realm]) return null;
+  let refs;
+  if (O.type === 'attack' || O.type === 'defend' || O.type === 'garrison') {
+    const keep = cwOrderRef(WAR.keeps, O.keep);
+    if (!keep) return null;
+    refs = { keep };
+  } else if (O.type === 'raid' || O.type === 'carry' || O.type === 'retrieve') {
+    const relic = cwOrderRef(WAR.relics, O.relic);
+    if (!relic || !REALMS[relic.realm]) return null;
+    refs = { relic };
+    if (O.type === 'raid') {
+      // Older snapshots omitted the temple. Its current hallow location is the
+      // only unambiguous recovery; a carried/dropped hallow needs a new order.
+      const temple = cwOrderRef(WAR.temples, O.temple) ||
+        (O.temple == null && relic.state === 'temple' ? WAR.temples.find((T) => T.realm === relic.at) : null);
+      if (!temple) return null;
+      refs.temple = temple;
+    }
+  } else if (O.type === 'patrol') {
+    const node = cwOrderRef(NAV.nodes, O.node) ||
+      (O.node == null && O.home ? REALMS[wb.realm].nav.muster : null);
+    if (!node) return null;
+    refs = { node };
+  } else if (O.type === 'rally') return O;
+  else return null;
+  return Object.keys(refs).every((key) => O[key] === refs[key]) ? O : { ...O, ...refs };
+}
+function cwRallyCaller(O) {
+  let P = null;
+  if (!O.rallyPeer || typeof NET === 'undefined' || O.rallyPeer === NET.self) P = GAME.player;
+  else {
+    const R = NET.peers?.get(O.rallyPeer), f = R?.fast;
+    if (R?.slow || f) {
+      if (!R?.slow?.on || !f || f.d || ![f.x, f.y, f.z].every(Number.isFinite)) return null;
+      P = { alive: true, faction: R.slow.r, x: f.x, y: f.y, z: f.z, name: R.slow.dn || R.slow.n };
+    } else if (typeof netEntityFind === 'function') P = netEntityFind('peer:' + O.rallyPeer);
+  }
+  return P && P.alive && !P.removed && cwFinitePoint(P) ? P : null;
+}
+// Called after replica membership is restored, and before a promoted keeper's
+// first NPC tick (which precedes updateWar). Do not move or reissue a band's order.
+function cwPrepareReplicaBand(wb) {
+  if (!wb || !Array.isArray(wb.members)) return false;
+  const oldOrder = wb.order;
+  wb.order = cwOrderView(wb);
+  const members = wbMembers(wb);
+  for (const e of members) { e.warband = wb; if (!e.ai) e.ai = {}; }
+  const L = wbLeader(wb);
+  if (!L) { wb.L = null; wb.leaderGoal = null; return false; }
+  wb.L = L; wb.lid = L.id;
+  const resetTrail = !Array.isArray(wb.trail) || !wb.trail.length || !wb.trail.every(cwFinitePoint);
+  if (resetTrail) { wb.trail = [{ x: L.x, z: L.z }]; wb.trailBase = 0; }
+  const resetBase = !Number.isSafeInteger(wb.trailBase) || wb.trailBase < 0;
+  if (resetBase) wb.trailBase = 0;
+  if (resetTrail || resetBase) for (const e of members) e.ai.trailAbs = undefined;
+  const resetRoute = !!oldOrder && !wb.order;
+  const validPath = Array.isArray(wb.path) && wb.path.length && wb.path.every((id) => cwOrderRef(NAV.nodes, id));
+  if (resetRoute || !validPath) { wb.path = null; wb.pathIdx = 0; wb.goal = null; }
+  else {
+    wb.pathIdx = Number.isSafeInteger(wb.pathIdx) ? clamp(wb.pathIdx, 0, wb.path.length) : 0;
+    if (!cwOrderRef(NAV.nodes, wb.goal)) wb.goal = wb.path[wb.path.length - 1];
+  }
+  if (resetRoute || !cwFinitePoint(wb.leaderGoal)) wb.leaderGoal = { x: L.x, z: L.z };
+  if (!Number.isFinite(wb.progX) || !Number.isFinite(wb.progZ)) { wb.progX = L.x; wb.progZ = L.z; }
+  if (!Number.isFinite(wb.lastProgress)) wb.lastProgress = GAME.t;
+  if (!Number.isFinite(wb.realProgress)) wb.realProgress = GAME.t;
+  if (!Number.isFinite(wb.engagedUntil)) wb.engagedUntil = -99;
+  if (typeof wb.engaged !== 'boolean') wb.engaged = false;
+  return true;
+}
 // the whole order in plain words, as the herald would cry it
 function orderPhrase(wb, O) {
+  O = cwOrderView(wb, O);
+  if (!O) return 'awaits orders';
   const R = REALMS[wb.realm];
   const you = O.byPlayer ? ' at your command' : '';
   const w3 = !O.byPlayer && war3OrderPhrase(wb, O); // [war3] a column, a keep braced or secured (08k_war3.js)
@@ -99,13 +179,13 @@ function orderPhrase(wb, O) {
       if (O.home) return 'turns for home: the campaign is over';
       if (O.why === 'temple') return `stands guard at the ${R.templeName} against raiders`;
       return `keeps watch at ${nodeSiteName(O.node)}`;
-    case 'rally': return `rallies to ${GAME.player ? GAME.player.name : 'you'}`;
+    case 'rally': { const P = cwRallyCaller(O); return `rallies to ${P ? P.name : O.rallyPeer != null ? 'its caller' : 'you'}`; }
     default: return 'awaits orders';
   }
 }
 // the short form, for nameplates and lists: [glyph, "Attack", "Ráth Fiacla"]
 function orderShort(wb) {
-  const O = wb.order;
+  const O = cwOrderView(wb);
   if (!O) return ['lpatrol', 'Mustering', ''];
   let what = '';
   if (O.type === 'attack' || O.type === 'defend' || O.type === 'garrison') what = O.keep.site.name; // [war3] garrison
@@ -113,7 +193,7 @@ function orderShort(wb) {
   else if (O.type === 'carry') what = `${REALMS[O.relic.realm].hallowName} home`;
   else if (O.type === 'retrieve') what = REALMS[O.relic.realm].hallowName;
   else if (O.type === 'patrol') what = O.home ? 'home' : nodeSiteName(O.node).replace(/^the /, '');
-  else if (O.type === 'rally') what = GAME.player ? GAME.player.name : '';
+  else if (O.type === 'rally') { const P = cwRallyCaller(O); what = P ? P.name : ''; }
   return [ORDER_GLYPH[O.type] || 'lpatrol', O.home ? 'Withdraw' : ORDER_WORD[O.type] || O.type, what];
 }
 function phaseWord(wb) {
@@ -260,14 +340,12 @@ function planWar(C) {
   // the muster: a realm down to its last keep musters bigger bands, faster; so does a long war
   const keepsOwned = WAR.keeps.filter((K) => K.realm === r).length;
   const underdog = keepsOwned <= 1 ? 1 : 0;
-  if (cwBandsCounted(mine) < MAX_WARBANDS() + underdog + war3Levy(r) && now > C.nextSpawn) { // [war3] a realm with three keeps or more musters one band more (08k_war3.js) // [war2] a band's last two or three do not hold its place at the muster (08j_war2.js)
+  if (!(typeof season2CanonicalWar === 'function' && season2CanonicalWar())
+    && cwBandsCounted(mine) < MAX_WARBANDS() + underdog + war3Levy(r) && now > C.nextSpawn) { // [war3] a realm with three keeps or more musters one band more (08k_war3.js) // [war2] a band's last two or three do not hold its place at the muster (08j_war2.js)
     const size = loopsMuster(r, 7 + Math.floor(Math.random() * 4) + underdog * 2 + Math.round(cwWeary() * 3)); // [loops] as many as the realm's stores feed and arm (08m_loops.js)
     const wb = spawnWarband(r, size);
     loopsMustered(wb); // [loops]
     wbOrd(wb);
-    // the long war hardens the bands: late in a campaign they muster as veterans, up to four levels up
-    const vet = Math.round(cwWeary() * 4);
-    if (vet) for (const e of wbMembers(wb)) { e.wlOff = (e.wlOff || 0) + vet; e.level += vet; setupStats(e, true); }
     cwMergeRemnants(r, wb, mine); // [war2] the last of a broken band join the new one (08j_war2.js)
     mine.push(wb);
     C.nextSpawn = now + 26 + Math.random() * 18 - underdog * 8;
@@ -283,56 +361,99 @@ function planWar(C) {
 /* the player's commands                                               */
 /* ------------------------------------------------------------------ */
 function cwCanCommand() {
+  const P = GAME.player;
+  if (P?.netCommand) return P.commandRank >= 3 || P.level >= 20 || cwCommandTable(P, P.commandTable)
+    || (typeof cwCommandThrone === 'function' && cwCommandThrone(P));
   const prog = GAME.prog;
-  return !!prog && (realmRank(prog.rp) >= 3 || prog.level >= 20 || hallCommandGrant()); // [building] or at the war table of a keep your realm holds (04k_hall.js)
+  return !!prog && (realmRank(prog.rp) >= 3 || prog.level >= 20 || hallCommandGrant()
+    || (typeof hallThroneGrant === 'function' && hallThroneGrant()));
+}
+function cwCommandThrone(P) {
+  if (!P?.alive || !Number.isSafeInteger(P.commandThrone) || P.commandThrone < 0) return false;
+  const H = HALL.list.find(h => h.num === P.commandThrone), sp = H?.hallSpots?.seat;
+  return !!sp && hallHolder(H) === P.faction && houseIntact(H) && H.state !== 'burning'
+    && dist2(P.x, P.z, sp.x, sp.z) <= 4;
+}
+// A remote table grant is checked against the keeper's hall, never its own local grant.
+function cwCommandTable(P, id) {
+  if (!P?.alive || !Number.isSafeInteger(id) || id < 0 || typeof HALL === 'undefined') return false;
+  const H = HALL.list.find(h => h.num === id), sp = H?.hallSpots?.table;
+  return !!sp && hallHolder(H) === P.faction && houseIntact(H) && H.state !== 'burning'
+    && dist2(P.x, P.z, sp.x, sp.z) < 3.4 * 3.4;
 }
 // what the player may order a band to do, as [cmd, target, label]
 function cwChoices(wb) {
   const r = wb.realm, out = [];
-  for (const K of WAR.keeps) if (K.realm !== r) out.push(['attack', K.id, `Attack ${K.site.name}`]);
+  for (const K of WAR.keeps) if (K.realm !== r && !war4Allied(r, K.realm)) out.push(['attack', K.id, `Attack ${K.site.name}`]);
   for (const K of WAR.keeps) if (K.realm === r) out.push(['defend', K.id, `Defend ${K.site.name}`]);
-  for (const T of WAR.temples) if (T.realm !== r) out.push(['raid', T.id, `Raid the ${T.site.name}`, !templeExposed(T)]);
+  for (const T of WAR.temples) if (T.realm !== r && !war4Allied(r, T.realm)) out.push(['raid', T.id, `Raid the ${T.site.name}`, !templeExposed(T)]);
   out.push(['rally', -1, 'Rally to me']);
   return out;
 }
 // the player gives a band an order; returns a sentence saying what happened
 function playerOrder(wbId, cmd, target) {
+  return cwPlayerOrder(wbId, cmd, target).message;
+}
+function cwPlayerOrder(wbId, cmd, target) {
   const P = GAME.player;
   const wb = WAR.warbands.find((w) => w.id === wbId && !w.dead);
-  if (!P || !wb || wb.realm !== P.faction) return 'That warband is gone.';
-  if (!cwCanCommand()) return 'You may command warbands from realm rank 3 or level 20.';
-  if (CAMPAIGN.state !== 'war') return 'The campaign is over: the armies are going home.';
+  const no = message => ({ ok: false, message });
+  if (!P?.alive || !wb || wb.realm !== P.faction) return no('That warband is gone.');
+  if (!cwCanCommand()) return no('You may command warbands from realm rank 3 or level 20.');
+  if (CAMPAIGN.state !== 'war') return no('The campaign is over: the armies are going home.');
+  if (!['attack', 'defend', 'raid', 'rally', 'release'].includes(cmd) || !Number.isSafeInteger(target)) return no('Choose an available warband order.');
+  const objective = cmd === 'attack' ? WAR.keeps[target] : cmd === 'raid' ? WAR.temples[target] : null;
+  if (objective && war4Allied(P.faction, objective.realm)) return no('That realm is an ally. Its keeps and temples are protected by the current treaty.');
+  if (typeof netWorldPartsActive === 'function' && netWorldPartsActive() && !NETPARTS.replay) {
+    if (NETPARTS.peer && NETPARTS.peer !== NET.self && !NET.peers.get(NETPARTS.peer)?.slow?.warbandOrders)
+      return no('The shared keeper needs an updated game to accept warband orders.');
+    if (netWorldPartsConnected()) {
+      if (typeof netSendSlow === 'function') netSendSlow(performance.now(), true);
+      if (typeof netSendFast === 'function') { NET.fastKey = ''; NET.fastAt = -Infinity; netSendFast(performance.now()); }
+    }
+    const table = typeof hallThroneGrant === 'function' && hallThroneGrant() ? HALL.sit.H.num
+      : hallCommandGrant() ? HALL.grant.H.num : -1;
+    const version = wb.orderCampaign === CAMPAIGN.n ? wb.orderVersion || 0 : 0;
+    netWorldPartsRequest('warband.order', { wb: wbId, cmd, target, table, campaign: CAMPAIGN.n, version }, [], true);
+    return { ok: false, pending: true, message: 'Your order is awaiting the shared keeper.' };
+  }
   const now = GAME.t;
   let o = null;
-  if (cmd === 'attack') { const K = WAR.keeps[target]; if (!K || K.realm === wb.realm) return 'That keep is already ours.'; o = { type: 'attack', keep: K }; }
-  else if (cmd === 'defend') { const K = WAR.keeps[target]; if (!K || K.realm !== wb.realm) return 'Only a keep of ours can be defended.'; o = { type: 'defend', keep: K, since: now + 150 }; }
+  if (cmd === 'attack') { const K = WAR.keeps[target]; if (!K || K.realm === wb.realm) return no('That keep is already ours.'); o = { type: 'attack', keep: K }; }
+  else if (cmd === 'defend') { const K = WAR.keeps[target]; if (!K || K.realm !== wb.realm) return no('Only a keep of ours can be defended.'); o = { type: 'defend', keep: K, since: now + 150 }; }
   else if (cmd === 'raid') {
     const T = WAR.temples[target];
-    if (!T || T.realm === wb.realm) return 'Choose an enemy temple.';
-    if (!templeExposed(T)) return `The gate of the ${T.site.name} cannot be broken while ${REALMS[T.realm].name} holds both its keeps. Take one of them first.`;
+    if (!T || T.realm === wb.realm) return no('Choose an enemy temple.');
+    if (!templeExposed(T)) return no(`The gate of the ${T.site.name} cannot be broken while ${REALMS[T.realm].name} holds both its keeps. Take one of them first.`);
     const rel = WAR.relics.find((x) => x.state === 'temple' && x.at === T.realm && x.realm === wb.realm) || WAR.relics.find((x) => x.state === 'temple' && x.at === T.realm);
-    if (!rel) return `No hallow rests in the ${T.site.name} now.`;
+    if (!rel) return no(`No hallow rests in the ${T.site.name} now.`);
     o = { type: 'raid', temple: T, relic: rel };
   } else if (cmd === 'rally') {
-    if (inDungeon(P) || Math.hypot(P.x, P.z) > R_RING + 40) return 'Warbands only march on the frontier. Go to the muster first.';
+    if (inDungeon(P) || Math.hypot(P.x, P.z) > R_RING + 40) return no('Warbands only march on the frontier. Go to the muster first.');
     o = { type: 'rally', until: now + 300 };
+    if (typeof netWorldPartsActive === 'function' && netWorldPartsActive()) {
+      o.rallyPeer = P.netPeer || NET.self; o.rallyName = String(P.name || 'the commander').slice(0, 56);
+      o.x = P.x; o.z = P.z;
+    }
   } else if (cmd === 'release') {
-    if (!wb.order || !wb.order.byPlayer) return `The ${wbName(wb, false)} already follows the commander.`;
+    if (!wb.order || !wb.order.byPlayer) return no(`The ${wbName(wb, false)} already follows the commander.`);
     wb.order = null; wb.cwMine = null; wb.cwKey = '';
-    news(`${wbName(wb)} returns to the commander's orders.`, wb.realm, 'order');
-    return `The ${wbName(wb, false)} returns to the commander's orders.`;
+    if (!P.netCommand) news(`${wbName(wb)} returns to the commander's orders.`, wb.realm, 'order');
+    return { ok: true, message: `The ${wbName(wb, false)} returns to the commander's orders.` };
   }
-  if (!o) return '';
-  cwSetOrder(wb, o, 'order', true);
+  if (!o) return no('Choose an available warband order.');
+  // Shared replay only prepares an outcome. The accepted server patch applies
+  // it to the real band after the command receipt and retained cache commit.
+  if (P.netCommand) wb.order = { ...o, why: 'order', byPlayer: true, phase: 'travel' };
+  else cwSetOrder(wb, o, 'order', true);
   wb.cwMine = wb.order;
-  CAMPAIGN.story.you.orders++;
-  sfx('horn');
-  return `The ${wbName(wb, false)} ${orderPhrase(wb, wb.order).replace(' at your command', '')}.`;
+  if (!P.netCommand) { CAMPAIGN.story.you.orders++; sfx('horn'); }
+  return { ok: true, ordered: true, message: `The ${wbName(wb, false)} ${orderPhrase(wb, wb.order).replace(' at your command', '')}.` };
 }
 // a rally order: the band follows the player around the frontier (called from updateWarband)
 function rallyPoint(wb, O, L) {
-  const P = GAME.player;
-  if (!P || !P.alive || P.faction !== wb.realm || GAME.t > O.until || inDungeon(P) || Math.hypot(P.x, P.z) > R_RING + 40) return false;
+  const P = cwRallyCaller(O);
+  if (!P || P.faction !== wb.realm || GAME.t > O.until || inDungeon(P) || Math.hypot(P.x, P.z) > R_RING + 40) return false;
   const d = dist(L.x, L.z, P.x, P.z);
   // stand a few strides short of the player, on the side the band comes from
   O.point = d > 7 ? { x: P.x + ((L.x - P.x) * 5) / d, z: P.z + ((L.z - P.z) * 5) / d } : { x: L.x, z: L.z };
@@ -401,7 +522,7 @@ function updateCampaign(dt) {
   const el = campaignElapsed();
   if (!CAMPAIGN.longSaid && el > CW.LONG) {
     CAMPAIGN.longSaid = true;
-    news('The war drags on. Garrisons thin, broken gates mend slowly, the musters send out bigger bands of veterans, and the elders grow impatient: a hold on the March counts for more the longer the war lasts.', -1, 'big'); // [war2] the claims' pace (08j_war2.js)
+    news('The war drags on. Garrisons thin, broken gates mend slowly, the musters send out larger bands of recruits, and the elders grow impatient: a hold on the March counts for more the longer the war lasts.', -1, 'big'); // [war2] the claims' pace (08j_war2.js)
   }
   for (let r = 0; r < 3; r++) {
     const c = CAMPAIGN.claims[r], R = REALMS[r];
@@ -476,6 +597,7 @@ function cwFanfare(win) {
 }
 // after the peace every keep and hallow goes home and a new campaign begins
 function restoreKeep(K) {
+  if (typeof realmPublicWorksHosted === 'function' && realmPublicWorksHosted()) return;
   if (seasonKeepStays(K)) { fillGarrison(K, true); K.underSiegeUntil = -99; setDoorState(K.door, true, 1); return; } // [loops] in the season's war a keep taken stays its taker's (08n_season.js)
   if (K.realm !== K.orig) {
     for (const id of K.guards) { const g = getEnt(id); if (g) { FX.burst(g.x, g.y + 1.2, g.z, 14, [0.5, 1.1, 1.8], 2.5, 0.8, 0.16, 0.5); removeEnt(g); } }
@@ -636,21 +758,21 @@ function cwBadge(ctx, x, y, s, glyph, col) {
 }
 // where a band is going, in world space
 function cwTarget(wb) {
-  const O = wb.order;
+  const O = cwOrderView(wb);
   if (!O) return null;
   if (O.type === 'attack' || O.type === 'defend' || O.type === 'garrison') return { x: O.keep.site.x, z: O.keep.site.z }; // [war3] garrison
   if (O.type === 'raid') return { x: O.temple.site.x, z: O.temple.site.z };
   if (O.type === 'carry') { const S = REALMS[wb.realm].templeSite; return { x: S.x, z: S.z }; }
-  if (O.type === 'retrieve') { const p = relicPosition(O.relic); return { x: p.x, z: p.z }; }
-  if (O.type === 'rally') { const P = GAME.player; return P ? { x: P.x, z: P.z } : null; }
+  if (O.type === 'retrieve') { const p = relicPosition(O.relic); return cwFinitePoint(p) ? { x: p.x, z: p.z } : null; }
+  if (O.type === 'rally') { const P = cwRallyCaller(O) || (O.rallyPeer != null && cwFinitePoint(O) ? O : null); return P ? { x: P.x, z: P.z } : null; }
   if (O.type === 'patrol') return { x: O.node.x, z: O.node.z };
   return null;
 }
 function cwRoute(wb) {
   const L = wbLeader(wb), T = cwTarget(wb);
-  if (!L || !T) return null;
+  if (!cwFinitePoint(L) || !cwFinitePoint(T)) return null;
   const pts = [{ x: L.x, z: L.z }];
-  if (wb.path) for (let i = Math.max(0, wb.pathIdx); i < wb.path.length; i++) { const n = NAV.nodes[wb.path[i]]; if (n) pts.push({ x: n.x, z: n.z }); }
+  if (Array.isArray(wb.path)) for (let i = Math.max(0, wb.pathIdx || 0); i < wb.path.length; i++) { const n = cwOrderRef(NAV.nodes, wb.path[i]); if (cwFinitePoint(n)) pts.push({ x: n.x, z: n.z }); }
   pts.push(T);
   return pts;
 }
@@ -785,6 +907,8 @@ function campaignSideHTML() {
     ? `<p class="cw-now"><b style="color:${REALMS[CAMPAIGN.winner].light}">${REALMS[CAMPAIGN.winner].name}</b> has won the March. The armies go home; the March resets in ${fmtClock(CAMPAIGN.peaceUntil - GAME.t)}.</p>`
     : `<p class="cw-rules">Hold <b>${CW.KEEPS} of the 6 keeps</b> for ${CW.KEEP_HOLD / 60} minutes, or <b>both enemy hallows</b> for ${CW.HALLOW_HOLD / 60}, and your realm wins the March (three keeps, more than any other realm, build the claim at two fifths of the pace). At one hour the realm with the most renown wins.</p>`;
   let cmd = '';
+  const throne = typeof hallThroneGrant === 'function' && hallThroneGrant()
+    ? `<div class="cw-throne"><b>High seat of ${esc(HALL.sit.H.S.name)}</b><p>The March stays live while you command.</p><button type="button" class="btn cw-rts">3D realm strategy</button><button type="button" class="btn cw-leave">Leave throne</button></div>` : '';
   const bands = cwBandsOf(P.faction);
   const can = cwCanCommand();
   const rows = bands.map((wb) => {
@@ -799,8 +923,8 @@ function campaignSideHTML() {
   }
   const note = can ? (CWUI.sel ? '' : '<p class="cw-tip">Choose a warband to command it.</p>') : '<p class="cw-tip">From realm rank 3 or level 20 you can command these warbands from the map.</p>';
   const hist = CAMPAIGN.history.slice(-3).reverse().map((h) => `<li style="--rc:${REALMS[h.w].color}"><i></i><b>${ordinalWord(h.n).replace(/^./, (c) => c.toUpperCase())}</b><span>${REALMS[h.w].name}, ${h.how === 'keeps' ? 'by keeps' : h.how === 'hallows' ? 'by hallows' : 'by renown'}, ${h.m} min</span></li>`).join('');
-  return `<div class="cw-side"><h4>Campaign ${CAMPAIGN.n}<span class="num">${CAMPAIGN.state === 'peace' ? 'peace' : fmtClock(campaignElapsed())}</span></h4>${head}<ul class="cw-stand">${standing}</ul>
-    <h4>Warbands of ${R.name}</h4>${note}<div class="cw-bands">${rows}</div>${cmd}${CWUI.msg ? `<p class="cw-msg">${CWUI.msg}</p>` : ''}
+  return `<div class="cw-side">${throne}<h4>Campaign ${CAMPAIGN.n}<span class="num">${CAMPAIGN.state === 'peace' ? 'peace' : fmtClock(campaignElapsed())}</span></h4>${throne ? '' : `${head}<ul class="cw-stand">${standing}</ul>`}
+    <h4>Warbands of ${R.name}</h4>${note}<div class="cw-bands">${rows}</div>${cmd}${CWUI.msg ? `<p class="cw-msg">${esc(CWUI.msg)}</p>` : ''}
     ${hist ? `<h4>Past campaigns</h4><ul class="cw-stand">${hist}</ul>` : ''}</div>`;
 }
 function cwRefreshSide(force = false) {
@@ -820,6 +944,8 @@ function cwBindMap() {
   CWUI.bound = true;
   const ov = $('mapov');
   ov.addEventListener('click', (ev) => {
+    if (ev.target.closest('.cw-rts')) { if (typeof openThroneRTS === 'function') openThroneRTS(); return; }
+    if (ev.target.closest('.cw-leave')) { hallLeave(); return; }
     const b = ev.target.closest('.cw-band');
     if (b && !b.disabled) { const id = +b.dataset.wb; CWUI.sel = CWUI.sel === id ? null : id; CWUI.msg = ''; sfx('click'); cwRefreshSide(true); drawWorldMap(true); return; }
     const c = ev.target.closest('.cw-cmd');
@@ -977,6 +1103,9 @@ function updateCampaignUI(dt) {
 #mapside .cw-cmd[aria-disabled="true"] { opacity: 0.5; }
 #mapside .cw-msg { color: #ffe7a8; font-size: 12.5px; }
 #mapside .cw-tip { font-style: italic; }
+#mapside .cw-band, #mapside .cw-cmd, #mapside .cw-leave { min-height: 44px; }
+#mapside .cw-throne { display: grid; gap: 6px; padding: 10px; border: 1px solid var(--bronze-hi); border-radius: 6px; }
+#mapside .cw-throne p { margin: 0; }
 #cw-victory { z-index: 35; }
 #cw-victory .cw-vic { width: min(600px, 100%); text-align: center; justify-items: center; gap: 8px; padding: 16px 22px; border-color: var(--rc); box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6), 0 0 60px color-mix(in srgb, var(--rc) 40%, transparent), 0 20px 50px rgba(0, 0, 0, 0.6); animation: cw-in 0.6s ease; }
 #cw-victory .cw-crest { width: 84px; height: 95px; margin: -4px 0 -6px; filter: drop-shadow(0 6px 12px rgba(0, 0, 0, 0.5)); animation: cw-sway 4s ease-in-out infinite alternate; transform-origin: 50% 10%; }
@@ -995,6 +1124,11 @@ function updateCampaignUI(dt) {
 @keyframes cw-in { from { opacity: 0; transform: translateY(14px) scale(0.98); } }
 @keyframes cw-sway { from { transform: rotate(-1.6deg); } to { transform: rotate(1.6deg); } }
 @media (max-width: 760px), (pointer: coarse) {
+  #mapov.throne-mode .cw-throne { padding: 6px 8px; gap: 2px; }
+  #mapov.throne-mode .cw-throne p, #mapov.throne-mode .cw-leave { display: none; }
+  #mapov.throne-mode #mapside #btn-mapclose {
+    grid-row: 1; position: sticky; top: 0; z-index: 2; min-height: 44px; background: #202630;
+  }
   #war .cw-claim { font-size: 10.5px; }
   #war .cw-h { font-size: 10.5px; }
   #war .cw-rule { font-size: 10px; }

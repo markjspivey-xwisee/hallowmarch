@@ -76,7 +76,7 @@ async def main():
         page.set_default_timeout(600000)
         await page.evaluate(f"__hm.fn.setQuality('{QUALITY}')")
         await page.evaluate("() => {" + HELPERS + "; return 0; }")
-        await ev(page, 'start', "(() => { __hm.start({ realm: 0, cls: 'mage', level: 30 }); __hm.UI.modal = null; __hm.setTod(0.55); __hm.simulate(0.5); T.quiet(); T.away(); return { errors: __hm.errors.length, keeps: __hm.WAR.keeps.length }; })()")
+        await ev(page, 'start', "(async () => { await __hm.start({ realm: 0, cls: 'mage', level: 30 }); __hm.UI.modal = null; __hm.setTod(0.55); __hm.simulate(0.5); T.quiet(); T.away(); return { errors: __hm.errors.length, keeps: __hm.WAR.keeps.length }; })()")
 
         # ---- 1. a battering ram: built, pushed to the gate, swung into it ----
         if on('ram'):

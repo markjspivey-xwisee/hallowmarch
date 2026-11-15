@@ -11,7 +11,7 @@
 // screen are 09t_craft.js.
 const SURV = {
   hunger: 0.8, thirst: 0.8,                       // 1 full, 0 empty
-  skill: { craft: 0, cook: 0, fish: 0, forage: 0 }, // 0..100, grown by use
+  skill: { craft: 0, cook: 0, fish: 0, forage: 0, mining: 0, woodcutting: 0, farming: 0 }, // 0..100, grown by use
   ward: { fire: 0, frost: 0, vigour: 0 },          // GAME.t until which a draught works
   state: 'fed', warned: { hunger: 1, thirst: 1 },  // the last level warned about (1 none, 0.25 hungry, 0.06 starving)
   lx: null, lz: null, alive: true,
@@ -20,18 +20,25 @@ const SURV = {
   built: false,
 };
 const NEEDS = { hungerSecs: 7200, thirstSecs: 5400, start: 0.8, speed: 1 }; // speed: tests turn it up
-const SKILL_NAMES = { craft: 'Crafting', cook: 'Cooking', fish: 'Fishing', forage: 'Foraging' };
+const SKILL_NAMES = { craft: 'Crafting', cook: 'Cooking', fish: 'Fishing', forage: 'Foraging', mining: 'Mining', woodcutting: 'Woodcutting', farming: 'Farming' };
 const SKILL_RANKS = [[0, 'Novice'], [20, 'Apprentice'], [45, 'Journeyman'], [70, 'Craftsman'], [90, 'Master']];
 const skillRank = (v) => SKILL_RANKS.reduce((a, [at, n]) => (v >= at ? n : a), 'Novice');
 function skillGain(key, diff = 1) {
+  if (!Object.hasOwn(SKILL_NAMES, key) || !Number.isFinite(diff) || diff <= 0) return 0;
   const s = SURV.skill[key] || 0;
-  const g = diff * 1.5 * Math.max(0.04, 1 - s / 105);
+  const g = Math.min(10, diff) * 1.5 * Math.max(0.04, 1 - s / 105);
   const before = skillRank(s);
   SURV.skill[key] = Math.min(100, s + g);
   const after = skillRank(SURV.skill[key]);
   if (after !== before) { uiToast(`${SKILL_NAMES[key]}: you are now ${/^[AEIOU]/.test(after) ? 'an' : 'a'} ${after.toLowerCase()}.`, 'quest'); sfx('levelup'); }
   saveSoon();
-  return g;
+  return SURV.skill[key] - s;
+}
+function skillWorkRate(key) {
+  // Job timing belongs to this character; a keeper never borrows its own skill for a remote command.
+  if (!GAME.player || GAME.player.role !== 'player' || typeof NETPARTS !== 'undefined' && NETPARTS.replay) return 1;
+  const value = Object.hasOwn(SKILL_NAMES, key) ? SURV.skill[key] : 0;
+  return 1 + clamp(Number.isFinite(value) ? value : 0, 0, 100) / 400;
 }
 
 /* ---- needs ---- */

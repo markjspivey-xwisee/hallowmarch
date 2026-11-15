@@ -1,15 +1,19 @@
 // [net] A headless player for the server's tests (tools/tests/net.py server): speaks server/server.js's protocol as a
 // page does (hello with a token, the profile, the fast state ten times a second with its ring of moments), driven by
 // JSON lines on stdin, telling what it hears as JSON lines on stdout.
+// `hello.human: true` explicitly models a scripted human fixture. Raw diagnostic
+// clients stay inactive by default; fast heartbeats and state polls never renew
+// the live lease. Only test-operator action commands advance the human counter.
 // commands: {"cmd":"hello","name":..,"realm":..,"cls":..,"x":..,"z":..} {"cmd":"move","x":..,"z":..} {"cmd":"ev","kind":..,"to":..,"data":..}
 //           {"cmd":"state"} {"cmd":"save","d":{...}} {"cmd":"load"} {"cmd":"raw","m":{...}} {"cmd":"quit"}
 import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
 import readline from 'node:readline';
 const require = createRequire(import.meta.url);
-const WebSocket = require(new URL('../../server/node_modules/ws/index.js', import.meta.url).pathname);
+const WebSocket = require(fileURLToPath(new URL('../../server/node_modules/ws/index.js', import.meta.url)));
 const url = process.argv[2], token = process.argv[3] || '';
 const out = (o) => process.stdout.write(JSON.stringify(o) + '\n');
-const S = { peer: '', acct: null, token: '', peers: {}, got: { peer: 0, far: 0, ev: 0, left: 0, fast: 0 }, evs: [], me: null, seq: 0, evSeq: 0, ring: [], save: null };
+const S = { peer: '', acct: null, token: '', peers: {}, got: { peer: 0, far: 0, ev: 0, left: 0, fast: 0 }, evs: [], me: null, profile: null, seq: 0, evSeq: 0, ring: [], save: null };
 const ws = new WebSocket(url);
 let tick = null;
 const pending = [];
@@ -38,13 +42,21 @@ function fast() {
   S.ring = S.ring.filter((r) => now - r.t < 2600);
   send({ t: 'fast', d });
 }
+function humanStep() {
+  if (!S.profile || S.profile.humanLive !== 1) return;
+  S.profile.humanActivity++;
+  send({ t: 'slow', d: { ...S.profile } });
+}
 readline.createInterface({ input: process.stdin }).on('line', (line) => {
   let c; try { c = JSON.parse(line); } catch (e) { return; }
+  if (['move', 'ev', 'save', 'raw'].includes(c.cmd)) humanStep();
   if (c.cmd === 'hello') {
     send({ t: 'hello', v: 1, token: c.token || token || undefined });
     S.me = { x: c.x || 0, z: c.z || 0 };
+    S.profile = { v: 1, on: 1, realmManagement: 1, seasonField: 2, sharedCombat: 1, actorDevelopment: 1, sharedScene: 2, warbandOrders: 1, humanLive: c.human === true ? 1 : 0, humanActivity: c.human === true ? 1 : 0,
+      since: 0, n: c.name || 'Bot', dn: c.name || 'Bot', r: c.realm ?? 1, c: c.cls || 'warrior', l: c.level || 30, rr: 1 };
     setTimeout(() => {
-      send({ t: 'slow', d: { v: 1, on: 1, since: 0, n: c.name || 'Bot', dn: c.name || 'Bot', r: c.realm ?? 1, c: c.cls || 'warrior', l: c.level || 30, rr: 1 } });
+      send({ t: 'slow', d: { ...S.profile } });
       tick = setInterval(fast, 100);
     }, 300);
   } else if (c.cmd === 'move') { S.me.x = c.x; S.me.z = c.z; fast(); }

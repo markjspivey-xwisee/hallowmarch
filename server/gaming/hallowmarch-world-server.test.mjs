@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readFile, readdir, stat, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
@@ -38,6 +38,8 @@ export async function configuredGamingStore(env) {
       const fault = control();
       if (id === WORLD && fault.holdMs) await new Promise(resolve => setTimeout(resolve, fault.holdMs));
       if (id === WORLD && fault.commitError) throw new Error('private test transport');
+      if (id === WORLD && fault.corruptAck) return {version: input.expectedVersion + 1,
+        state: {...input.state, digest: 'sha256:corrupt-test-acknowledgement'}};
       const data = read(), key = id + ':' + input.idempotencyKey, previous = data.operations[key];
       if (previous) return structuredClone(previous);
       const current = data.streams[id] || {version: 0, state: null};
@@ -67,14 +69,14 @@ async function fixture(t, { worlds = { march: world }, season = seedSeason(), co
   await writeFile(preload, `import {register} from 'node:module'; register(new URL('./loader.mjs', import.meta.url));`);
   const children = [], sockets = [];
   async function stop(child) {
-    if (child.exitCode !== null) return;
+    if (child.exitCode !== null || child.signalCode !== null) return;
     const done = once(child, 'exit'); child.kill('SIGTERM');
     const timeout = setTimeout(() => child.kill('SIGKILL'), 17000); await done; clearTimeout(timeout);
   }
   t.after(async () => { for (const socket of sockets) socket.terminate(); for (const child of children) await stop(child); await rm(directory, { recursive: true, force: true }); });
   async function start({ expectFailure = false, env = {}, loaderEnabled = true } = {}) {
     const port = await freePort(), base = 'http://127.0.0.1:' + port;
-    const child = spawn(process.execPath, [...(loaderEnabled ? ['--import', preload] : []), path.join(root, 'server/server.js')], {
+    const child = spawn(process.execPath, [...(loaderEnabled ? ['--import', pathToFileURL(preload).href] : []), path.join(root, 'server/server.js')], {
       cwd: root, env: { PATH: process.env.PATH, NODE_ENV: 'test', PORT: String(port), HM_DATA: data,
         HM_SECRET: 'synthetic-local-world-test-secret', HM_GAMING_BOOTSTRAP: '0', HM_GAMING_ENABLED: '1',
         HM_PUBLIC_ORIGIN: 'https://game.example', HM_ADMIN: 'synthetic-world-admin', HM_SEASON_STEP: '600000', HM_WORLD_CHECKPOINT_MS: '60000',
@@ -87,12 +89,19 @@ async function fixture(t, { worlds = { march: world }, season = seedSeason(), co
         return { child, base, output: () => output,
           admin: async query => { const response = await fetch(base + '/admin?op=' + query, { method: 'POST', headers: { 'x-hm-admin': 'synthetic-world-admin' } }); return { status: response.status, body: await response.json() }; },
           status: async () => (await fetch(base + '/gaming/world-state')).json(),
-          connect: async () => {
+          connect: async ({ live = false } = {}) => {
             const ws = new WebSocket('ws://127.0.0.1:' + port + '/ws'); sockets.push(ws); await once(ws, 'open');
             const messages = []; ws.on('message', bytes => messages.push(JSON.parse(String(bytes))));
-            async function receive(type) { const end = Date.now() + 3000; while (Date.now() < end) { const index = messages.findIndex(m => m.t === type); if (index >= 0) return messages.splice(index, 1)[0]; await new Promise(resolve => setTimeout(resolve, 5)); } assert.fail('No ' + type); }
+            async function receive(type, matches = () => true) { const end = Date.now() + 3000; while (Date.now() < end) { const index = messages.findIndex(m => m.t === type && matches(m)); if (index >= 0) return messages.splice(index, 1)[0]; await new Promise(resolve => setTimeout(resolve, 5)); } assert.fail('No ' + type); }
             ws.send(JSON.stringify({ t: 'hello' })); const welcome = await receive('welcome');
-            return { ws, welcome, receive, send: value => ws.send(JSON.stringify(value)) };
+            const send = value => ws.send(JSON.stringify(value)); let humanActivity = 0;
+            const actor = { ws, welcome, receive, send, async play() {
+              send({ t: 'slow', d: { r: 0, on: 1, realmManagement: 1, seasonField: 2, sharedCombat: 1, actorDevelopment: 1, sharedScene: 2, humanLive: 1, humanActivity: ++humanActivity,
+                n: 'Live world fixture', c: 'warrior', l: 3 } });
+              send({ t: 'ping', c: humanActivity }); await receive('pong');
+            } };
+            if (live) await actor.play();
+            return actor;
           } };
       } } catch (error) { if (error.code === 'ERR_ASSERTION') throw error; }
       await new Promise(resolve => setTimeout(resolve, 20));
@@ -126,10 +135,15 @@ test('real server rejects malformed legacy JSON and malformed season rather than
   }
 });
 
-test('real server seeds only confirmed absence when both legacy world files are missing', async t => {
+test('real server keeps a confirmed-absent seed in memory until a live human checkpoint', async t => {
   const f = await fixture(t); await rm(path.join(f.data, 'worlds.json')); await rm(path.join(f.data, 'season.json'));
   const server = await f.start(); assert.match(server.output(), /season: a new season/);
-  await server.admin('world-checkpoint');
+  assert.deepEqual((await f.readDurable()).streams, {}, 'Idle boot never commits a migration seed');
+  const idleCheckpoint = await server.admin('world-checkpoint');
+  assert.equal(idleCheckpoint.body.persistence.durable, false);
+  assert.deepEqual((await f.readDurable()).streams, {}, 'An idle checkpoint cannot start persistence');
+  await server.connect({ live: true });
+  assert.equal((await server.admin('world-checkpoint')).body.persistence.durable, true);
   const snapshot = (await f.readDurable()).streams['hallowmarch-world-season-v1'].state.value;
   assert.deepEqual(snapshot.worlds, {}); assert.equal(snapshot.season.v, 1); assert.equal(snapshot.season.realms.length, 3);
 });
@@ -138,6 +152,8 @@ test('real server recovers canonical owned world and season before constructing 
   const f = await fixture(t), first = await f.start();
   assert.equal((await first.status()).snapshotOwnershipMigrated, true);
   assert.equal((await first.status()).authoritativeCombat, false);
+  assert.deepEqual((await f.readDurable()).streams, {}, 'Read-only idle startup does not seed native storage');
+  await first.connect({ live: true });
   await first.admin('keep&i=0&r=2'); assert.equal((await first.admin('world-checkpoint')).status, 200);
   await f.stop(first.child);
   await writeFile(path.join(f.data, 'worlds.json'), JSON.stringify({ march: { ...world, cn: 999 } }));
@@ -155,8 +171,67 @@ test('real server recovers canonical owned world and season before constructing 
   assert.equal(native.worlds.march.cn, 3);
 });
 
+test('confirmed native reboot stays durable without capturing only a boot-time savedAt rebase', async t => {
+  const f = await fixture(t), first = await f.start();
+  await first.connect({ live: true });
+  assert.equal((await first.admin('world-checkpoint')).body.persistence.durable, true);
+  await f.stop(first.child);
+  const before = await f.readDurable(), confirmed = before.streams['hallowmarch-world-season-v1'];
+  assert.ok(confirmed.version > 0);
+
+  const second = await f.start({ env: { HM_WORLD_CHECKPOINT_MS: '10' } });
+  const health = await (await fetch(second.base + '/health')).json();
+  assert.equal(health.livePlay.players, 0);
+  const status = await second.status();
+  assert.equal(status.pendingSnapshots, 0, 'Rebasing the paused simulation clock is not a new world mutation');
+  assert.equal(status.durable, true);
+  assert.equal(status.confirmedVersion, confirmed.version);
+  assert.equal(status.liveVersion, status.confirmedLiveVersion);
+  await new Promise(resolve => setTimeout(resolve, 80));
+  assert.equal((await second.status()).pendingSnapshots, 0);
+  assert.equal((await second.status()).durable, true);
+  assert.deepEqual(await f.readDurable(), before, 'A zero-human reboot and passive status checks perform no native writes');
+  await f.stop(second.child);
+  assert.deepEqual(await f.readDurable(), before, 'Idle shutdown does not persist the rebased wall clock');
+});
+
+test('actual local live admission confirms a world checkpoint then stops writes after explicit standby', async t => {
+  const f = await fixture(t), server = await f.start({ env: { HM_WORLD_CHECKPOINT_MS: '10' } });
+  const actor = await server.connect({ live: true });
+  const admitted = await actor.receive('world-status', message => message.admission === 'live');
+  assert.equal(admitted.ok, true); assert.equal(admitted.standby, false);
+  assert.equal(admitted.code, 'human_play_admitted');
+  assert.equal((await (await fetch(server.base + '/health')).json()).livePlay.players, 1);
+  assert.equal((await server.admin('keep&i=0&r=1')).status, 200);
+  assert.equal((await server.admin('world-checkpoint')).body.persistence.durable, true);
+  assert.equal((await f.readDurable()).streams['hallowmarch-world-season-v1'].state.value.season.keeps[0].h, 1);
+
+  actor.send({ t: 'slow', d: { on: 0, humanLive: 0 } });
+  const standby = await actor.receive('world-status', message => message.standby === true);
+  assert.equal(standby.admission, 'standby'); assert.equal(standby.code, 'human_play_required');
+  assert.equal(standby.ok, true);
+  const deadline = Date.now() + 3000;
+  while ((await server.status()).durable !== true) {
+    assert.ok(Date.now() < deadline, 'Accepted final world checkpoint must settle before the idle comparison');
+    await new Promise(resolve => setTimeout(resolve, 5));
+  }
+  const health = await (await fetch(server.base + '/health')).json(), before = await f.readDurable();
+  assert.equal(health.livePlay.players, 0); assert.equal(health.livePlay.mode, 'standby');
+  const volume = async () => Promise.all((await readdir(f.data, { withFileTypes: true }))
+    .filter(entry => entry.isFile()).sort((a, b) => a.name.localeCompare(b.name)).map(async entry => {
+      const info = await stat(path.join(f.data, entry.name));
+      return [entry.name, info.size, info.mtimeMs];
+    }));
+  const filesBefore = await volume();
+  await new Promise(resolve => setTimeout(resolve, 600));
+  assert.deepEqual(await f.readDurable(), before, 'Inactive time does not retry or write after the accepted final checkpoint');
+  assert.deepEqual(await volume(), filesBefore, 'Inactive time crosses the account-save deadline without another local file write');
+  assert.equal((await server.admin('world-checkpoint')).body.persistence.durable, true);
+  assert.deepEqual(await f.readDurable(), before, 'An explicit inactive checkpoint does not create a new operation');
+});
+
 test('real server returns from a live world mutation before slow native writes, then confirms only the explicit checkpoint', async t => {
-  const f = await fixture(t), server = await f.start(); await server.admin('world-checkpoint');
+  const f = await fixture(t), server = await f.start(); await server.connect({ live: true }); await server.admin('world-checkpoint');
   await f.setControl({ holdMs: 500 });
   const before = (await server.status()).confirmedVersion, start = Date.now();
   const changed = await server.admin('keep&i=0&r=1'); assert.equal(changed.status, 200);
@@ -168,7 +243,7 @@ test('real server returns from a live world mutation before slow native writes, 
 });
 
 test('real server fences a second world writer and restores that writer through the explicit operator recovery affordance', async t => {
-  const f = await fixture(t), server = await f.start(); await server.admin('world-checkpoint');
+  const f = await fixture(t), server = await f.start(); await server.connect({ live: true }); await server.admin('world-checkpoint');
   const other = createProgressiveOwnedState({ store: await f.store(), streamId: 'hallowmarch-world-season-v1', checkpointIntervalMs: 60000 });
   const snapshot = await other.start(); snapshot.season.n = 23; snapshot.season.keeps[0].h = 2;
   other.capture(snapshot); await other.checkpoint();
@@ -178,6 +253,7 @@ test('real server fences a second world writer and restores that writer through 
   assert.equal((await server.admin('keep&i=0&r=0')).status, 503);
   const recovered = await server.admin('world-recover'); assert.equal(recovered.status, 200); assert.equal(recovered.body.persistence.fenced, false);
   assert.equal((await (await fetch(server.base + '/season')).json()).n, 23);
+  await server.connect({ live: true });
   assert.equal((await server.admin('world-checkpoint')).body.persistence.durable, true);
   const next = await other.recover({ discardUnconfirmed: true, restore: () => {} }); next.season.n = 24;
   other.capture(next); await other.checkpoint();
@@ -188,10 +264,93 @@ test('real server fences a second world writer and restores that writer through 
 });
 
 test('real server rejects an invalid confirmed native world without falling back to valid legacy copies', async t => {
-  const f = await fixture(t), first = await f.start(); await first.admin('world-checkpoint'); await f.stop(first.child);
+  const f = await fixture(t), first = await f.start(); await first.connect({ live: true }); await first.admin('world-checkpoint'); await f.stop(first.child);
   const native = await f.readDurable(); native.streams['hallowmarch-world-season-v1'].state.owner = 'did:web:foreign.example';
   await writeFile(f.durable, JSON.stringify(native));
   const result = await f.start({ expectFailure: true });
   assert.doesNotMatch(result.output(), /season: (kept|a new)/);
   assert.equal(JSON.parse(await readFile(path.join(f.data, 'worlds.json'), 'utf8')).march.cn, 3);
+});
+
+for (const [fault, errorCode] of [
+  [{ commitError: true }, 'CHECKPOINT_UNCONFIRMED'],
+  [{ corruptAck: true }, 'CORRUPT_DURABLE_STATE'],
+]) test('real server fences ' + errorCode + ' before accepting further season mutations and recovers natively', async t => {
+  const f = await fixture(t), server = await f.start(), actor = await server.connect({ live: true });
+  await server.admin('world-checkpoint');
+  const before = (await f.readDurable()).streams['hallowmarch-world-season-v1'];
+  await f.setControl(fault);
+  assert.equal((await server.admin('keep&i=0&r=1')).status, 200);
+  assert.equal((await server.admin('world-checkpoint')).status, 503);
+  const blocked = await server.status();
+  assert.equal(blocked.error, errorCode);
+  assert.equal(blocked.fenced, true);
+  assert.equal(blocked.durable, false);
+  assert.equal((await server.admin('keep&i=0&r=2')).status, 503);
+  assert.equal((await fetch(server.base + '/season')).status, 503);
+  actor.send({ t: 'contrib', q: 481, k: 'food', n: 1 });
+  const contribution = await actor.receive('contrib');
+  assert.equal(contribution.ok, false); assert.equal(contribution.q, 481);
+  actor.send({ t: 'order', q: 482, o: { kind: 'target', keep: 0 } });
+  const order = await actor.receive('order');
+  assert.equal(order.ok, false); assert.equal(order.q, 482);
+  assert.deepEqual((await f.readDurable()).streams['hallowmarch-world-season-v1'], before,
+    'failed storage never advances the confirmed native snapshot');
+  await f.setControl({});
+  const disconnected = once(actor.ws, 'close');
+  const recovered = await server.admin('world-recover');
+  assert.equal(recovered.status, 200); assert.equal(recovered.body.persistence.fenced, false);
+  await disconnected;
+  // Recovery closes old sessions. Wait for the last human withdrawal before
+  // admitting a fresh socket, which standby intentionally closes otherwise.
+  const idleDeadline = Date.now() + 3000;
+  while ((await (await fetch(server.base + '/health')).json()).players !== 0) {
+    assert(Date.now() < idleDeadline, 'Recovered session did not withdraw');
+    await new Promise(resolve => setTimeout(resolve, 5));
+  }
+  await server.connect({ live: true });
+  assert.equal((await server.admin('keep&i=0&r=2')).status, 200);
+  assert.equal((await server.admin('world-checkpoint')).body.persistence.durable, true);
+  assert.equal((await f.readDurable()).streams['hallowmarch-world-season-v1'].state.value.season.keeps[0].h, 2);
+});
+
+test('cold world admission rejects retained private worlds and accepts only initialized same-season host reports', async t => {
+  const f = await fixture(t, { worlds: {} }), server = await f.start();
+  const actor = await server.connect({ live: true }), observer = await server.connect({ live: true });
+  const admission = actor.welcome.worldAdmission;
+  assert.deepEqual(admission, { origin: 'https://game.example', epoch: 7 });
+  assert.deepEqual((await (await fetch(server.base + '/gaming/manifest')).json()).worldAdmission, admission);
+  assert.equal(actor.welcome.world.cn, 1);
+  assert.deepEqual(actor.welcome.world.cl, [[0, 0], [0, 0], [0, 0]]);
+  assert.deepEqual(actor.welcome.world.g, new Array(6).fill(1));
+  const initialKeeps = (await (await fetch(server.base + '/season')).json()).keeps.map(k => k.r);
+  assert.deepEqual(actor.welcome.world.k, initialKeeps);
+  const stale = { ...world, k: new Array(6).fill(2), g: new Array(6).fill(0), cn: 99, cl: [[99, 99], [99, 99], [99, 99]] };
+  let activity = 1;
+  for (const binding of [undefined, { ...admission, epoch: 6 }, { ...admission, origin: 'https://other.example' }]) {
+    const label = 'admission-' + ++activity;
+    actor.send({ t: 'slow', d: { r: 0, on: 1, realmManagement: 1, seasonField: 2, sharedCombat: 1, actorDevelopment: 1, sharedScene: 2, humanLive: 1, humanActivity: activity, n: label, c: 'warrior', l: 3,
+      w: stale, worldAdmission: binding, wx: { v: 1, c: [] } } });
+    const forwarded = await observer.receive('peer', m => m.slow?.n === label);
+    assert.equal(forwarded.slow.w, undefined, 'rejected private world is not forwarded to current peers');
+    assert.equal(forwarded.slow.wx, undefined, 'unbound weather is not forwarded');
+    await server.admin('world-checkpoint');
+    assert.deepEqual((await f.readDurable()).streams['hallowmarch-world-season-v1'].state.value.worlds, {});
+    assert.deepEqual((await (await fetch(server.base + '/season')).json()).keeps.map(k => k.r), initialKeeps);
+  }
+  const legitimate = { ...stale, k: initialKeeps, cn: 1, cl: [[2, 3], [4, 5], [6, 7]] };
+  actor.send({ t: 'slow', d: { r: 0, on: 1, realmManagement: 1, seasonField: 2, sharedCombat: 1, actorDevelopment: 1, sharedScene: 2, humanLive: 1, humanActivity: ++activity, n: 'current-host', c: 'warrior', l: 3,
+    w: legitimate, worldAdmission: admission } });
+  const accepted = await observer.receive('peer', m => m.slow?.n === 'current-host');
+  assert.deepEqual(accepted.slow.w, legitimate, 'same-epoch initialized host keeps legitimate elected authority');
+  await server.admin('world-checkpoint');
+  const persisted = (await f.readDurable()).streams['hallowmarch-world-season-v1'].state.value.worlds.march;
+  assert.deepEqual(persisted.k, initialKeeps); assert.equal(persisted.cn, 1); assert.deepEqual(persisted.cl, legitimate.cl);
+  assert.deepEqual(persisted.g, legitimate.g);
+  await server.admin('reset');
+  actor.send({ t: 'slow', d: { r: 0, on: 1, realmManagement: 1, seasonField: 2, sharedCombat: 1, actorDevelopment: 1, sharedScene: 2, humanLive: 1, humanActivity: ++activity, n: 'old-season', c: 'warrior', l: 3,
+    w: stale, worldAdmission: admission } });
+  const rejected = await observer.receive('peer', m => m.slow?.n === 'old-season');
+  assert.equal(rejected.slow.w, undefined, 'a previously initialized old epoch is fenced after reset');
+  assert.equal((await (await fetch(server.base + '/season')).json()).n, 8);
 });

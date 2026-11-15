@@ -20,7 +20,7 @@ async def main():
     async with async_playwright() as p:
         b, page, logs = await setup(p, w=960, h=540)
         await page.evaluate("__hm.fn.setQuality('high')")
-        r = await page.evaluate("""(() => { const H = __hm, F = H.fn; H.start({ realm: 2, cls: 'warrior', level: 35 });
+        r = await page.evaluate("""(async () => { const H = __hm, F = H.fn; await H.start({ realm: 2, cls: 'warrior', level: 35 });
           const houses = typeof HOUSES !== 'undefined' ? HOUSES.length : (F.houseList ? F.houseList().length : -1);
           return { errors: H.errors.slice(0, 3), castlePatched: (F.CASTLE_PATCHED || []).length, castles: F.castles ? F.castles().length : -1,
             camps: H.CAMPS.length, war: F.warLevel(), cw: !!H.CW, nature: !!H.nature, programs: H.renderInfo().programs }; })()""")

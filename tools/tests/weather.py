@@ -82,7 +82,7 @@ async def main():
         print(f'ready [{time.time() - T0:.0f}s]', flush=True)
         await page.evaluate(HELPERS)
         await page.evaluate(f"__hm.fn.setQuality('{QUALITY}')")
-        await ev(page, 'start', "__hm.start({realm:0, cls:'warrior', level:20}), __hm.setTod(0.45), __hm.UI.modal = null, Object.keys(__hm.INV.eq)")
+        await ev(page, 'start', "(async () => { await __hm.start({realm:0, cls:'warrior', level:20}); return (__hm.setTod(0.45), __hm.UI.modal = null, Object.keys(__hm.INV.eq)); })()")
         town = await ev(page, 'town', "(() => { const S = __hm.REALMS[0].town; return { x: S.x, z: S.z, y: S.y, yaw: S.yaw, props: (S.props || []).length, wells: __hm.fn.wellSpots().length }; })()")
         check(town['wells'] >= 1, 'towns have wells or troughs to wash at')
 

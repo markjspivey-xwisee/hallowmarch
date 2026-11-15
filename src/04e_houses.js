@@ -833,7 +833,6 @@ function houseTended(H) {
 function updateHouses(dt) {
   if (!HOUSES.length) return;
   HOUSE_CLOCK.night = todSample('night', tod.p)[0];
-  const P = GAME.player;
   for (const S of houseTowns()) {
     for (const L of S.houseLeaves) {
       if (L.open === L.target) continue;
@@ -852,7 +851,7 @@ function updateHouses(dt) {
     for (const c of H.furnColl) c.active = intact;
     if (H.scafColl) for (const c of H.scafColl) c.active = H.state === 'scaffold';
     // houses whose people are away (or far from anyone who could see) keep the hours by themselves
-    if (H.state === 'whole' && (!P || dist2(P.x, P.z, H.x, H.z) > 45 * 45) && !houseTended(H)) {
+    if (H.state === 'whole' && !netEntityLivePlayers().some(p => dist2(p.x, p.z, H.x, H.z) <= 45 * 45) && !houseTended(H)) {
       const open = !houseWantsShut(H);
       for (const win of H.wins) if (win.target !== (open ? 1 : 0)) { setHouseShutters(H, win, open, null, true); for (const L of win.leaves) L.open = L.target; }
       if (D.leaf.target) { D.leaf.target = 0; D.leaf.open = 0; }

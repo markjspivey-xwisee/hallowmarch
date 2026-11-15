@@ -132,6 +132,9 @@ AURORA.mesh = new THREE.Mesh(fsTriGeo, mat({
       gl_FragColor = vec4(min(safeColor(col), vec3(1.8)), deepen);
     }`,
 }));
+// Dormant night overlays must not submit/link shaders while their state is off.
+AURORA.mesh.name = AURORA.mesh.material.name = 'Aurora curtains';
+AURORA.mesh.visible = false;
 AURORA.mesh.frustumCulled = false;
 AURORA.mesh.renderOrder = -99;
 scene.add(AURORA.mesh);
@@ -174,6 +177,8 @@ AURORA.star = new THREE.Mesh(aurStarGeo, mat({
       gl_FragColor = vec4(safeColor(uCol * k), 0.0);
     }`,
 }));
+AURORA.star.name = AURORA.star.material.name = 'Shooting star';
+AURORA.star.visible = false;
 AURORA.star.frustumCulled = false;
 AURORA.star.renderOrder = -98;
 scene.add(AURORA.star);
@@ -210,7 +215,10 @@ function updateNightSky(dt) {
   aurU.uLat.value = AURORA.lat;
   aurU.uQ.value = quality.level === 'high' ? 2 : quality.level === 'medium' ? 1 : 0;
   aurU.uActivity.value = 0.6 + 0.4 * Math.sin(U.uTime.value * 0.013) * Math.sin(U.uTime.value * 0.0071 + 1);
-  AURORA.on = AURORA.mesh.visible = AURORA.str > 0.004;
+  // These optional procedural/cloud shaders triggered a native link failure even
+  // with zero effect uniforms. Recovery keeps the simple sky, sun and moon and
+  // never submits either overlay; ordinary quality presets retain their effects.
+  AURORA.on = AURORA.mesh.visible = !BOOT_SAFE && AURORA.str > 0.004;
   // shooting stars on clear dark nights
   if (out && clear > 0.7 && dark > 0.8 && !REDUCE_MOTION) {
     AURORA.next -= dt;
@@ -229,7 +237,7 @@ function updateNightSky(dt) {
       aurStarU.uCol.value.set(S.col[0], S.col[1], S.col[2]);
     }
   }
-  AURORA.star.visible = S.on;
+  AURORA.star.visible = !BOOT_SAFE && S.on;
 }
 
 /* test hooks: window.__hm.aurora */

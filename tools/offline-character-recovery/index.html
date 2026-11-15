@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark light">
+<title>Hallowmarch character-key recovery</title>
+<link rel="stylesheet" href="/assets/style.css">
+<!--public-scope-->
+<main>
+  <p class="eyebrow">Optional, developer-assisted recovery</p>
+  <h1>Check an old browser key</h1>
+  <p>This page can check for a key already saved at this old local address. It cannot recover a missing key or confirm which character a key opens.</p>
+  <p>Use the same browser profile that previously played at <strong>127.0.0.1:8787</strong>. Nothing is sent to Interego or a game server.</p>
+  <details><summary>Identity being checked</summary><dl><dt>Public identity</dt><dd id="owner"></dd><dt>Pod</dt><dd id="pod"></dd></dl></details>
+  <section aria-labelledby="check-title">
+    <h2 id="check-title">1. Check this browser</h2>
+    <label class="consent"><input id="consent" type="checkbox"> I allow this page to check existing keys for the identity shown above. Existing keys and saves will stay unchanged.</label>
+    <button id="check" type="button" disabled>Check for an existing key</button>
+    <div id="candidates"></div>
+  </section>
+  <section id="backup" aria-labelledby="backup-title" hidden>
+    <h2 id="backup-title">2. Make an encrypted backup</h2>
+    <p>This is a possible key, not a verified character. Choose a new recovery passphrase that you keep private. You will need it when opening the downloaded file in the production game.</p>
+    <label>New recovery passphrase <input id="passphrase" type="password" autocomplete="new-password" minlength="12" maxlength="4096"></label>
+    <label>Repeat passphrase <input id="confirm-passphrase" type="password" autocomplete="new-password" minlength="12" maxlength="4096"></label>
+    <button id="download" type="button" disabled>Download encrypted recovery file</button>
+  </section>
+  <p id="status" role="status" aria-live="polite">No browser storage has been checked.</p>
+  <button id="cancel" type="button" class="secondary">Cancel and clear this page</button>
+  <p class="note">After downloading, return to the normal production game and use <strong>Restore recovery file</strong>. It must verify the file against your signed-in account and private record before you choose <strong>Use this key on this site</strong>. Keep the file and passphrase separately.</p>
+</main>
+<script type="module" src="/assets/recovery-ui.mjs"></script>
+</html>

@@ -1161,7 +1161,7 @@ function survivalKitButtons() {
 /* keys: V to eat or drink, C for the crafting book                    */
 /* ------------------------------------------------------------------ */
 window.addEventListener('keydown', (e) => {
-  if (!GAME.started || typing() || e.repeat) return;
+  if (!GAME.started || typing() || gameplayKeyIgnored(e) || e.repeat) return;
   if (e.code === 'Escape' && UI.modal === 'craft') { closeCraft(); return; }
   if (e.code === 'KeyC') { if (UI.modal === 'craft') closeCraft(); else if (!UI.modal) openCraft(null); return; }
   if (UI.modal) return;
@@ -1252,7 +1252,7 @@ function natSplitGoods(t) {
   give('firewood', 2 + (axe ? 1 : 0) + (t.kind === 'oak' ? 1 : 0));
   give('log', 1);
   give('stick', 2);
-  if (got.length) uiLog(`You carry away ${got.join(', ')}; the rest is stacked by the stump.`, 'loot');
+  if (got.length) { skillGain('woodcutting', 0.6); uiLog(`You carry away ${got.join(', ')}; the rest is stacked by the stump.`, 'loot'); }
 }
 
 /* ------------------------------------------------------------------ */
@@ -1262,7 +1262,7 @@ function survivalHelpHTML() {
   return `<div class="survhelp"><h3>Food, water and crafting</h3>
     <p>You grow hungry and thirsty over an hour or two of play: faster when you run, fight or stand in the sun or by a fire, slower when you rest. The two bars under your health show it. Fed and watered, your health, power and endurance come back faster; hungry or thirsty, slower. You never starve to death. ${IS_TOUCH ? 'Tap the bars' : 'Press <kbd>V</kbd> or click the bars'} to eat or drink the best thing you carry.</p>
     <p>Drink at a well, a trough or any water (it fills your empty waterskins too). Pick berries, mushrooms, apples and herbs (E), hunt deer, wolves, boars and bears for meat and hides, fish with a rod at any water, and cook at any fire. Felled trees give logs and firewood; rocks give stone, and flint and iron ore to a pick.</p>
-    <p>Every town has a forge, a workbench, a tanning rack, a loom, a bakehouse and an alchemy table; every keep a forge and a workbench. ${IS_TOUCH ? 'Use one' : 'Press E at one'} to open its recipes, or ${IS_TOUCH ? 'open Crafting from your kit' : 'press <kbd>C</kbd>'} for what you can make by hand. The more you make, the better your gear turns out. The Chronicle's page <b>Living off the land</b> tells you more.</p></div>`;
+    <p>Every town has a forge, a workbench, a tanning rack, a loom, a bakehouse and an alchemy table; every keep a forge and a workbench. ${IS_TOUCH ? 'Use one' : 'Press E at one'} to open its recipes, or ${IS_TOUCH ? 'open Items → Crafting' : 'press <kbd>C</kbd>'} for what you can make by hand. The more you make, the better your gear turns out. The Chronicle's page <b>Living off the land</b> tells you more.</p></div>`;
 }
 function chronLiving() {
   const S = needsState(), sk = SURV.skill;
@@ -1283,7 +1283,7 @@ function chronLiving() {
     <h3>Crafting</h3>
     <p>Every town has a <b>forge and anvil</b> (smelt ore into iron; tools, blades, mail and the mending of worn gear), a <b>workbench</b> (planks, sticks, rods, bows, staves, arrows), a <b>tanning rack</b> (leather and leather armour), a <b>loom</b> (cloth, cloaks, robes, hoods), a <b>bakehouse</b> and an <b>alchemy table</b> (healing draughts, the starflower tonic, wards against fire and frost, vigour). Every keep has a forge and a workbench.</p>
     <p>Materials come from the land: logs and firewood from felled trees, stone from rocks (a <b>pick</b> also breaks out flint and iron ore, most in the rocky hills), hides and bone from the hunt, fibre from nettles. Tools help: an <b>axe</b> fells and splits in fewer blows, a <b>pick</b> finds ore, a <b>knife</b> takes more from every kill and plant, a <b>hammer</b> mends gear good as new, a <b>pot</b> cooks stews anywhere, a <b>rod</b> fishes.</p>
-    <p>Each thing you make teaches you. A practised hand works faster, wastes less and turns out better gear: a novice's blade is usually common, a master's often rare and now and then epic. Some recipes wait for skill.</p>
+    <p>Each thing you make teaches you. A practised hand works faster, wastes less and turns out better gear: a novice's blade is usually common, a master's often rare and now and then epic. Some recipes wait for skill. Mining, woodcutting and farming improve when you complete that work; practice makes those jobs up to 25% faster. Cancelled jobs and empty attempts teach nothing.</p>
     ${depthChronLiving() /* [depth] woodcraft, game birds, rare materials and masterworks (09u_depth.js) */}
     <p class="now">Now: <b>${S.label.toLowerCase()}</b> (food ${pct(SURV.hunger)}%, water ${pct(SURV.thirst)}%).</p>
     <ul class="skills">${Object.keys(SKILL_NAMES).map(row).join('')}</ul>`;

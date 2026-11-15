@@ -13,7 +13,7 @@ async def main():
     async with async_playwright() as p:
         b, page, logs = await setup(p, touch=True, w=390, h=780)
         for cls, realm, lvl in (('warrior', 0, 30), ('archer', 1, 30), ('mage', 2, 30), ('priest', 1, 30)):
-            await page.evaluate(f"(() => {{ const H = __hm; if (H.GAME.player) H.fn.newCharacter(); H.start({{ realm: {realm}, cls: '{cls}', level: {lvl} }}); return 0; }})()")
+            await page.evaluate(f"(async () => {{ const H = __hm; if (H.GAME.player) H.fn.newCharacter(); await H.start({{ realm: {realm}, cls: '{cls}', level: {lvl} }}); return 0; }})()")
             await frames(page, 3)
             # the hold button really holds: press it, check the state, let go
             box = await page.evaluate("(() => { const b = document.querySelector('#tpad .cls-btn.hold'); if (!b) return null; const r = b.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2, w: r.width }; })()")

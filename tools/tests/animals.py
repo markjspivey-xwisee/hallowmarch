@@ -34,7 +34,7 @@ async def main():
     async with async_playwright() as p:
         b, page, logs = await setup(p, w=960 if SHOTS else 640, h=540 if SHOTS else 360)
         print(f'booted [{time.time() - T0:.0f}s]', flush=True)
-        await page.evaluate("__hm.start({ realm: 0, cls: 'warrior', level: 12 }); __hm.dbg.WEATHER.mode = 'clear'; 0")
+        await page.evaluate("(async () => { await __hm.start({ realm: 0, cls: 'warrior', level: 12 }); __hm.dbg.WEATHER.mode = 'clear'; return 0; })()")
         await page.evaluate(HELPERS)
         r = await page.evaluate("""(() => { const { H, A } = __an; const o = {};
           o.pens = A.A.pens.map((p) => p.owner);

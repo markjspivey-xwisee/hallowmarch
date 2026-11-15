@@ -17,6 +17,28 @@ function fixture({ state, sessionId = SESSION, ownerDid = OWNER } = {}) {
   return { profile, outcome, advance: ms => { clock += ms; } };
 }
 
+test('capture time and identity survive lazy loading; old evidence retains its original Profile version', () => {
+  const f = fixture(), id = 'urn:uuid:' + webcrypto.randomUUID(), observedAt = '2026-10-17T12:59:55.000Z';
+  f.advance(30000);
+  const event = f.profile.record(f.outcome('resource.gathered', { id, observedAt })).event;
+  assert.equal(event.id, id); assert.equal(event.observedAt, observedAt);
+  const current = gameplayActivityStatement(event, OWNER);
+  assert.equal(current.timestamp, observedAt);
+  assert.match(current.context.contextActivities.category[0].id, /versions\/1\.1\.0$/);
+  const legacy = structuredClone(event); legacy.schema = 'hallowmarch.gameplay-event/v1';
+  const old = gameplayActivityStatement(legacy, OWNER);
+  assert.equal(old.id, current.id);
+  assert.match(old.context.contextActivities.category[0].id, /versions\/1\.0\.0$/);
+  const expected = structuredClone(current); expected.context.contextActivities.category[0].id = old.context.contextActivities.category[0].id;
+  expected.context.extensions['urn:interego:gaming:activity:context'].schema = legacy.schema;
+  assert.deepEqual(old, expected, 'Legacy projection changes no statement content other than selecting its original version');
+  const saved = f.profile.save(); saved.pending[0].schema = legacy.schema; saved.recent[0].schema = legacy.schema;
+  const restored = fixture({ state: saved, sessionId: NEXT });
+  assert.deepEqual(gameplayActivityStatement(restored.profile.save().pending[0], OWNER), old);
+  assert.throws(() => f.profile.record(f.outcome('resource.gathered', { observedAt: 'not-a-time' })));
+  assert.throws(() => gameplayActivityStatement({ ...event, schema: 'urn:unrecognized:schema' }, OWNER));
+});
+
 test('real outcomes preserve counters, actual quantities and duplicate identities across profile restore', () => {
   const f = fixture(), id = 'urn:uuid:' + webcrypto.randomUUID();
   const input = f.outcome('combat.healed', { id, result: { quantity: 7.5, success: true } });

@@ -1,0 +1,22 @@
+name: World durability guard
+on:
+  pull_request:
+    paths:
+      - server/gaming/hallowmarch-world-state.js
+      - server/gaming/hallowmarch-world-server.test.mjs
+      - tools/deploy-preflight.mjs
+      - tools/tests/deploy_preflight.test.mjs
+      - .github/workflows/world-durability.yml
+permissions:
+  contents: read
+jobs:
+  world-durability:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci --prefix server
+      - run: node --test server/gaming/hallowmarch-world-server.test.mjs tools/tests/deploy_preflight.test.mjs

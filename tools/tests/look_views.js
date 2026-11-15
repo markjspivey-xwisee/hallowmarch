@@ -35,7 +35,7 @@ window.LK = {
   tod(p) { const H = this.H; if (typeof p === 'string') p = this.TOD[p]; H.setTod(p); this.F.applyTimeOfDay(p); },
   cam(x, y, z, tx, ty, tz) {
     const H = this.H;
-    H.UI.modal = 'menu'; H.CAM.mode = 'fixed';
+    H.UI.modal = null; H.CAM.mode = 'fixed';
     H.camera.position.set(x, y, z); H.camera.lookAt(tx, ty, tz); H.camera.updateMatrixWorld();
     return { cam: [+x.toFixed(1), +y.toFixed(1), +z.toFixed(1)], at: [+tx.toFixed(1), +ty.toFixed(1), +tz.toFixed(1)] };
   },
@@ -48,7 +48,7 @@ window.LK = {
     if (P.mount) { try { F.dismount(P); } catch (e) { /* not mounted */ } }
     P.x = P.prevX = x; P.z = P.prevZ = z; P.y = y ?? (F.floorAt ? F.floorAt(x, z, F.heightAt(x, z) + 0.3) : F.heightAt(x, z));
     P.yaw = yaw; P.hp = P.maxHp; P.buffs.length = 0; P.casting = null; P.vy = 0; P.motion = null;
-    H.CAM.mode = 'play'; H.UI.modal = 'menu'; H.look(yaw, pitch, dist); H.CAM.near = dist;
+    H.CAM.mode = 'play'; H.UI.modal = null; H.look(yaw, pitch, dist); H.CAM.near = dist;
     return { player: [+x.toFixed(1), +z.toFixed(1)], yaw: +yaw.toFixed(2) };
   },
   // the player waits at home, out of every view
@@ -98,7 +98,7 @@ window.LK = {
     return e;
   },
   // let the world run a moment (bodies take their poses), then hold it
-  settle(sec = 0.6) { const H = this.H, m = H.UI.modal; H.UI.modal = null; H.simulate(sec); H.UI.modal = m || 'menu'; },
+  settle(sec = 0.6) { const H = this.H, m = H.UI.modal; H.UI.modal = null; H.simulate(sec); H.UI.modal = m || null; },
   keepSite(r, k = 0) { return this.H.REALMS[r].keepSites[k]; },
   castle(S) { return this.F.castles().find((C) => C.S === S); },
   // ---- the checks: what clips, floats or sinks, anywhere in the world (requirement 10, in general) ----
@@ -217,7 +217,7 @@ window.LK = {
       if (e.y - F.heightAt(e.x, e.z) > 1.5) continue; // up on a wall or a tower: the colliders there are a level below
       nb++;
       const s = solid(e.x, e.z, Math.min(0.25, (e.radius || 0.4) * 0.5), null, (c) => built(c) && c.tag !== 'door' && !c.vert && c.tag !== 'fire');
-      if (s && s.by > 0.15) add('a body inside something solid', { kind: e.kind, role: e.role, x: r1(e.x), z: r1(e.z), ...s });
+      if (s && s.by > 0.15) add('a body inside something solid', { kind: e.kind, role: e.role, name: e.name, x: r1(e.x), z: r1(e.z), seatY: e.seat?.y ?? null, activity: e.ai?.plan?.steps?.[e.ai.plan.i]?.k ?? null, ...s });
     }
     out.n.bodies = nb;
     zero('a body inside something solid');
@@ -523,7 +523,7 @@ window.LK = {
     const H = L.H, P = H.GAME.player, sp = L.open(L.rp(0, 194, -40).x, L.rp(0, 194, -40).z, 5, 60);
     const r = L.play(sp.x, sp.z, 1.0, 0.18, 7);
     L.F.mountUp(P, true);
-    P.x = P.prevX = sp.x; P.z = P.prevZ = sp.z; L.settle(0.3); H.UI.modal = 'menu'; H.CAM.mode = 'play'; H.look(1.0, 0.18, 7);
+    P.x = P.prevX = sp.x; P.z = P.prevZ = sp.z; L.settle(0.3); H.UI.modal = null; H.CAM.mode = 'play'; H.look(1.0, 0.18, 7);
     return { ...r, mounted: !!P.mount };
   });
   D('bodies', 'fight', (L) => {
@@ -550,7 +550,7 @@ window.LK = {
     if (!Ld) return { skip: 'no ladder' };
     L.play(Ld.fx, Ld.fz, P.yaw, 0.15, 3.2, Ld.wyb);
     H.towers.towerClimb(P, Ld, 1);
-    const m = P.motion; H.UI.modal = null; H.simulate(Math.min(1.6, m.dur * 0.5)); H.UI.modal = 'menu';
+    const m = P.motion; H.UI.modal = null; H.simulate(Math.min(1.6, m.dur * 0.5)); H.UI.modal = null;
     H.CAM.mode = 'play'; H.look(P.yaw + Math.PI * 0.8, 0.1, 3.2);
     return { climbing: !!P.motion, y: +(P.y - S.y).toFixed(2) };
   });
@@ -558,7 +558,7 @@ window.LK = {
   D('barrow', 'barrow', (L) => {
     const H = L.H, F = L.F, P = H.GAME.player, p = H.DUN.spots.arrive;
     P.x = P.prevX = p.x; P.z = P.prevZ = p.z; P.y = F.dunFloorAt(p.x, p.z); P.yaw = Math.PI / 2;
-    F.setIndoor(true); H.CAM.mode = 'play'; H.UI.modal = 'menu'; H.look(Math.PI / 2, 0.3, 6);
+    F.setIndoor(true); H.CAM.mode = 'play'; H.UI.modal = null; H.look(Math.PI / 2, 0.3, 6);
     L.afterIndoor = true;
     return { at: [p.x, p.z] };
   });
@@ -672,7 +672,7 @@ window.LK = {
       H.CAM.pitch = 0.3 - Math.atan2(tg.y - (P.y + 1.5), Math.hypot(tg.x - P.x, tg.z - P.z));
       H.cls.looseArrow(P, 1, null, 0); H.simulate(0.3);
     }
-    H.simulate(1.5); H.UI.modal = 'menu';
+    H.simulate(1.5); H.UI.modal = null;
   };
   // arrows stuck in a Logres house's plaster and timbers
   D('look2', 'stuck_house', (L) => {
@@ -750,7 +750,7 @@ window.LK = {
     if (!T) return { skip: 'no log tower' };
     const S = T.S;
     S.keepRef.lastEnemyNear = H.GAME.t + 1e6; // (not built again while the views look at it)
-    if (!T.fallen) { L.hush(S.x, S.z, 45); TF.towerIgnite(T, 3); H.UI.modal = null; H.simulate(TF.TFIRE.burn + 1); S.keepRef.lastEnemyNear = H.GAME.t + 1e6; H.simulate(4); H.UI.modal = 'menu'; }
+    if (!T.fallen) { L.hush(S.x, S.z, 45); TF.towerIgnite(T, 3); H.UI.modal = null; H.simulate(TF.TFIRE.burn + 1); S.keepRef.lastEnemyNear = H.GAME.t + 1e6; H.simulate(4); H.UI.modal = null; }
     const tp = (a, r, y) => { const q = L.F.siteToWorld(S, T.cx + Math.sin(a) * r, T.cz + Math.cos(a) * r); return { x: q.x, y: S.y + y, z: q.z }; };
     // from the field outside the corner (inside the court the camera stood under the palisade's sharpened tips, and their
     // undersides read as a twisted column rising out of the shaft)
@@ -769,7 +769,7 @@ window.LK = {
     const drive = (v) => (e, t, dt) => { e.x += v * Math.min(1, t / 0.4) * dt; e.yaw = Math.PI / 2; };
     H.UI.modal = null;
     M.motionRun([{ e: hr, kind: 'beast', drive: drive(11) }, { e: wf, kind: 'beast', drive: drive(3.2) }, { e: so, kind: 'human', drive: drive(5.0) }], 1.45, 1 / 60);
-    H.UI.modal = 'menu';
+    H.UI.modal = null;
     const mx = (hr.x + wf.x + so.x) / 3;
     L.away(sp.x + 60, sp.z + 60);
     return { ...L.eye(mx - 1.5, sp.z - 8.5, mx, F.heightAt(mx, sp.z) + 0.8, sp.z, 1.4), at: [+hr.x.toFixed(1), +wf.x.toFixed(1), +so.x.toFixed(1)] };
@@ -782,7 +782,7 @@ window.LK = {
     const w = F.spawnRealmUnit(0, 'warrior', 30, 'guard', sp.x - 8, sp.z, { yaw: Math.PI / 2 }), m = F.spawnRealmUnit(1, 'mage', 30, 'guard', sp.x + 8, sp.z, { yaw: -Math.PI / 2 });
     for (const e of [w, m]) { e.ai.post = { x: e.x, z: e.z, leash: 0.5 }; e.hp = e.maxHp = 1e6; L.made.push(e); }
     H.bal4.chargeRush(w, H.ABILITIES.charge, m, 1);
-    H.UI.modal = null; H.simulate(0.35); H.UI.modal = 'menu';
+    H.UI.modal = null; H.simulate(0.35); H.UI.modal = null;
     L.away(sp.x + 50, sp.z + 50);
     return { ...L.eye(sp.x - 2, sp.z - 7.5, w.x + 1.0, F.heightAt(w.x, w.z) + 0.9, w.z, 1.6), rushing: !!(w.motion && w.motion.rush), x: +(w.x - sp.x).toFixed(1) };
   });
@@ -853,13 +853,13 @@ window.LK = {
       PLm.palisadeIgnite(c1, 1); c1.t = PLm.PAL_T.burn - 0.5; H.UI.modal = null; H.simulate(1.5);
       for (const c of P.cells) if (c.st === 1) { for (const f of c.fires || []) f.until = 0; c.st = 2; c.heat = 0; }
       PLm.PAL.dirty && PLm.PAL.dirty.add(P);
-      L.palW = P.gaps[0]; L.palC = c1; H.UI.modal = 'menu';
+      L.palW = P.gaps[0]; L.palC = c1; H.UI.modal = null;
     }
     const W = L.palW;
     if (!W) return null;
-    if (stage === 'repair' && W.state === 'breach') { K.lastEnemyNear = -1e9; H.UI.modal = null; for (let i = 0; i < 40 && W.state === 'breach'; i++) { H.simulate(1); K.lastEnemyNear = -1e9; } H.UI.modal = 'menu'; }
-    if (stage === 'repair' && W.state === 'repair' && W.t < 0.3) { W.t = 0.35; H.UI.modal = null; H.simulate(0.5); H.UI.modal = 'menu'; }
-    if (stage === 'fresh' && W.state !== 'whole') { K.lastEnemyNear = -1e9; if (W.state === 'repair') W.t = 0.995; H.UI.modal = null; for (let i = 0; i < 40 && W.state !== 'whole'; i++) { H.simulate(1); K.lastEnemyNear = -1e9; if (W.state === 'repair') W.t = Math.max(W.t, 0.995); } H.UI.modal = 'menu'; }
+    if (stage === 'repair' && W.state === 'breach') { K.lastEnemyNear = -1e9; H.UI.modal = null; for (let i = 0; i < 40 && W.state === 'breach'; i++) { H.simulate(1); K.lastEnemyNear = -1e9; } H.UI.modal = null; }
+    if (stage === 'repair' && W.state === 'repair' && W.t < 0.3) { W.t = 0.35; H.UI.modal = null; H.simulate(0.5); H.UI.modal = null; }
+    if (stage === 'fresh' && W.state !== 'whole') { K.lastEnemyNear = -1e9; if (W.state === 'repair') W.t = 0.995; H.UI.modal = null; for (let i = 0; i < 40 && W.state !== 'whole'; i++) { H.simulate(1); K.lastEnemyNear = -1e9; if (W.state === 'repair') W.t = Math.max(W.t, 0.995); } H.UI.modal = null; }
     K.lastEnemyNear = stage === 'fresh' ? -1e9 : H.GAME.t + 1e6;
     return { S, C, W, c: L.palC };
   };
@@ -882,7 +882,7 @@ window.LK = {
     const H = L.H, T = H.towers.TOWER.list.find((q) => q.look === 'rath' && q.role === 'lookout');
     if (!T) return { skip: 'no lookout' };
     const S = T.S; S.keepRef.lastEnemyNear = H.GAME.t + 1e6;
-    if (!T.fallen) { H.towerfire.towerIgnite(T, T.TT + 2); T.burn.t = 69.5; H.UI.modal = null; H.simulate(1); H.simulate(20); H.UI.modal = 'menu'; S.keepRef.lastEnemyNear = H.GAME.t + 1e6; }
+    if (!T.fallen) { H.towerfire.towerIgnite(T, T.TT + 2); T.burn.t = 69.5; H.UI.modal = null; H.simulate(1); H.simulate(20); H.UI.modal = null; S.keepRef.lastEnemyNear = H.GAME.t + 1e6; }
     const aO = Math.atan2(T.cx, T.cz), q = (a, r, y) => { const w = L.F.siteToWorld(S, T.cx + Math.sin(a) * r, T.cz + Math.cos(a) * r); return { x: w.x, y: S.y + y, z: w.z }; };
     const c = q(aO + 0.5, T.RO + 13, 8.5), t = q(aO, 0, 6.5);
     L.away(S.x + 60, S.z + 60);
@@ -925,7 +925,7 @@ window.LK = {
     if (W.state === 'repair' && W.t > 0.6) W.t = 0.4;
     if (!L3.MASON.list.some((e) => !e.removed && e.ai.mason.W === W)) W.masonsFor = null;
     for (let t = 0; t < 140 && !(L3.MASON.list.filter((e) => !e.removed && e.ai.mason.W === W).length >= 2 && L3.MASON.list.filter((e) => !e.removed && e.ai.mason.W === W).every((e) => e.ai.mason.st === 'work')); t++) { H.simulate(1); K.lastEnemyNear = -1e9; if (W.state === 'repair' && W.t > 0.6) W.t = 0.4; }
-    H.simulate(0.4); K.lastEnemyNear = H.GAME.t + 1e6; H.UI.modal = 'menu';
+    H.simulate(0.4); K.lastEnemyNear = H.GAME.t + 1e6; H.UI.modal = null;
     const ms = L3.MASON.list.filter((e) => !e.removed && e.ai.mason.W === W);
     const Ld = W.l3 && W.l3.ladders.find((q) => q.k === 0); // [look5] (no scaffold laid out yet: the war's foes kept the keep from mending in 140 s)
     if (!Ld) return { skip: 'no scaffold up (' + W.state + ')' };
@@ -948,7 +948,7 @@ window.LK = {
     H.UI.modal = null; K.lastEnemyNear = -1e9;
     for (let t = 0; t < 80 && !(W.state === 'repair' && W.t > 0.3); t++) { H.simulate(1); K.lastEnemyNear = -1e9; }
     if (W.state === 'repair' && W.t > 0.6) W.t = 0.45;
-    K.lastEnemyNear = H.GAME.t + 1e6; H.UI.modal = 'menu';
+    K.lastEnemyNear = H.GAME.t + 1e6; H.UI.modal = null;
     let ox = -W.waz, oz = W.wax; if ((W.wx + ox - S.x) ** 2 + (W.wz + oz - S.z) ** 2 < (W.wx - S.x) ** 2 + (W.wz - S.z) ** 2) { ox = -ox; oz = -oz; }
     return { S, W, ox, oz };
   };
@@ -968,7 +968,7 @@ window.LK = {
   const castleOfK = (K) => LK.F.castleOf(K.site);
   const holdKeep = (K) => { K.lastEnemyNear = LK.H.GAME.t + 1e6; };
   const noGarrison = (K) => { for (const id of [...K.guards]) { const g = LK.F.getEnt(id); if (g) LK.F.removeEnt(g); } K.guards.clear(); K.nextGuardAt = 1e9; };
-  const sim = (L, s) => { const H = L.H, m = H.UI.modal; H.UI.modal = null; H.simulate(s, Math.min(0.05, s)); H.UI.modal = m || 'menu'; }; // (simulate's own step is 0.05 s: a shorter stretch needs its own)
+  const sim = (L, s) => { const H = L.H, m = H.UI.modal; H.UI.modal = null; H.simulate(s, Math.min(0.05, s)); H.UI.modal = m || null; }; // (simulate's own step is 0.05 s: a shorter stretch needs its own)
   // a town's house brought down by stones (04j_batter.js houseBreak), from its street: r realm, n the n-th nearest the plaza
   LK.felled = function (r, n) {
     const L = this, key = 'l4f' + r + '_' + n;
@@ -1102,7 +1102,7 @@ window.LK = {
     if (!pick) pick = [g.x + ux * 4.5 - uz * 1.8, g.y + 1.75, g.z + uz * 4.5 + ux * 1.8];
     const r = L.cam(pick[0], pick[1], pick[2], tx, ty, tz);
     // the frames run (the world with them) so the flames and the beating show as in play, the camera held
-    for (let i = 0; i < 8; i++) { const m = H.UI.modal; H.UI.modal = null; c.heat = Math.max(c.heat, 0.7); H.frame(1 / 15); H.UI.modal = m || 'menu'; H.camera.position.set(pick[0], pick[1], pick[2]); H.camera.lookAt(tx, ty, tz); }
+    for (let i = 0; i < 8; i++) { const m = H.UI.modal; H.UI.modal = null; c.heat = Math.max(c.heat, 0.7); H.frame(1 / 15); H.UI.modal = m || null; H.camera.position.set(pick[0], pick[1], pick[2]); H.camera.lookAt(tx, ty, tz); }
     return { ...r, beating: gs().length, heat: +c.heat.toFixed(2), side: c.side, a: +c.a.toFixed(1) };
   });
   // a climber half way up a scaffold's ladder, from beside it (the hands and feet on its rungs)
@@ -1179,9 +1179,9 @@ window.LK = {
 // tower's scaffold, a fallen tower's mound of broken stone with stormers on it, builders up on a house's scaffold
 (function () {
   const LK = window.LK, D = (g, n, f) => LK.def(g, n, f);
-  const sim = (L, s) => { const H = L.H, m = H.UI.modal; H.UI.modal = null; H.simulate(s, Math.min(0.05, s)); H.UI.modal = m || 'menu'; };
+  const sim = (L, s) => { const H = L.H, m = H.UI.modal; H.UI.modal = null; H.simulate(s, Math.min(0.05, s)); H.UI.modal = m || null; };
   // step the world at 60 Hz, `drive` moving the bodies a test holds (13r_motion.js motionRun with nothing to measure)
-  const run = (L, sec, drive) => { const H = L.H, m = H.UI.modal; H.UI.modal = null; const n = Math.round(sec * 60); for (let k = 0; k < n; k++) { if (drive) drive(k / 60, 1 / 60); H.motion.motionRun([], 1 / 60, 1 / 60); } H.UI.modal = m || 'menu'; };
+  const run = (L, sec, drive) => { const H = L.H, m = H.UI.modal; H.UI.modal = null; const n = Math.round(sec * 60); for (let k = 0; k < n; k++) { if (drive) drive(k / 60, 1 / 60); H.motion.motionRun([], 1 / 60, 1 / 60); } H.UI.modal = m || null; };
   // a camera round a point: the first of a few places at `d` m with nothing solid between it and the point
   LK.around = function (x, y, z, d, up, a0 = 0, look = null) {
     const H = this.H, F = this.F, Tr = F.W.trees;
@@ -1384,9 +1384,9 @@ window.LK = {
 // muster, and two guards mending a broken gate with mallets
 (function () {
   const LK = window.LK, D = (g, n, f) => LK.def(g, n, f);
-  const sim = (L, s) => { const H = L.H, m = H.UI.modal; H.UI.modal = null; H.simulate(s, Math.min(0.05, s)); H.UI.modal = m || 'menu'; };
+  const sim = (L, s) => { const H = L.H, m = H.UI.modal; H.UI.modal = null; H.simulate(s, Math.min(0.05, s)); H.UI.modal = m || null; };
   // frames with the world running in step with them (what is emitted shows, as in play), then held
-  const live = (L, sec, dt = 1 / 10) => { const H = L.H, m = H.UI.modal; H.UI.modal = null; for (let t = 0; t < sec - 1e-6; t += dt) H.frame(dt); H.UI.modal = m || 'menu'; };
+  const live = (L, sec, dt = 1 / 10) => { const H = L.H, m = H.UI.modal; H.UI.modal = null; for (let t = 0; t < sec - 1e-6; t += dt) H.frame(dt); H.UI.modal = m || null; };
   // a veteran of 50 who has laid the Hollow King to rest and brought the Ash-Crowned down, wearing a name (the mantle)
   LK.vet = function (name = 'ashbane') {
     const H = this.H, F = this.F, Lt = H.late.LATE2;
@@ -1412,7 +1412,7 @@ window.LK = {
     P.x = P.prevX = p.x; P.z = P.prevZ = p.z; P.y = p.y; P.yaw = yaw; P.vy = 0; P.onGround = true; P.motion = null; P.l3fall = null; P.hp = P.maxHp = 1e7; P.buffs.length = 0; P.casting = null; P.swim = false; P.target = null;
     F.setIndoor(true); this.afterIndoor = true;
     H.deep.DEEP.root.visible = true;
-    H.CAM.mode = 'play'; H.UI.modal = 'menu'; H.look(yaw, pitch, dist); H.CAM.near = dist;
+    H.CAM.mode = 'play'; H.UI.modal = null; H.look(yaw, pitch, dist); H.CAM.near = dist;
     return { at: [u, v], y: +p.y.toFixed(2) };
   };
   // the deep's dead in a hall cleared (a hall looked at on its own), or kept where they stand
@@ -1552,7 +1552,7 @@ window.LK = {
     H.CAM.yaw = Math.PI / 2;
     for (let k = 0; k < 110; k++) { H.CAM.yaw = Math.PI / 2; H.simulate(1 / 60, 1 / 60); }
     live(L, 0.2, 1 / 60);
-    H.INPUT.keys.clear(); H.UI.modal = 'menu';
+    H.INPUT.keys.clear(); H.UI.modal = null;
     // from abreast at the horse's flank, on whichever side the ground is lower (the camera on a rise looked down on it)
     const side = F.heightAt(P.x, P.z - 5) <= F.heightAt(P.x, P.z + 5) ? -1 : 1, cz = P.z + side * 4.6;
     return { ...L.cam(P.x + 0.6, Math.max(F.heightAt(P.x, cz) + 0.6, P.y + 1.35), cz, P.x + 0.3, P.y + 1.15, P.z), at: +(P.x - sp.x).toFixed(1), bard: H.vet3.late3BardCode(P), mount: !!P.mount, side };
@@ -1691,8 +1691,8 @@ window.LK = {
 // March (remote players: tools/tests/net_fake.js, look.py serve net)
 (function () {
   const LK = window.LK, D = (g, n, f) => LK.def(g, n, f);
-  const sim = (L, s) => { const H = L.H, m = H.UI.modal; H.UI.modal = null; H.simulate(s, Math.min(0.05, s)); H.UI.modal = m || 'menu'; };
-  const live = (L, sec, dt = 1 / 4) => { const H = L.H, m = H.UI.modal; H.UI.modal = null; for (let t = 0; t < sec - 1e-6; t += dt) H.frame(dt); H.UI.modal = m || 'menu'; };
+  const sim = (L, s) => { const H = L.H, m = H.UI.modal; H.UI.modal = null; H.simulate(s, Math.min(0.05, s)); H.UI.modal = m || null; };
+  const live = (L, sec, dt = 1 / 4) => { const H = L.H, m = H.UI.modal; H.UI.modal = null; for (let t = 0; t < sec - 1e-6; t += dt) H.frame(dt); H.UI.modal = m || null; };
   // the live weather with nothing in the sky but what a view makes (weather2.py's W2T.live)
   LK.wxLive = function () { const W = this.H.dbg.WEATHER, X = this.H.weather2; W.mode = 'auto'; W.next = 60; X.WX.on = true; X.calm(); X.fairSet([0.22, 0.34, 0.3]); X.WX.grid && X.WX.grid.wet && X.WX.grid.wet.fill(0); W.wet = 0; return X; };
   // the way from (x, z) at height y with the lowest horizon

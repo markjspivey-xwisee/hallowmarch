@@ -321,22 +321,47 @@ function hallOffers(P, offer) {
   offer(d(sp.basin), 1.9, 'Wash at the basin', () => hallBasin(H));
   offer(d(sp.hearth), 2.4, (P.wet || 0) > 0.05 || (P.snow || 0) > 0.05 ? 'Dry off and warm yourself by the hearth' : 'Rest by the hearth', () => hallHearth(H), 0.3);
   offer(d(sp.stores), 2.3, mine ? 'Buy building stores' : 'The stores (they belong to the holders of the keep)', () => hallStores(H));
-  if (!HALL.sit) offer(d(sp.seat), 1.7, mine ? `Sit in the high seat of ${H.S.name}` : 'Sit in the enemy lord\'s high seat', () => hallSit(H), 0.05);
+  if (!HALL.sit && mine) offer(d(sp.seat), 1.7, `Command from the high seat of ${H.S.name}`, () => hallSit(H), 0.05);
 }
 // the high seat: sit in it (the seated pose of the barrow's thrones and the townsfolk's benches); any step gets you up
 function hallSit(H) {
+  if (!hallSeatAvailable(H)) { uiError('This high seat is unavailable.'); return; }
+  if (typeof netEntityShared === 'function' && netEntityShared()) { netThroneClaim(H); return; }
+  hallSitConfirmed(H);
+}
+function hallSeatAvailable(H) {
+  const P = GAME.player, sp = H?.hallSpots?.seat;
+  return !!(P?.alive && !P.casting && sp && hallHolder(H) === P.faction && houseIntact(H)
+    && H.state !== 'burning' && dist2(P.x, P.z, sp.x, sp.z) <= 4);
+}
+function hallLeave(release = true) {
+  const St = HALL.sit, P = GAME.player;
+  if (!St) return;
+  HALL.sit = null;
+  if (typeof closeThroneRTS === 'function') closeThroneRTS(false);
+  if (P) { P.seat = null; if (P.alive) { P.x = P.prevX = St.front.x; P.z = P.prevZ = St.front.z; } }
+  if (release && typeof netThroneSend === 'function') netThroneSend('release', St.H.num);
+  if (UI.modal === 'map') toggleMap(false);
+}
+function hallThroneGrant() {
+  const St = HALL.sit;
+  return !!St && hallSeatAvailable(St.H)
+    && (!(typeof netEntityShared === 'function' && netEntityShared()) || netThroneHeld(St.H));
+}
+function hallSitConfirmed(H) {
   const P = GAME.player, it = H.items.find((q) => q.type === 'highseat');
   if (!it) return;
   const w = houseW(H, it.x, it.z), f = houseW(H, it.x + Math.sin(it.yaw) * 0.9, it.z + Math.cos(it.yaw) * 0.9);
   HALL.sit = { H, x: w.x, z: w.z, yaw: H.yaw + it.yaw, front: f, t: 0 };
   P.x = P.prevX = w.x; P.z = P.prevZ = w.z; P.yaw = H.yaw + it.yaw; P.seat = { y: H.y + 0.53 };
   uiLog(hallHolder(H) === P.faction ? `You take the high seat of ${H.S.name}.` : 'You sit in the enemy lord\'s high seat. It is not very comfortable.', 'sys');
+  if (typeof openThroneRTS !== 'function' || !openThroneRTS()) toggleMap(true);
 }
 // may the player command from here: standing at the war table of a keep their realm holds
 function hallCommandGrant() {
   const P = GAME.player, g = HALL.grant;
   if (!P || !g || !P.alive) return false;
-  if (hallHolder(g.H) !== P.faction || !houseIntact(g.H)) return false;
+  if (hallHolder(g.H) !== P.faction || !houseIntact(g.H) || g.H.state === 'burning') return false;
   return dist2(P.x, P.z, g.x, g.z) < 3.4 * 3.4;
 }
 function hallWarTable(H) {
@@ -415,15 +440,15 @@ function hallStores(H) {
 /* every step and every frame                                          */
 /* ------------------------------------------------------------------ */
 function updateHall(dt) {
+  if (typeof netThroneUpdate === 'function') netThroneUpdate();
   const P = GAME.player;
   if (!P) return;
   const St = HALL.sit;
   if (St) {
     const go = INPUT.joy || ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].some((k) => INPUT.keys.has(k));
-    if (go || !P.alive || P.casting || !houseIntact(St.H)) {
+    if (go || !hallThroneGrant()) {
       // up out of the seat, onto the floor in front of it
-      HALL.sit = null; P.seat = null;
-      if (P.alive) { P.x = P.prevX = St.front.x; P.z = P.prevZ = St.front.z; }
+      hallLeave();
     } else {
       St.t += dt;
       P.x = P.prevX = St.x; P.z = P.prevZ = St.z; P.yaw = St.yaw; P.seat = P.seat || { y: St.H.y + 0.53 };

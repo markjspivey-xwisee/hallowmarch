@@ -31,7 +31,11 @@ function fixture({ manifestGate, readGate, connectGate, readFailure, connectFail
     createKey() { counts.keyCreations++; throw Error('Startup must never replace a key'); },
     close() { counts.closes++; },
   };
-  const context = vm.createContext({ URL, AbortController, console, structuredClone, setTimeout: clock.setTimeout, clearTimeout: clock.clearTimeout,
+  // This lifecycle fixture has no page or loading panel. Keep the shipping
+  // display helpers real and provide the ordinary DOM lookup port explicitly.
+  const document = { getElementById: () => null };
+  const context = vm.createContext({ URL, AbortController, console, structuredClone, document, $: id => document.getElementById(id),
+    setTimeout: clock.setTimeout, clearTimeout: clock.clearTimeout,
     AbortSignal: { timeout(ms) { const controller = new AbortController(); clock.setTimeout(() => controller.abort(), ms); return controller.signal; } },
     async fetch(input, init) {
       const path = new URL(input, 'https://game.example').pathname;

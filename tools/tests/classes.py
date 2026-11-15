@@ -340,7 +340,7 @@ async def balance(page):
     if 'flat' in ARGS: await page.evaluate("CB.flat = true; 0")  # [balance5] no crater lasts a second (a probe of what the craters cost)
     rows = {}
     for lvl in LEVELS:
-        await page.evaluate(f"(() => {{ const H = __hm; if (H.GAME.player) H.fn.newCharacter(); H.start({{ realm: 0, cls: 'warrior', level: {lvl} }}); H.UI.modal = 'menu'; H.CAM.mode = 'fixed'; H.GAME.player.hp = 1e9; H.GAME.player.maxHp = 1e9; const W = H.dbg.WEATHER; W.mode = 'clear'; W.kind = 'clear'; H.fn.weatherAdvance(60); return 0; }})()")  # [balance3] clear skies for every measure: rain damps fire and soaks foes for storms, and a run's weather moved its duels
+        await page.evaluate(f"(async () => {{ const H = __hm; if (H.GAME.player) H.fn.newCharacter(); await H.start({{ realm: 0, cls: 'warrior', level: {lvl} }}); H.UI.modal = 'menu'; H.CAM.mode = 'fixed'; H.GAME.player.hp = 1e9; H.GAME.player.maxHp = 1e9; const W = H.dbg.WEATHER; W.mode = 'clear'; W.kind = 'clear'; H.fn.weatherAdvance(60); return 0; }})()")  # [balance3] clear skies for every measure: rain damps fire and soaks foes for storms, and a run's weather moved its duels
         p1, p2 = [], []
         # [balance3] together: both bots' dummies and packs in one phase when there are arenas for all of them (the world
         # is stepped anyway, so it takes half the time)
@@ -432,11 +432,11 @@ window.T = {
     return e;
   },
   clearAround(x, z, r) { for (const e of this.H.ENT) if (e.alive && e.role !== 'player' && e.kind !== 'door' && Math.hypot(e.x - x, e.z - z) < r) { e.damagers = null; this.F.killEnt(e, null); this.F.removeEnt(e); } },
-  fresh(cls, lvl, realm = 0) {
+  async fresh(cls, lvl, realm = 0) {
     const H = this.H, F = this.F;
     for (const e of H.ENT.slice()) if (e.testFoe) { e.damagers = null; if (e.alive) F.killEnt(e, null); F.removeEnt(e); }
     if (H.GAME.player) F.newCharacter();
-    H.start({ realm, cls, level: lvl });
+    await H.start({ realm, cls, level: lvl });
     const P = H.GAME.player;
     const s = this.spot(P);
     H.teleport(s.x, s.z);
@@ -454,7 +454,7 @@ async def mechanics(page):
     check(r['cls'] == 'object' and r['fns'] > 10, 'the class systems are attached to __hm.cls')
 
     # ---- warrior: stances, momentum and the finisher, block and parry ----
-    r = await ev(page, 'stances', """(() => { const P = T.fresh('warrior', 35, 1); const C = T.H.cls, F = T.F;
+    r = await ev(page, 'stances', """(async () => { const P = await T.fresh('warrior', 35, 1); const C = T.H.cls, F = T.F;
       const a = T.ahead(P, 2.2); const f = T.foe(2, a.x, a.z, 35); f.ai.nextAbility = 1e9; f.tweak = { swing: 1e6 }; F.setupStats(f);
       const out = {};
       // [balance] a shield on the arm turns a blow now and then: the most of a few blows is the stance's own measure
@@ -503,7 +503,7 @@ async def mechanics(page):
     check(r['behind'] >= r['open'] * 0.9, 'the shield does not cover your back (balanced stance)')
 
     # ---- archer: the draw, arrows as goods, hiding, snares ----
-    r = await ev(page, 'draw', """(() => { const P = T.fresh('archer', 30, 1); const C = T.H.cls, F = T.F, H = T.H;
+    r = await ev(page, 'draw', """(async () => { const P = await T.fresh('archer', 30, 1); const C = T.H.cls, F = T.F, H = T.H;
       const a = T.ahead(P, 22); const f = T.foe(2, a.x, a.z, 30, 'warrior', 0); f.ai.nextAbility = 1e9; f.tweak = { swing: 1e6, hp: 30 }; F.setupStats(f); f.testDummy = true; P.target = f.id; P.swingAt = 1e9;
       const shoot = (hold) => { C.startDraw(P); H.simulate(hold); const k = C.drawK(P); const hp0 = f.hp; C.releaseDraw(P, f); const A = C.CLS.arrows[C.CLS.arrows.length - 1]; const vy0 = A ? A.vy : 0; let vy1 = vy0;
         for (let i = 0; i < 40 && C.CLS.arrows.includes(A); i++) { vy1 = A.vy; H.simulate(0.05); }
@@ -557,7 +557,7 @@ async def mechanics(page):
         check(r['ambush'] == 1 and not r['after'], 'the first shot from cover is an ambush, and gives you away')
     else: check(False, 'found long grass to hide in')
 
-    r = await ev(page, 'snare', """(() => { const P = T.fresh('archer', 12, 2); const C = T.H.cls, F = T.F, H = T.H;
+    r = await ev(page, 'snare', """(async () => { const P = await T.fresh('archer', 12, 2); const C = T.H.cls, F = T.F, H = T.H;
       P.power = P.maxPower; const why = C.classTechnique(P); const S = C.CLS.snares[C.CLS.snares.length - 1];
       H.simulate(1.2);
       const f = T.foe(1, S.x + 3, S.z, 12, 'warrior', 0); f.ai.nextAbility = 1e9;
@@ -568,7 +568,7 @@ async def mechanics(page):
     check(r['frozen'], 'a Thule snare freezes what it catches')
 
     # ---- mage: elements, combos, attunement, ice, steam ----
-    r = await ev(page, 'elements', """(() => { const P = T.fresh('mage', 35, 0); const C = T.H.cls, F = T.F, H = T.H;
+    r = await ev(page, 'elements', """(async () => { const P = await T.fresh('mage', 35, 0); const C = T.H.cls, F = T.F, H = T.H;
       const mk = (d, side = 0) => { const a = T.ahead(P, d, side); const f = T.foe(2, a.x, a.z, 35, 'warrior', 0); f.ai.nextAbility = 1e9; f.tweak = { swing: 1e6, hp: 20 }; F.setupStats(f); return f; };
       const f = mk(16); P.target = f.id; P.swingAt = 1e9;
       const out = {};
@@ -615,7 +615,7 @@ async def mechanics(page):
         check(r['gone'], 'the ice melts away in time')
     else: check(False, 'found deep water to freeze')
 
-    r = await ev(page, 'frostspell', """(() => { const H = T.H, F = T.F, C = H.cls; const P = T.fresh('mage', 35, 2);
+    r = await ev(page, 'frostspell', """(async () => { const H = T.H, F = T.F, C = H.cls; const P = await T.fresh('mage', 35, 2);
       let best = null;
       for (let i = 0; i < 6000 && !best; i++) { const x = (Math.random() - 0.5) * 900, z = (Math.random() - 0.5) * 900; if (F.heightAt(x, z) > -3.6 || !F.isWalkable(x, z)) continue; const sx = x + 10, sz = z; if (F.isWalkable(sx, sz) && F.heightAt(sx, sz) > -3.0) best = { x, z, sx, sz }; }
       if (!best) return { ok: false };
@@ -630,7 +630,7 @@ async def mechanics(page):
         check(r['runes'] == 1, "a Thule mage's Blink lays a rune")
 
     # ---- priest: devotion, holy ground, smite the dead, raise the fallen, prayer ----
-    r = await ev(page, 'priest', """(() => { const P = T.fresh('priest', 30, 1); const C = T.H.cls, F = T.F, H = T.H;
+    r = await ev(page, 'priest', """(async () => { const P = await T.fresh('priest', 30, 1); const C = T.H.cls, F = T.F, H = T.H;
       const cs = C.csOf(P); cs.dev = 10;
       const ally = T.foe(1, P.x + 2, P.z, 30, 'warrior', 0); ally.hp = ally.maxHp * 0.3; ally.ai.nextAbility = 1e9;
       P.target = ally.id; P.power = P.maxPower; const d0 = C.devOf(P); F.useAbility(P, 'mend', ally); H.simulate(1.8);
@@ -649,7 +649,7 @@ async def mechanics(page):
     check(r['why'] is True and r['ground'] >= 1 and r['devAfter'] <= 40, 'T hallows the ground for 35 devotion')
     check(r['healed'] > 0 and r['burned'] > 0 and r['slowed'], 'holy ground heals allies and burns and slows the dead')
 
-    r = await ev(page, 'raise', """(() => { const P = T.fresh('priest', 20, 0); const C = T.H.cls, F = T.F, H = T.H;
+    r = await ev(page, 'raise', """(async () => { const P = await T.fresh('priest', 20, 0); const C = T.H.cls, F = T.F, H = T.H;
       const ally = T.foe(0, P.x + 3, P.z, 20, 'warrior', 0); ally.ai.nextAbility = 1e9;
       F.killEnt(ally, null); H.simulate(1);
       const cs = C.csOf(P); cs.dev = 90; cs.devAt = H.GAME.t;
@@ -658,7 +658,7 @@ async def mechanics(page):
     check(r['why'] is True and r['casting'], 'T near a fallen friend begins to raise them')
     check(r['alive'] and r['hp'] > 0.3, 'the fallen rise again')
 
-    r = await ev(page, 'pray', """(() => { const P = T.fresh('priest', 10, 2); const C = T.H.cls, H = T.H;
+    r = await ev(page, 'pray', """(async () => { const P = await T.fresh('priest', 10, 2); const C = T.H.cls, H = T.H;
       const cs = C.csOf(P); cs.dev = 0; P.power = 10; C.classHold(true); H.simulate(3); const dev = C.devOf(P), act = P.anim.act;
       const pose = H.fn.getEnt ? (() => { return 0; })() : 0;
       C.classHold(false);
@@ -666,7 +666,7 @@ async def mechanics(page):
     check(r['dev'] >= 20 and not r['praying'], f"prayer builds devotion ({r['dev']})")
 
     # ---- saves keep the stance, the focus and the arrow ----
-    r = await ev(page, 'save', """(() => { const P = T.fresh('warrior', 20, 0); const C = T.H.cls, F = T.F; C.setStance(P, 2);
+    r = await ev(page, 'save', """(async () => { const P = await T.fresh('warrior', 20, 0); const C = T.H.cls, F = T.F; C.setStance(P, 2);
       const s = F.buildSave(); const x = s.char ? s.char.x : s.x;
       const cls = x && x.cls; P.cs = null; F.savePartsLoad('char', { cls }); const after = C.csOf(P).stance;
       F.savePartsLoad('char', undefined); const old = C.csOf(P).stance;
@@ -676,7 +676,7 @@ async def mechanics(page):
     check(r['old'] == 1 and r['bad']['stance'] == 'balanced', 'older or broken saves load cleanly')
 
     # ---- the new visuals compile and draw: ice, a snare, a frozen shell, runes and holy ground ----
-    await ev(page, 'visuals', """(() => { const H = T.H, F = T.F, C = H.cls; const P = T.fresh('mage', 35, 2);
+    await ev(page, 'visuals', """(async () => { const H = T.H, F = T.F, C = H.cls; const P = await T.fresh('mage', 35, 2);
       const a = T.ahead(P, 6); const f = T.foe(1, a.x, a.z, 33, 'warrior', 0); f.ai.nextAbility = 1e9; f.testDummy = true; C.addChill(f, 3, P);
       C.freezeWater(P.x + 3, P.z, 5, P); C.laySnare(P); C.layRune(P, P.x - 2, P.z + 2, 'storm'); C.csOf(P).dev = 0; C.steamAt(a.x, a.z, 4, P);
       const pr = T.foe(0, P.x - 3, P.z, 30, 'priest', 0); pr.cs = null; C.csOf(pr).dev = 90; C.csOf(pr).devAt = H.GAME.t; pr.level = 30; H.fn.useAbility(pr, 'consecrate', null);
@@ -688,7 +688,7 @@ async def mechanics(page):
     await page.evaluate("__hm.UI.modal = null; __hm.CAM.mode = 'play'; 0")
 
     # ---- [balance] diminishing returns on control, the parry's stun, the freeze, the raise offer, tracked quarry ----
-    r = await ev(page, 'dr', """(() => { const P = T.fresh('warrior', 30, 0); const H = T.H, F = T.F, B = H.bal, C = H.cls;
+    r = await ev(page, 'dr', """(async () => { const P = await T.fresh('warrior', 30, 0); const H = T.H, F = T.F, B = H.bal, C = H.cls;
       const a = T.ahead(P, 3); const f = T.foe(2, a.x, a.z, 30, 'warrior', 0); f.ai.nextAbility = 1e9; f.tweak = { swing: 1e6 }; F.setupStats(f);
       const dur = (e, kind, src, d = 2) => { e.buffs = e.buffs.filter((b) => b.kind !== kind); F.addBuff(e, kind, 1, d, src); const b = e.buffs.find((q) => q.kind === kind && q.src === src); return b ? +(b.until - H.GAME.t).toFixed(2) : 0; };
       const out = {};
@@ -718,7 +718,7 @@ async def mechanics(page):
     fz = r['freeze']
     check(fz[0] > 1.4 and 0.6 < fz[1] < 0.9 and fz[3] == 0, f"a player frozen again and again thaws sooner, then cannot be frozen ({fz})")
 
-    r = await ev(page, 'raise-offer', """(() => { const P = T.fresh('archer', 24, 1); const H = T.H, F = T.F, B = H.bal;
+    r = await ev(page, 'raise-offer', """(async () => { const P = await T.fresh('archer', 24, 1); const H = T.H, F = T.F, B = H.bal;
       const pr = T.foe(1, P.x + 9, P.z + 3, 22, 'priest', 18); pr.ai.nextAbility = 1e9; pr.combatUntil = -99;
       F.killEnt(P, null); H.simulate(1.5);
       const offer = !!B.BAL.offer, shown = !document.getElementById('death-raise').hidden, who = document.getElementById('death-raise-who').textContent;
@@ -728,7 +728,7 @@ async def mechanics(page):
     check(r['offer'] and r['shown'] and 'priest' in r['who'], f"an allied priest close by offers to raise the fallen player ({r['who']})")
     check(r['alive'] and 0.3 < r['hp'] < 0.6 and r['deathHidden'], f"accepted, the priest comes over and raises the player ({r['t']} s, {r['hp']*100:.0f}% health, priest {r['near']} m away)")
 
-    r = await ev(page, 'tracked', """(() => { const P = T.fresh('archer', 20, 0); const H = T.H, F = T.F, C = H.cls;
+    r = await ev(page, 'tracked', """(async () => { const P = await T.fresh('archer', 20, 0); const H = T.H, F = T.F, C = H.cls;
       const a = T.ahead(P, 16); const f = T.foe(2, a.x, a.z, 20, 'warrior', 0); f.ai.nextAbility = 1e9; f.tweak = { swing: 1e6, hp: 20 }; F.setupStats(f);
       P.target = f.id; P.cds = {}; P.gcdUntil = 0; P.power = P.maxPower; F.useAbility(P, 'cripple', f); H.simulate(1.2);
       const tracked = f.buffs.some((b) => b.kind === 'tracked' && b.src === P.id);
@@ -739,7 +739,7 @@ async def mechanics(page):
     check(r['cut'] and r['glow'], 'a rune is laid as a dark cut with a glow over it')
 
     # ---- NPCs of every calling use their craft ----
-    r = await ev(page, 'npcs', """(() => { const H = T.H, F = T.F, C = H.cls; const P = T.fresh('warrior', 30, 0); const s0 = JSON.parse(JSON.stringify(C.CLS.stats));
+    r = await ev(page, 'npcs', """(async () => { const H = T.H, F = T.F, C = H.cls; const P = await T.fresh('warrior', 30, 0); const s0 = JSON.parse(JSON.stringify(C.CLS.stats));
       const S = T.spot(P); const units = [];
       const cls = ['warrior', 'archer', 'mage', 'priest'];
       for (let i = 0; i < 8; i++) { const c = cls[Math.floor(i / 2)]; const u = T.foe(1 + (i % 2), S.x + (i % 2 ? 8 : -8), S.z + (Math.floor(i / 2) - 2) * 3, 30, c, 18); units.push(u); }
@@ -765,7 +765,7 @@ async def balance3(page):
     """pursuit, frost holds, one rush, half-piercing bodkins and Deadeye, the dazzle, the shield wall, the wound and a
     priest's own healing by rank, and NPC warriors walling against a bow"""
     await page.evaluate("() => {" + MECH_JS + "; return 0; }")
-    r = await ev(page, 'pursuit', """(() => { const P = T.fresh('warrior', 20, 0); const H = T.H, F = T.F;
+    r = await ev(page, 'pursuit', """(async () => { const P = await T.fresh('warrior', 20, 0); const H = T.H, F = T.F;
       const a = T.ahead(P, 18); const f = T.foe(2, a.x, a.z, 20, 'archer', 0); f.ai.nextAbility = 1e9; f.swingAt = 1e9;
       P.target = f.id; P.cds.charge = H.GAME.t + 9; const c0 = P.cds.charge - H.GAME.t;
       F.dealDamage(f, P, 10, { kind: 'arrow' }); const c1 = P.cds.charge - H.GAME.t;
@@ -777,9 +777,9 @@ async def balance3(page):
     check(abs(r['c0'] - r['c1']) < 0.05 and abs(r['c1'] - r['c2']) < 0.05, f"arrows and bolts no longer bring Charge sooner: it rushes now ({r['c0']} -> {r['c1']} -> {r['c2']})")
     check(abs(r['c2'] - r['c3']) < 0.05 and abs(r['c3'] - r['c4']) < 0.05, 'nor a blade or a burning wound')
 
-    r = await ev(page, 'frost-holds', """(() => { const H = T.H, F = T.F, B3 = H.bal3; const out = {};
+    r = await ev(page, 'frost-holds', """(async () => { const H = T.H, F = T.F, B3 = H.bal3; const out = {};
       for (const ml of [20, 30]) {
-        const P = T.fresh('warrior', 30, 0); const a = T.ahead(P, 3); const m = T.foe(2, a.x, a.z, ml, 'mage', 0); m.ai.nextAbility = 1e9; m.swingAt = 1e9;
+        const P = await T.fresh('warrior', 30, 0); const a = T.ahead(P, 3); const m = T.foe(2, a.x, a.z, ml, 'mage', 0); m.ai.nextAbility = 1e9; m.swingAt = 1e9;
         const fa = T.ahead(P, 15); const t = T.foe(1, fa.x, fa.z, 30, 'warrior', 0); t.ai.nextAbility = 1e9; t.swingAt = 1e9;
         H.simulate(0.1); // the spatial grid knows where everyone is now
         H.cls.csOf(m).focus = 'frost'; m.cds = {}; m.gcdUntil = 0; m.power = m.maxPower; const why = F.useAbility(m, 'nova', null);
@@ -788,7 +788,7 @@ async def balance3(page):
         out['m' + ml] = { why, d: +Math.hypot(m.x - P.x, m.z - P.z).toFixed(1), buffs: P.buffs.map((b) => b.kind).join(','), rooted, deep: B3.deepFrostHeld(P), leap: B3.canUse(P, 'leap', t), charge: B3.canUse(P, 'charge', t) };
       }
       // a blizzard: no Charge or Leap out of it
-      const P = T.fresh('warrior', 30, 0); const fa = T.ahead(P, 15); const t = T.foe(1, fa.x, fa.z, 30, 'warrior', 0); t.ai.nextAbility = 1e9;
+      const P = await T.fresh('warrior', 30, 0); const fa = T.ahead(P, 15); const t = T.foe(1, fa.x, fa.z, 30, 'warrior', 0); t.ai.nextAbility = 1e9;
       F.addBuff(P, 'snare', 0.4, 2, 999, { blizzard: true }); P.cds = {}; P.gcdUntil = 0; P.power = P.maxPower;
       out.bliz = { leap: B3.canUse(P, 'leap', t), charge: B3.canUse(P, 'charge', t) };
       return out; })()""")
@@ -796,18 +796,18 @@ async def balance3(page):
     check(r['m30']['rooted'] and r['m30']['deep'] and r['m30']['leap'] == 'held' and r['m30']['charge'] == 'held', f"a seasoned mage's frost holds against Charge too ({r['m30']})")
     check(r['bliz']['leap'] == 'held' and r['bliz']['charge'] == 'held', f"no Charge or Leap Strike out of a blizzard ({r['bliz']})")
 
-    r = await ev(page, 'rush', """(() => { const H = T.H, F = T.F; const P = T.fresh('warrior', 30, 0);
+    r = await ev(page, 'rush', """(async () => { const H = T.H, F = T.F; const P = await T.fresh('warrior', 30, 0);
       const fa = T.ahead(P, 15); const t = T.foe(1, fa.x, fa.z, 30, 'warrior', 0); t.ai.nextAbility = 1e9; t.swingAt = 1e9; P.target = t.id;
       P.cds = {}; P.gcdUntil = 0; P.power = P.maxPower; const w1 = F.useAbility(P, 'charge', t); const leapCd = (P.cds.leap || 0) - H.GAME.t;
-      H.simulate(1); const P2 = T.fresh('warrior', 30, 0); const fb = T.ahead(P2, 15); const t2 = T.foe(1, fb.x, fb.z, 30, 'warrior', 0); t2.ai.nextAbility = 1e9; t2.swingAt = 1e9;
+      H.simulate(1); const P2 = await T.fresh('warrior', 30, 0); const fb = T.ahead(P2, 15); const t2 = T.foe(1, fb.x, fb.z, 30, 'warrior', 0); t2.ai.nextAbility = 1e9; t2.swingAt = 1e9;
       P2.cds = {}; P2.gcdUntil = 0; P2.power = P2.maxPower; const w2 = F.useAbility(P2, 'leap', t2); const chCd = (P2.cds.charge || 0) - H.GAME.t;
-      const P3 = T.fresh('warrior', 20, 0); const fc = T.ahead(P3, 15); const t3 = T.foe(1, fc.x, fc.z, 20, 'warrior', 0); t3.ai.nextAbility = 1e9; P3.cds = {}; P3.gcdUntil = 0; P3.power = P3.maxPower;
+      const P3 = await T.fresh('warrior', 20, 0); const fc = T.ahead(P3, 15); const t3 = T.foe(1, fc.x, fc.z, 20, 'warrior', 0); t3.ai.nextAbility = 1e9; P3.cds = {}; P3.gcdUntil = 0; P3.power = P3.maxPower;
       F.useAbility(P3, 'charge', t3); const low = (P3.cds.leap || 0) - H.GAME.t;
       H.simulate(1.2); return { w1, leapCd: +leapCd.toFixed(1), w2, chCd: +chCd.toFixed(1), low: +low.toFixed(1), share: H.bal7 ? H.bal7.B7T.rushShare : 10 }; })()""")
     check(r['w1'] is True and r['leapCd'] >= r['share'] - 0.1 and r['w2'] is True and r['chCd'] >= r['share'] - 0.1, f"Charge and Leap Strike are one rush ({r['leapCd']} s, {r['chCd']} s; [balance7] the share {r['share']} s)")
     check(r['low'] <= 0, 'below Leap Strike a Charge holds nothing back')
 
-    r = await ev(page, 'pierce', """(() => { const H = T.H, F = T.F; const P = T.fresh('archer', 50, 0);
+    r = await ev(page, 'pierce', """(async () => { const H = T.H, F = T.F; const P = await T.fresh('archer', 50, 0);
       const a = T.ahead(P, 10); const f = T.foe(2, a.x, a.z, 50, 'warrior', 0); f.ai.nextAbility = 1e9; f.swingAt = 1e9; f.testDummy = true; f.drBase = 0.5; f.maxHp *= 50; f.hp = f.maxHp;
       const hit = (opts) => { let s = 0; for (let i = 0; i < 40; i++) { const hp0 = f.hp; F.dealDamage(P, f, 100, opts); s += hp0 - f.hp; f.hp = f.maxHp; } return s / 40; };
       f.buffs.length = 0; f.cs = null;
@@ -815,9 +815,9 @@ async def balance3(page):
       return { plain: Math.round(plain), half: Math.round(half), full: Math.round(full) }; })()""")
     check(abs(r['half'] / max(1, r['plain']) - 1.5) < 0.12 and abs(r['full'] / max(1, r['plain']) - 2) < 0.15, f"half a piercing goes through half the armour ({r['plain']}, {r['half']}, {r['full']} against armour 0.5)")
 
-    r = await ev(page, 'dazzle', """(() => { const H = T.H, F = T.F, C = H.cls, B3 = H.bal3; const out = {};
+    r = await ev(page, 'dazzle', """(async () => { const H = T.H, F = T.F, C = H.cls, B3 = H.bal3; const out = {};
       for (const pl of [10, 30, 50]) {
-        const P = T.fresh('warrior', pl, 0); const a = T.ahead(P, 2.2); const pr = T.foe(2, a.x, a.z, pl, 'priest', 0); pr.ai.nextAbility = 1e9; pr.swingAt = 1e9;
+        const P = await T.fresh('warrior', pl, 0); const a = T.ahead(P, 2.2); const pr = T.foe(2, a.x, a.z, pl, 'priest', 0); pr.ai.nextAbility = 1e9; pr.swingAt = 1e9;
         F.dealDamage(pr, P, 5, { kind: 'holy' }); const b = P.buffs.find((q) => q.kind === 'dazzle');
         // the dazzled warrior swings: some blows miss
         let miss = 0; const N = 400; for (let i = 0; i < N; i++) { if (C.classHarm(P, pr, 100, { kind: 'melee' }) === 0) miss++; }
@@ -835,7 +835,7 @@ async def balance3(page):
         check(abs(q['miss'] - want) < 0.07, f"a dazzled warrior misses about {want:.0%} of its blows at level {lv} ({q['miss']})")
     check(r['10']['parried'] == 0 and r['30']['parried'] == 0 and r['50']['parried'] == 0, f"a dazzled warrior cannot parry, at every rank now ([balance4]: {r['10']['parried']}, {r['30']['parried']}, {r['50']['parried']})")
 
-    r = await ev(page, 'wall', """(() => { const H = T.H, F = T.F, C = H.cls; const P = T.fresh('warrior', 20, 0); const out = {};
+    r = await ev(page, 'wall', """(async () => { const H = T.H, F = T.F, C = H.cls; const P = await T.fresh('warrior', 20, 0); const out = {};
       for (const st of [0, 1]) { C.setStance(P, st); C.csOf(P).stanceAt = -9; P.buffs.length = 0; C.classHold(true); H.simulate(0.1); out['s' + st] = +(H.bal3.effectiveSpeed(P) / P.speed).toFixed(2); C.classHold(false); H.simulate(0.6); }
       // an NPC warrior, guarded, walls against an archer out of reach
       const a = T.ahead(P, 3); const w = T.foe(2, a.x, a.z, 30, 'warrior', 30); w.ai.nextAbility = 1e9; const b = T.ahead(P, 25); const ar = T.foe(0, b.x, b.z, 30, 'archer', 0); ar.ai.nextAbility = 1e9; ar.swingAt = 1e9;
@@ -845,8 +845,8 @@ async def balance3(page):
     check(r['s0'] >= 0.99 and abs(r['s1'] - 0.55) < 0.03, f"guarded, a warrior walks at full pace behind a raised shield ([balance4]; balanced {r['s1']}, guarded {r['s0']})")
     check(r['npcWall'], f"an NPC warrior raises a shield wall against a bow out of reach ({r})")
 
-    r = await ev(page, 'wound', """(() => { const H = T.H, F = T.F, B = H.bal; const out = {};
-      for (const lv of [20, 30, 50]) { const P = T.fresh('archer', lv, 0); out[lv] = { wound: B.woundOf(P), self: +B.priestSelf({ level: lv }).toFixed(3) }; }
+    r = await ev(page, 'wound', """(async () => { const H = T.H, F = T.F, B = H.bal; const out = {};
+      for (const lv of [20, 30, 50]) { const P = await T.fresh('archer', lv, 0); out[lv] = { wound: B.woundOf(P), self: +B.priestSelf({ level: lv }).toFixed(3) }; }
       out.late = H.bal8 ? H.bal8.B8T.woundLate : 0.3; out.selfLate = H.bal8 ? [30, 50].map((lv) => H.bal8.priestSelfLateK({ level: lv })) : [0.55, 0.55]; // [balance8] the late measures, rank by rank (07c_balance8.js)
       return out; })()""")
     check(r['20']['wound'] == 0.3 and r['30']['wound'] == r['late'] and r['50']['wound'] == r['late'], f"a broadhead's wound: 30% at rank I, {r['late'] * 100:g}% from rank II ([balance5]: 30% at every rank; [balance8] the late wound on whole ground) ({r})")
@@ -860,14 +860,14 @@ async def balance4(page):
     heal does not grow with rank; a volley falls over a raised shield; a dazzled warrior cannot parry at rank I; the
     realm's way can be set aside for a measure (plainCalling)"""
     await page.evaluate("() => {" + MECH_JS + "; return 0; }")
-    r = await ev(page, 'rush', """(() => { const H = T.H, F = T.F; const P = T.fresh('warrior', 20, 0);
+    r = await ev(page, 'rush', """(async () => { const H = T.H, F = T.F; const P = await T.fresh('warrior', 20, 0);
       const a = T.ahead(P, 18); const f = T.foe(2, a.x, a.z, 20, 'mage', 0); /* (not a bow: an archer slips one blade in seven) */ f.ai.nextAbility = 1e9; f.swingAt = 1e9; f.tweak = { hp: 20 }; F.setupStats(f);
       H.simulate(0.1); P.target = f.id; P.cds = {}; P.gcdUntil = 0; P.power = P.maxPower; const d0 = Math.hypot(f.x - P.x, f.z - P.z), hp0 = f.hp;
       const r = F.useAbility(P, 'charge', f); const trail = [];
       for (let i = 0; i < 6; i++) { H.simulate(0.2); trail.push(+Math.hypot(f.x - P.x, f.z - P.z).toFixed(1)); }
       const landed = H.bal4.RUSH.stats.arrived; const harm = Math.round(hp0 - f.hp);
       // the footing and the shield arm: right after the rush, abilities wait and Shield Bash waits longer
-      const P2 = T.fresh('warrior', 20, 0); const b = T.ahead(P2, 14); const f2 = T.foe(2, b.x, b.z, 20, 'warrior', 0); f2.ai.nextAbility = 1e9; f2.swingAt = 1e9; f2.tweak = { hp: 20 }; F.setupStats(f2);
+      const P2 = await T.fresh('warrior', 20, 0); const b = T.ahead(P2, 14); const f2 = T.foe(2, b.x, b.z, 20, 'warrior', 0); f2.ai.nextAbility = 1e9; f2.swingAt = 1e9; f2.tweak = { hp: 20 }; F.setupStats(f2);
       H.simulate(0.1); P2.cds = {}; P2.gcdUntil = 0; P2.power = P2.maxPower; F.useAbility(P2, 'charge', f2);
       let t = 0; while (P2.motion && t < 3) { H.simulate(0.05); t += 0.05; }
       const footing = F.useAbility ? H.bal.canUse(P2, 'slash', f2) : null; H.simulate(1.05); const after = H.bal.canUse(P2, 'slash', f2), bash = H.bal.canUse(P2, 'bash', f2);
@@ -875,7 +875,7 @@ async def balance4(page):
     check(r['r'] is True and r['trail'][-1] < 3.2 and r['trail'][0] < r['d0'] - 2, f"Charge rushes the warrior to the foe ({r['d0']} m -> {r['trail']})")
     check(r['harm'] > 0, f"and strikes it as it lands ({r['harm']} harm)")
     check(r['footing'] == 'cooldown' and r['after'] is None and r['bash'] == 'cooldown', f"its abilities wait for its footing, Shield Bash longer ({r['footing']}, then {r['after']}; bash {r['bash']})")
-    r = await ev(page, 'rush-snare', """(() => { const H = T.H, F = T.F, C = H.cls; const P = T.fresh('warrior', 20, 0);
+    r = await ev(page, 'rush-snare', """(async () => { const H = T.H, F = T.F, C = H.cls; const P = await T.fresh('warrior', 20, 0);
       const a = T.ahead(P, 20); const ar = T.foe(2, a.x, a.z, 20, 'archer', 0); ar.ai.nextAbility = 1e9; ar.swingAt = 1e9; ar.yaw = Math.atan2(P.x - ar.x, P.z - ar.z);
       H.simulate(0.1); C.laySnare(ar); H.simulate(1.2); const S = C.CLS.snares[C.CLS.snares.length - 1];
       // on the rush's way: half way between them (a snare at the bow's feet lies inside the rush's reach, where it stops)
@@ -886,8 +886,8 @@ async def balance4(page):
     check(r['caught'] and r['rooted'] and r['d'] > 2.0, f"a snare in the rush's path catches the warrior and holds it there ({r})")
     # [balance4] a foe walking away is reached on the step that closes on it (the rush ran at its heels for 1.9 s), and
     # until Leap Strike the blow slows it by 45% for 3 s; from Leap Strike's level it does not slow
-    r = await ev(page, 'rush-flee', """(() => { const H = T.H, F = T.F; const out = {};
-      for (const lv of [20, 30]) { const P = T.fresh('warrior', lv, 0); const a = T.ahead(P, 14); const f = T.foe(2, a.x, a.z, lv, 'archer', 0); f.ai.nextAbility = 1e9; f.swingAt = 1e9; f.tweak = { hp: 20, speed: 0.01 }; F.setupStats(f);
+    r = await ev(page, 'rush-flee', """(async () => { const H = T.H, F = T.F; const out = {};
+      for (const lv of [20, 30]) { const P = await T.fresh('warrior', lv, 0); const a = T.ahead(P, 14); const f = T.foe(2, a.x, a.z, lv, 'archer', 0); f.ai.nextAbility = 1e9; f.swingAt = 1e9; f.tweak = { hp: 20, speed: 0.01 }; F.setupStats(f);
         H.simulate(0.1); P.target = f.id; P.cds = {}; P.gcdUntil = 0; P.power = P.maxPower; f.buffs.length = 0;
         const L = Math.hypot(f.x - P.x, f.z - P.z), ux = (f.x - P.x) / L, uz = (f.z - P.z) / L; let t = 0;
         F.useAbility(P, 'charge', f);
@@ -901,39 +901,39 @@ async def balance4(page):
     late = await page.evaluate("!!(__hm.bal7 && __hm.bal7.B7T.chargeSlowLate)")  # [balance7] its blow slows at every level now
     check((abs(r['30']['slow'] - rse[0]) < 0.01) if late else r['30']['slow'] == 0, f"from Leap Strike's level the rush's blow {'slows as below it ([balance7])' if late else 'does not slow'} ({r['30']})")
     # [balance4] a skilled priest of rank I holds its mace from a warrior's guard; from rank II it swings
-    r = await ev(page, 'hold-mace', """(() => { const H = T.H; const out = {};
-      for (const lv of [10, 30]) { const P = T.fresh('warrior', lv, 0); const a = T.ahead(P, 2.5); const pr = T.F.spawnRealmUnit(2, 'priest', lv, 'bot', a.x, a.z); pr.testFoe = true; H.bal.botMake(pr, 'skilled'); pr.target = P.id; H.simulate(0.6); out[lv] = !!(pr.bot && pr.bot.holdMace); }
+    r = await ev(page, 'hold-mace', """(async () => { const H = T.H; const out = {};
+      for (const lv of [10, 30]) { const P = await T.fresh('warrior', lv, 0); const a = T.ahead(P, 2.5); const pr = T.F.spawnRealmUnit(2, 'priest', lv, 'bot', a.x, a.z); pr.testFoe = true; H.bal.botMake(pr, 'skilled'); pr.target = P.id; H.simulate(0.6); out[lv] = !!(pr.bot && pr.bot.holdMace); }
       return out; })()""")
     check(r['10'] is True and r['30'] is False, f"a skilled priest of rank I holds its mace from a warrior's guard, not from rank II ({r})")
-    r = await ev(page, 'rush-why', """(() => { const H = T.H; const P = T.fresh('warrior', 20, 0); const A = { dash: true, id: 'charge' };
+    r = await ev(page, 'rush-why', """(async () => { const H = T.H; const P = await T.fresh('warrior', 20, 0); const A = { dash: true, id: 'charge' };
       const out = { foot: H.bal4.rushWhy(P, A, null) }; P.mount = {}; out.mounted = H.bal4.rushWhy(P, A, null); P.mount = null; P.swim = true; out.swim = H.bal4.rushWhy(P, A, null); P.swim = false;
       // a posted guard rushes only at a foe within its leash of its post
       const a = T.ahead(P, 16); const g = T.foe(2, a.x, a.z, 20, 'warrior', 4); out.post = H.bal4.rushWhy(g, A, P); g.ai.post.leash = 20; out.near = H.bal4.rushWhy(g, A, P); return out; })()""")
     check(r['foot'] is None and r['mounted'] == 'mounted' and r['swim'] == 'swimming', f"no rush on a horse or in the water ({r})")
     check(r['post'] == 'post' and r['near'] is None, f"a guard at its post rushes only at a foe within its leash ({r})")
-    r = await ev(page, 'mend', """(() => { const H = T.H, F = T.F, C = H.cls; const out = {};
-      for (const k of [0.95, 0.75, 0.4]) { const P = T.fresh('priest', 20, 0); C.csOf(P).dev = 0; P.hp = P.maxHp * k; P.power = P.maxPower; P.cds = {}; P.gcdUntil = 0; const h0 = P.hp;
+    r = await ev(page, 'mend', """(async () => { const H = T.H, F = T.F, C = H.cls; const out = {};
+      for (const k of [0.95, 0.75, 0.4]) { const P = await T.fresh('priest', 20, 0); C.csOf(P).dev = 0; P.hp = P.maxHp * k; P.power = P.maxPower; P.cds = {}; P.gcdUntil = 0; const h0 = P.hp;
         F.useAbility(P, 'mend', P); H.simulate(1.7); out[k] = +((P.hp - h0) / P.maxHp).toFixed(3); }
       out.wound = [0.95, 0.75, 0.4].map((k) => +H.bal4.mendWound({ hp: k, maxHp: 1 }).toFixed(2)); return out; })()""")
     check(r['0.4'] > 0.25 and r['0.75'] < r['0.4'] * 0.8 and r['0.95'] <= 0.05 + 1e-3, f"Mend weighs the wound: a deep one mends in full, a light one less, a scratch little ({r})")
-    r = await ev(page, 'pillar-self', """(() => { const H = T.H, F = T.F, C = H.cls; const P = T.fresh('priest', 30, 0); C.csOf(P).dev = 0;
+    r = await ev(page, 'pillar-self', """(async () => { const H = T.H, F = T.F, C = H.cls; const P = await T.fresh('priest', 30, 0); C.csOf(P).dev = 0;
       const a = T.ahead(P, 2.5); const f = T.foe(2, a.x, a.z, 30, 'warrior', 0); f.ai.nextAbility = 1e9; f.swingAt = 1e9;
       H.simulate(0.1); P.hp = P.maxHp * 0.3; P.power = P.maxPower; P.cds = {}; P.gcdUntil = 0; F.useAbility(P, 'pillar', f);
       // the column's heal lands at once; the rest of the climb is the body's own mending (measure the one step it lands in)
       let jump = 0; for (let i = 0; i < 50; i++) { const h = P.hp; H.simulate(0.05); jump = Math.max(jump, P.hp - h); }
       return { healed: +(jump / P.maxHp).toFixed(3), want: +(0.3 * H.fn.rankMult(30) * H.bal.priestSelf(P)).toFixed(3) }; })()""")
     check(abs(r['healed'] - r['want']) < 0.03, f"a priest in its own Pillar of Dawn mends as its own wounds do ({r})")
-    r = await ev(page, 'rally', """(() => { const H = T.H, F = T.F, C = H.cls; const out = {};
-      for (const lv of [20, 30, 50]) { const P = T.fresh('warrior', lv, 0); C.setStance(P, 1); P.hp = P.maxHp * 0.3; const h0 = P.hp; P.power = P.maxPower; P.cds = {}; P.gcdUntil = 0; F.useAbility(P, 'rally', P); out[lv] = +((P.hp - h0) / P.maxHp).toFixed(3); }
+    r = await ev(page, 'rally', """(async () => { const H = T.H, F = T.F, C = H.cls; const out = {};
+      for (const lv of [20, 30, 50]) { const P = await T.fresh('warrior', lv, 0); C.setStance(P, 1); P.hp = P.maxHp * 0.3; const h0 = P.hp; P.power = P.maxPower; P.cds = {}; P.gcdUntil = 0; F.useAbility(P, 'rally', P); out[lv] = +((P.hp - h0) / P.maxHp).toFixed(3); }
       return out; })()""")
     check(all(abs(v - 0.35) < 0.01 for v in r.values()), f"Rallying Cry heals 35% (balanced) at every rank ({r})")
-    r = await ev(page, 'volley-shield', """(() => { const H = T.H, F = T.F, C = H.cls; const P = T.fresh('warrior', 30, 0);
+    r = await ev(page, 'volley-shield', """(async () => { const H = T.H, F = T.F, C = H.cls; const P = await T.fresh('warrior', 30, 0);
       const a = T.ahead(P, 15); const ar = T.foe(2, a.x, a.z, 30, 'archer', 0); ar.ai.nextAbility = 1e9; ar.swingAt = 1e9; P.yaw = Math.atan2(ar.x - P.x, ar.z - P.z);
       C.setStance(P, 0); C.csOf(P).stanceAt = -9; C.classHold(true); H.simulate(0.1); C.csOf(P).blockAt = -9;
       const arrow = C.classHarm(ar, P, 100, { kind: 'arrow' }), volley = C.classHarm(ar, P, 100, { kind: 'aoe' }); C.classHold(false);
       return { arrow: Math.round(arrow), volley: Math.round(volley) }; })()""")
     check(r['arrow'] < 30 and r['volley'] > 60, f"a raised shield turns an arrow but not a volley falling from above ({r})")
-    r = await ev(page, 'plain', """(() => { const H = T.H, F = T.F, C = H.cls; const P = T.fresh('warrior', 20, 2); const a = T.ahead(P, 2); const f = T.foe(1, a.x, a.z, 20, 'warrior', 0); f.ai.nextAbility = 1e9;
+    r = await ev(page, 'plain', """(async () => { const H = T.H, F = T.F, C = H.cls; const P = await T.fresh('warrior', 20, 2); const a = T.ahead(P, 2); const f = T.foe(1, a.x, a.z, 20, 'warrior', 0); f.ai.nextAbility = 1e9;
       C.setStance(P, 2); P.hp = P.maxHp * 0.25; let s0 = 0, s1 = 0; for (let i = 0; i < 200; i++) s0 += C.classHarm(P, f, 100, { kind: 'melee', dot: true }); P.plainCalling = true; for (let i = 0; i < 200; i++) s1 += C.classHarm(P, f, 100, { kind: 'melee', dot: true }); P.plainCalling = false; P.hp = P.maxHp;
       return { berserk: +(s0 / 200).toFixed(1), plain: +(s1 / 200).toFixed(1) }; })()""")
     check(r['berserk'] > r['plain'] * 1.05, f"a measure can set the realm's way aside: a Thule warrior's Berserk against the plain calling ({r})")
@@ -945,7 +945,7 @@ async def balance5(page):
     """[balance5] Holy Fire flares a caster's spell away (not a steadfast one) within 10 m; every Renewal on yourself
     steadies; Whirlwind heals in the press; the realm's ways evened out"""
     await page.evaluate("() => {" + MECH_JS + "; return 0; }")
-    r = await ev(page, 'flare', """(() => { const H = T.H, F = T.F, C = H.cls; const P = T.fresh('priest', 20, 0);
+    r = await ev(page, 'flare', """(async () => { const H = T.H, F = T.F, C = H.cls; const P = await T.fresh('priest', 20, 0);
       const a = T.ahead(P, 8); const m = T.foe(2, a.x, a.z, 20, 'mage', 0); m.ai.nextAbility = 1e9; m.swingAt = 1e9; H.simulate(0.1);
       const out = {};
       // a mage in the middle of a firebolt close by: Holy Fire breaks it
@@ -967,21 +967,21 @@ async def balance5(page):
     check(r['far'], f"a mage beyond the flare's reach keeps its spell ({r['far']})")
     check(r['steady'] and (r['kept'] != r['through']), f"a priest steadfast from its own Renewal " + ("loses its Mend to the flare all the same ([balance8]: the flare is no blow)" if r['through'] else "keeps its Mend through the flare") + f" ({r})")
     check(not r['q2'] and r['stale'] and r['fresh'], f"every Renewal on yourself steadies for 4 s (the fresh Renewal's rule was tried and set aside) ({r})")
-    r = await ev(page, 'wound', """(() => { const H = T.H, F = T.F; const P = T.fresh('archer', 20, 0);
+    r = await ev(page, 'wound', """(async () => { const H = T.H, F = T.F; const P = await T.fresh('archer', 20, 0);
       const a = T.ahead(P, 14); const q = T.foe(2, a.x, a.z, 20, 'priest', 0); q.ai.nextAbility = 1e9; q.swingAt = 1e9; H.simulate(0.1);
       P.target = q.id; P.cds = {}; P.gcdUntil = 0; P.power = P.maxPower; H.cls.csOf(P).arrow = 'plain'; F.useAbility(P, 'cripple', q); H.simulate(1.2);
       const w = q.buffs.find((b) => b.kind === 'wound' && b.until > H.GAME.t); q.hp = q.maxHp * 0.5; const h0 = q.hp; H.bal5.healEnt(q, q, 100);
       return { wound: w ? +w.value.toFixed(2) : 0, left: w ? +(w.until - H.GAME.t).toFixed(1) : 0, healed: Math.round(q.hp - h0) }; })()""")
     check(abs(r['wound'] - 0.3) < 0.01 and r['left'] > 3 and abs(r['healed'] - 70) <= 1, f"a crippling arrow's wound (a plain arrow): healing on it takes 30% less while it slows ({r})")
-    r = await ev(page, 'whirl', """(() => { const H = T.H, F = T.F; const out = {};
-      for (const n of [1, 4]) { const P = T.fresh('warrior', 30, 0); H.simulate(0.1);
+    r = await ev(page, 'whirl', """(async () => { const H = T.H, F = T.F; const out = {};
+      for (const n of [1, 4]) { const P = await T.fresh('warrior', 30, 0); H.simulate(0.1);
         for (let i = 0; i < n; i++) { const a = T.ahead(P, 2.2, (i - (n - 1) / 2) * 1.4); const f = T.foe(2, a.x, a.z, 30, 'warrior', 0); f.ai.nextAbility = 1e9; f.swingAt = 1e9; f.tweak = { hp: 20 }; F.setupStats(f); }
         H.simulate(0.1); P.hp = P.maxHp * 0.4; const h0 = P.hp; P.cds = {}; P.gcdUntil = 0; P.power = P.maxPower; F.useAbility(P, 'whirl', P); H.simulate(1.0);
         out[n] = +((P.hp - h0) / P.maxHp).toFixed(3); }
       return out; })()""")
     check(r['1'] >= 0.035 and abs(r['4'] - r['1'] - 0.12) < 0.03, f"Whirlwind gives back 2% for each foe each of its two cuts strikes (one foe, four: {r}; the rest is the body's own mending over the second)")
-    r = await ev(page, 'realms', """(() => { const H = T.H, F = T.F, C = H.cls; const out = {};
-      for (const R of [0, 1, 2]) { const P = T.fresh('archer', 20, R); C.csOf(P).drawFrom = H.GAME.t; H.simulate(0.6); out['draw' + R] = +C.drawK(P).toFixed(2); C.csOf(P).drawFrom = -1; }
+    r = await ev(page, 'realms', """(async () => { const H = T.H, F = T.F, C = H.cls; const out = {};
+      for (const R of [0, 1, 2]) { const P = await T.fresh('archer', 20, R); C.csOf(P).drawFrom = H.GAME.t; H.simulate(0.6); out['draw' + R] = +C.drawK(P).toFixed(2); C.csOf(P).drawFrom = -1; }
       out.A = H.bal5.ARCHER_REALM; out.text = C.CLASS_REALM.archer.map((q) => q.text.slice(0, 40)); return out; })()""")
     ld = r['A']['logresDraw']  # [balance6] 0.92 (0.85): the check reads the measure
     if await page.evaluate("!!__hm.bal7"):  # [balance7] the Logres way is an edge from a perch only (classes.py b7 checks it there)
@@ -995,7 +995,7 @@ async def balance6(page):
     """[balance6] renewing by rote costs power; a mage's ward keeps its spell from a breaking blow; a skilled archer takes
     a priest for a blade at its throat only at its mace; the Well of Eriu heals beside the Renewal"""
     await page.evaluate("() => {" + MECH_JS + "; return 0; }")
-    r = await ev(page, 'rote', """(() => { const H = T.H, F = T.F; const P = T.fresh('priest', 30, 0); const out = {};
+    r = await ev(page, 'rote', """(async () => { const H = T.H, F = T.F; const P = await T.fresh('priest', 30, 0); const out = {};
       const cost = () => { P.cds = {}; P.gcdUntil = 0; const p0 = P.power; F.useAbility(P, 'renew', P); return Math.round(p0 - P.power); };
       P.power = P.maxPower; out.first = cost(); H.simulate(1); out.again = cost(); H.simulate(9.5); out.spent = cost();
       out.steady = H.fn.hasBuff(P, 'steadfast'); out.base = H.bal5.ABILITIES.renew.cost; out.K = H.bal6.RENEW_ROTE_K; out.next = H.bal6.STEADY_NEXT; return out; })()""")
@@ -1006,7 +1006,7 @@ async def balance6(page):
       out.slow = H.bal4.RUSH_SLOW_EARLY; return out; })()""")
     check(str(r['mage']) == '[1, 1.12, 1.14, 1.16]', f"a seasoned mage's spells: 12% from rank II, 2% more a rank after ({r['mage']})")
     check(abs(r['held'] - 8) < 0.01, f"a Charge held on its way comes round in half its wait ({r['held']} s of 16)")
-    r = await ev(page, 'ward', """(() => { const H = T.H, F = T.F; const P = T.fresh('mage', 30, 0); const out = {};
+    r = await ev(page, 'ward', """(async () => { const H = T.H, F = T.F; const P = await T.fresh('mage', 30, 0); const out = {};
       P.cds = {}; P.gcdUntil = 0; P.power = P.maxPower; F.useAbility(P, 'ward', P); H.simulate(0.1);
       const w = () => { const b = P.buffs.find((q) => q.kind === 'shield' && q.src === P.id && q.until > H.GAME.t); return b ? b.value : 0; };
       const a = T.ahead(P, 15); const f = T.foe(2, a.x, a.z, 30, 'warrior', 0); f.ai.nextAbility = 1e9; f.swingAt = 1e9; f.tweak = { hp: 20 }; F.setupStats(f); H.simulate(0.05);
@@ -1016,7 +1016,7 @@ async def balance6(page):
       out.bare = H.bal.breakCast(P) && !P.casting; return out; })()""")
     check(r['casting'] and not r['broke'] and r['kept'] and abs(r['left'] - 0.75) < 0.02, f"a mage's ward keeps its spell from a breaking blow and loses a quarter of what it holds ({r})")
     check(r['bare'], f"without the ward the blow breaks the spell ({r['bare']})")
-    r = await ev(page, 'presser', """(() => { const H = T.H, F = T.F; const P = T.fresh('archer', 30, 0); const out = {};
+    r = await ev(page, 'presser', """(async () => { const H = T.H, F = T.F; const P = await T.fresh('archer', 30, 0); const out = {};
       H.bal.botMake(P, 'skilled', null);
       const a = T.ahead(P, 8); const q = T.foe(2, a.x, a.z, 30, 'priest', 0); q.ai.nextAbility = 1e9; q.target = P.id; H.simulate(0.05); q.target = P.id;
       out.far = !H.bal6.archerPresser(P, 9);
@@ -1024,7 +1024,7 @@ async def balance6(page):
       const b2 = T.ahead(P, 7, 3); const w = T.foe(2, b2.x, b2.z, 30, 'warrior', 0); w.target = P.id; out.blade = H.bal6.archerPresser(P, 9) === q || !!H.bal6.archerPresser(P, 9);
       P.bot = null; return out; })()""")
     check(r['far'] and r['near'] and r['blade'], f"a skilled archer takes a priest for a blade at its throat only at its mace, a warrior within 9 m ({r})")
-    r = await ev(page, 'well', """(() => { const H = T.H, F = T.F, C = H.cls; const P = T.fresh('priest', 20, 1); const out = {};
+    r = await ev(page, 'well', """(async () => { const H = T.H, F = T.F, C = H.cls; const P = await T.fresh('priest', 20, 1); const out = {};
       /* devotion fades from its last gain: a long run's clock had faded it to nothing */
       C.csOf(P).dev = 60; C.csOf(P).devAt = H.GAME.t; C.csOf(P).devTick = H.GAME.t; P.hp = P.maxHp * 0.5; P.cds = {}; P.gcdUntil = 0; P.power = P.maxPower; F.useAbility(P, 'renew', P); H.simulate(0.05);
       const hots = P.buffs.filter((b) => b.kind === 'hot' && b.until > H.GAME.t);
@@ -1038,17 +1038,17 @@ async def balance7(page):
     """[balance7] the archers' realm ways are edges on their own ground: Logres from a wall or a perch, Eriu among trees,
     Thule in the cold; elsewhere an archer of the realm shoots as a plain one"""
     await page.evaluate("() => {" + MECH_JS + "; return 0; }")
-    r = await ev(page, 'logres', """(() => { const H = T.H, F = T.F, B7 = H.bal7; const out = {};
-      const P = T.fresh('archer', 30, 0); out.ground = { draw: B7.archerDrawK(P), high: B7.archerHighK(P), wind: B7.archerWindK(P) };
+    r = await ev(page, 'logres', """(async () => { const H = T.H, F = T.F, B7 = H.bal7; const out = {};
+      const P = await T.fresh('archer', 30, 0); out.ground = { draw: B7.archerDrawK(P), high: B7.archerHighK(P), wind: B7.archerWindK(P) };
       const y0 = P.y; P.fixedY = y0 + 4; P.y = y0 + 4; out.perch = { draw: B7.archerDrawK(P), high: B7.archerHighK(P) };
-      const Q = T.fresh('archer', 30, 1); Q.fixedY = Q.y + 4; Q.y = Q.fixedY; out.eriuPerch = B7.archerDrawK(Q); Q.fixedY = null;
-      const L = T.fresh('archer', 8, 0); L.fixedY = L.y + 4; L.y = L.fixedY; out.young = B7.archerDrawK(L); L.fixedY = null;
+      const Q = await T.fresh('archer', 30, 1); Q.fixedY = Q.y + 4; Q.y = Q.fixedY; out.eriuPerch = B7.archerDrawK(Q); Q.fixedY = null;
+      const L = await T.fresh('archer', 8, 0); L.fixedY = L.y + 4; L.y = L.fixedY; out.young = B7.archerDrawK(L); L.fixedY = null;
       return out; })()""")
     check(r['ground']['draw'] == 1 and r['ground']['high'] == 1 and r['ground']['wind'] == 1, f"a Logres archer on the ground draws and shoots as a plain one ({r['ground']})")
     check(abs(r['perch']['draw'] - 0.75) < 1e-6 and abs(r['perch']['high'] - 1.2) < 1e-6, f"from a perch it reaches full draw a quarter sooner and strikes 20% harder ({r['perch']})")
     check(r['eriuPerch'] == 1 and r['young'] == 1, f"not an archer of Eriu, nor one below the realm's way's level ({r['eriuPerch']}, {r['young']})")
-    r = await ev(page, 'eriu', """(() => { const H = T.H, F = T.F, B7 = H.bal7, C = H.cls; const out = {};
-      T.open = true; const P = T.fresh('archer', 30, 1); T.open = false; // (open ground: a spot with nobody near can stand among trees)
+    r = await ev(page, 'eriu', """(async () => { const H = T.H, F = T.F, B7 = H.bal7, C = H.cls; const out = {};
+      T.open = true; const P = await T.fresh('archer', 30, 1); T.open = false; // (open ground: a spot with nobody near can stand among trees)
       out.open = { trees: B7.archerTrees(P), hide: B7.archerHideT(P), walk: B7.archerHideWalk(P), amb: B7.archerAmbushK(P) };
       // among trees: two or more standing within 7 m
       const near = H.seasons.treesNear(P.x, P.z, 500); let spot = null;
@@ -1058,16 +1058,16 @@ async def balance7(page):
       out.woods = { trees: B7.archerTrees(P), hide: B7.archerHideT(P), walk: B7.archerHideWalk(P), amb: B7.archerAmbushK(P) };
       // hiding there: standing still, it is hidden within a second
       H.simulate(1.0); out.hidden = C.csOf(P).hidden; out.cover = +C.csOf(P).cover.toFixed(2);
-      const Q = T.fresh('archer', 30, 0); H.teleport(spot.x + 1.6, spot.z); H.simulate(0.3); Q.combatUntil = 0; H.simulate(1.0); out.logresHidden = C.csOf(Q).hidden; H.simulate(1.0); out.logresLater = C.csOf(Q).hidden;
+      const Q = await T.fresh('archer', 30, 0); H.teleport(spot.x + 1.6, spot.z); H.simulate(0.3); Q.combatUntil = 0; H.simulate(1.0); out.logresHidden = C.csOf(Q).hidden; H.simulate(1.0); out.logresLater = C.csOf(Q).hidden;
       return out; })()""")
     check(r['open']['hide'] == 1.5 and r['open']['walk'] == 1.2 and r['open']['amb'] == 1.5, f"an Eriu archer in the open hides as any archer does ({r['open']})")
     check(not r.get('none') and r['woods']['trees'] >= 2 and r['woods']['hide'] == 0.75 and r['woods']['walk'] > 4 and abs(r['woods']['amb'] - 1.8) < 1e-6, f"among trees it hides in half the time, walks hidden and strikes 80% harder from hiding ({r.get('woods')})")
     check(r.get('hidden') and not r.get('logresHidden') and r.get('logresLater'), f"there it is hidden within a second, a Logres archer only after 1.5 s ({r.get('hidden')}, {r.get('logresHidden')}, {r.get('logresLater')}; cover {r.get('cover')})")
-    r = await ev(page, 'thule', """(() => { const H = T.H, F = T.F, B7 = H.bal7, C = H.cls; const out = {}; const k0 = H.farm.SEASON.k;
+    r = await ev(page, 'thule', """(async () => { const H = T.H, F = T.F, B7 = H.bal7, C = H.cls; const out = {}; const k0 = H.farm.SEASON.k;
       const snare = (P) => { const a = T.ahead(P, 1.2); C.laySnare(P); H.simulate(1.2); const S = C.CLS.snares[C.CLS.snares.length - 1]; const f = T.foe(1, S.x, S.z, 30, 'warrior', 0); f.ai.nextAbility = 1e9; f.swingAt = 1e9; f.x = S.x; f.z = S.z; H.simulate(0.2);
         const root = f.buffs.find((b) => b.kind === 'root' && b.src === P.id); return { caught: S.caught === f.id, root: root ? +(root.until - H.GAME.t + 0.2).toFixed(2) : 0, frozen: !!C.frozenOf(f) }; };
       // the south in spring by day: warm (Thule's own lands are cold most of the year: its edge there)
-      const P = T.fresh('archer', 30, 2); H.setTod(0.5); const Lt = H.REALMS[0].town; let warm = null;
+      const P = await T.fresh('archer', 30, 2); H.setTod(0.5); const Lt = H.REALMS[0].town; let warm = null;
       for (let i = 0; i < 400 && !warm; i++) { const a = i * 2.4, d = 40 + (i % 20) * 6, x = Lt.x + Math.sin(a) * d, z = Lt.z + Math.cos(a) * d; if (F.isWalkable(x, z) && !B7.archerColdAt(x, z)) warm = { x, z }; }
       if (warm) H.teleport(warm.x, warm.z); H.simulate(0.2); out.home = B7.archerColdAt(H.REALMS[2].town.x, H.REALMS[2].town.z);
       out.warm = { cold: B7.archerColdAt(P.x, P.z), wind: B7.archerWindK(P), snare: snare(P) };
@@ -1075,8 +1075,8 @@ async def balance7(page):
       H.farm.setSeason(3); H.seasons.seasonSettle(); H.setTod(0.0); H.simulate(0.5);
       const Rm = H.REALMS[2].town; let spot = null;
       for (let i = 0; i < 400 && !spot; i++) { const a = i * 2.4, d = 30 + (i % 20) * 6, x = Rm.x + Math.sin(a) * d, z = Rm.z + Math.cos(a) * d; if (F.isWalkable(x, z) && B7.archerColdAt(x, z)) spot = { x, z }; }
-      if (spot) { const Q = T.fresh('archer', 30, 2); H.teleport(spot.x, spot.z); H.simulate(0.3); out.coldPlace = { lie: +H.seasons.lie(Q.x, Q.z).toFixed(2), cold: B7.archerColdAt(Q.x, Q.z), wind: B7.archerWindK(Q), snare: snare(Q) };
-        const L = T.fresh('archer', 30, 0); H.teleport(spot.x, spot.z); H.simulate(0.3); out.logresCold = { wind: B7.archerWindK(L), snare: snare(L) }; }
+      if (spot) { const Q = await T.fresh('archer', 30, 2); H.teleport(spot.x, spot.z); H.simulate(0.3); out.coldPlace = { lie: +H.seasons.lie(Q.x, Q.z).toFixed(2), cold: B7.archerColdAt(Q.x, Q.z), wind: B7.archerWindK(Q), snare: snare(Q) };
+        const L = await T.fresh('archer', 30, 0); H.teleport(spot.x, spot.z); H.simulate(0.3); out.logresCold = { wind: B7.archerWindK(L), snare: snare(L) }; }
       H.farm.setSeason(k0); H.seasons.seasonSettle(); H.setTod(0.45);
       return out; })()""")
     check(not r['warm']['cold'] and r['warm']['wind'] == 1 and r['warm']['snare']['caught'] and abs(r['warm']['snare']['root'] - 3.5) < 0.25 and not r['warm']['snare']['frozen'], f"a Thule archer in the warm: the wind moves its arrows and its snare holds as any other ({r['warm']})")
@@ -1086,8 +1086,8 @@ async def balance7(page):
     check(bool(lc) and lc['wind'] == 1 and lc['snare']['caught'] and not lc['snare']['frozen'] and abs(lc['snare']['root'] - 3.5) < 0.25, f"a Logres archer there shoots and snares as a plain one ({lc})")
     # the rules: Charge every 12 s at 50 with its slowing blow, one rush of B7T.rushShare s, plain shafts by rank, Mend on a scratch, the texts
     # [balance8] the late Charge set back to version 14's on whole ground (07c_balance8.js): the wait and the slow read from B7T
-    r = await ev(page, 'rules7', """(() => { const H = T.H, F = T.F, B7 = H.bal7; const out = { share: B7.B7T.rushShare, cdLate: B7.B7T.chargeCdLate || H.bal5.ABILITIES.charge.cd, slowLate: !!B7.B7T.chargeSlowLate };
-      const P = T.fresh('warrior', 50, 0); const a = T.ahead(P, 15); const f = T.foe(1, a.x, a.z, 50, 'mage', 0); f.ai.nextAbility = 1e9; f.swingAt = 1e9; f.tweak = { hp: 40 }; F.setupStats(f);
+    r = await ev(page, 'rules7', """(async () => { const H = T.H, F = T.F, B7 = H.bal7; const out = { share: B7.B7T.rushShare, cdLate: B7.B7T.chargeCdLate || H.bal5.ABILITIES.charge.cd, slowLate: !!B7.B7T.chargeSlowLate };
+      const P = await T.fresh('warrior', 50, 0); const a = T.ahead(P, 15); const f = T.foe(1, a.x, a.z, 50, 'mage', 0); f.ai.nextAbility = 1e9; f.swingAt = 1e9; f.tweak = { hp: 40 }; F.setupStats(f);
       H.simulate(0.1); P.target = f.id; P.cds = {}; P.gcdUntil = 0; P.power = P.maxPower;
       out.used = F.useAbility(P, 'charge', f); out.chargeCd = +((P.cds.charge || 0) - H.GAME.t).toFixed(1); out.leapCd = +((P.cds.leap || 0) - H.GAME.t).toFixed(1);
       H.simulate(1.6); const sl = f.buffs.find((b) => b.kind === 'snare' && b.src === P.id); out.slow = sl ? +sl.value.toFixed(2) : 0;
@@ -1128,7 +1128,7 @@ async def shots(page):
     await page.evaluate(f"__hm.fn.setQuality('{SHOTQ}'); __hm.setTod(0.55); 0")
     # a mage's ice on a pond: the mage stands out on it, a foe frozen beside
     r = {'ok': False}
-    if want('ice'): r = await ev(page, 'ice-shot', """(() => { const H = T.H, F = T.F, C = H.cls; const P = T.fresh('mage', 35, 2);
+    if want('ice'): r = await ev(page, 'ice-shot', """(async () => { const H = T.H, F = T.F, C = H.cls; const P = await T.fresh('mage', 35, 2);
       let best = null;
       for (let i = 0; i < 8000 && !best; i++) { const x = (Math.random() - 0.5) * 900, z = (Math.random() - 0.5) * 900; if (F.heightAt(x, z) > -3.9 || F.heightAt(x, z) < -5.5) continue; for (const a of [0, 1.57, 3.14, 4.71]) { const sx = x + Math.sin(a) * 9, sz = z + Math.cos(a) * 9; if (F.isWalkable(sx, sz) && F.heightAt(sx, sz) > -2.4) { best = { x, z, sx, sz }; break; } } }
       if (!best) return { ok: false };
@@ -1142,7 +1142,7 @@ async def shots(page):
       return { ok: true }; })()""")
     if r.get('ok'): await snap(page, 'ice', 1)
     # frost meets fire: a chilled foe struck by a firebolt bursts into steam
-    if want('steam'): await ev(page, 'steam-shot', """(() => { const H = T.H, F = T.F, C = H.cls; H.UI.modal = null; H.CAM.mode = 'play'; const P = T.fresh('mage', 35, 0);
+    if want('steam'): await ev(page, 'steam-shot', """(async () => { const H = T.H, F = T.F, C = H.cls; H.UI.modal = null; H.CAM.mode = 'play'; const P = await T.fresh('mage', 35, 0);
       const a = T.ahead(P, 9); const f = T.foe(1, a.x, a.z, 33, 'warrior', 0); f.ai.nextAbility = 1e9; f.tweak = { swing: 1e6, hp: 20 }; F.setupStats(f); P.target = f.id; P.swingAt = 1e9;
       // [balance] the camera first: a burst's particles are only thrown near the camera
       CS(P, f, 7.5, 2.4, 0.8, 1.0); H.frame(0.016);
@@ -1152,7 +1152,7 @@ async def shots(page):
       CS(P, f, 7.5, 2.4, 0.8, 1.0); return { steam: C.CLS.steam.length }; })()""")
     await snap(page, 'steam', 2)
     # storm through wet foes in the rain
-    if want('storm'): await ev(page, 'storm-shot', """(() => { const H = T.H, F = T.F, C = H.cls, W = H.dbg.WEATHER; H.UI.modal = null; H.CAM.mode = 'play'; const P = T.fresh('mage', 35, 1);
+    if want('storm'): await ev(page, 'storm-shot', """(async () => { const H = T.H, F = T.F, C = H.cls, W = H.dbg.WEATHER; H.UI.modal = null; H.CAM.mode = 'play'; const P = await T.fresh('mage', 35, 1);
       W.mode = 'auto'; W.kind = 'storm'; W.next = 1e9; F.weatherAdvance ? F.weatherAdvance(40) : 0;
       const fs = [[10, -3], [13, 3], [16, -1], [19, 4]].map(([d, s]) => { const a = T.ahead(P, d, s); const f = T.foe(2, a.x, a.z, 33, 'warrior', 0); f.ai.nextAbility = 1e9; f.tweak = { swing: 1e6, hp: 20 }; F.setupStats(f); f.wet = 1; return f; });
       P.target = fs[0].id; P.swingAt = 1e9; P.power = P.maxPower; F.useAbility(P, 'chain', fs[0]); H.simulate(1.35);
@@ -1160,20 +1160,20 @@ async def shots(page):
     await snap(page, 'storm', 1)
     await page.evaluate("(() => { const W = __hm.dbg.WEATHER; W.kind = 'clear'; if (__hm.fn.weatherAdvance) __hm.fn.weatherAdvance(60); return 0; })()")
     # a warrior's parry
-    if want('parry'): await ev(page, 'parry-shot', """(() => { const H = T.H, F = T.F, C = H.cls; H.UI.modal = null; H.CAM.mode = 'play'; const P = T.fresh('warrior', 30, 0);
+    if want('parry'): await ev(page, 'parry-shot', """(async () => { const H = T.H, F = T.F, C = H.cls; H.UI.modal = null; H.CAM.mode = 'play'; const P = await T.fresh('warrior', 30, 0);
       const a = T.ahead(P, 2.0); const f = T.foe(2, a.x, a.z, 30, 'warrior', 0); f.ai.nextAbility = 1e9; f.testDummy = true; f.yaw = Math.atan2(P.x - f.x, P.z - f.z); P.target = null;
       H.simulate(0.8); C.classHold(true); H.simulate(0.05); F.dealDamage(f, P, 50, { kind: 'melee' });
       f.anim.act = 1; f.anim.actT = 0.3; f.anim.actDur = 0.6; H.simulate(0.1);
       const s = Math.sin(P.yaw), c = Math.cos(P.yaw); CC(P.x + c * 3.6 + s * 1.0, P.y + 1.7, P.z - s * 3.6 + c * 1.0, (P.x + f.x) / 2, P.y + 1.2, (P.z + f.z) / 2); return { act: P.anim.act, parries: C.CLS.stats.parries }; })()""")
     await snap(page, 'parry', 1)
     # an archer at full draw
-    if want('draw'): await ev(page, 'draw-shot', """(() => { const H = T.H, F = T.F, C = H.cls; H.UI.modal = null; H.CAM.mode = 'play'; const P = T.fresh('archer', 30, 1);
+    if want('draw'): await ev(page, 'draw-shot', """(async () => { const H = T.H, F = T.F, C = H.cls; H.UI.modal = null; H.CAM.mode = 'play'; const P = await T.fresh('archer', 30, 1);
       const a = T.ahead(P, 24); const f = T.foe(2, a.x, a.z, 30, 'warrior', 0); f.ai.nextAbility = 1e9; P.target = f.id; P.swingAt = 1e9;
       C.startDraw(P); H.simulate(1.4); const s = Math.sin(P.yaw), c = Math.cos(P.yaw); CC(P.x + c * 2.6 + s * 1.2, P.y + 1.6, P.z - s * 2.6 + c * 1.2, P.x + s * 0.3, P.y + 1.35, P.z + c * 0.3); return { k: C.drawK(P) }; })()""")
     await snap(page, 'draw', 1)
     await page.evaluate("(() => { const C = __hm.cls; C.CLS.hold = false; if (__hm.GAME.player && __hm.GAME.player.cs) __hm.GAME.player.cs.drawFrom = -1; return 0; })()")
     # a priest's holy ground, kneeling at prayer within it
-    if want('holy'): await ev(page, 'holy-shot', """(() => { const H = T.H, F = T.F, C = H.cls; H.UI.modal = null; H.CAM.mode = 'play'; const P = T.fresh('priest', 30, 0);
+    if want('holy'): await ev(page, 'holy-shot', """(async () => { const H = T.H, F = T.F, C = H.cls; H.UI.modal = null; H.CAM.mode = 'play'; const P = await T.fresh('priest', 30, 0);
       for (const [d, s] of [[2.5, 2.5], [3.5, -2.2], [-1.5, 3.2]]) { const a = T.ahead(P, d, s); const u = T.foe(0, a.x, a.z, 30, 'warrior', 0); u.ai.nextAbility = 1e9; u.yaw = P.yaw + 0.4; u.hp = u.maxHp * 0.5; }
       const cs = C.csOf(P); cs.dev = 80; cs.devAt = H.GAME.t; P.gcdUntil = 0; C.classTechnique(P); H.simulate(1.0); C.startPrayer(P); H.simulate(1.2);
       for (const p of H.SPELL.pillars) p.age = p.dur; for (const d of H.SPELL.discs) if (d.on) d.age = Math.min(d.age + 1.5, d.dur - 0.5); H.frame(0.016);
@@ -1181,21 +1181,21 @@ async def shots(page):
     await snap(page, 'holy', 1)
     await page.evaluate("__hm.setTod(0.55); 0")
     # a Thule mage's rune and an archer's snares, open and sprung
-    if want('rune_snare'): await ev(page, 'rune-shot', """(() => { const H = T.H, F = T.F, C = H.cls; H.UI.modal = null; H.CAM.mode = 'play'; const P = T.fresh('archer', 20, 2);
+    if want('rune_snare'): await ev(page, 'rune-shot', """(async () => { const H = T.H, F = T.F, C = H.cls; H.UI.modal = null; H.CAM.mode = 'play'; const P = await T.fresh('archer', 20, 2);
       P.power = P.maxPower; C.classTechnique(P); H.simulate(0.2); P.yaw += 1.4; P.cds = {}; P.gcdUntil = 0; P.power = P.maxPower; C.classTechnique(P);
       const S = C.CLS.snares[C.CLS.snares.length - 1]; S.sprung = H.GAME.t; S.close = 1;
       const a = T.ahead(P, 4, -2.5); C.layRune(P, a.x, a.z, 'frost'); const b = T.ahead(P, 4.5, 2.5); C.layRune(P, b.x, b.z, 'fire');
       H.simulate(1.2); for (const d of H.SPELL.discs) if (d.on) d.age = Math.min(d.age + 1.5, d.dur - 0.5); H.frame(0.016); CB2(P, 2.6, 5.2, 0.6, -0.4); return { snares: C.CLS.snares.length, runes: C.CLS.runes.length }; })() // [balance] framed wider: the runes' carved glyphs and the snares together""")
     await snap(page, 'rune_snare', 1)
     # the class panels on the HUD: a warrior with a finisher ready, a mage reading a frozen foe
-    if want('hud_warrior'): await ev(page, 'hud-w', """(() => { const H = T.H, F = T.F, C = H.cls; H.UI.modal = null; H.CAM.mode = 'play'; const P = T.fresh('warrior', 30, 0);
+    if want('hud_warrior'): await ev(page, 'hud-w', """(async () => { const H = T.H, F = T.F, C = H.cls; H.UI.modal = null; H.CAM.mode = 'play'; const P = await T.fresh('warrior', 30, 0);
       const a = T.ahead(P, 6); const f = T.foe(2, a.x, a.z, 30, 'warrior', 0); f.ai.nextAbility = 1e9; P.target = f.id; C.setStance(P, 2); C.addMom(P, 4); return 0; })()""")
     await snap(page, 'hud_warrior', 1, True)
-    if want('hud_mage'): await ev(page, 'hud-m', """(() => { const H = T.H, F = T.F, C = H.cls; H.UI.modal = null; H.CAM.mode = 'play'; const P = T.fresh('mage', 30, 1);
+    if want('hud_mage'): await ev(page, 'hud-m', """(async () => { const H = T.H, F = T.F, C = H.cls; H.UI.modal = null; H.CAM.mode = 'play'; const P = await T.fresh('mage', 30, 1);
       const a = T.ahead(P, 10); const f = T.foe(2, a.x, a.z, 30, 'warrior', 0); f.ai.nextAbility = 1e9; P.target = f.id; C.attune(P, 'frost', 70); C.addChill(f, 3, P); return 0; })()""")
     await snap(page, 'hud_mage', 1, True)
     # [balance3] a shield wall: a guarded warrior walking on behind a raised shield toward an archer, arrows coming in
-    if want('shieldwall'): await ev(page, 'wall-shot', """(() => { const H = T.H, F = T.F, C = H.cls; H.UI.modal = null; H.CAM.mode = 'play'; const P = T.fresh('warrior', 30, 0);
+    if want('shieldwall'): await ev(page, 'wall-shot', """(async () => { const H = T.H, F = T.F, C = H.cls; H.UI.modal = null; H.CAM.mode = 'play'; const P = await T.fresh('warrior', 30, 0);
       const a = T.ahead(P, 20); const ar = T.foe(2, a.x, a.z, 30, 'archer', 0); ar.ai.nextAbility = 1e9; ar.yaw = Math.atan2(P.x - ar.x, P.z - ar.z); P.target = ar.id;
       C.setStance(P, 0); C.csOf(P).stanceAt = -9; P.cds.charge = H.GAME.t + 30; P.cds.leap = H.GAME.t + 30; C.classHold(true);
       for (let i = 0; i < 12; i++) { const d = Math.hypot(ar.x - P.x, ar.z - P.z); P.yaw = Math.atan2(ar.x - P.x, ar.z - P.z); P.x += (ar.x - P.x) / d * 0.35; P.z += (ar.z - P.z) / d * 0.35; H.simulate(0.05); }
@@ -1206,7 +1206,7 @@ async def shots(page):
     await snap(page, 'shieldwall', 1)
     await page.evaluate("(() => { __hm.cls.classHold(false); return 0; })()")
     # [balance3] holy light dazzles: a priest's smite lands on a warrior, a burst of light about its head
-    if want('dazzle'): await ev(page, 'dazzle-shot', """(() => { const H = T.H, F = T.F, C = H.cls; H.UI.modal = null; H.CAM.mode = 'play'; const P = T.fresh('priest', 30, 0);
+    if want('dazzle'): await ev(page, 'dazzle-shot', """(async () => { const H = T.H, F = T.F, C = H.cls; H.UI.modal = null; H.CAM.mode = 'play'; const P = await T.fresh('priest', 30, 0);
       const a = T.ahead(P, 6.5); const w = T.foe(2, a.x, a.z, 30, 'warrior', 0); w.ai.nextAbility = 1e9; P.target = w.id; P.swingAt = 1e9;
       const hold = () => { w.x = a.x; w.z = a.z; w.yaw = Math.atan2(P.x - w.x, P.z - w.z); w.swingAt = 1e9; }; // the warrior held where it stands, facing the priest
       hold(); CS(P, w, 4.4, 1.3, 0.6, 1.45); H.frame(0.016);
@@ -1215,7 +1215,7 @@ async def shots(page):
       CS(P, w, 4.4, 1.3, 0.6, 1.45); return { dazzle: w.buffs.filter((b) => b.kind === 'dazzle').map((b) => +b.value.toFixed(2)), motes: H.bal3.BAL3.dazzledIds.size }; })()""")
     await snap(page, 'dazzle', 1)
     # [balance4] Charge rushes: a warrior halfway along its rush at a mage, shield raised across its body, dust behind
-    if want('rush'): await ev(page, 'rush-shot', """(() => { const H = T.H, F = T.F, C = H.cls; H.UI.modal = null; H.CAM.mode = 'play'; const P = T.fresh('mage', 30, 0);
+    if want('rush'): await ev(page, 'rush-shot', """(async () => { const H = T.H, F = T.F, C = H.cls; H.UI.modal = null; H.CAM.mode = 'play'; const P = await T.fresh('mage', 30, 0);
       const a = T.ahead(P, 20); const w = T.foe(2, a.x, a.z, 30, 'warrior', 0); w.ai.nextAbility = 1e9; w.swingAt = 1e9; P.swingAt = 1e9; P.target = w.id;
       w.ai.post.leash = 40; /* [balance6] a guard at its post rushes only within its leash ([balance4]): this one's reaches the mage */
       H.simulate(0.2); CS(P, w, 7.5, 1.6, 0.5, 1.1); H.frame(0.016);
@@ -1225,7 +1225,7 @@ async def shots(page):
     await snap(page, 'rush', 1)
     # [balance5] holy ground dazzles the foes on it: a warrior standing on a priest's hallowed ground, motes of light about
     # its head, the ground's glow under both
-    if want('hallow'): await ev(page, 'hallow-shot', """(() => { const H = T.H, F = T.F, C = H.cls; H.UI.modal = null; H.CAM.mode = 'play'; const P = T.fresh('priest', 30, 0);
+    if want('hallow'): await ev(page, 'hallow-shot', """(async () => { const H = T.H, F = T.F, C = H.cls; H.UI.modal = null; H.CAM.mode = 'play'; const P = await T.fresh('priest', 30, 0);
       const a = T.ahead(P, 3.2); const w = T.foe(2, a.x, a.z, 30, 'warrior', 0); w.ai.nextAbility = 1e9; P.target = w.id; P.swingAt = 1e9;
       const hold = () => { w.x = a.x; w.z = a.z; w.yaw = Math.atan2(P.x - w.x, P.z - w.z); w.swingAt = 1e9; };
       hold(); CS(P, w, 4.6, 1.5, 0.55, 1.3); H.frame(0.016);
@@ -1238,7 +1238,7 @@ async def shots(page):
     await snap(page, 'hallow', 1)
     # [balance6] the ward keeps the spell: a mage behind its Arcane Ward in the middle of a firebolt, a breaking blow taken
     # by the ward (its ring flares, "Warded" over its head), the spell still in its hands
-    if want('ward'): await ev(page, 'ward-shot', """(() => { const H = T.H, F = T.F, C = H.cls; H.UI.modal = null; H.CAM.mode = 'play'; const P = T.fresh('mage', 30, 1);
+    if want('ward'): await ev(page, 'ward-shot', """(async () => { const H = T.H, F = T.F, C = H.cls; H.UI.modal = null; H.CAM.mode = 'play'; const P = await T.fresh('mage', 30, 1);
       const a = T.ahead(P, 12); const w = T.foe(2, a.x, a.z, 30, 'warrior', 0); w.ai.nextAbility = 1e9; w.swingAt = 1e9; P.swingAt = 1e9; P.target = w.id;
       w.tweak = { hp: 20, speed: 0.01 }; F.setupStats(w); H.simulate(0.1); CS(P, w, 6, 1.6, 0.3, 1.2); H.frame(0.016);
       P.cds = {}; P.gcdUntil = 0; P.power = P.maxPower; F.useAbility(P, 'ward', P); for (let i = 0; i < 4; i++) { H.simulate(0.05); H.frame(0.05); }

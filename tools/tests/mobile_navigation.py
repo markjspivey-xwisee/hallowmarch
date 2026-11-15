@@ -14,7 +14,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import mobile_hud as hud
 from mobile_ergonomics import wait_for_viewport
-from hmlib import OUT, setup
+from hmlib import OUT, setup, human_play
 from playwright.async_api import async_playwright
 
 SHOTS = 'noshots' not in sys.argv[1:]
@@ -23,7 +23,7 @@ SIZES = [(393, 668), (393, 852), (320, 568), (852, 393)]
 FAILS = []
 RESULTS = []
 NAV = {
-    'mobile-inventory': 'Inventory',
+    'mobile-inventory': 'Items',
     'mobile-skills': 'Skills',
     'mobile-map': 'Map',
     'mobile-notes': 'Notes',
@@ -120,7 +120,7 @@ async def geometry(page, tag):
           tag + ': navigation uses the usable ' + edge + ' edge without extra padding ' + json.dumps(nav))
     buttons = m['buttons']
     check({b['id'] for b in buttons} == set(NAV),
-          tag + ': Inventory, Skills, Map, Notes and Menu are present in permanent navigation')
+          tag + ': Items, Skills, Map, Notes and Menu are present in permanent navigation')
     bad = [b for b in buttons if not b.get('hit') or b.get('w', 0) < 47.5 or
            b.get('h', 0) < 47.5 or b.get('clipped') or NAV.get(b['id'], '') not in b.get('text', '') or
            b['x'] < safe['l'] - 1 or b['x'] + b['w'] > m['w'] - safe['r'] + 1 or
@@ -455,7 +455,8 @@ async def main():
         try:
             await page.evaluate(hud.HELP)
             await page.evaluate(HELP)
-            await page.evaluate("MH.scene('warrior',1);__hm.quality.scale=.5;dispatchEvent(new Event('resize'));0")
+            await page.evaluate("(async () => { await MH.scene('warrior',1);__hm.quality.scale=.5;dispatchEvent(new Event('resize')); return 0; })()")
+            await human_play(page)
             await wait_for_viewport(page)
             quiet = await page.evaluate("""(() => { const H=__hm,L=H.LORE; H.GAME.prog.lore.seen=Object.keys(L.notes).filter(id=>id!=='keep'); L.state.queue.length=0; L.state.noteUntil=0; document.querySelectorAll('#banners .lore-note').forEach(e=>e.remove()); H.GAME.player.combatUntil=0; L.loreNote('keep'); for(let i=0;i<4;i++) H.frame(1/30); return {saved:L.progress().seen.includes('keep'),popups:document.querySelectorAll('#banners .lore-note').length}; })()""")
             check(quiet['saved'] and quiet['popups']==0, 'mobile field notes are collected without automatic popups')

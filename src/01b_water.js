@@ -139,18 +139,21 @@ PONDS.left = []; // hollows left dry because something is built in them (and why
 // finds every hollow and the height it would spill over at. A hollow deep and wide enough, with nothing standing in it
 // (a tree, a rock, a road, a camp, a house), becomes a pond with its surface a little under the spill; any other
 // hollow deeper than a hand is filled in, so there are no dry pond beds anywhere.
-function pondPass(H, surf, allowPonds) {
+// eslint-disable-next-line no-unused-vars -- Retain the synchronous API used by CPU tools and direct callers.
+function pondPass(H, surf, allowPonds) { return worldBuildDrain(pondPassChunks(H, surf, allowPonds)); }
+function* pondPassChunks(H, surf, allowPonds) {
+  let chunkWork = 0;
   const N = HN, N2 = N * N, F = new Float32Array(N2), done = new Uint8Array(N2);
   const heap = new Int32Array(N2); let hn = 0;
   const less = (a, b) => F[heap[a]] < F[heap[b]];
   const push = (k) => { let i = hn++; heap[i] = k; while (i > 0) { const p = (i - 1) >> 1; if (!less(i, p)) break; const t = heap[i]; heap[i] = heap[p]; heap[p] = t; i = p; } };
   const pop = () => { const top = heap[0]; heap[0] = heap[--hn]; let i = 0; for (;;) { const l = i * 2 + 1, r = l + 1; let m = i; if (l < hn && less(l, m)) m = l; if (r < hn && less(r, m)) m = r; if (m === i) break; const t = heap[i]; heap[i] = heap[m]; heap[m] = t; i = m; } return top; };
-  for (let k = 0; k < N2; k++) {
+  for (let k = 0; k < N2; k++) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'pondPass';
     const i = k % N, j = (k / N) | 0;
     F[k] = H[k];
     if (i === 0 || j === 0 || i === N - 1 || j === N - 1 || !isNaN(surf[k])) { done[k] = 1; push(k); }
   }
-  while (hn) {
+  while (hn) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'pondPass';
     const k = pop(), i = k % N, j = (k / N) | 0;
     for (let q = 0; q < 4; q++) {
       const ii = i + (q === 0 ? 1 : q === 1 ? -1 : 0), jj = j + (q === 2 ? 1 : q === 3 ? -1 : 0);
@@ -162,11 +165,11 @@ function pondPass(H, surf, allowPonds) {
   }
   // the hollows, each with its texels, depth and spill height
   const lab = new Int32Array(N2).fill(-1), comps = [];
-  for (let k = 0; k < N2; k++) {
+  for (let k = 0; k < N2; k++) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'pondPass';
     if (lab[k] >= 0 || F[k] - H[k] < 0.02) continue;
     const C = { ks: [], spill: F[k], max: 0, x: 0, z: 0 }, st = [k];
     lab[k] = comps.length;
-    while (st.length) {
+    while (st.length) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'pondPass';
       const q = st.pop(), i = q % N, j = (q / N) | 0;
       C.ks.push(q); C.max = Math.max(C.max, F[q] - H[q]); C.spill = Math.max(C.spill, F[q]);
       C.x += -HALF + i * HS; C.z += -HALF + j * HS;
@@ -184,62 +187,69 @@ function pondPass(H, surf, allowPonds) {
   // camp in it (soft) and well under anything built or a road (hard); a hollow with nothing built in it that cannot
   // hold a pond is filled in, and one with something built in it is left as the builders found it
   const hard = new Float32Array(comps.length).fill(Infinity), soft = new Float32Array(comps.length).fill(Infinity), why = [];
-  const mark = (x, z, pad, y, arr, tag) => {
+  function* markChunks(x, z, pad, y, arr, tag) {
+  let chunkWork = 0;
     const i0 = Math.max(0, Math.floor((x - pad + HALF) / HS)), i1 = Math.min(N - 1, Math.ceil((x + pad + HALF) / HS));
     const j0 = Math.max(0, Math.floor((z - pad + HALF) / HS)), j1 = Math.min(N - 1, Math.ceil((z + pad + HALF) / HS));
-    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) { const c = lab[j * N + i]; if (c >= 0 && y < arr[c]) { arr[c] = y; if (tag) why[c] = tag; } }
-  };
-  for (const t of W.trees) mark(t.x, t.z, 1.5, heightAt(t.x, t.z) - 0.15, soft);
-  for (const r of W.rocks) mark(r.x, r.z, 0.8 + r.s, heightAt(r.x, r.z) - 0.1, soft);
-  for (const st of W.stones || []) mark(st.x, st.z, 1.5, heightAt(st.x, st.z) - 0.15, soft);
-  for (const c of W.camps || []) mark(c.x, c.z, 18, heightAt(c.x, c.z) - 0.4, soft); // camps are pitched later, on whatever ground there is
-  for (const S of SITES) mark(S.x, S.z, S.r + S.f + (S.kind === 'town' ? 34 : 8), S.y - 0.4, hard, S.kind);
-  for (const c of COLL.boxes) if (c.tag !== 'tree' && c.tag !== 'rock' && c.tag !== 'stone') mark(c.x, c.z, Math.max(c.hx, c.hz) + 2, heightAt(c.x, c.z) - 0.4, hard, 'coll:' + c.tag);
-  mark(0, 0, 60, -Infinity, hard, 'centre'); // the Lone Tree's hill and the barrow
+    for (let j = j0; j <= j1; j++) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'mark'; for (let i = i0; i <= i1; i++) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'mark';  const c = lab[j * N + i]; if (c >= 0 && y < arr[c]) { arr[c] = y; if (tag) why[c] = tag; } } }
+  }
+  for (const t of W.trees) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'pondPass'; (yield* markChunks(t.x, t.z, 1.5, heightAt(t.x, t.z) - 0.15, soft)); }
+  for (const r of W.rocks) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'pondPass'; (yield* markChunks(r.x, r.z, 0.8 + r.s, heightAt(r.x, r.z) - 0.1, soft)); }
+  for (const st of W.stones || []) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'pondPass'; (yield* markChunks(st.x, st.z, 1.5, heightAt(st.x, st.z) - 0.15, soft)); }
+  for (const c of W.camps || []) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'pondPass'; (yield* markChunks(c.x, c.z, 18, heightAt(c.x, c.z) - 0.4, soft)); } // camps are pitched later, on whatever ground there is
+  for (const S of SITES) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'pondPass'; (yield* markChunks(S.x, S.z, S.r + S.f + (S.kind === 'town' ? 34 : 8), S.y - 0.4, hard, S.kind)); }
+  for (const c of COLL.boxes) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'pondPass'; if (c.tag !== 'tree' && c.tag !== 'rock' && c.tag !== 'stone') (yield* markChunks(c.x, c.z, Math.max(c.hx, c.hz) + 2, heightAt(c.x, c.z) - 0.4, hard, 'coll:' + c.tag)); }
+  (yield* markChunks(0, 0, 60, -Infinity, hard, 'centre')); // the Lone Tree's hill and the barrow
   let filled = 0;
-  for (let c = 0; c < comps.length; c++) {
+  for (let c = 0; c < comps.length; c++) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'pondPass';
     const C = comps[c];
-    for (const k of C.ks) if (W.road[k] > 0.05 && H[k] - 0.3 < hard[c]) { hard[c] = H[k] - 0.3; why[c] = 'road'; }
+    for (const k of C.ks) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'pondPass'; if (W.road[k] > 0.05 && H[k] - 0.3 < hard[c]) { hard[c] = H[k] - 0.3; why[c] = 'road'; } }
     const r = Math.hypot(C.x, C.z);
     const y = Math.min(C.spill - 0.14, hard[c], soft[c]);
     if (allowPonds && r < 462 && C.ks.length >= 6) {
       // a pond in the bottom of the hollow, as high as it can stand
       let n = 0, lo = Infinity;
-      for (const k of C.ks) if (y > H[k] + 0.02) { n++; lo = Math.min(lo, H[k]); }
+      for (const k of C.ks) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'pondPass'; if (y > H[k] + 0.02) { n++; lo = Math.min(lo, H[k]); } }
       if (n >= 4 && y - lo > 0.45) {
-        for (const k of C.ks) if (y > H[k] + 0.02) surf[k] = y;
+        for (const k of C.ks) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'pondPass'; if (y > H[k] + 0.02) surf[k] = y; }
         PONDS.push({ x: C.x, z: C.z, y, n, depth: y - lo });
         continue;
       }
     }
     // a hollow deeper than a hand with nothing built in it is filled in: no dry pond beds
-    if (C.max > 0.12 && hard[c] === Infinity) { for (const k of C.ks) H[k] = Math.max(H[k], F[k] - 0.03 - 0.02 * hash2(k, 4111)); filled++; } // [land] a fixed dither: the same land on every boot
+    if (C.max > 0.12 && hard[c] === Infinity) { for (const k of C.ks) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'pondPass'; H[k] = Math.max(H[k], F[k] - 0.03 - 0.02 * hash2(k, 4111)); } filled++; } // [land] a fixed dither: the same land on every boot
     else if (C.max > 0.3 && C.ks.length >= 4) PONDS.left.push({ x: Math.round(C.x), z: Math.round(C.z), max: +C.max.toFixed(2), n: C.ks.length, why: why[c] || 'soft' });
   }
   return filled;
 }
 // two passes: the first makes the ponds; the second, flooding from them too, fills the pockets left dry above a pond
 // that could not rise to its hollow's brim (something stands on the brim)
-function findPonds(H, surf) {
-  let filled = pondPass(H, surf, true);
+// eslint-disable-next-line no-unused-vars -- Retain the synchronous API used by CPU tools and direct callers.
+function findPonds(H, surf) { return worldBuildDrain(findPondsChunks(H, surf)); }
+function* findPondsChunks(H, surf) {
+  let chunkWork = 0;
+  let filled = (yield* pondPassChunks(H, surf, true));
   PONDS.left.length = 0;
-  filled += pondPass(H, surf, false);
+  filled += (yield* pondPassChunks(H, surf, false));
   // trees and rocks stay on the ground that was filled under them
   if (filled) {
-    for (const t of W.trees) t.y = heightAt(t.x, t.z);
-    for (const r of W.rocks) r.y = heightAt(r.x, r.z);
+    for (const t of W.trees) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'findPonds'; t.y = heightAt(t.x, t.z); }
+    for (const r of W.rocks) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'findPonds'; r.y = heightAt(r.x, r.z); }
   }
   PONDS.filled = filled;
 }
-function buildWaterGrid() {
+// eslint-disable-next-line no-unused-vars -- Retain the synchronous API used by CPU tools and direct callers.
+function buildWaterGrid() { return worldBuildDrain(buildWaterGridChunks()); }
+function* buildWaterGridChunks() {
+  let chunkWork = 0;
   const N2 = HN * HN, surf = new Float32Array(N2).fill(NaN), fx = new Float32Array(N2), fz = new Float32Array(N2), white = new Float32Array(N2);
   const H = W.H;
-  for (let k = 0; k < N2; k++) if (H[k] < WATER_Y) surf[k] = WATER_Y;
-  for (const Rv of RIVERS) {
+  for (let k = 0; k < N2; k++) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'buildWaterGrid'; if (H[k] < WATER_Y) surf[k] = WATER_Y; }
+  for (const Rv of RIVERS) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'buildWaterGrid';
     const b = Rv.box;
     const i0 = Math.max(0, Math.floor((b[0] + HALF) / HS)), i1 = Math.min(HN - 1, Math.ceil((b[2] + HALF) / HS));
     const j0 = Math.max(0, Math.floor((b[1] + HALF) / HS)), j1 = Math.min(HN - 1, Math.ceil((b[3] + HALF) / HS));
-    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+    for (let j = j0; j <= j1; j++) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'buildWaterGrid'; for (let i = i0; i <= i1; i++) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'buildWaterGrid';
       const x = -HALF + i * HS, z = -HALF + j * HS, n = riverNearest(Rv, x, z);
       if (!n || n.d > n.hw + 2.2) continue;
       const k = j * HN + i;
@@ -249,33 +259,33 @@ function buildWaterGrid() {
       fx[k] = n.ux * n.speed * edge; fz[k] = n.uz * n.speed * edge;
       // white water where the river falls steeply (it runs fastest there)
       white[k] = Math.max(white[k], sstep(1.6, 3.0, n.speed) * (1 - sstep(n.hw * 0.55, n.hw + 1.0, n.d)));
-    }
+    } }
   }
   // ponds in the closed hollows, and no dry pond beds
-  findPonds(H, surf);
-  for (let k = 0; k < N2; k++) if (!isNaN(surf[k]) && surf[k] > H[k] - 0.15) { W.grass[k] = 0; W.flower[k] = 0; }
+  (yield* findPondsChunks(H, surf));
+  for (let k = 0; k < N2; k++) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'buildWaterGrid'; if (!isNaN(surf[k]) && surf[k] > H[k] - 0.15) { W.grass[k] = 0; W.flower[k] = 0; } }
   // the walk mask learns about deep water
   const walk = W.walk;
-  for (let j = 0; j < HN; j++) for (let i = 0; i < HN; i++) {
+  for (let j = 0; j < HN; j++) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'buildWaterGrid'; for (let i = 0; i < HN; i++) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'buildWaterGrid';
     const k = j * HN + i, x = -HALF + i * HS, z = -HALF + j * HS;
     if (Math.abs(x) > HALF - 6 || Math.abs(z) > HALF - 6 || isNaN(surf[k])) continue;
     const d = surf[k] - H[k];
     if (d > WATER_DEEP) walk[k] = 2;
     else if (walk[k] === 1 && d > 0.4) walk[k] = 2; // a steep bank under the water: a swimmer gets past it
     else if (walk[k] === 1 && H[k] < WATER_Y - 1.0 && d > 0) walk[k] = 2;
-  }
+  } }
   // the surface carried a little way onto the shore (the water mesh is drawn over it and cut at the ground per pixel)
   const ext = new Float32Array(N2).fill(NaN);
-  for (let k = 0; k < N2; k++) ext[k] = surf[k];
-  for (let pass = 0; pass < 2; pass++) {
+  for (let k = 0; k < N2; k++) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'buildWaterGrid'; ext[k] = surf[k]; }
+  for (let pass = 0; pass < 2; pass++) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'buildWaterGrid';
     const src = ext.slice();
-    for (let j = 1; j < HN - 1; j++) for (let i = 1; i < HN - 1; i++) {
+    for (let j = 1; j < HN - 1; j++) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'buildWaterGrid'; for (let i = 1; i < HN - 1; i++) { if (++chunkWork % WORLD_CHUNK_WORK === 0) yield 'buildWaterGrid';
       const k = j * HN + i;
       if (!isNaN(src[k])) continue;
       let m = -Infinity;
       for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) { const s = src[k + dj * HN + di]; if (!isNaN(s) && s > m) m = s; }
       if (m > -Infinity) ext[k] = m;
-    }
+    } }
   }
   WATERGRID.surf = surf; WATERGRID.fx = fx; WATERGRID.fz = fz; WATERGRID.white = white; WATERGRID.ext = ext;
 }

@@ -98,7 +98,8 @@ function look3Masons(C, dt) {
 }
 function look3MasonSpawn(C, W, H, L, i) {
   const S = C.S, K = S.keepRef, D = H.door;
-  const e = makeEnt({ kind: 'humanoid', faction: K.realm, role: 'mason', level: 12, name: 'Mason', x: D.out.x + (i ? 0.5 : -0.5) * Math.cos(S.yaw), z: D.out.z - (i ? 0.5 : -0.5) * Math.sin(S.yaw), y: H.y, look: villagerLook(K.realm), home: { x: D.out2.x, z: D.out2.z, r: 2 }, speed: 2.4 });
+  const e = makeEnt({ kind: 'humanoid', faction: K.realm, role: 'mason', level: 1, name: 'Mason', x: D.out.x + (i ? 0.5 : -0.5) * Math.cos(S.yaw), z: D.out.z - (i ? 0.5 : -0.5) * Math.sin(S.yaw), y: H.y, look: villagerLook(K.realm), home: { x: D.out2.x, z: D.out2.z, r: 2 }, speed: 2.4 });
+  if (typeof worldActorDevelop === 'function') worldActorDevelop(e);
   e.maxHp = e.hp = 420;
   e.y = floorAt(e.x, e.z, H.y + 0.3);
   e.yaw = Math.atan2(D.out2.x - D.out.x, D.out2.z - D.out.z);

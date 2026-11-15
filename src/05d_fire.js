@@ -50,6 +50,7 @@ function gatherLights(camX, camY, camZ) {
   for (let i = FLASHES.length - 1; i >= 0; i--) {
     const f = FLASHES[i], a = (t - f.t0) / f.life;
     if (a >= 1 || a < 0) { FLASHES.splice(i, 1); continue; }
+    if (REDUCE_MOTION) continue; // also suppress a flash already in flight when the preference changes
     const k = (1 - a) * (1 - a);
     add(f.x, f.y, f.z, f.r, f.c[0] * k, f.c[1] * k, f.c[2] * k);
   }

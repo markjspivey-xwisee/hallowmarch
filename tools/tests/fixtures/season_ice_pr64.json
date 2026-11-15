@@ -1,0 +1,21 @@
+{
+  "commit": "22ae16be31df6f2903d4f7a28601940eb686ea67",
+  "functions": {
+    "seasonIceStep": {
+      "source": "function seasonIceStep(dts, k = SEASON.k) {\n  if (!SICE.ks) return;\n  const base = seasonTempBase(k), ks = SICE.ks, t0 = SICE.t0, sh = SICE.shallow, th = SICE.thick, G = SICE.grid;\n  let walk = 0;\n  for (let q = 0; q < ks.length; q++) {\n    const T = base + t0[q];\n    let v = th[q];\n    if (T < -1) v += dts * (-1 - T) * 6e-4 * (1 + 0.6 * sh[q]);\n    else if (T > 0.5) v -= dts * (T - 0.5) * 7e-4 * (1 + 1.5 * sh[q]);\n    v = v < 0 ? 0 : v > 1 ? 1 : v;\n    th[q] = v; G[ks[q]] = v;\n    if (v >= 0.3) walk++;\n  }\n  SICE.on = walk > 0;\n  SEAS.frozenN = walk;\n}",
+      "sha256": "e8132eddaf0aa1009654ccbaa3cf3eeebb25fc7f2335ed0428d9c1116f267577"
+    },
+    "seasonIceSettle": {
+      "source": "function seasonIceSettle() {\n  if (!SICE.ks) return;\n  SICE.thick.fill(0);\n  const Y = SEASON.yearSec, step = 40;\n  for (let t = SEASON.t - Y; t < SEASON.t; t += step) seasonIceStep(step, (((t / Y) % 1) + 1) % 1);\n  seasonIceVisual(true);\n}",
+      "sha256": "847e9e323c911187781bb4599f2f060bfb042971b0eb2e5da1b01f9b2f790bd3"
+    },
+    "seasonIceVisual": {
+      "source": "function seasonIceVisual(force) {\n  if (!SICE.ks) return;\n  const V = SICE.vis, G = SICE.grid;\n  for (let q = 0; q < SICE.ks.length; q++) V[SICE.ks[q]] = G[SICE.ks[q]];\n  for (const [kk, nb] of SICE.shore) { let m = 0; for (const k2 of nb) if (G[k2] > m) m = G[k2]; V[kk] = m; }\n  for (const M of SICE.meshes) {\n    const a = M.attr.array;\n    let ch = false;\n    for (let i = 0; i < M.vs.length; i++) {\n      const o = M.vs[i] * 4 + 3, v = V[M.kk[i]];\n      if (force || Math.abs(a[o] - v) > 0.004) { a[o] = v; ch = true; }\n    }\n    if (ch) M.attr.needsUpdate = true;\n  }\n}",
+      "sha256": "f44e4879b429f6ebb4aef946c2f24b36438a85a026bc55a97102164694b3f43b"
+    },
+    "seasonTempBase": {
+      "source": "function seasonTempBase(k) { return 10 + 9.5 * Math.cos(TAU * (k - 0.375)); }",
+      "sha256": "b7eb6444a148c67fd835d02a72a038a9db0dec2f0982ff5c4c1651917ddb12a0"
+    }
+  }
+}

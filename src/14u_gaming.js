@@ -718,6 +718,7 @@ function gamingInit() {
   if (tray && diagnostic) { const section = gamingNode('section'); section.dataset.mobileSection = 'world social'; section.style.order = '-2'; const button = gamingButton('Integration test encounter', () => gamingToggle(true)); button.id = 'gaming-mobile-open'; section.appendChild(button); tray.appendChild(section); }
   GAMING.socket = typeof NETWS !== 'undefined' ? NETWS.ws : null;
   GAMING.timer = setInterval(() => {
+    if (typeof netHumanLive === 'function' && !netHumanLive()) return;
     const socket = typeof NETWS !== 'undefined' ? NETWS.ws : null;
     if ((!gamingSessionCurrent() || socket !== GAMING.socket) && ['entering', 'joined'].includes(GAMING.status)) {
       GAMING.status = 'disconnected'; gamingClearToken(); gamingRejectPending('The expedition connection changed. Enter again to resume.'); gamingRender();

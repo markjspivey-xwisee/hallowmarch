@@ -20,48 +20,53 @@ const L3_DEVICE_GLSL = /* glsl */`
       return min(d, length(p - vec2(0.0, -0.66)) - 0.065);
     }
     float l3DeviceD(vec2 p, int k){
-      if (k == 0) return min(l3Blade(l3Rot(p, 0.62)), l3Blade(l3Rot(p, -0.62)));
-      if (k == 1) return l3Blade(p * 0.92) / 0.92;
-      if (k == 2) {
-        float d = l3Box(p - vec2(0.0, -0.14), vec2(0.32, 0.48));
-        for (int i = -1; i <= 1; i++) d = min(d, l3Box(p - vec2(float(i) * 0.23, 0.42), vec2(0.07, 0.1)));
+      // A single initialized return avoids ANGLE/FXC's uninitialized-return
+      // fallback on older D3D11 drivers. Fixed motifs use float constants below
+      // rather than signed integer loop indices in the generated shader.
+      float d = 1.0;
+      if (k == 0) d = min(l3Blade(l3Rot(p, 0.62)), l3Blade(l3Rot(p, -0.62)));
+      else if (k == 1) d = l3Blade(p * 0.92) / 0.92;
+      else if (k == 2) {
+        d = l3Box(p - vec2(0.0, -0.14), vec2(0.32, 0.48));
+        ${[-1, 0, 1].map(i => `d = min(d, l3Box(p - vec2(${i.toFixed(1)} * 0.23, 0.42), vec2(0.07, 0.1)));`).join('\n        ')}
         d = max(d, -l3Box(p - vec2(0.0, -0.5), vec2(0.1, 0.13)));
-        return max(d, -l3Box(p - vec2(0.0, 0.08), vec2(0.04, 0.09)));
+        d = max(d, -l3Box(p - vec2(0.0, 0.08), vec2(0.04, 0.09)));
       }
-      if (k == 3) {
+      else if (k == 3) {
         float cup = max(length(p - vec2(0.0, 0.3)) - 0.38, p.y - 0.3);
         cup = min(cup, l3Box(p - vec2(0.0, 0.31), vec2(0.4, 0.03)));
-        float d = min(cup, l3Box(p - vec2(0.0, -0.22), vec2(0.045, 0.24)));
-        return min(d, l3Box(p - vec2(0.0, -0.5), vec2(0.24, 0.05)));
+        d = min(cup, l3Box(p - vec2(0.0, -0.22), vec2(0.045, 0.24)));
+        d = min(d, l3Box(p - vec2(0.0, -0.5), vec2(0.24, 0.05)));
       }
-      if (k == 4) {
-        float d = max(abs(length(p) - 0.5) - 0.045, -l3Box(p - vec2(0.0, -0.5), vec2(0.16, 0.14)));
-        for (int i = 0; i < 10; i++) {
-          float side = i < 5 ? -1.0 : 1.0, ang = side * (0.3 + float(i < 5 ? i : i - 5) * 0.46);
+      else if (k == 4) {
+        d = max(abs(length(p) - 0.5) - 0.045, -l3Box(p - vec2(0.0, -0.5), vec2(0.16, 0.14)));
+        ${Array.from({ length: 10 }, (_, i) => `{ float side = ${i < 5 ? '-1.0' : '1.0'}, ang = side * (0.3 + ${(i % 5).toFixed(1)} * 0.46);
           vec2 q = l3Rot(p - 0.5 * vec2(sin(ang), cos(ang)), ang + side * 0.45);
-          d = min(d, length(q * vec2(1.0, 2.2)) - 0.12);
-        }
-        return d;
+          d = min(d, length(q * vec2(1.0, 2.2)) - 0.12); }`).join('\n        ')}
       }
-      if (k == 5) {
-        float d = length(p - vec2(0.0, -0.2)) - 0.32;
+      else if (k == 5) {
+        d = length(p - vec2(0.0, -0.2)) - 0.32;
         d = min(d, max(abs(p.x) - 0.32 * clamp((0.66 - p.y) / 0.86, 0.0, 1.0), max(p.y - 0.66, -0.2 - p.y)));
         float inner = length(p - vec2(0.0, -0.26)) - 0.14;
         inner = min(inner, max(abs(p.x) - 0.14 * clamp((0.22 - p.y) / 0.48, 0.0, 1.0), max(p.y - 0.22, -0.26 - p.y)));
-        return max(d, -inner);
+        d = max(d, -inner);
       }
-      if (k == 6) {
-        float d = length((p - vec2(0.0, -0.06)) * vec2(1.0, 0.92)) - 0.34;
+      else if (k == 6) {
+        d = length((p - vec2(0.0, -0.06)) * vec2(1.0, 0.92)) - 0.34;
         d = min(d, l3Box(p - vec2(0.0, -0.36), vec2(0.17, 0.1)));
         d = max(d, -(length(vec2(abs(p.x) - 0.13, p.y + 0.04)) - 0.08));
         d = max(d, -l3Box(vec2(abs(p.x) - 0.06, p.y + 0.38), vec2(0.018, 0.08)));
         float crown = l3Box(p - vec2(0.0, 0.36), vec2(0.27, 0.05));
-        for (int i = -1; i <= 1; i++) crown = min(crown, max(abs(p.x - float(i) * 0.2) * 1.6 + (p.y - 0.62), 0.36 - p.y));
-        return min(d, crown);
+        ${[-1, 0, 1].map(i => `crown = min(crown, max(abs(p.x - ${i.toFixed(1)} * 0.2) * 1.6 + (p.y - 0.62), 0.36 - p.y));`).join('\n        ')}
+        d = min(d, crown);
       }
-      if (k == 7) return min(l3Box(p - vec2(0.0, 0.32), vec2(0.34, 0.13)), l3Box(p - vec2(0.0, -0.16), vec2(0.05, 0.42)));
-      if (k == 8) return max(abs(p.x) * 0.95 + (p.y - 0.5) * 0.7, -(p.y + 0.48));
-      float a = atan(p.x, p.y), r = length(p);
-      return r - mix(0.22, 0.62, pow(0.5 + 0.5 * cos(5.0 * a), 3.0));
+      else if (k == 7) d = min(l3Box(p - vec2(0.0, 0.32), vec2(0.34, 0.13)), l3Box(p - vec2(0.0, -0.16), vec2(0.05, 0.42)));
+      else if (k == 8) d = max(abs(p.x) * 0.95 + (p.y - 0.5) * 0.7, -(p.y + 0.48));
+      else {
+        float a = atan(p.x, p.y), r = length(p);
+        d = r - mix(0.22, 0.62, pow(0.5 + 0.5 * cos(5.0 * a), 3.0));
+      }
+      return d;
     }
     float l3DeviceMask(vec2 p, int k){ float d = l3DeviceD(p, k); float fw = fwidth(d) + 1e-4; return 1.0 - smoothstep(-fw, fw, d); }`;
+

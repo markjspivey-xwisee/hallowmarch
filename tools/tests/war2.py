@@ -82,7 +82,7 @@ async def main(p):
     b, page, logs = await setup(p, w=640, h=360)
     page.set_default_timeout(600000)
     await ev(page, f"__hm.fn.setQuality('{QUALITY}')")
-    await ev(page, "(() => { __hm.start({ realm: 0, cls: 'warrior', level: 20 }); __hm.UI.modal = 'menu'; return 0; })()")
+    await ev(page, "(async () => { await __hm.start({ realm: 0, cls: 'warrior', level: 20 }); __hm.UI.modal = 'menu'; return 0; })()")
     await ev(page, HELP)
     await ev(page, "__w2t.quiet(); __hm.simulate(2); 0")
 

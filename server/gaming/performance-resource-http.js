@@ -9,9 +9,15 @@ const markdown = text => String(text).split(/\n\n+/).map(block => {
   return block.split('\n').every(line => line.startsWith('- ')) ? '<ul>' + block.split('\n').map(line => `<li>${inline(line.slice(2))}</li>`).join('') + '</ul>' : `<p>${inline(block).replace(/\n/g, '<br>')}</p>`;
 }).join('');
 const term = 'urn:interego:gaming:';
+const I2IDL_SOURCE = Object.freeze({
+  scheme: 'https://id.i2idl.org/scheme', release: 'v0.0.93',
+  commit: 'b75261de5ad7851c1f61607091cc00e486bbbb5f',
+  snapshot: 'https://github.com/blakeplock/i2idl-linked-data/blob/b75261de5ad7851c1f61607091cc00e486bbbb5f/public/glossary.jsonld',
+  vocabulary: 'https://relay.interego.xwisee.com/ns/u-pk-33d42e6b33dc/i2idlx', semanticVersion: '0.5.0'
+});
 const iri = value => typeof value === 'string' && /^(https:\/\/|did:)/.test(value) && !/[\s<>"{}|^`\\]/.test(value);
 
-export function createPerformanceResourceHttp({ catalog, alignment = null, activityProfile = null, ownership = () => null, publication = () => null, publicOrigin,
+export function createPerformanceResourceHttp({ catalog, alignment = null, activityProfile = null, activityProfileVersions = [], committedActivityProfile = null, ownership = () => null, publication = () => null, publicOrigin,
   title = 'Performance resources', nativeScope = null, basePath = '/gaming/resources', maxBody = 1024 } = {}) {
   if (catalog?.schemaVersion !== 1 || !Array.isArray(catalog.resources) || !Array.isArray(catalog.courses)) throw new TypeError('A versioned authored resource catalog is required.');
   if (!/^\/[a-z0-9/-]+$/.test(basePath) || basePath.endsWith('/')) throw new TypeError('A fixed local resource path is required.');
@@ -30,17 +36,38 @@ export function createPerformanceResourceHttp({ catalog, alignment = null, activ
   }
   if (alignment && (alignment.scope !== 'performance-consulting' || Object.keys(alignment.resourceAnnotations || {}).some(id => !resources.has(id)))) throw new TypeError('Performance consulting annotations must reference actual resources.');
   const alignmentRevision = alignment ? 'sha256:' + createHash('sha256').update(JSON.stringify(alignment)).digest('hex') : null;
-  const profilePath = '/gaming/activity-profile.jsonld', versionPath = profilePath + '/versions/1.0.0';
-  if (activityProfile) {
+  const profilePath = '/gaming/activity-profile.jsonld', committedProfilePath = '/gaming/committed-activity-profile.jsonld';
+  const profileDocuments = [], profileRoutes = new Map();
+  const prepareProfile = (document, path, source, emitter) => {
     const safeProfileIri = value => typeof value === 'string' && /^https:\/\//.test(value) && !/[\s<>"{}|^`\\]/.test(value);
-    if (activityProfile.type !== 'Profile' || !safeProfileIri(activityProfile.id)
-      || activityProfile.conformsTo !== 'https://w3id.org/xapi/profiles#1.0'
-      || !Array.isArray(activityProfile.versions) || activityProfile.versions.length !== 1
-      || activityProfile.versions[0]?.id !== activityProfile.id + '/versions/1.0.0') throw new TypeError('The fixed observed activity Profile version 1.0.0 is required.');
+    if (document.type !== 'Profile' || !safeProfileIri(document.id)
+      || document.conformsTo !== 'https://w3id.org/xapi/profiles#1.0'
+      || !Array.isArray(document.versions) || document.versions.length < 1 || document.versions.length > 16
+      || document.versions.some(v => !safeProfileIri(v.id) || !v.id.startsWith(document.id + '/versions/') || !/^\d+\.\d+\.\d+$/.test(v.id.slice(document.id.length + 10)))
+      || new Set(document.versions.map(v => v.id)).size !== document.versions.length
+      || ['templates', 'patterns'].some(key => !Array.isArray(document[key]) || document[key].length > 512
+        || document[key].some(item => !safeProfileIri(item.id) || item.type !== (key === 'templates' ? 'StatementTemplate' : 'Pattern')))) throw new TypeError('A fixed observed activity Profile with safe version, template and pattern identifiers is required.');
     // HTTP and native publication must retain the same immutable configuration.
-    activityProfile = JSON.parse(JSON.stringify(activityProfile));
+    document = JSON.parse(JSON.stringify(document));
+    const version = document.versions[0].id, versionPath = path + '/versions/' + version.slice(document.id.length + 10);
+    if (profileRoutes.has(versionPath)) throw new TypeError('Each immutable activity Profile version must be configured exactly once.');
+    const row = { document, body: JSON.stringify(document), versionPath, source, emitter };
+    profileDocuments.push(row); profileRoutes.set(versionPath, row);
+    return row;
+  };
+  if (!Array.isArray(activityProfileVersions) || activityProfileVersions.length > 15 || (!activityProfile && activityProfileVersions.length)) throw new TypeError('Historical activity Profiles require the current Profile.');
+  if (activityProfile) {
+    const current = prepareProfile(activityProfile, profilePath, 'owner-browser-observation', 'active-owner-browser');
+    activityProfile = current.document; profileRoutes.set(profilePath, current);
+    for (const document of activityProfileVersions) {
+      if (!document || document.id !== activityProfile.id || !activityProfile.versions.some(v => v.id === document.versions?.[0]?.id)) throw new TypeError('A historical activity Profile must be an identified version of the current Profile.');
+      prepareProfile(document, profilePath, 'owner-browser-observation', 'retained-historical-profile');
+    }
   }
-  const profileBody = activityProfile ? JSON.stringify(activityProfile) : null;
+  if (committedActivityProfile) {
+    const committed = prepareProfile(committedActivityProfile, committedProfilePath, 'authoritative-committed-game-log', 'explicit-projection-api');
+    committedActivityProfile = committed.document; profileRoutes.set(committedProfilePath, committed);
+  }
   const link = id => `${basePath}/view?id=${encodeURIComponent(id)}`;
   const project = resource => ({ ...resource, humanReadUrl: link(resource.id),
     ...(alignment?.resourceAnnotations?.[resource.id] ? { performanceConsulting: { scope: alignment.scope, status: alignment.mappingStatus,
@@ -53,6 +80,8 @@ export function createPerformanceResourceHttp({ catalog, alignment = null, activ
     ...(activityProfile ? { activity: { profile: origin ? absolute(profilePath) : null, version: activityProfile.versions[0].id,
       storage: 'encrypted-observing-owner-pod', source: 'owner-browser-observation', actor: 'authenticated-observing-owner',
       controllerIdentity: 'context-only', competencyStatus: 'not-assessed', lrsConformanceClaim: false } } : {}),
+    ...(committedActivityProfile ? { committedActivity: { profile: origin ? absolute(committedProfilePath) : null, version: committedActivityProfile.versions[0].id,
+      source: 'authoritative-committed-game-log', emitter: 'explicit-projection-api', activeOwnerBrowserProfile: false } } : {}),
     nativePublication: publication(),
     ...(alignment ? { performanceConsulting: { scope: alignment.scope, profile: `${basePath}/alignment.json`, canonicalSource: alignment.canonicalSource, revisionDigest: alignmentRevision } } : {}),
     descriptorUrl: origin ? absolute(`${basePath}/descriptor.ttl`) : null, evidencePolicy: 'Consultation is resource use, not proof of learning or mastery.',
@@ -74,6 +103,8 @@ export function createPerformanceResourceHttp({ catalog, alignment = null, activ
 @prefix dct: <http://purl.org/dc/terms/> .
 @prefix prov: <http://www.w3.org/ns/prov#> .
 @prefix gaming: <${term}> .
+@prefix i2x: <${I2IDL_SOURCE.vocabulary}#> .
+@prefix i2idl: <https://id.i2idl.org/concepts/> .
 ${subject} a dcat:DataService ; dct:title ${JSON.stringify(title)} ;
   dct:identifier ${JSON.stringify(catalog.revisionDigest || '')} ;
   dct:description "Authored performance resource bridge. Native publication is verified through its separate receipt; resource use does not establish achievement." ;
@@ -99,7 +130,8 @@ ${subject} a dcat:DataService ; dct:title ${JSON.stringify(title)} ;
 `;
   const handle = function handle(req, res, url) {
     const path = url.pathname;
-    if (path !== basePath && ![profilePath, versionPath, `${basePath}/query`, `${basePath}/item`, `${basePath}/view`, `${basePath}/descriptor.ttl`, `${basePath}/shapes.ttl`, `${basePath}/query.schema.json`, `${basePath}/alignment.json`].includes(path)) return false;
+    const profileRoute = profileRoutes.get(path), knownUnconfiguredProfile = [profilePath, profilePath + '/versions/1.0.0', profilePath + '/versions/1.1.0', committedProfilePath, committedProfilePath + '/versions/1.0.0'].includes(path);
+    if (path !== basePath && !profileRoute && !knownUnconfiguredProfile && ![`${basePath}/query`, `${basePath}/item`, `${basePath}/view`, `${basePath}/descriptor.ttl`, `${basePath}/shapes.ttl`, `${basePath}/query.schema.json`, `${basePath}/alignment.json`].includes(path)) return false;
     const reply = (status, body, mediaType = 'application/json') => {
       if (res.writableEnded || res.destroyed) return;
       res.writeHead(status, { 'content-type': `${mediaType}; charset=utf-8`, 'cache-control': 'no-store', 'x-content-type-options': 'nosniff',
@@ -113,10 +145,10 @@ ${subject} a dcat:DataService ; dct:title ${JSON.stringify(title)} ;
       if (!resource) { reply(404, { error: 'resource_not_found' }); return; }
       reply(200, project(resource));
     };
-    if (path === profilePath || path === versionPath) {
+    if (profileRoute || knownUnconfiguredProfile) {
       if (!['GET', 'HEAD'].includes(req.method)) { res.setHeader('Allow', 'GET, HEAD'); reply(405, { error: 'method_not_allowed' }); }
-      else if (!activityProfile) reply(404, { error: 'activity_profile_unconfigured' });
-      else { res.writeHead(200, { 'content-type': 'application/ld+json; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff', 'referrer-policy': 'no-referrer' }); res.end(req.method === 'HEAD' ? undefined : profileBody); }
+      else if (!profileRoute) reply(404, { error: 'activity_profile_unconfigured' });
+      else { res.writeHead(200, { 'content-type': 'application/ld+json; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff', 'referrer-policy': 'no-referrer' }); res.end(req.method === 'HEAD' ? undefined : profileRoute.body); }
       return true;
     }
     if (path === `${basePath}/query`) {
@@ -186,14 +218,19 @@ ${subject} a dcat:DataService ; dct:title ${JSON.stringify(title)} ;
   };
   handle.nativeDescription = () => {
     const { graphIri, rootLines, resourceRows } = nativeDocument();
-    return { graphIri, graphContent: [...rootLines, ...resourceRows.flat(), ...(activityProfile ? [profileTriples(graphIri)] : [])].join('\n') };
+    return { graphIri, graphContent: [...rootLines, ...resourceRows.flat(), ...profileDocuments.map(row => profileTriples(graphIri, row))].join('\n') };
   };
-  const profileTriples = graphIri => {
-    const version = activityProfile.versions[0].id, distribution = absolute(versionPath) + '#distribution';
-    return `<${graphIri}> dcat:servesDataset <${activityProfile.id}> .\n`
-      + `<${activityProfile.id}> a dcat:Dataset ; dct:hasVersion <${version}> .\n`
-      + `<${version}> a dcat:Dataset ; dct:isVersionOf <${activityProfile.id}> ; dct:conformsTo <${activityProfile.conformsTo}> ; dcat:distribution <${distribution}> ; schema:text ${JSON.stringify(profileBody)} .\n`
-      + `<${distribution}> a dcat:Distribution ; dcat:accessURL <${absolute(versionPath)}> ; dcat:mediaType "application/ld+json" .`;
+  const profileTriples = (graphIri, row) => {
+    const { document, body, versionPath, source, emitter } = row;
+    const version = document.versions[0].id, distribution = absolute(versionPath) + '#distribution';
+    const classifications = [[document.id, 'xapi-profile'], [version, 'profile-version'],
+      ...document.templates.map(item => [item.id, 'statement-template']), ...document.patterns.map(item => [item.id, 'xapi-pattern'])];
+    return `<${graphIri}> dcat:servesDataset <${document.id}> .\n`
+      + `<${document.id}> a dcat:Dataset ; dct:hasVersion <${version}> .\n`
+      + `<${version}> a dcat:Dataset ; dct:isVersionOf <${document.id}> ; dct:conformsTo <${document.conformsTo}> ; dcat:distribution <${distribution}> ; schema:text ${JSON.stringify(body)} ; gaming:observationSource ${JSON.stringify(source)} ; gaming:emitter ${JSON.stringify(emitter)} .\n`
+      + `<${distribution}> a dcat:Distribution ; dcat:accessURL <${absolute(versionPath)}> ; dcat:mediaType "application/ld+json" .\n`
+      + `<${version}> gaming:semanticMappingStatus "Hypothetical" ; gaming:canonicalGlossary <${I2IDL_SOURCE.scheme}> ; gaming:glossaryPublicationVersion ${JSON.stringify(I2IDL_SOURCE.release)} ; gaming:glossarySourceCommit ${JSON.stringify(I2IDL_SOURCE.commit)} ; gaming:semanticProfileVersion ${JSON.stringify(I2IDL_SOURCE.semanticVersion)} ; prov:wasDerivedFrom <${I2IDL_SOURCE.snapshot}>, <${I2IDL_SOURCE.vocabulary}>, <${I2IDL_SOURCE.vocabulary}-referents>, <${I2IDL_SOURCE.vocabulary}-alignments> .\n`
+      + classifications.map(([subject, concept]) => `<${subject}> i2x:isClassifiedBy i2idl:${concept} ; gaming:semanticMappingStatus "Hypothetical" .`).join('\n');
   };
   handle.nativeComposition = ({ resourcesPerPart = 12 } = {}) => {
     if (!Number.isSafeInteger(resourcesPerPart) || resourcesPerPart < 1 || resourcesPerPart > 16) throw new TypeError('A bounded resource composition is required.');
@@ -205,10 +242,10 @@ ${subject} a dcat:DataService ; dct:title ${JSON.stringify(title)} ;
       parts.push({ graphIri: partIri, graphContent: [...prefixes, `<${partIri}> a gaming:ResourceCollection ; dct:isPartOf <${graphIri}> .`, content].join('\n') });
       rootLines.push(`<${graphIri}> dct:hasPart <${partIri}> .`);
     }
-    if (activityProfile) {
-      const content = profileTriples(graphIri), partIri = graphIri + ':activity-profile:' + createHash('sha256').update(content).digest('hex');
+    for (const row of profileDocuments) {
+      const content = profileTriples(graphIri, row), partIri = graphIri + ':activity-profile:' + createHash('sha256').update(content).digest('hex');
       parts.push({ graphIri: partIri, graphContent: [...prefixes,
-        `<${partIri}> a gaming:ActivityProfilePublication ; dct:isPartOf <${graphIri}> ; dct:subject <${activityProfile.versions[0].id}> .`, content].join('\n') });
+        `<${partIri}> a gaming:ActivityProfilePublication ; dct:isPartOf <${graphIri}> ; dct:subject <${row.document.versions[0].id}> .`, content].join('\n') });
       rootLines.push(`<${graphIri}> dct:hasPart <${partIri}> .`);
     }
     return { root: { graphIri, graphContent: rootLines.join('\n') }, parts };

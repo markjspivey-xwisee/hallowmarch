@@ -171,7 +171,7 @@ function browserFixture({ observed = true } = {}) {
     ['#menu', { hidden: false }],
     ['#march-coach-milestones', { textContent: snapshot.current.title }], ['#march-coach-interventions', { querySelector: () => ({}) }],
     ['#march-coach-options', { open: true, textContent: disclosure }], ['#march-coach-preview', { textContent: JSON.stringify(payload) }],
-    ['#march-consulting-connect', { disabled: false, hidden: false, textContent: 'Enable Foxxi guidance · 15 minutes', click() { clicks.push('enable'); game.consulting.status.enabled = true; } }],
+    ['#march-consulting-connect', { disabled: false, hidden: false, textContent: 'Start Foxxi guidance for 15 minutes', click() { clicks.push('enable'); game.consulting.status.enabled = true; } }],
     ['#march-consulting-withdraw', { disabled: false, hidden: false, click() { clicks.push('withdraw'); game.consulting.status.enabled = false; } }],
   ]);
   let afterFetch = null, fetchCalls = 0, disconnected = false, elapsed = 0, focused = true;

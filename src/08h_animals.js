@@ -35,6 +35,7 @@ const PAT_NAMES = ['plain', 'patched', 'dappled', 'belted'];
 registerGood('manure', { name: 'Basket of manure', plural: 'Baskets of manure', kind: 'material', icon: 'seed', value: 1, desc: 'Mucked out of a paddock. It feeds the fields.' });
 registerGood('feed', { name: 'Sack of feed', plural: 'Sacks of feed', kind: 'material', icon: 'grain', value: 3, desc: 'Oats, beans and chopped hay for stock. Fills a paddock\'s rack for days.' });
 registerGood('fence_kit', { name: 'Fence kit', kind: 'part', icon: 'hammer', value: 30, desc: 'Posts, rails, a gate, a trough and boards for a shed: everything for one paddock.' });
+const ANIMALS_SHARED = { ready: false, trust: new Map(), claims: new Set(), consumed: new Map(), received: new Set() };
 const ANIMALS = { list: [], pens: [], trust: new Map(), trail: [], nextAid: 1, nextPen: 1, marking: null, sel: null, uiT: 0, lastSave: '', down: [], hearts: [], lastFeedMsg: 0, inited: false, doors: [] };
 
 /* ------------------------------------------------------------------ */
@@ -130,10 +131,10 @@ function anSpawn(rec, x, z, yaw = Math.random() * TAU) {
   return e;
 }
 function anStats(e) {
-  const rec = e.tame, K = AKIND[rec.k], P = GAME.player;
+  const rec = e.tame, K = AKIND[rec.k];
   const g = anGrowth(rec);
   if (e.mobType) {
-    e.level = clamp((P ? P.level : 1) - 2 + Math.min(4, Math.floor((rec.lvl - 1) / 2)), 1, LEVEL_CAP);
+    e.level = clamp(rec.lvl, 1, LEVEL_CAP);
     // a hungry hound fights weaker
     e.tweak = { hp: (0.85 + 0.06 * (rec.lvl - 1)) * rec.tr.size * (0.4 + 0.6 * g), dmg: (0.8 + 0.05 * (rec.lvl - 1)) * rec.tr.strength * (0.3 + 0.7 * g) * (rec.hunger < 0.15 ? 0.7 : 1) };
     setupStats(e, true);
@@ -277,7 +278,7 @@ function penRemove(pen) {
   ANIMALS.pens.splice(ANIMALS.pens.indexOf(pen), 1);
 }
 function penMake(o) {
-  const pen = { id: o.id ?? ANIMALS.nextPen++, owner: o.owner || 'player', realm: o.realm ?? -1, x: o.x, z: o.z, yaw: o.yaw || 0, hw: o.hw || 6, hd: o.hd || 4.5, feed: o.feed ?? 6, water: o.water ?? 10, manure: o.manure ?? 0, seed: o.seed || Math.floor(Math.random() * 1e6), name: o.name || 'Paddock' };
+  const pen = { id: o.id ?? ANIMALS.nextPen++, owner: o.owner || 'player', realm: o.realm ?? -1, x: o.x, z: o.z, yaw: o.yaw || 0, hw: o.hw || 6, hd: o.hd || 4.5, feed: o.feed ?? 6, water: o.water ?? 10, manure: o.manure ?? 0, seed: o.seed || Math.floor(Math.random() * 1e6), name: o.name || 'Paddock', sharedOwner: typeof o.sharedOwner === 'string' ? o.sharedOwner.slice(0, 160) : null };
   ANIMALS.pens.push(pen);
   penBuild(pen);
   return pen;
@@ -329,7 +330,7 @@ function initAnimals() {
   initWildHorses();
   anBuildUI();
   window.addEventListener('keydown', (ev) => {
-    if (!GAME.started || typing() || ev.repeat) return;
+    if (!GAME.started || typing() || gameplayKeyIgnored(ev) || ev.repeat) return;
     if (ev.code === 'KeyK') { if (UI.modal === 'dialog' && ANIMALS.dlg) anCloseDialog(); else if (!UI.modal) openAnimals(); }
     // Esc while marking out a paddock stops marking (and nothing else)
     if (ev.code === 'Escape' && ANIMALS.marking && !UI.modal) { ANIMALS.marking = null; ANIMALS.uiDirty = true; uiLog('You stop marking out the paddock.', 'sys'); ev.stopImmediatePropagation(); }
@@ -409,11 +410,11 @@ function anTamingStep(dt) {
         T.rushAt = GAME.t;
       }
       T.settle = 0;
-      if (e.role === 'animal') anStartle(e, P.x, P.z);
+      if (e.role === 'animal' && anSharedWorldCanSimulate()) anStartle(e, P.x, P.z);
     } else if (d2 < 9 * 9 && anPlayerCalm(P)) {
       T.settle = Math.min(1, T.settle + dt / (P._anSp < 1.5 ? 2.2 : 5));
       // it stops to watch you come
-      if (!(e.ai.flee && GAME.t < e.ai.flee.until) && GAME.t > P.combatUntil && !e.target) { e.ai.tameHold = Math.max(e.ai.tameHold || 0, GAME.t + 0.6); turnToward(e, P.x, P.z, dt * 2.5); if (T.settle > 0.6 && !e.anim.act && Math.random() < dt * 0.3) setAct(e, 5, 1.5); }
+      if (anSharedWorldCanSimulate() && !(e.ai.flee && GAME.t < e.ai.flee.until) && GAME.t > P.combatUntil && !e.target) { e.ai.tameHold = Math.max(e.ai.tameHold || 0, GAME.t + 0.6); turnToward(e, P.x, P.z, dt * 2.5); if (T.settle > 0.6 && !e.anim.act && Math.random() < dt * 0.3) setAct(e, 5, 1.5); }
     }
     else T.settle = Math.max(0, T.settle - dt / 8);
   });
@@ -428,6 +429,8 @@ function anOffer(e) {
   if (!food) { uiError(`It wants ${AKIND[k].likes.slice(0, 2).map((id) => goodName(id, 2).toLowerCase()).join(' or ')}`); return; }
   if (T.settle < 1) { uiError('It is still wary of you. Stand still a moment.'); return; }
   if (GAME.t - T.last < 5) { uiError('It is still eating'); return; }
+  if (typeof netWorldPartsActive === 'function' && netWorldPartsActive() && !anSharedWorldCanSimulate() && !e.netEntityId) { uiError('Waiting for the shared animal.'); return; }
+  if (typeof netWorldPartsRequest === 'function' && e.netEntityId && netWorldPartsRequest('animal.offer', { id: e.netEntityId, food }, [[food, 1]])) return;
   goodsTake(food, 1);
   T.n++; T.last = GAME.t;
   faceToward(e, P.x, P.z);
@@ -440,6 +443,8 @@ function anOffer(e) {
   loreNote('tame');
 }
 function anTame(e, k) {
+  if (!anSharedWorldCanSimulate()) return;
+  if (e.netEntityId) ANIMALS_SHARED.claims.add(e.netEntityId);
   ANIMALS.trust.delete(e.id);
   let rec;
   if (e.role === 'animal' && e.tame) {
@@ -624,7 +629,7 @@ function thinkAnimal(e, dt) {
 function anMother(e) {
   const rec = e.tame;
   if (!rec.ma || anAdult(rec)) return null;
-  const m = ANIMALS.list.find((o) => o.tame && o.tame.aid === rec.ma.aid && o.alive && !o.removed);
+  const m = ANIMALS.list.find((o) => o.tame && o.tame.aid === rec.ma.aid && o.tame.owner === rec.owner && (!e.netEntityOwner || o.netEntityOwner === e.netEntityOwner) && o.alive && !o.removed);
   return m || null;
 }
 function anStartle(e, x, z) {
@@ -689,7 +694,7 @@ function anLeavePen(e, dt, mul, keep = null) {
   if (!pen) { ai.leaving = null; return false; }
   ai.leaving = pen.id;
   const l = penLocal(pen, e.x, e.z);
-  pen.gateWant = GAME.t + 2.5;
+  anSharedGate(pen, 2.5);
   if (Math.abs(l.x) < 1.2 && l.z > pen.hd - 2.2) { if (moveToward(e, pen.gateOut.x, pen.gateOut.z, dt, mul, 0.35)) { ai.leaving = null; return false; } }
   else anGoTo(e, pen.gateIn.x, pen.gateIn.z, dt, mul, 0.5, false);
   return true;
@@ -705,9 +710,9 @@ function anPenThink(e, dt) {
     if (anLeavePen(e, dt, 0.6, pen)) return;
     ai.mode = 'home';
     const l = penLocal(pen, e.x, e.z);
-    if (l.z > pen.hd - 0.5 && Math.abs(l.x) < 1.4) { anGoTo(e, pen.gateIn.x, pen.gateIn.z, dt, 0.6, 0.4, false); pen.gateWant = GAME.t + 2; }
-    else if (anGoTo(e, pen.gateOut.x, pen.gateOut.z, dt, 0.6, 0.6, false)) pen.gateWant = GAME.t + 2;
-    else if (dist(e.x, e.z, pen.gateOut.x, pen.gateOut.z) < 3.5) pen.gateWant = GAME.t + 2;
+    if (l.z > pen.hd - 0.5 && Math.abs(l.x) < 1.4) { anGoTo(e, pen.gateIn.x, pen.gateIn.z, dt, 0.6, 0.4, false); anSharedGate(pen, 2); }
+    else if (anGoTo(e, pen.gateOut.x, pen.gateOut.z, dt, 0.6, 0.6, false)) anSharedGate(pen, 2);
+    else if (dist(e.x, e.z, pen.gateOut.x, pen.gateOut.z) < 3.5) anSharedGate(pen, 2);
     if (ai.stuck > 8) { const p = penWorld(pen, 0, pen.hd - 2); e.x = e.prevX = p.x; e.z = e.prevZ = p.z; ai.stuck = 0; }
     return;
   }
@@ -739,6 +744,7 @@ function anPenThink(e, dt) {
     if (d > 1.6 + e.radius) { anGoTo(e, g.x, g.z, dt, 0.4, 1.2 + e.radius, false); if (ai.stuck > 4) { ai.mode = 'idle'; ai.until = 0; } return; }
     if (!ai.atTrough) { ai.atTrough = GAME.t; faceToward(e, g.x, g.z); setAct(e, 7, 5); }
     if (GAME.t - ai.atTrough > 5) {
+      if (anSharedPenConsume(e, pen, ai.mode)) { ai.atTrough = 0; ai.mode = 'idle'; ai.until = 0; return; }
       if (ai.mode === 'drink') { const w = Math.min(pen.water, 0.4); pen.water -= w * 0.25; rec.thirst = Math.min(1, rec.thirst + w * 2.2); }
       else { const f = Math.min(pen.feed, 0.4); pen.feed -= f * 0.5; rec.hunger = Math.min(1, rec.hunger + f * 2.2); }
       ai.atTrough = 0; ai.mode = 'idle'; ai.until = 0;
@@ -852,6 +858,7 @@ function anPetXp(e, n) {
 /* ------------------------------------------------------------------ */
 function anClock(e, dt) {
   const rec = e.tame, K = AKIND[rec.k];
+  if (rec.reservedOwnerAccount) { const was = anAdult(rec); rec.age += dt; if (!was) { anLook(e); anStats(e); } return; }
   if (rec.owner === 'wild') { rec.age += dt; return; }
   const was = anAdult(rec);
   rec.age += dt;
@@ -865,8 +872,8 @@ function anClock(e, dt) {
     if (!K.fights && rec.k !== 'hound' && sampleGrid(W.grass, e.x, e.z) > 0.4) rec.hunger = Math.min(1, rec.hunger + dt * 0.004);
   }
   if (rec.owner === 'town') { rec.hunger = Math.max(rec.hunger, 0.55); rec.thirst = Math.max(rec.thirst, 0.55); }
-  // a hound keeps pace with you as you level
-  if (K.fights && e.mobType && GAME.player && e.level !== clamp(GAME.player.level - 2 + Math.min(4, Math.floor((rec.lvl - 1) / 2)), 1, LEVEL_CAP)) anStats(e);
+  // A companion's own saved experience sets its combat level, independently of its owner.
+  if (K.fights && e.mobType && e.level !== clamp(rec.lvl, 1, LEVEL_CAP)) anStats(e);
   const hungry = rec.hunger < 0.15;
   if (hungry !== !!rec._hungry) {
     rec._hungry = hungry;
@@ -900,7 +907,7 @@ function anClock(e, dt) {
     if (Math.random() < 0.5) uiLog(`${rec.name} roots out mushrooms.`, 'loot');
   }
   // manure in the pen
-  if (pen && rec.cmd === 'pen' && penHas(pen, e.x, e.z)) pen.manure = Math.min(20, pen.manure + dt * (rec.k === 'cattle' ? 1 / 150 : rec.k === 'hen' ? 1 / 900 : 1 / 300));
+  if (anSharedWorldCanSimulate() && pen && rec.cmd === 'pen' && penHas(pen, e.x, e.z)) pen.manure = Math.min(20, pen.manure + dt * (rec.k === 'cattle' ? 1 / 150 : rec.k === 'hen' ? 1 / 900 : 1 / 300));
   // breeding: the mother carries; at term the young are born
   if (rec.preg) {
     rec.preg.left -= dt;
@@ -919,7 +926,7 @@ function anClock(e, dt) {
 function anBirth(e) {
   const rec = e.tame, K = AKIND[rec.k], S = rec.preg.sire;
   rec.preg = null;
-  if (rec.k === 'hen') { depthClutch(e, S); return; } // [depth] a hen lays a clutch in the nest, and it hatches if left (09u_depth.js)
+  if (rec.k === 'hen') { if (!anSharedProduction(e, 'animal.clutch', { sire: S })) depthClutch(e, S); return; } // [depth] a hen lays a clutch in the nest, and it hatches if left (09u_depth.js)
   const n = K.litter[0] + Math.floor(Math.random() * (K.litter[1] - K.litter[0] + 1));
   const names = [];
   for (let i = 0; i < n; i++) {
@@ -937,13 +944,14 @@ function anBirth(e) {
   }
 }
 const anPlural = (w) => (w === 'calf' ? 'calves' : w === 'pup' ? 'pups' : w + 's');
-function anLay(e) {
+function anLay(e, ownerAccount = null) {
+  if (anSharedProduction(e, 'animal.lay')) return;
   // eggs lie where the hen laid them (in the shed if she is in a pen); walk over them to pick them up
   const n = 1 + (Math.random() < (e.tame.tr.yield - 0.9) ? 1 : 0);
   const near = LOOT.filter((L) => L.item && L.item.goods === 'egg' && dist2(L.x, L.z, e.x, e.z) < 12 * 12).length;
   if (near >= 8) return;
   ANIMALS.eggsLaid = (ANIMALS.eggsLaid || 0) + n;
-  depthLaid(e, dropGood('egg', n, e.x + (Math.random() - 0.5) * 0.3, e.z + (Math.random() - 0.5) * 0.3)); // [depth] with a cockerel in the flock, an egg left lying hatches (09u_depth.js)
+  depthLaid(e, dropGood('egg', n, e.x + (Math.random() - 0.5) * 0.3, e.z + (Math.random() - 0.5) * 0.3), ownerAccount); // [depth] with a cockerel in the flock, an egg left lying hatches (09u_depth.js)
 }
 function anHearts(e, n) {
   if (!e || dist2(e.x, e.z, camera.position.x, camera.position.z) > 70 * 70) return;
@@ -964,6 +972,8 @@ function updateAnimals(dt) {
   for (let i = L.length - 1; i >= 0; i--) {
     const e = L[i];
     if (e.removed) { L.splice(i, 1); continue; }
+    if (!anSharedOwnAnimal(e) && !anSharedWorldCanSimulate()) continue;
+    if (e.netEntityOwner && !anSharedOwnAnimal(e)) continue;
     if (!e.alive) { anDied(e); L.splice(i, 1); continue; }
     e._anClk = (e._anClk ?? Math.random()) + dt;
     if (e._anClk >= 1) { anClock(e, e._anClk); e._anClk = 0; }
@@ -983,7 +993,11 @@ function updateAnimals(dt) {
   }
   // pens: the gate swings for whoever comes to it; rain fills the troughs; a pond or a well nearby keeps them full
   for (const pen of ANIMALS.pens) {
-    if (P && dist2(P.x, P.z, pen.gate.x, pen.gate.z) < 3.2 * 3.2) pen.gateWant = GAME.t + 1.5;
+    if (!anSharedWorldCanSimulate()) { pen.gateColl.active = GAME.t >= pen.gateWant && pen.gateOpen < 0.2; continue; }
+    const bodies = [P, ...(typeof NET !== 'undefined' ? [...NET.peers.values()].filter(p => p.slow?.on).map(p => p.ghost) : []), ...ANIMALS.list.filter(e => e.alive)];
+    if (bodies.some(e => e && dist2(e.x, e.z, pen.gate.x, pen.gate.z) < 3.2 * 3.2)) pen.gateWant = GAME.t + 1.5;
+    for (const e of ANIMALS.list) if (e.netEntityOwner && !anSharedOwnAnimal(e) && e.alive && e.tame?.cmd === 'pen' && e.tame.pen === pen.id && penHas(pen, e.x, e.z))
+      pen.manure = Math.min(20, pen.manure + dt * (e.tame.k === 'cattle' ? 1 / 150 : e.tame.k === 'hen' ? 1 / 900 : 1 / 300));
     const open = GAME.t < pen.gateWant;
     pen.gateColl.active = !open && pen.gateOpen < 0.2;
     if (pen.owner === 'town') { pen.feed = Math.max(pen.feed, 20); pen.water = Math.max(pen.water, 20); }
@@ -1000,6 +1014,7 @@ function anWaterNear(x, z, r) {
   return (typeof waterAt === 'function') && !!waterAt(x, z);
 }
 function anDied(e) {
+  if (!anSharedOwnAnimal(e) && (!anSharedWorldCanSimulate() || e.netEntityOwner)) return;
   const rec = e.tame;
   if (!rec) return;
   if (rec.owner === 'player' && !AKIND[rec.k].live && !rec.slaughtered) {
@@ -1036,6 +1051,7 @@ function animalOffers(P, offer) {
     // [v9] the beast you face comes first: a companion at your heel does not stand in for the wolf in front of you
     const face = d > 0.3 ? Math.abs(angDiff(P.yaw, Math.atan2(e.x - P.x, e.z - P.z))) / Math.PI * 0.5 : 0;
     if (k) {
+      if (!anPlayerCalm(P)) return; // Feeding already requires calm; do not advertise it during a fight or sprint.
       const T = anTrust(e), food = anFoodFor(k);
       const what = food ? goodName(food).toLowerCase() : AKIND[k].likes[0].replace('_', ' ');
       offer(d, 4.2, `Offer ${what} to the ${anWildName(e)} (trust ${T.n}/${T.need}${T.settle < 1 ? ', wary' : ''})`, () => anOffer(e), 0.1 - face);
@@ -1219,9 +1235,9 @@ function openPen(pen) {
   body += `<p class="fineprint">${anPenGrass(pen) > 0.3 ? 'There is grazing here.' : 'There is little grazing: fill the rack.'} ${pen._wNear ? 'Water comes from the pond nearby.' : 'Rain and your waterskins fill the trough.'} The shed at the back gives shelter from snow and storm.</p>`;
   const acts = [];
   const feedIds = ['feed', 'grain', 'turnip', 'cabbage', 'apple'].filter((id) => goodsHave(id));
-  if (feedIds.length) acts.push([`Fill the rack (${goodName(feedIds[0], 2).toLowerCase()})`, () => { const id = feedIds[0], n = Math.min(goodsCount(id), id === 'feed' ? 3 : 5); goodsTake(id, n); pen.feed = Math.min(30, pen.feed + n * (id === 'feed' ? 8 : 2.5)); openPen(pen); }, 'primary']);
-  if (goodsHave('water')) acts.push(['Fill the trough', () => { const n = Math.min(goodsCount('water'), 4); goodsTake('water', n); goodsAdd('waterskin_empty', n, true); pen.water = Math.min(30, pen.water + n * 3); openPen(pen); }]); // [depth] the skins come back empty
-  if (pen.manure >= 1) acts.push([`Muck out (+${Math.floor(pen.manure)} manure)`, () => { const n = Math.floor(pen.manure); if (goodsAdd('manure', n)) pen.manure -= n; openPen(pen); }]);
+  if (feedIds.length) acts.push([`Fill the rack (${goodName(feedIds[0], 2).toLowerCase()})`, () => { const id = feedIds[0], n = Math.min(goodsCount(id), id === 'feed' ? 3 : 5); anPenFill(pen, 'feed', id, n); openPen(pen); }, 'primary']);
+  if (goodsHave('water')) acts.push(['Fill the trough', () => { const n = Math.min(goodsCount('water'), 4); anPenFill(pen, 'water', 'water', n); openPen(pen); }]); // [depth] the skins come back empty
+  if (pen.manure >= 1) acts.push([`Muck out (+${Math.floor(pen.manure)} manure)`, () => { anPenMuck(pen); openPen(pen); }]);
   acts.push(['Close', anCloseDialog]);
   anDialog(pen.name, body, acts);
 }
@@ -1256,14 +1272,16 @@ function anMarkSpot() {
   const x = P.x + Math.sin(P.yaw) * d, z = P.z + Math.cos(P.yaw) * d;
   return { x, z, yaw: P.yaw + Math.PI, hw, hd }; // the gate faces you
 }
-function anMarkConfirm() {
-  const S = anMarkSpot();
+function anMarkConfirm(sharedSpot = null, sharedOwner = null) {
+  const S = sharedSpot || anMarkSpot();
   const why = penSiteOk(S.x, S.z, S.yaw, S.hw, S.hd);
   if (why) { uiError(why); return false; }
+  const cost = goodsHave('fence_kit') ? [['fence_kit', 1]] : [['plank', Math.min(8, goodsCount('plank'))], ['log', Math.max(0, 8 - goodsCount('plank'))]].filter(([, n]) => n > 0);
+  if (typeof netWorldPartsRequest === 'function' && netWorldPartsRequest('animal.pen.create', S, cost)) return false;
   if (goodsHave('fence_kit')) goodsTake('fence_kit', 1);
   else { let n = 8; const pl = Math.min(n, goodsCount('plank')); goodsTake('plank', pl); n -= pl; if (n > 0 && !goodsTake('log', n)) { uiError('You need a fence kit, or 8 logs or planks'); return false; } }
-  ANIMALS.marking = null;
-  const pen = penMake({ owner: 'player', x: S.x, z: S.z, yaw: S.yaw, hw: S.hw, hd: S.hd, feed: 4, water: 6, name: `Paddock ${ANIMALS.pens.filter((p) => p.owner === 'player').length + 1}` });
+  if (!sharedOwner) ANIMALS.marking = null;
+  const pen = penMake({ owner: 'player', sharedOwner: sharedOwner || anSharedAccount(), realm: GAME.player?.faction ?? -1, x: S.x, z: S.z, yaw: S.yaw, hw: S.hw, hd: S.hd, feed: 4, water: 6, name: `Paddock ${ANIMALS.pens.filter((p) => p.owner === 'player').length + 1}` });
   FX.dust(pen.x, heightAt(pen.x, pen.z), pen.z, 30, [0.5, 0.42, 0.3]);
   sfx('thud');
   uiLog('You drive the posts and nail the rails: a paddock with a trough, a rack and a shed. Lead animals in, or send them from their cards.', 'loot');
@@ -1444,6 +1462,10 @@ const r3 = (v) => Math.round(v * 1000) / 1000;
 function anSaveTr(t) { return { coat: t.coat.map(r3), coat2: t.coat2.map(r3), al: t.al.slice(), seed: t.seed, size: r3(t.size), calm: r3(t.calm), yield: r3(t.yield), speed: r3(t.speed), strength: r3(t.strength) }; }
 function anSaveRec(rec, e) {
   const o = { a: rec.aid, k: rec.k, n: rec.name, s: rec.sex, g: rec.gen, age: Math.round(rec.age), tr: anSaveTr(rec.tr), c: rec.cmd, h: r3(rec.hunger), w: r3(rec.thirst), l: rec.lvl, xp: Math.round(rec.xp), pr: { wool: r3(rec.prod.wool), milk: r3(rec.prod.milk), egg: r3(rec.prod.egg) } };
+  if (rec.moult) o.mt = Math.round(rec.moult);
+  if (rec.sharedClaim) o.sc = rec.sharedClaim;
+  if (rec.publicCycles) o.pc = { lay: rec.publicCycles.lay || 0, clutch: rec.publicCycles.clutch || 0, moult: rec.publicCycles.moult || 0 };
+  if (rec.publicPending) o.pp = { lay: rec.publicPending.lay || 0, clutch: rec.publicPending.clutch || 0, moult: rec.publicPending.moult || 0 };
   if (rec.ma) o.ma = [rec.ma.aid, rec.ma.name];
   if (rec.pa) o.pa = [rec.pa.aid, rec.pa.name];
   if (rec.pen != null) o.p = rec.pen;
@@ -1459,9 +1481,9 @@ function animalsSave() {
   const list = anMine().filter((e) => e.alive).map((e) => anSaveRec(e.tame, e));
   for (const rec of ANIMALS.down) list.push(anSaveRec(rec, null));
   if (P && P.mount && P.mount.rec) list.push({ ...anSaveRec(P.mount.rec, null), ridden: 1 });
-  const pens = ANIMALS.pens.filter((p) => p.owner === 'player').map((p) => ({ id: p.id, x: Math.round(p.x * 10) / 10, z: Math.round(p.z * 10) / 10, yaw: r3(p.yaw), hw: p.hw, hd: p.hd, f: Math.round(p.feed * 10) / 10, w: Math.round(p.water * 10) / 10, m: Math.round(p.manure * 10) / 10, n: p.name, sd: p.seed }));
+  const pens = ANIMALS.pens.filter((p) => p.owner === 'player' && anSharedPenMine(p)).map((p) => ({ id: p.id, x: Math.round(p.x * 10) / 10, z: Math.round(p.z * 10) / 10, yaw: r3(p.yaw), hw: p.hw, hd: p.hd, f: Math.round(p.feed * 10) / 10, w: Math.round(p.water * 10) / 10, m: Math.round(p.manure * 10) / 10, n: p.name, sd: p.seed }));
   if (!list.length && !pens.length) return null;
-  return { v: 1, next: ANIMALS.nextAid, np: ANIMALS.nextPen, list, pens };
+  return { v: 1, next: ANIMALS.nextAid, np: ANIMALS.nextPen, list, pens, receipts: [...ANIMALS_SHARED.received].slice(-128) };
 }
 // what counts as a change worth writing: who you keep and how, not their clocks
 function animalsKey(d) {
@@ -1473,16 +1495,17 @@ function animalsLoad(d) {
   // the last character's animals go away first
   for (const e of anMine()) removeEnt(e);
   ANIMALS.list = ANIMALS.list.filter((e) => !e.removed);
-  ANIMALS.down.length = 0;
-  for (const p of ANIMALS.pens.filter((q) => q.owner === 'player')) penRemove(p);
+  ANIMALS.down.length = 0; ANIMALS_SHARED.received.clear();
+  if (!ANIMALS_SHARED.ready) for (const p of ANIMALS.pens.filter((q) => q.owner === 'player')) penRemove(p);
   ANIMALS.trust.clear(); ANIMALS.trail.length = 0; ANIMALS.marking = null; ANIMALS.pick = null;
   if (!d || typeof d !== 'object') return;
+  ANIMALS_SHARED.received = new Set((Array.isArray(d.receipts) ? d.receipts : []).filter(id => typeof id === 'string').slice(-128));
   const P = GAME.player;
   const num = (v, lo, hi, def) => (isFiniteNum(+v) ? clamp(+v, lo, hi) : def);
   ANIMALS.nextAid = Math.max(ANIMALS.nextAid, Math.round(num(d.next, 1, 1e9, 1)));
   ANIMALS.nextPen = Math.max(ANIMALS.nextPen, Math.round(num(d.np, 1, 1e9, 1)));
   const penMap = new Map();
-  for (const q of (Array.isArray(d.pens) ? d.pens : []).slice(0, 12)) {
+  for (const q of (!ANIMALS_SHARED.ready && Array.isArray(d.pens) ? d.pens : []).slice(0, 12)) {
     if (!q || !isFiniteNum(+q.x) || !isFiniteNum(+q.z)) continue;
     const hw = num(q.hw, 3, 12, 6), hd = num(q.hd, 3, 10, 4.5);
     const pen = penMake({ id: ANIMALS.nextPen++, owner: 'player', x: +q.x, z: +q.z, yaw: num(q.yaw, -10, 10, 0), hw, hd, feed: num(q.f, 0, 30, 4), water: num(q.w, 0, 30, 6), manure: num(q.m, 0, 20, 0), name: typeof q.n === 'string' ? q.n.slice(0, 24).replace(/[<>&"]/g, '') : 'Paddock', seed: Math.round(num(q.sd, 0, 1e7, 7)) });
@@ -1491,6 +1514,10 @@ function animalsLoad(d) {
   for (const o of (Array.isArray(d.list) ? d.list : []).slice(0, 80)) {
     if (!o || !AKIND[o.k]) continue;
     const rec = anRecord(o.k, { owner: 'player', sex: o.s === 'm' ? 'm' : 'f', tr: anCleanTraits(o.tr, o.k), name: typeof o.n === 'string' && o.n.trim() ? o.n.slice(0, 16).replace(/[<>&"]/g, '') : pick(Math.random, PET_NAMES), gen: Math.round(num(o.g, 0, 999, 0)), age: num(o.age, 0, 1e8, AKIND[o.k].grow * 2) });
+    rec.moult = num(o.mt, 0, 1000, 0);
+    if (typeof o.sc === 'string') rec.sharedClaim = o.sc.slice(0, 160);
+    if (o.pc && typeof o.pc === 'object') rec.publicCycles = { lay: Math.floor(num(o.pc.lay, 0, 1e9, 0)), clutch: Math.floor(num(o.pc.clutch, 0, 1e9, 0)), moult: Math.floor(num(o.pc.moult, 0, 1e9, 0)) };
+    if (o.pp && typeof o.pp === 'object') rec.publicPending = { lay: Math.floor(num(o.pp.lay, 0, 1e9, 0)), clutch: Math.floor(num(o.pp.clutch, 0, 1e9, 0)), moult: Math.floor(num(o.pp.moult, 0, 1e9, 0)) };
     rec.aid = Math.round(num(o.a, 1, 1e9, ANIMALS.nextAid++));
     ANIMALS.nextAid = Math.max(ANIMALS.nextAid, rec.aid + 1);
     rec.cmd = ['follow', 'stay', 'guard', 'pen'].includes(o.c) ? o.c : (AKIND[o.k].live ? 'pen' : 'follow');
@@ -1498,7 +1525,7 @@ function animalsLoad(d) {
     if (o.pr && typeof o.pr === 'object') rec.prod = { wool: num(o.pr.wool, 0, 1.2, 0.5), milk: num(o.pr.milk, 0, 1, 0), egg: num(o.pr.egg, 0, 1, 0) };
     if (Array.isArray(o.ma)) rec.ma = { aid: Math.round(num(o.ma[0], 0, 1e9, 0)), name: String(o.ma[1] || '').slice(0, 16).replace(/[<>&"]/g, '') };
     if (Array.isArray(o.pa)) rec.pa = { aid: Math.round(num(o.pa[0], 0, 1e9, 0)), name: String(o.pa[1] || '').slice(0, 16).replace(/[<>&"]/g, '') };
-    if (o.p != null) rec.pen = penMap.has(o.p) ? penMap.get(o.p) : (REALMS.some((R) => R.pasture && R.pasture.id === o.p) ? o.p : null);
+    if (o.p != null) rec.pen = penMap.has(o.p) ? penMap.get(o.p) : (penById(o.p) ? o.p : null);
     if (rec.cmd === 'pen' && !penById(rec.pen)) { const R = P && REALMS[P.faction]; rec.pen = R && R.pasture ? R.pasture.id : null; if (rec.pen == null) rec.cmd = 'follow'; }
     if (Array.isArray(o.st) && isFiniteNum(+o.st[0]) && isFiniteNum(+o.st[1])) rec.stay = { x: +o.st[0], z: +o.st[1] };
     if ((rec.cmd === 'stay' || rec.cmd === 'guard') && !rec.stay) rec.cmd = 'follow';
@@ -1552,3 +1579,226 @@ const ANIMALS_DEBUG = {
   // a short summary that is safe to return from page.evaluate
   sum(e) { if (!e || !e.tame) return null; const r = e.tame; return { id: e.id, aid: r.aid, k: r.k, name: r.name, sex: r.sex, owner: r.owner, cmd: r.cmd, age: Math.round(r.age), adult: anAdult(r), gen: r.gen, scale: Math.round(e.scale * 1000) / 1000, crowd: e.crowd, hp: Math.round(e.hp), maxHp: Math.round(e.maxHp), x: Math.round(e.x * 10) / 10, z: Math.round(e.z * 10) / 10, hunger: Math.round(r.hunger * 100) / 100, mood: Math.round(r.mood * 100) / 100, lvl: r.lvl, preg: !!r.preg, prod: { ...r.prod }, tr: anSaveTr(r.tr), ma: r.ma, pa: r.pa, faction: e.faction, alive: e.alive, pen: r.pen }; },
 };
+
+
+/* Public pens and exclusive wild-animal claims. Owned herd records remain in
+ * the owning character; only fresh claim receipts cross the shared authority. */
+function anSharedWorldCanSimulate() {
+  return typeof netWorldPartsCanSimulate !== 'function' || netWorldPartsCanSimulate();
+}
+function anSharedOwnAnimal(e) {
+  return typeof netEntityOwnPet === 'function' ? netEntityOwnPet(e)
+    : !!e?.tame && e.tame.owner === 'player' && !e.netEntityOwner;
+}
+function anSharedAccount() {
+  return typeof NETWS !== 'undefined' && NETWS.acct?.id || 'player';
+}
+function anSharedPenMine(pen) {
+  return !pen.sharedOwner || pen.sharedOwner === 'player' || pen.sharedOwner === anSharedAccount();
+}
+function anSharedGate(pen, seconds) {
+  if (anSharedWorldCanSimulate()) pen.gateWant = GAME.t + seconds;
+}
+function anPenFill(pen, kind, id, amount) {
+  const n = Math.max(0, Math.min(kind === 'water' ? 4 : id === 'feed' ? 3 : 5, Math.floor(amount)));
+  if (!n || !['feed', 'water'].includes(kind) || kind === 'water' && id !== 'water'
+    || kind === 'feed' && !['feed', 'grain', 'turnip', 'cabbage', 'apple'].includes(id)) return false;
+  if (typeof netWorldPartsRequest === 'function' && netWorldPartsRequest('animal.pen.fill', { id: pen.id, kind, good: id, n }, [[id, n]])) return true;
+  if (!goodsTake(id, n)) return false;
+  if (kind === 'water') { pen.water = Math.min(30, pen.water + n * 3); goodsAdd('waterskin_empty', n, true); }
+  else pen.feed = Math.min(30, pen.feed + n * (id === 'feed' ? 8 : 2.5));
+  saveSoon(); return true;
+}
+function anPenMuck(pen) {
+  if (typeof netWorldPartsRequest === 'function' && netWorldPartsRequest('animal.pen.muck', { id: pen.id })) return true;
+  const n = Math.floor(pen.manure);
+  if (n < 1 || !goodsAdd('manure', n)) return false;
+  pen.manure -= n; saveSoon(); return true;
+}
+function anSharedProductionRestore(rec, op, args) {
+  if (op === 'animal.lay') rec.prod.egg = Math.max(1, rec.prod.egg);
+  else if (op === 'animal.moult') rec.moult = Math.max(240, rec.moult || 0);
+  else rec.preg = { left: 1, sire: args.sire };
+}
+function anSharedProduction(e, op, args = {}) {
+  if (typeof netWorldPartsActive !== 'function' || !netWorldPartsActive()
+    || typeof NETPARTS !== 'undefined' && NETPARTS.replay || !anSharedOwnAnimal(e)) return false;
+  const rec = e.tame, key = op.slice(7);
+  rec.publicCycles ||= {}; rec.publicPending ||= {};
+  if (rec.publicPending[key] || !e.netEntityId
+    || typeof netWorldPartsConnected === 'function' && !netWorldPartsConnected()
+    || typeof NETPARTS !== 'undefined' && !NETPARTS.ready) {
+    anSharedProductionRestore(rec, op, args); return true;
+  }
+  const cycle = (rec.publicCycles[key] || 0) + 1;
+  // Set the serial before the reservation asks for its private checkpoint.
+  // That checkpoint contains the reset egg/pregnancy timer and this command.
+  rec.publicCycles[key] = cycle; rec.publicPending[key] = cycle;
+  const before = typeof NETPARTS !== 'undefined' ? NETPARTS.next : null;
+  const deferred = netWorldPartsRequest(op, { id: e.netEntityId, aid: rec.aid, cycle, ...args }, [], true);
+  const reserved = deferred && (before === null || NETPARTS.next > before);
+  if (!reserved) {
+    rec.publicCycles[key] = cycle - 1; delete rec.publicPending[key];
+    anSharedProductionRestore(rec, op, args);
+  }
+  return true;
+}
+function anSharedProductionRecord(pending) {
+  if (!pending?.args || !Number.isSafeInteger(pending.args.aid)) return null;
+  return anMine().find(e => e.tame.aid === pending.args.aid)?.tame
+    || ANIMALS.down.find(rec => rec.aid === pending.args.aid) || null;
+}
+function anSharedProductionDone(result, receipt, pending) {
+  const rec = anSharedProductionRecord(pending);
+  if (!rec) return;
+  const key = pending.op.slice(7);
+  if (rec.publicPending?.[key] === pending.args.cycle) delete rec.publicPending[key];
+}
+function anSharedProductionFailed(receipt, pending) {
+  const rec = anSharedProductionRecord(pending);
+  if (!rec) return;
+  const key = pending.op.slice(7);
+  if (rec.publicPending?.[key] !== pending.args.cycle) return;
+  delete rec.publicPending[key];
+  if (rec.publicCycles?.[key] === pending.args.cycle) rec.publicCycles[key]--;
+  anSharedProductionRestore(rec, pending.op, pending.args);
+}
+function anSharedPenConsume(e, pen, mode) {
+  if (typeof netWorldPartsActive !== 'function' || !netWorldPartsActive() || anSharedWorldCanSimulate()) return false;
+  if (e.netEntityId) netWorldPartsRequest('animal.consume', { id: e.netEntityId, pen: pen.id, mode });
+  return true;
+}
+function anSharedOffer(args, context) {
+  const e = typeof netEntityFind === 'function' && netEntityFind(args.id), k = anWildKind(e);
+  if (!k || ANIMALS_SHARED.claims.has(args.id) || !AKIND[k].likes.includes(args.food) || !goodsHave(args.food)) return false;
+  const key = context.ownerAccount + ':' + args.id;
+  let trust = ANIMALS_SHARED.trust.get(key);
+  if (!trust) {
+    trust = { id: args.id, n: 0, need: AKIND[k].need + (k === 'horse' && e.tame?.tr.calm < 0.4 ? 1 : 0), last: -99 };
+    ANIMALS_SHARED.trust.set(key, trust);
+    if (ANIMALS_SHARED.trust.size > 256) ANIMALS_SHARED.trust.delete(ANIMALS_SHARED.trust.keys().next().value);
+  }
+  if (GAME.t - trust.last < 5 || !anPlayerCalm(GAME.player)) return false;
+  if (!goodsTake(args.food, 1)) return false;
+  trust.n++; trust.last = GAME.t;
+  faceToward(e, GAME.player.x, GAME.player.z); setAct(e, 7, 3.2); e.ai.tameHold = GAME.t + 6;
+  const result = { trust: { id: args.id, n: trust.n, need: trust.need } };
+  if (trust.n >= trust.need) {
+    const wild = e.tame;
+    const sex = wild?.sex || (e.kind === 'stag' ? 'm' : e.kind === 'deer' ? 'f' : Math.random() < 0.5 ? 'm' : 'f');
+    const rec = anRecord(k, { owner: 'player', sex, tr: wild ? anCleanTraits(wild.tr, k)
+      : anWildTraits(k, Math.random, e.look?.colA ? { colA: e.look.colA, colB: e.look.colB || e.look.colA } : null),
+      age: wild?.age, cmd: 'follow' });
+    result.animal = anSaveRec(rec, e); result.source = args.id;
+    ANIMALS_SHARED.claims.add(args.id);
+    if (ANIMALS_SHARED.claims.size > 256) ANIMALS_SHARED.claims.delete(ANIMALS_SHARED.claims.values().next().value);
+    if (e.camp != null && CAMPS[e.camp]) {
+      CAMPS[e.camp].members.delete(e.id); CAMPS[e.camp].respawnAt.push(GAME.t + 90 + Math.random() * 60);
+    }
+    // Never add this animal to the authority player's private herd.
+    ANIMALS.trust.delete(e.id); removeEnt(e);
+    loreNote('pets');
+  }
+  return { ok: true, result };
+}
+function anSharedReceive(result, receipt) {
+  if (!result || !GAME.player) return;
+  if (result.trust) {
+    const e = typeof netEntityFind === 'function' && netEntityFind(result.trust.id);
+    if (e && anWildKind(e)) { const t = anTrust(e); t.n = result.trust.n; t.need = result.trust.need; t.last = GAME.t; }
+  }
+  if (result.consume) {
+    const e = typeof netEntityFind === 'function' && netEntityFind(result.consume.id);
+    if (e && anSharedOwnAnimal(e)) {
+      const key = result.consume.mode === 'drink' ? 'thirst' : 'hunger';
+      e.tame[key] = Math.min(1, e.tame[key] + clamp(result.consume.amount, 0, 1));
+    }
+  }
+  const o = result.animal, claimKey = typeof result.claimId === 'string' ? result.claimId : receipt.id;
+  if (ANIMALS_SHARED.received.has(claimKey)) return;
+  if (!o || !AKIND[o.k] || anMine().some(e => e.tame.sharedClaim === claimKey)) return;
+  const rec = anRecord(o.k, { owner: 'player', sex: o.s === 'm' ? 'm' : 'f', tr: anCleanTraits(o.tr, o.k),
+    name: typeof o.n === 'string' ? o.n.slice(0, 16).replace(/[<>&"]/g, '') : undefined,
+    age: Number.isFinite(o.age) ? o.age : AKIND[o.k].grow,
+    gen: Number.isSafeInteger(o.g) ? clamp(o.g, 0, 999) : 0,
+    ma: Array.isArray(o.ma) ? { aid: Math.max(0, Math.floor(+o.ma[0] || 0)), name: String(o.ma[1] || '').slice(0, 16).replace(/[<>&"]/g, '') } : null,
+    pa: Array.isArray(o.pa) ? { aid: Math.max(0, Math.floor(+o.pa[0] || 0)), name: String(o.pa[1] || '').slice(0, 16).replace(/[<>&"]/g, '') } : null,
+    pen: penById(o.p) ? o.p : null, cmd: o.c === 'pen' && penById(o.p) ? 'pen' : 'follow' });
+  rec.sharedClaim = claimKey; ANIMALS_SHARED.received.add(claimKey);
+  if (ANIMALS_SHARED.received.size > 256) ANIMALS_SHARED.received.delete(ANIMALS_SHARED.received.values().next().value);
+  const P = GAME.player, x = Number.isFinite(o.x) ? o.x : P.x, z = Number.isFinite(o.z) ? o.z : P.z;
+  anSpawn(rec, x, z); ANIMALS.tamedCount = (ANIMALS.tamedCount || 0) + 1;
+  uiToast(rec.name + ' is yours.'); loreNote('pets'); saveSoon();
+}
+function anSharedSave() {
+  const pens = ANIMALS.pens.slice(0, 96).map(p => {
+    if (p.owner === 'player' && (!p.sharedOwner || p.sharedOwner === 'player')) p.sharedOwner = anSharedAccount();
+    return { id: p.id, owner: p.owner, account: p.sharedOwner, realm: p.realm, x: p.x, z: p.z, yaw: p.yaw,
+      hw: p.hw, hd: p.hd, feed: r3(p.feed), water: r3(p.water), manure: r3(p.manure), seed: p.seed, name: p.name,
+      gate: Math.max(0, Math.min(3, p.gateWant - GAME.t)), open: r3(p.gateOpen) };
+  });
+  return { v: 1, next: ANIMALS.nextPen, pens,
+    trust: [...ANIMALS_SHARED.trust].slice(-128).map(([key, t]) => [key, { id: t.id, n: t.n, need: t.need, wait: clamp(t.last + 5 - GAME.t, 0, 5) }]),
+    claims: [...ANIMALS_SHARED.claims].slice(-128) };
+}
+function anSharedApply(data) {
+  if (!data || data.v !== 1 || !Array.isArray(data.pens)) return;
+  ANIMALS_SHARED.ready = true;
+  const keep = new Set();
+  for (const row of data.pens.slice(0, 96)) {
+    if (!row || !Number.isSafeInteger(row.id) || row.id < 1 || row.id > 1e9
+      || !['x', 'z', 'yaw', 'hw', 'hd', 'feed', 'water', 'manure'].every(k => Number.isFinite(row[k]))
+      || Math.hypot(row.x, row.z) > HALF || !['player', 'town'].includes(row.owner)) continue;
+    keep.add(row.id);
+    let pen = penById(row.id);
+    if (pen && (Math.hypot(pen.x - row.x, pen.z - row.z) > 0.1 || Math.abs(pen.yaw - row.yaw) > 0.01)) { penRemove(pen); pen = null; }
+    if (!pen) pen = penMake({ ...row, sharedOwner: row.account, hw: clamp(row.hw, 3, 12), hd: clamp(row.hd, 3, 10) });
+    pen.sharedOwner = typeof row.account === 'string' ? row.account.slice(0, 160) : null;
+    pen.feed = clamp(row.feed, 0, 30); pen.water = clamp(row.water, 0, 30); pen.manure = clamp(row.manure, 0, 20);
+    pen.gateWant = GAME.t + clamp(row.gate || 0, 0, 3); pen.gateOpen = clamp(row.open || 0, 0, 1);
+    if (pen.gateColl) pen.gateColl.active = row.gate <= 0 && pen.gateOpen < 0.2;
+  }
+  for (const pen of [...ANIMALS.pens]) if (pen.owner === 'player' && !keep.has(pen.id)) penRemove(pen);
+  ANIMALS.nextPen = Math.max(ANIMALS.nextPen, ...data.pens.map(p => Number.isSafeInteger(p.id) ? p.id + 1 : 1));
+  ANIMALS_SHARED.claims = new Set((Array.isArray(data.claims) ? data.claims : []).filter(id => typeof id === 'string').slice(-128));
+  ANIMALS_SHARED.trust.clear();
+  for (const pair of (Array.isArray(data.trust) ? data.trust : []).slice(-128)) if (Array.isArray(pair) && typeof pair[0] === 'string' && pair[1] && typeof pair[1].id === 'string') {
+    const t = pair[1]; ANIMALS_SHARED.trust.set(pair[0], { id: t.id, n: clamp(+t.n || 0, 0, 10), need: clamp(+t.need || 1, 1, 10), last: GAME.t - 5 + clamp(+t.wait || 0, 0, 5) });
+  }
+}
+queueMicrotask(() => {
+  if (typeof netWorldPartsRegister !== 'function') return;
+  netWorldPartsRegister('animals', { save: anSharedSave, apply: anSharedApply });
+  netWorldPartsRegisterResult('animal.offer', anSharedReceive);
+  netWorldPartsRegisterResult('animal.consume', anSharedReceive);
+  for (const op of ['animal.lay', 'animal.clutch', 'animal.moult']) {
+    netWorldPartsRegisterResult(op, anSharedProductionDone);
+    netWorldPartsRegisterFailure(op, anSharedProductionFailed);
+  }
+  const animalPoint = a => { const e = netEntityFind(a.id); return e ? { x: e.x, z: e.z } : null; };
+  const penPoint = a => { const p = penById(a.id); return p ? { x: p.x, z: p.z } : null; };
+  netWorldPartsRegisterCommand('animal.offer', { point: animalPoint, range: 6, run: anSharedOffer });
+  netWorldPartsRegisterCommand('animal.pen.create', { point: a => a, range: 14, run: (a, context) => {
+    if (!a || !['x', 'z', 'yaw'].every(k => Number.isFinite(a[k])) || a.hw !== 6 || a.hd !== 4.5) return false;
+    const pen = anMarkConfirm(a, context.ownerAccount); return pen ? { ok: true, result: { penId: pen.id } } : false;
+  } });
+  netWorldPartsRegisterCommand('animal.pen.fill', { point: penPoint, range: 18,
+    run: a => { const p = penById(a.id); return !!p && anPenFill(p, a.kind, a.good, a.n); } });
+  netWorldPartsRegisterCommand('animal.pen.muck', { point: penPoint, range: 18,
+    run: a => { const p = penById(a.id); return !!p && anPenMuck(p); } });
+  netWorldPartsRegisterCommand('animal.consume', { point: animalPoint, range: 8000, run: (a, context) => {
+    const e = netEntityFind(a.id), pen = penById(a.pen);
+    if (!e?.alive || e.netEntityOwner !== context.from || !e.tame || !pen || e.tame.pen !== pen.id || e.tame.cmd !== 'pen'
+      || !['feed', 'drink'].includes(a.mode)) return false;
+    const point = a.mode === 'drink' ? pen.trough : pen.rack;
+    if (Math.hypot(e.x - point.x, e.z - point.z) > 3) return false;
+    const key = context.from + ':' + a.id + ':' + a.mode, last = ANIMALS_SHARED.consumed.get(key) ?? -99;
+    if (GAME.t - last < 4) return false;
+    const field = a.mode === 'drink' ? 'water' : 'feed', n = Math.min(pen[field], 0.4);
+    if (!(n > 0)) return false;
+    ANIMALS_SHARED.consumed.set(key, GAME.t);
+    if (ANIMALS_SHARED.consumed.size > 256) ANIMALS_SHARED.consumed.delete(ANIMALS_SHARED.consumed.keys().next().value);
+    pen[field] -= n * (a.mode === 'drink' ? 0.25 : 0.5);
+    return { ok: true, result: { consume: { id: a.id, mode: a.mode, amount: n * 2.2 } } };
+  } });
+});

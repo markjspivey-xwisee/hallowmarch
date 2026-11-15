@@ -85,7 +85,10 @@ const LOOPS_WORTH = {
   wool: ['wool', 1], woollen: ['wool', 2], linen: ['wool', 1.2], flax: ['wool', 0.4], fibre: ['wool', 0.15],
 };
 const loopsInWar = () => LOOPS.on && typeof CAMPAIGN !== 'undefined' && CAMPAIGN.state === 'war';
-const loopsKeep = (K) => LOOPS.k[K.id] || (LOOPS.k[K.id] = { food: LT.keepTarget.food, timber: LT.keepTarget.timber, stone: LT.keepTarget.stone, iron: LT.keepTarget.iron });
+function loopsCanonicalManaged() { return typeof season2CanonicalWar === 'function' && season2CanonicalWar(); }
+const loopsKeep = (K) => LOOPS.k[K.id] || (LOOPS.k[K.id] = loopsCanonicalManaged()
+  ? { food: 0, timber: 0, stone: 0, iron: 0 }
+  : { food: LT.keepTarget.food, timber: LT.keepTarget.timber, stone: LT.keepTarget.stone, iron: LT.keepTarget.iron });
 const lsBump = (o, k, n) => { o[k] = (o[k] || 0) + n; };
 
 /* ------------------------------------------------------------------ */
@@ -98,6 +101,7 @@ function loopsKeepFill(K, g) { return clamp(loopsKeep(K)[g] / LT.keepTarget[g], 
 function loopsNeedK(r, g) { const f = loopsFill(r, g); return f >= 1 ? Math.max(0.6, 1 - (f - 1) * 0.2) : 1 + 1.5 * (1 - f) ** 1.3; }
 // put goods into a realm's stores (the town), as far as they hold
 function loopsAdd(r, g, n, why) {
+  if (loopsCanonicalManaged()) return 0;
   if (!(n > 0) || r == null || r < 0 || r > 2 || !LOOPS.r[r] || !(g in LT.target)) return 0;
   const S = LOOPS.r[r], room = Math.max(0, LT.target[g] * LT.cap - S[g]), k = Math.min(n, room);
   S[g] += k;
@@ -106,6 +110,7 @@ function loopsAdd(r, g, n, why) {
 }
 // take goods from a realm's stores; returns the share it had (1 all of it, 0 none). `part` takes what there is.
 function loopsTake(r, need, part = false) {
+  if (loopsCanonicalManaged()) return 0;
   const S = LOOPS.r[r];
   let fr = 1;
   for (const g in need) if (need[g] > 0) fr = Math.min(fr, S[g] / need[g]);
@@ -115,6 +120,7 @@ function loopsTake(r, need, part = false) {
   return fr;
 }
 function loopsKeepTake(K, need, part = false) {
+  if (loopsCanonicalManaged()) return 0;
   const S = loopsKeep(K);
   let fr = 1;
   for (const g in need) if (need[g] > 0) fr = Math.min(fr, S[g] / need[g]);
@@ -123,7 +129,7 @@ function loopsKeepTake(K, need, part = false) {
   for (const g in need) if (need[g] > 0) { const k = need[g] * fr; S[g] = Math.max(0, S[g] - k); lsBump(LOOPS.stats.drawn[K.realm], g, k); }
   return fr;
 }
-function loopsKeepAdd(K, g, n) { const S = loopsKeep(K), room = Math.max(0, LT.keepTarget[g] * LT.keepCap - S[g]), k = Math.min(Math.max(0, n), room); S[g] += k; return k; }
+function loopsKeepAdd(K, g, n) { if (loopsCanonicalManaged()) return 0; const S = loopsKeep(K), room = Math.max(0, LT.keepTarget[g] * LT.keepCap - S[g]), k = Math.min(Math.max(0, n), room); S[g] += k; return k; }
 // a realm is short of a good when its store is under a fifth of its target (and a keep under a sixth of its own)
 const loopsShort = (r, g) => LOOPS.on && LOOPS.r[r][g] < LT.target[g] * 0.2;
 const loopsKeepShort = (K, g) => LOOPS.on && loopsKeep(K)[g] < LT.keepTarget[g] * 0.17;
@@ -135,6 +141,7 @@ const loopsKeepShort = (K, g) => LOOPS.on && loopsKeep(K)[g] < LT.keepTarget[g] 
 // the band musters thinner and hungry; short of iron, hides or wool it is ill-armed (its soldiers lighter in the field:
 // harm taken a little higher, below). Returns the size it musters at.
 function loopsMuster(r, size) {
+  if (loopsCanonicalManaged()) return 0;
   if (!loopsInWar()) return size;
   const n = size, need = {};
   for (const g in LT.soldier) need[g] = LT.soldier[g] * n;
@@ -158,6 +165,7 @@ function loopsMustered(wb) {
 }
 // a column out of a keep or the muster (war3Column, 08k_war3.js): the soldiers it can feed (at least two)
 function loopsColumn(K, realm, slots, src) {
+  if (loopsCanonicalManaged()) return [];
   if (!loopsInWar() || !slots.length) return slots;
   const fromKeep = src && src.from != null && WAR.keeps[src.from] && src.hall ? WAR.keeps[src.from] : null;
   const per = LT.soldier.food, S = fromKeep ? loopsKeep(fromKeep) : LOOPS.r[realm];
@@ -170,6 +178,7 @@ function loopsColumn(K, realm, slots, src) {
 // a guard who would come to a keep's post on the quiet hours (updateWar, 08_ai.js): fed from the keep's own stores, or
 // not at all (the garrison thins until a cart comes)
 function loopsTrickleOk(K) {
+  if (loopsCanonicalManaged()) return typeof realmPublicWorksRecruiting === 'function' && realmPublicWorksRecruiting(K);
   if (!loopsInWar()) return true;
   if (loopsKeepTake(K, LT.guard) >= 1) return true;
   LOOPS.stats.noGuard++;
@@ -178,6 +187,7 @@ function loopsTrickleOk(K) {
 }
 // a keep's new lord (fillGarrison): fed and armed from the keep's stores; ill-armed without iron (a level less, softer)
 function loopsLord(K, L) {
+  if (loopsCanonicalManaged()) return typeof realmPublicWorksRecruiting === 'function' && realmPublicWorksRecruiting(K);
   if (!loopsInWar() || !L) return;
   const fr = loopsKeepTake(K, LT.lord, true);
   if (fr < 0.6) { L.lIll = GAME.t + 1e6; L.level = Math.max(1, L.level - 2); setupStats(L, true); }
@@ -185,6 +195,7 @@ function loopsLord(K, L) {
 // the engine a band would build (siegePlanFor, 04h_siege.js): the kind its realm's stores can raise, a cheaper one, or
 // none (the band goes for the gate as it can)
 function loopsEngineKind(r, kind) {
+  if (loopsCanonicalManaged()) return null;
   if (!loopsInWar()) return kind;
   const order = kind === 'trebuchet' ? ['trebuchet', 'mangonel', 'ram'] : kind === 'mangonel' ? ['mangonel', 'ram'] : ['ram'];
   for (const k of order) {
@@ -199,6 +210,7 @@ function loopsEngineKind(r, kind) {
 }
 // a captain mounting up (thinkSoldier): a horse from the realm's stables, once; none, and it walks
 function loopsHorseOk(e) {
+  if (loopsCanonicalManaged()) return !!e?.lHorse || typeof realmLogisticsHorse === 'function' && realmLogisticsHorse(e);
   if (!LOOPS.on || e.lHorse) return true;
   if (!loopsInWar()) { e.lHorse = 1; return true; }
   if (GAME.t < (e.lNoHorse || 0)) return false;
@@ -211,6 +223,11 @@ function loopsHorseOk(e) {
 // the pace of a keep's work (a gate, a breach, a burnt palisade, walk or tower), drawing its goods as it goes: the
 // whole of a job's goods over its whole time (dt / T of them each step). Short of them, the work goes at LT.slow.
 function loopsWork(K, kind, dt, T) {
+  if (loopsCanonicalManaged()) {
+    const work = typeof realmPublicWorksRepairWork === 'function' ? realmPublicWorksRepairWork(K, kind, dt, T) : 0;
+    if (!(work > 0) && typeof realmLogisticsRepair === 'function') realmLogisticsRepair(K, kind);
+    return work;
+  }
   if (!LOOPS.on || !K || !(dt > 0)) return 1;
   const need = LT.work[kind];
   if (!need) return 1;
@@ -225,6 +242,12 @@ function loopsWork(K, kind, dt, T) {
 }
 // a house built back (houseScaffoldStep, 04e_houses.js): its town's realm's timber and stone
 function loopsHouseWork(H, dt) {
+  if (loopsCanonicalManaged()) {
+    if (H.keepHall && H.S?.keepRef) return loopsWork(H.S.keepRef, 'house', dt, HOUSE_TIME.scaffold);
+    const work = typeof realmPublicWorksHouseWork === 'function' ? realmPublicWorksHouseWork(H, dt, HOUSE_TIME.scaffold) : 0;
+    if (!(work > 0) && typeof realmLogisticsHouseRepair === 'function') realmLogisticsHouseRepair(H);
+    return work;
+  }
   if (!LOOPS.on || !(dt > 0) || H.keepHall) return H.keepHall && H.S && H.S.keepRef ? loopsWork(H.S.keepRef, 'house', dt, HOUSE_TIME.scaffold) : 1;
   const r = H.S && H.S.realmId != null ? H.S.realmId : realmAt(H.x, H.z);
   if (r == null || r < 0 || r > 2) return 1;
@@ -238,9 +261,11 @@ function loopsHouseWork(H, dt) {
 // harm: a hungry body's blows land softer, an ill-armed body takes a little more (dealDamage, 07_entities.js). The
 // war's soldiers, guards and lords only: never the player, a bot or a beast.
 function loopsHarmMult(src, dst) {
-  if (!LOOPS.on) return 1;
-  let k = 1;
-  if (src && src.lHungry > GAME.t) k *= LT.hungry;
+  let k = typeof realmPublicWorksArmorK === 'function' ? realmPublicWorksArmorK(dst) : 1;
+  if (!LOOPS.on) return k;
+  const hunger = typeof realmPublicWorksHungerK === 'function' ? realmPublicWorksHungerK(src) : null;
+  if (hunger !== null) k *= hunger;
+  else if (src && src.lHungry > GAME.t) k *= LT.hungry;
   if (dst && dst.lIll > GAME.t) k *= 1.08;
   return k;
 }
@@ -277,6 +302,7 @@ function loopsLandK(r) {
 // a woodcutter's log or a quarryman's stone brought in: the town's woods' (or quarry's) work since the last
 function loopsBring(r, g) { const P0 = LOOPS.pend[r]; if (P0 && P0[g] > 0) { loopsAdd(r, g, P0[g]); P0[g] = 0; } }
 function loopsProduce(dt) {
+  if (loopsCanonicalManaged()) return;
   const m = dt / 60;
   for (let r = 0; r < 3; r++) {
     const vis = loopsTownSeen(r), lk = loopsLandK(r);
@@ -352,6 +378,7 @@ function loopsOnCapture(K, realm, old) {
 }
 // in the peace the realms trade at the border fairs: what one has over its target goes for what it lacks
 function loopsTradeStep() {
+  if (loopsCanonicalManaged()) return;
   if (!LOOPS.on || CAMPAIGN.state !== 'peace') return;
   const deals = [];
   for (const g of LOOPS_R) {
@@ -394,6 +421,7 @@ function loopsCarRoute(r, K) {
   return pts;
 }
 function loopsCaravanStep(dt) {
+  if (loopsCanonicalManaged()) { if (typeof realmLogisticsStep === 'function') realmLogisticsStep(dt); return; }
   if (!LOOPS.on) return;
   const now = GAME.t;
   for (let r = 0; r < 3; r++) {
@@ -429,26 +457,31 @@ function loopsCarLoad(r, K) {
   for (const g in load) { S[g] -= load[g]; }
   return load;
 }
-function loopsCarSend(r, K, force = false) {
+function loopsCarSend(r, K, force = false, funding = null) {
+  const managed = loopsCanonicalManaged(), paid = managed && typeof realmLogisticsFunding === 'function' ? realmLogisticsFunding(funding) : null;
+  if (managed && !paid) { if (typeof realmLogisticsDispatch === 'function') realmLogisticsDispatch(K); return null; }
+  if (paid) { const existing = LOOPS.caravans.find(c => c.logisticsId === paid.id); if (existing) return existing; }
   const route = loopsCarRoute(r, K);
   if (!route || route.length < 2) return null;
-  const load = loopsCarLoad(r, K);
+  const load = paid ? { ...paid.cargo } : loopsCarLoad(r, K);
   if (!load && !force) return null;
   const R = REALMS[r], p0 = route[0], p1 = route[1];
   const yaw = Math.atan2(p1.x - p0.x, p1.z - p0.z);
   const c = { id: LOOPS.nextCar++, realm: r, keep: K.id, route, i: 1, state: 'road', load: load || { food: 10 }, t0: GAME.t, back: false, ents: [], esc: [], cart: null, wreckT: 0, near: 0, nearT: 0, by: null, stuckT: 0, lastD: 1e9 };
+  if (paid) { c.logisticsId = paid.id; c.logisticsLease = paid.lease; c.logisticsSeason = paid.season; c.logisticsPaid = true; }
   const at = (k) => ({ x: p0.x - Math.sin(yaw) * k + (Math.random() - 0.5) * 0.4, z: p0.z - Math.cos(yaw) * k + (Math.random() - 0.5) * 0.4 });
   // the horse ahead, the cart behind it, the carter at its head, the escort either side
   const hp = at(0);
-  const horse = makeEnt({ kind: 'horse', faction: FACTION_NEUTRAL, role: 'carthorse', name: `${R.name} cart horse`, level: 5, x: hp.x, z: hp.z, y: heightAt(hp.x, hp.z), yaw, radius: 0.8, speed: 6 });
+  const horse = makeEnt({ kind: 'horse', faction: FACTION_NEUTRAL, role: 'carthorse', name: `${R.name} cart horse`, level: 1, x: hp.x, z: hp.z, y: heightAt(hp.x, hp.z), yaw, radius: 0.8, speed: 6 });
   horse.maxHp = horse.hp = 520;
   loopsHorseLook(horse, r);
   const cp = { x: hp.x + Math.cos(yaw) * 1.2, z: hp.z - Math.sin(yaw) * 1.2 };
-  const carter = makeEnt({ kind: 'humanoid', faction: r, role: 'carter', level: Math.max(1, warLevel() - 4), name: `${pick(Math.random, VILLAGER_NAMES)} the carter`, x: cp.x, z: cp.z, y: heightAt(cp.x, cp.z), yaw, look: villagerLook(r), speed: 2.6, radius: 0.45 });
-  carter.maxHp = carter.hp = 260 + warLevel() * 24;
+  const carter = makeEnt({ kind: 'humanoid', faction: r, role: 'carter', level: 1, name: `${pick(Math.random, VILLAGER_NAMES)} the carter`, x: cp.x, z: cp.z, y: heightAt(cp.x, cp.z), yaw, look: villagerLook(r), speed: 2.6, radius: 0.45 });
+  if (typeof worldActorDevelop === 'function') worldActorDevelop(carter);
+  carter.maxHp = carter.hp = 284;
   carter.lCar = c; horse.lCar = c;
   c.horse = horse.id; c.carter = carter.id;
-  for (let i = 0; i < 2; i++) {
+  for (let i = 0; i < (paid ? paid.escorts : 2); i++) {
     const ep = at(3.5 + i * 1.5);
     const e = spawnRealmUnit(r, i ? 'archer' : 'warrior', warUnitLevel('soldier'), 'escort', ep.x + (i ? 1.3 : -1.3) * Math.cos(yaw), ep.z - (i ? 1.3 : -1.3) * Math.sin(yaw));
     e.lCar = c; e.lSide = i ? 1 : -1;
@@ -483,6 +516,7 @@ function loopsCarTurn(c) {
 const loopsEnt = (id) => { const e = getEnt(id); return e && e.alive && !e.removed ? e : null; };
 function loopsCarStep(c, dt) {
   const horse = loopsEnt(c.horse), carter = loopsEnt(c.carter);
+  if (loopsCanonicalManaged() && c.logisticsPending && c.state === 'road') { if (horse) loopsCartFollow(c, horse, dt); return; }
   if (c.state === 'wreck') {
     c.wreckT += dt;
     if ((c.wreckT > 75 && !loopsSeenBy(c.ax, c.az)) || c.wreckT > 900) loopsCarGone(c); // (nothing vanishes in sight)
@@ -532,6 +566,7 @@ function loopsFoesNear(x, z, r, realm) {
 }
 // at the keep's gate: the goods carried in
 function loopsCarArrive(c, K) {
+  if (loopsCanonicalManaged()) { if (typeof realmLogisticsSettle === 'function') realmLogisticsSettle(c, 'arrived'); return; }
   const got = [];
   for (const g in c.load) { const k = loopsKeepAdd(K, g, c.load[g]); if (k >= 1) got.push(`${Math.round(k)} ${LOOPS_LABEL[g]}`); const left = c.load[g] - k; if (left > 0) loopsAdd(c.realm, g, left, false); }
   c.load = {};
@@ -554,6 +589,7 @@ function loopsEscorted(c, K) {
 }
 // home again: whatever it still carries back into the stores, and its people go in
 function loopsCarHome(c) {
+  if (loopsCanonicalManaged() && c.logisticsId && !c.logisticsSettled) { if (typeof realmLogisticsSettle === 'function') realmLogisticsSettle(c, 'returned'); return; }
   for (const g in c.load) loopsAdd(c.realm, g, c.load[g], false);
   c.load = {};
   // it stands on the road out of town until nobody is by to see it unharnessed and taken in
@@ -561,7 +597,7 @@ function loopsCarHome(c) {
   for (const id of c.esc) { const e = getEnt(id); if (e && e.alive) e.lCar = null; }
 }
 // is a place in sight of the player (near enough that a body there should not simply be gone)?
-function loopsSeenBy(x, z, r = 95) { const P = GAME.player; return !!P && dist2(P.x, P.z, x, z) < r * r; }
+function loopsSeenBy(x, z, r = 95) { return netEntityLivePlayers().some(p => dist2(p.x, p.z, x, z) < r * r); }
 function loopsCarGone(c) {
   c.state = 'gone';
   for (const id of [c.horse, c.carter, ...c.esc]) { const e = getEnt(id); if (e && !e.removed) { if (e.alive) { e.alive = false; e.removeAt = GAME.t; } e.lCar = null; } }
@@ -569,6 +605,7 @@ function loopsCarGone(c) {
 }
 // the carter or the horse killed: the cart is lost, its goods spill and it burns
 function loopsCarLost(c) {
+  if (loopsCanonicalManaged()) { c.state = 'wreck'; c.wreckT = 0; if (typeof realmLogisticsSettle === 'function' && c.logisticsId) realmLogisticsSettle(c, 'lost'); return; }
   c.state = 'wreck'; c.wreckT = 0;
   LOOPS.stats.raided++;
   const carter = getEnt(c.carter), horse = getEnt(c.horse);
@@ -807,16 +844,20 @@ function loopsDraw(dt) {
 function loopsSpawnWorkers() {
   for (const R of REALMS) {
     const S = R.town;
-    for (const job of ['wood', 'wood', 'stone']) {
+    for (const [jobIndex, job] of ['wood', 'wood', 'stone'].entries()) {
+      const existing = typeof netNpcFind === 'function' && netNpcFind(`town:${R.id}:villager:${6 + jobIndex}`);
+      if (existing) { if (!LOOPS.workers.includes(existing.id)) LOOPS.workers.push(existing.id); continue; }
       const a = Math.random() * TAU, rr = 8 + Math.random() * 10;
       const x = S.x + Math.cos(a) * rr, z = S.z + Math.sin(a) * rr;
       if (!isWalkable(x, z)) continue;
       const look = villagerLook(R.id);
       look.fem = 0; look.mask = (look.mask & ~WB.robe) | WB.belt;
-      const v = makeEnt({ kind: 'humanoid', faction: FACTION_NEUTRAL, role: 'villager', level: 5, name: `${pick(Math.random, VILLAGER_NAMES)} the ${job === 'wood' ? 'woodcutter' : 'quarryman'}`, x, z, y: heightAt(x, z), look, home: { x: S.x, z: S.z, r: 20 }, speed: 2.2 });
+      const v = makeEnt({ kind: 'humanoid', faction: FACTION_NEUTRAL, role: 'villager', level: 1, name: `${pick(Math.random, VILLAGER_NAMES)} the ${job === 'wood' ? 'woodcutter' : 'quarryman'}`, x, z, y: heightAt(x, z), look, home: { x: S.x, z: S.z, r: 20 }, speed: 2.2 });
+      if (typeof worldActorDevelop === 'function') worldActorDevelop(v);
       v.maxHp = v.hp = 300;
       v.ai.lj = { job, realm: R.id, look: look.mask, next: GAME.t + 20 + Math.random() * 40 };
-      LOOPS.workers.push(v.id);
+      if (typeof netNpcRegister === 'function') netNpcRegister(v, `town:${R.id}:villager:${6 + jobIndex}`);
+      if (!LOOPS.workers.includes(v.id)) LOOPS.workers.push(v.id);
     }
   }
 }
@@ -874,6 +915,7 @@ function loopsRockFor(T, e) {
 // the steps of a worker's plan (lifeRun, 08f_townlife.js)
 function loopsLifeStep(e, st, plan, dt, next) {
   const J = e.ai.lj;
+  const rate = skill => typeof worldActorWorkRate === 'function' ? worldActorWorkRate(e, skill) : 1;
   if (st.k === 'lunload') {
     // Keep the load through the set-down animation, then leave empty.
     if (plan.t < 0.1 + dt) setAct(e, 5, 1.2);
@@ -897,9 +939,9 @@ function loopsLifeStep(e, st, plan, dt, next) {
       turnToward(e, st.mx, st.mz, dt * 8);
       loopsTool(e, true);
       if (plan.t >= st.next2) {
-        st.next2 = plan.t + 1.15;
+        st.next2 = plan.t + 1.15 / rate('woodcutting');
         setAct(e, 1, 0.62);
-        later(0.3, () => { if (!e.alive || !t.log) return; st.n2++; natChips(st.mx, heightAt(st.mx, st.mz) + 0.4, st.mz, Math.sin(e.yaw), Math.cos(e.yaw), 8); natSfx('split', st.mx, st.mz); if (st.n2 >= 4) { natRemoveLog(t); t.leaf = 0; } });
+        later(0.3, () => { if (!e.alive || !t.log) return; st.n2++; natChips(st.mx, heightAt(st.mx, st.mz) + 0.4, st.mz, Math.sin(e.yaw), Math.cos(e.yaw), 8); natSfx('split', st.mx, st.mz); if (st.n2 >= 4) { natRemoveLog(t); t.leaf = 0; if (typeof worldActorPractice === 'function') worldActorPractice(e, 'woodcutting', Math.max(1, st.timber || 1)); } });
       }
       if (plan.t > st.at2 + 30) { if (t.log) { natRemoveLog(t); t.leaf = 0; } }
       return true;
@@ -916,7 +958,7 @@ function loopsLifeStep(e, st, plan, dt, next) {
     loopsTool(e, true);
     if (!st.need) { st.need = 4 + Math.round(natS(t) * 2) + (t.kind === 'oak' ? 1 : 0); st.n = 0; st.at = plan.t + 0.4; natTake(t); t.notchYaw = Math.atan2(t.x - e.x, t.z - e.z) + Math.PI; }
     if (plan.t >= st.at) {
-      st.at = plan.t + 1.15;
+      st.at = plan.t + 1.15 / rate('woodcutting');
       setAct(e, 1, 0.62);
       later(0.3, () => {
         if (!e.alive || t.felled) return;
@@ -938,7 +980,7 @@ function loopsLifeStep(e, st, plan, dt, next) {
     loopsTool(e, true);
     if (st.n == null) { st.n = 0; st.at = plan.t + 0.4; }
     if (plan.t >= st.at && st.n < 6) {
-      st.at = plan.t + 1.2;
+      st.at = plan.t + 1.2 / rate('mining');
       setAct(e, 1, 0.62);
       later(0.3, () => {
         if (!e.alive) return;
@@ -949,6 +991,7 @@ function loopsLifeStep(e, st, plan, dt, next) {
       });
     }
     if (st.n >= 6) {
+      if (!st.practiced && typeof worldActorPractice === 'function') { worldActorPractice(e, 'mining', 1); st.practiced = true; }
       loopsBring(J.realm, 'stone');
       if (Math.random() < 0.35) loopsBring(J.realm, 'iron');
       LOOPS.stats.quarried++;
@@ -1041,6 +1084,7 @@ function loopsDeliver(g, K = null) {
 }
 // a horse of your own given to the realm's stables
 function loopsGiveHorse(e) {
+  if (loopsCanonicalManaged()) { if (typeof realmLogisticsDonateHorse==='function') void realmLogisticsDonateHorse(e); return false; }
   const P = GAME.player, prog = GAME.prog;
   if (!P || !e || !e.tame || e.tame.owner !== 'player' || e.tame.k !== 'horse' || !e.alive) return false;
   const rec = e.tame, L = prog.level, need = loopsNeedK(P.faction, 'horses');
@@ -1148,13 +1192,16 @@ function loopsYardDraw() {
 function loopsYardIgnite(Y, by) {
   if (Y.burn > 0) return;
   Y.burn = 32;
-  const S = LOOPS.r[Y.r], lost = [];
-  for (const [g, k] of [['timber', 0.35], ['food', 0.2], ['wool', 0.3], ['hides', 0.3]]) { const n = S[g] * k; S[g] -= n; if (n >= 1) lost.push(`${Math.round(n)} ${LOOPS_LABEL[g]}`); }
+  const managed = loopsCanonicalManaged(), lost = [];
+  if (!managed) {
+    const S = LOOPS.r[Y.r];
+    for (const [g, k] of [['timber', 0.35], ['food', 0.2], ['wool', 0.3], ['hides', 0.3]]) { const n = S[g] * k; S[g] -= n; if (n >= 1) lost.push(`${Math.round(n)} ${LOOPS_LABEL[g]}`); }
+  }
   const c = Math.cos(Y.yaw), sn = Math.sin(Y.yaw);
   for (const [lx, lz, sz] of [[-2, 0, 1.3], [0.4, 0, 0.9], [2.45, 0, 1.1]]) addFire(Y.x + lx * c + lz * sn, heightAt(Y.x, Y.z) + 0.8, Y.z - lx * sn + lz * c, sz, false, GAME.t + 32, { r: 10, k: 1.3 });
   sfxAt('crackle', Y.x, heightAt(Y.x, Y.z) + 1, Y.z);
   if (by === GAME.player) { LOOPS.you.raids++; addRP(Math.round(60 + GAME.prog.level * 3)); }
-  news(`${by === GAME.player ? 'You set' : 'Raiders set'} ${possessive(REALMS[Y.r].name)} stores yard in ${REALMS[Y.r].townName} alight${lost.length ? `: ${lost.join(', ')} go up in smoke` : ''}!`, by && by.faction <= 2 ? by.faction : Y.r, 'normal');
+  news(`${by === GAME.player ? 'You set' : 'Raiders set'} ${possessive(REALMS[Y.r].name)} stores yard in ${REALMS[Y.r].townName} alight${managed ? '; the yard is burning' : lost.length ? `: ${lost.join(', ')} go up in smoke` : ''}!`, by && by.faction <= 2 ? by.faction : Y.r, 'normal');
 }
 function loopsYardStep(dt) {
   for (const Y of LOOPS.yards) {
@@ -1198,6 +1245,8 @@ function loopsLadenHTML() {
 /* ------------------------------------------------------------------ */
 function loopsSpawnQuartermasters() {
   for (const R of REALMS) {
+    const existing = typeof netNpcFind === 'function' && netNpcFind(`town:${R.id}:merchant:1`);
+    if (existing) { R.quartermaster = existing; continue; }
     const S = R.town, lx = 11, lz = 8.5;
     const c = siteToWorld(S, lx, lz), yaw = S.yaw + Math.atan2(-lx, -lz);
     let x = c.x - Math.sin(yaw) * 1.05, z = c.z - Math.cos(yaw) * 1.05;
@@ -1209,11 +1258,13 @@ function loopsSpawnQuartermasters() {
     const look = villagerLook(R.id);
     look.mask = (look.mask & ~WB.robe) | WB.belt | WB.tabard;
     look.tabard = R.rgb.map((v) => v * 0.8 + 0.1);
-    const m = makeEnt({ kind: 'humanoid', faction: FACTION_NEUTRAL, role: 'merchant', level: 20, name: `Quartermaster ${pick(Math.random, NAMES[R.id])}`, x, z, y: heightAt(x, z), yaw, look, radius: 0.45 });
+    const m = makeEnt({ kind: 'humanoid', faction: FACTION_NEUTRAL, role: 'merchant', level: 1, name: `Quartermaster ${pick(Math.random, NAMES[R.id])}`, x, z, y: heightAt(x, z), yaw, look, radius: 0.45 });
+    if (typeof worldActorDevelop === 'function') worldActorDevelop(m);
     m.fixedY = heightAt(x, z);
     m.maxHp = m.hp = 500;
     m.ai.post = { x, z, yaw };
     R.quartermaster = m;
+    if (typeof netNpcRegister === 'function') netNpcRegister(m, `town:${R.id}:merchant:1`);
   }
 }
 // E beside the quartermaster: the realm's stores; and a cart of yours: walk with it
@@ -1263,6 +1314,7 @@ function loopsInit() {
   for (const F of W.fieldRects || []) { const r = F.realm != null ? F.realm : 0; if (r >= 0 && r < 3) area[r] += 4 * F.hw * F.hd; }
   const used = area.filter((a) => a > 0), mean = used.length ? used.reduce((a, b) => a + b, 0) / used.length : 1;
   LOOPS.fieldK = area.map((a) => (a > 0 ? clamp(mean / a, 0.4, 3) : 1));
+  if (!LOOPS.seeded && loopsCanonicalManaged()) LOOPS.seeded = true;
   if (!LOOPS.seeded) { for (let r = 0; r < 3; r++) for (const g of LOOPS_R) LOOPS.r[r][g] = Math.round(LT.target[g] * LT.start); LOOPS.seeded = true; }
   loopsSpawnWorkers();
   loopsSpawnQuartermasters();
@@ -1273,7 +1325,7 @@ function updateLoops(dt) {
   if (!LOOPS.inited) return;
   if (!LOOPS.on) return;
   const C = LOOPS.clock;
-  C.prod += dt;
+  if (!loopsCanonicalManaged()) C.prod += dt;
   if (C.prod >= 2) { loopsProduce(C.prod); C.prod = 0; }
   loopsCaravanStep(dt);
   loopsYardStep(dt);
@@ -1281,7 +1333,7 @@ function updateLoops(dt) {
   if (C.trade <= 0) { C.trade = 40; loopsTradeStep(); }
   // a new campaign: the keeps go back to their realms' stores at their targets
   if (LOOPS.campN !== CAMPAIGN.n) {
-    if (LOOPS.campN != null) for (const K of WAR.keeps) { const S = loopsKeep(K); for (const g of LOOPS_K) S[g] = Math.max(S[g], LT.keepTarget[g]); }
+    if (!loopsCanonicalManaged() && LOOPS.campN != null) for (const K of WAR.keeps) { const S = loopsKeep(K); for (const g of LOOPS_K) S[g] = Math.max(S[g], LT.keepTarget[g]); }
     LOOPS.campN = CAMPAIGN.n;
   }
   // the time each realm spends short of each thing (the measures)
@@ -1305,16 +1357,16 @@ registerSavePart('world', 'loops', {
   load(d) {
     if (!d || typeof d !== 'object' || !Array.isArray(d.r)) return;
     const num = (v, cap) => (Number.isFinite(+v) && v !== null ? clamp(Math.round(+v), 0, cap) : null);
-    for (let r = 0; r < 3; r++) {
+    if (!loopsCanonicalManaged()) for (let r = 0; r < 3; r++) {
       const row = Array.isArray(d.r[r]) ? d.r[r] : [];
       LOOPS_R.forEach((g, i) => { const v = num(row[i], LT.target[g] * LT.cap); if (v != null) LOOPS.r[r][g] = v; });
     }
-    if (Array.isArray(d.k)) d.k.slice(0, 12).forEach((row, i) => {
+    if (!loopsCanonicalManaged() && Array.isArray(d.k)) d.k.slice(0, 12).forEach((row, i) => {
       if (!Array.isArray(row)) return;
       const S = LOOPS.k[i] || (LOOPS.k[i] = { food: LT.keepTarget.food, timber: LT.keepTarget.timber, stone: LT.keepTarget.stone, iron: LT.keepTarget.iron });
       LOOPS_K.forEach((g, j) => { const v = num(row[j], LT.keepTarget[g] * LT.keepCap); if (v != null) S[g] = v; });
     });
-    if (Array.isArray(d.c)) for (const row of d.c.slice(0, 8)) {
+    if (!loopsCanonicalManaged() && Array.isArray(d.c)) for (const row of d.c.slice(0, 8)) {
       if (!Array.isArray(row)) continue;
       const r = row[0] | 0;
       if (r < 0 || r > 2) continue;
@@ -1405,7 +1457,10 @@ queueMicrotask(() => { // (CHRON, FIELD_NOTES, GUIDE_WATCH, GUIDE_HELP, LOADING_
   loopsFairPrices();
   chronAdd('stores', 'Stores', 'war', chronStores, 'orders');
   Object.assign(FIELD_NOTES, {
-    lstores: { t: 'The realm\'s stores', x: (R) => `Every band, engine, gate and wall of ${R.name}'s is paid for from its stores. Bring wood, stone, ore, food, hides and wool to the quartermaster in ${R.townName} or a keep's hall: the realm pays in realm points and gold, more for what it lacks. The Chronicle's Stores page shows them.` },
+    lstores: { t: 'The realm\'s stores', x: (R) => `Every band, engine, gate and wall of ${R.name}'s is paid for from its stores. Bring wood, stone, ore, food, hides and wool to the quartermaster in ${R.townName} or a keep's hall: the realm pays in realm points and gold, more for what it lacks. The Chronicle's Stores page shows them.`, ok: () => {
+      const Q = REALMS[GAME.player?.faction]?.quartermaster;
+      return !!Q?.alive && guideNotePrompt() === `Speak with ${Q.name}: the realm's stores`;
+    } },
     lcart: { t: 'A cart on the road', x: () => 'Carts carry food, timber, stone and iron from the town to the keeps. The other realms fall on them. Walk beside one of yours to its keep and see it safe; one of theirs taken is lost to them.', fight: false },
     lshort: { t: 'Your realm runs short', x: (R) => `${R.name}'s stores are running out: its bands muster thinner and hungrier, its engines fewer, its walls mend slower. What you bring to the quartermaster turns it round, and pays more now.` },
   });
@@ -1431,3 +1486,4 @@ queueMicrotask(() => { // (CHRON, FIELD_NOTES, GUIDE_WATCH, GUIDE_HELP, LOADING_
   }
   PATH_STEPS.forEach((S, i) => { S.idx = i; });
 });
+

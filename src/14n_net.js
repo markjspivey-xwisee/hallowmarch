@@ -26,7 +26,7 @@ const NET = {
   fastAt: 0, slowAt: 0, slowKey: '', fastKey: '', seq: 0, lastFast: null,
   out: [], evSeq: 0, inbox: [], socialTimer: 0, socialScope: null,
   party: '', partyLead: false, invites: [], partyMax: 6,
-  host: '', isHost: false, applyingWorld: false, srvWorld: null, srvWorldDone: false, worldKey: '', worldT: 0, capAsked: new Map(), regions: null, // [net] the regions' keepers (14p_netws.js)
+  host: '', serverSceneHost: '', isHost: false, applyingWorld: false, srvWorld: null, srvWorldDone: false, worldKey: '', worldT: 0, capAsked: new Map(), regions: null, // [net] the regions' keepers (14p_netws.js)
   vel: { x: 0, z: 0, px: 0, pz: 0, t: 0 },
   cfg: { fastHz: 10, delay: 120, predict: 0.25, ringT: 2600, ringMax: 22, slowEvery: 1.0, ghostR: 260 },
   stats: { fastSent: 0, slowSent: 0, upBytes: 0, downBytes: 0, fastRecv: 0, slowRecv: 0, evOut: 0, evIn: 0, hitsOut: 0, hitsIn: 0, hitsRefused: 0, hitsLanded: 0, buffsOut: 0, buffsIn: 0, healsIn: 0, ghosts: 0, interp: 0, extrap: 0, held: 0, jumps: 0, keepsApplied: 0, capsAsked: 0, capsTaken: 0, chatOut: 0, chatIn: 0, refused: 0, sizeTrim: 0, kills: 0, deaths: 0, linkErr: 0 },
@@ -173,6 +173,10 @@ const netSize = (o) => { try { return o ? JSON.stringify(o).length : 0; } catch 
 function netSlowRead(o) {
   if (!o || typeof o !== 'object') return null;
   const s = { on: o.on === 1 ? 1 : 0, since: netNum(o.since, 0, 1e15, Date.now()), n: netStr(o.n, 24) || 'Stranger', r: NET_REALM_OK(o.r) ? o.r : 0, c: CLASSES[o.c] ? o.c : 'warrior', l: Math.round(netNum(o.l, 1, LEVEL_CAP, 1)), rr: Math.round(netNum(o.rr, 1, 20, 1)) };
+  s.sharedScene = o.sharedScene === 2 ? 2 : 0;
+  s.warbandOrders = o.warbandOrders === 1 ? 1 : 0;
+  s.seasonField = o.seasonField === 2 ? 2 : 0;
+  s.realmManagement = o.realmManagement === 1 ? 1 : 0;
   s.dn = netStr(o.dn, 56) || s.n;
   const lk = Array.isArray(o.lk) && o.lk.length === 15 ? o.lk : null;
   if (lk) s.lk = { tabard: [netNum(lk[0], 0, 2), netNum(lk[1], 0, 2), netNum(lk[2], 0, 2)], armor: [netNum(lk[3], 0, 2), netNum(lk[4], 0, 2), netNum(lk[5], 0, 2)], skin: netNum(lk[6], 0, 1), hair: netNum(lk[7], 0, 1), mask: Math.round(netNum(lk[8], 0, (1 << 24) - 1)) & ~(WB.torch | WB.beater | WB.hammer), flags: Math.round(netNum(lk[9], 0, 1023)), scale: netNum(lk[10], 0.85, 1.12, 1), outfit: Math.round(netNum(lk[11], 0, 3)), emblem: Math.round(netNum(lk[12], 0, 3)), fem: lk[13] === 1 ? 1 : 0, bulk: netNum(lk[14], 0, 0.5) };
@@ -334,6 +338,7 @@ function netRemoteStep(e, dt) {
   updateAnim(e, dt);
   if ((Math.floor(a) === 14 || Math.floor(a) === 18) && ph) e.anim.phase = ph; // on a ladder the rungs' own cycle (04l_towers.js)
   e.combatUntil = f.tg ? GAME.t + 2 : e.combatUntil;
+  if (typeof netBoatRemoteRider === 'function') netBoatRemoteRider(e);
 }
 const stepOkForGhost = (x, z) => inDungeon({ x }) || isWalkable(x, z) || !!waterAt(x, z);
 
@@ -341,8 +346,10 @@ const stepOkForGhost = (x, z) => inDungeon({ x }) || isWalkable(x, z) || !!water
 /* telling the others                                                  */
 /* ------------------------------------------------------------------ */
 function netSlowObj() {
-  const P = GAME.player, prog = GAME.prog;
-  const o = { v: 1, on: GAME.started && P ? 1 : 0, since: NET.since };
+  const P = GAME.player, prog = GAME.prog, live = netHumanLive();
+  const o = { v: 1, sharedScene: typeof NETWS !== 'undefined' && NETWS.url ? 2 : 0, on: live ? 1 : 0, since: NET.since,
+    warbandOrders: 1, seasonField: 2, realmManagement: 1, sharedCombat: 1, actorDevelopment: 1,
+    humanLive: live ? 1 : 0, humanActivity: NET_HUMAN_PLAY.activity };
   if (P && prog) {
     const L = P.look;
     o.n = P.name.slice(0, 24); o.dn = late2Named(P).slice(0, 56); o.r = P.faction; o.c = P.cls; o.l = prog.level; o.rr = realmRank(prog.rp);
@@ -360,8 +367,14 @@ function netSlowObj() {
           look.emblem ?? 3, look.fem ? 1 : 0, netR3(look.bulk || 0)] };
     }
   }
-  if (NET.isHost || netKeepsMine()) o.w = netWorldObj(); // [net] the shard's host, or a region's keeper (its keeps)
-  if (NET.isHost) { const wx = netWxObj(); if (wx) o.wx = wx; } // [perf3] the host's sky (14r_netwx.js)
+  const worldReady = typeof netSharedWorldReady !== 'function' || netSharedWorldReady();
+  if (worldReady && (NET.isHost || netKeepsMine())) {
+    o.w = netWorldObj();
+    if (typeof netCurrentWorldAdmission === 'function') {
+      const admission = netCurrentWorldAdmission(); if (admission) o.worldAdmission = admission;
+    }
+  }
+  if (worldReady && NET.isHost) { const wx = netWxObj(); if (wx) o.wx = wx; } // [perf3] the host's sky (14r_netwx.js)
   return o;
 }
 function netFastObj(now) {
@@ -471,7 +484,24 @@ function netSendFast(now) {
     NET.link.setFast(o);
   }
 }
+function netActivityPosition(now = performance.now()) {
+  if (!netHumanLive() || !netOn() || !GAME.started || !GAME.player) return false;
+  // Standing still suppresses unchanged pose traffic. A shared action still
+  // needs a fresh, ordinarily validated position before the server admits it.
+  const sent = NET.lastFast, P = GAME.player;
+  const age = sent && Number.isFinite(sent.t) ? now - sent.t : Infinity;
+  const samePosition = sent?.p?.[0] === netR2(P.x) && sent?.p?.[1] === netR2(P.y) && sent?.p?.[2] === netR2(P.z);
+  if (age >= 0 && (age < 1000 / NET.cfg.fastHz || age < 1000 && samePosition)) return true;
+  const previous = NET.lastFast;
+  NET.fastKey = '';
+  NET.fastAt = Math.min(NET.fastAt, now - 1000 / NET.cfg.fastHz);
+  netSendFast(now);
+  return NET.lastFast !== previous;
+}
 function netPump(dt) {
+  netHumanSync();
+  if (!netHumanLive()) return;
+  if (NETWS.link && NETWS.state === 'off' && !NETWS.retryTimer && !NETWS.closed && !NETWS.reload) void netWsReconnect();
   // Retry initial server failures only after boot. A valid room link keeps its
   // own transport; recovery does not replace it or change the save backend.
   if (GAME.ready && !NETWS.closed && !NETWS.reload && (NET.state === 'off' || (NET.state === 'alone' && netServerUrl() && performance.now() >= NET.retryAt))) netConnect();
@@ -483,6 +513,10 @@ function netPump(dt) {
   if (netSendSlow(now, netSocialPending()) !== false) netSendFast(now);
   netDeathWatch();
   netWorldKeep(now);
+  if (typeof netBoatPump === 'function') netBoatPump(now);
+  if (typeof netNpcPump === 'function') netNpcPump(now);
+  if (typeof netEntityPump === 'function') netEntityPump(now);
+  if (typeof netWorldPartsPump === 'function') netWorldPartsPump(now);
 }
 // the host writes the shared war to the artifact's db when it has changed (once in 30 s at most, one write at a time),
 // so the next session's first host takes it up; a viewer who may not write the db leaves it to whoever may
@@ -500,9 +534,10 @@ function netWorldKeep(now) {
 /* ------------------------------------------------------------------ */
 function netGhosts() {
   const P = GAME.player;
+  const keeper = !!NET.serverSceneHost && NET.serverSceneHost === NET.self && typeof NETWS !== 'undefined' && NETWS.state === 'on';
   for (const R of NET.peers.values()) {
     netCompanionSync(R);
-    const want = R.slow && R.slow.on && R.fast && GAME.started && (!P || dist2(R.fast.x, R.fast.z, P.x, P.z) < NET.cfg.ghostR * NET.cfg.ghostR || (R.slow.pt && R.slow.pt === NET.party));
+    const want = R.slow && R.slow.on && R.fast && GAME.started && (keeper || !P || dist2(R.fast.x, R.fast.z, P.x, P.z) < NET.cfg.ghostR * NET.cfg.ghostR || (R.slow.pt && R.slow.pt === NET.party));
     if (want && !R.ghost) netGhostMake(R);
     else if (!want && R.ghost) netGhostDrop(R);
     if (R.ghost && R.ghost.removed) R.ghost = null;
@@ -516,6 +551,7 @@ function netGhosts() {
 function netIsEnemy(a, b) {
   const P = GAME.player;
   if (!P || a.netCompanion || b.netCompanion) return false;
+  if (typeof realmManualCeasefire === 'function' && realmManualCeasefire(a, b)) return false;
   if (a.role === 'remote' && b.role === 'remote') return false;
   const me = a.role === 'remote' ? b : a, o = a.role === 'remote' ? a : b;
   if (me !== P && !(me.tame && me.tame.owner === 'player')) return false;
@@ -531,7 +567,8 @@ function netOutHit(src, dst, amount, opts) {
   const P = GAME.player;
   if (!src || !P || dst.netCompanion || !(src === P || (src.tame && src.tame.owner === 'player')) || !dst.alive || !netOn()) return 0;
   const est = amount * (1 - (opts.pierce === true ? 0 : dst.drBase * (1 - (+opts.pierce || 0))));
-  netEvent('hit', dst.netPeer, { a: Math.round(amount * 10) / 10, c: opts.crit ? 1 : 0, k: typeof opts.kind === 'string' ? opts.kind.slice(0, 12) : 'melee', pi: opts.pierce === true ? 1 : +opts.pierce || 0, dt: opts.dot ? 1 : 0, ab: typeof opts.ability === 'string' ? opts.ability.slice(0, 16) : '', ar: typeof opts.arrow === 'string' ? opts.arrow.slice(0, 10) : '', el: opts.elem === 'fire' ? 'fire' : '', pet: src !== P ? 1 : 0 });
+  netEvent('hit', dst.netPeer, { a: Math.round(amount * 10) / 10, c: opts.crit ? 1 : 0, k: typeof opts.kind === 'string' ? opts.kind.slice(0, 12) : 'melee', pi: opts.pierce === true ? 1 : +opts.pierce || 0, dt: opts.dot ? 1 : 0, ab: typeof opts.ability === 'string' ? opts.ability.slice(0, 16) : '', ar: typeof opts.arrow === 'string' ? opts.arrow.slice(0, 10) : '', el: opts.elem === 'fire' ? 'fire' : '', pet: src !== P ? 1 : 0,
+    ...(Object.hasOwn(opts, 'area') ? { area: opts.area } : {}) });
   NET.stats.hitsOut++;
   src.combatUntil = GAME.t + 6;
   dst.anim.flash = 1;
@@ -543,7 +580,8 @@ function netOutBuff(e, kind, value, dur, src, extra) {
   const fake = { kind, value, until: GAME.t + dur, src, tick: GAME.t };
   if (!P || e.netCompanion || src !== P.id || !netOn()) return fake;
   if (!NET_BUFFS[kind]) return fake;
-  netEvent('buf', e.netPeer, [kind, netR3(+value || 0), netR2(+dur || 0)]);
+  netEvent('buf', e.netPeer, [kind, netR3(+value || 0), netR2(+dur || 0),
+    ...(Object.hasOwn(extra || {}, 'area') ? [extra.area] : [])]);
   NET.stats.buffsOut++;
   return fake;
 }
@@ -624,6 +662,7 @@ function netHandle(R, kind, d) {
   if (kind === 'hit') {
     NET.stats.hitsIn++;
     if (!src || !src.alive || !P.alive || !d || typeof d !== 'object' || !isEnemy(P, src)) { NET.stats.hitsRefused++; return; }
+    if (Object.hasOwn(d, 'area') && (typeof netEntityAreaAccept !== 'function' || !netEntityAreaAccept(d.area, P))) { NET.stats.hitsRefused++; return; }
     // plausible: from about where its body is, at a pace a body strikes, no harder than its level allows
     const now = performance.now();
     R.hits = R.hits.filter((t) => now - t < 1000);
@@ -636,6 +675,7 @@ function netHandle(R, kind, d) {
     if (d.ab && ABILITIES[d.ab]) opts.ability = d.ab;
     if (d.ar && /^[a-z]+$/.test(d.ar)) opts.arrow = d.ar;
     if (d.el === 'fire') opts.elem = 'fire';
+    if (Object.hasOwn(d, 'area')) opts.area = d.area;
     const hp0 = P.hp;
     const dealt = dealDamage(src, P, amt, opts);
     NET.stats.hitsLanded++;
@@ -651,6 +691,7 @@ function netHandle(R, kind, d) {
   }
   if (kind === 'buf') {
     if (!src || !Array.isArray(d) || !P.alive) return;
+    if (d.length > 3 && (typeof netEntityAreaAccept !== 'function' || !netEntityAreaAccept(d[3], P))) return;
     const B = NET_BUFFS[d[0]];
     if (!B) return;
     const friendly = !isEnemy(P, src);
@@ -660,7 +701,7 @@ function netHandle(R, kind, d) {
     if (B[0] > 0) v = clamp(v, 0, B[0]); else v = clamp(v, 0, baseDmg(src.level) * 3);
     const dur = clamp(+d[2] || 0, 0, B[1] || 20);
     if (!(dur > 0)) return;
-    addBuff(P, d[0], v, dur, src.id);
+    addBuff(P, d[0], v, dur, src.id, d.length > 3 ? { area: d[3] } : null);
     NET.stats.buffsIn++;
     return;
   }
@@ -743,15 +784,45 @@ function netDeathWatch() {
 /* ------------------------------------------------------------------ */
 /* the shared war: a host, its word on the keeps and the sky           */
 /* ------------------------------------------------------------------ */
+function netSharedWorldReady() {
+  if (typeof netSharedWorldRequired !== 'function' || !netSharedWorldRequired()) return true;
+  if (NETWS.worldReloadRequired) return false;
+  if (NETWS.worldInitialized) return true;
+  const admission = netCurrentWorldAdmission(), w = NETWS.worldInit;
+  if (!GAME.started || !admission || !w || typeof w !== 'object'
+    || !Array.isArray(w.k) || w.k.length !== WAR.keeps.length || !w.k.every(NET_REALM_OK)
+    || !Array.isArray(w.g) || w.g.length !== WAR.keeps.length || !w.g.every(v => v === 0 || v === 1)
+    || !Number.isSafeInteger(w.cn) || w.cn < 1
+    || !Array.isArray(w.cl) || w.cl.length !== 3 || !w.cl.every(pair => Array.isArray(pair) && pair.length === 2
+      && pair.every(v => Number.isFinite(v) && v >= 0 && v <= 1e5))
+    || !Number.isFinite(w.td) || w.td < 0 || w.td > 3 || ![0, 1].includes(w.tm)) {
+    if (GAME.started && GAME.player) netWorldAdmissionNotice("Waiting for the server's current shared world before publishing world changes.");
+    return false;
+  }
+  // Apply the complete authoritative snapshot before the very first host report.
+  // A late private-character read cannot replace this scene afterward.
+  netWorldTake(netWorldRead(w), 'initialize');
+  NETWS.activeWorldAdmission = { ...admission };
+  NETWS.worldInitialized = true; NETWS.worldInit = null;
+  NET.srvWorldDone = true; NET.slowKey = ''; NET.worldKey = '';
+  if (NETWS.worldPauseReason === "Waiting for the server's current shared world before publishing world changes.") NETWS.worldPauseReason = '';
+  return true;
+}
 function netHostElect() {
-  let best = null, bs = Infinity, bp = '';
+  if (typeof netSharedWorldReady === 'function' && !netSharedWorldReady()) { NET.isHost = false; return; }
+  let best = null, bs = Infinity, bp = '', capable = false;
   const me = GAME.started && GAME.player;
-  if (me) { best = NET.self || 'me'; bs = NET.since; bp = NET.self; }
+  if (me) { best = NET.self || 'me'; bs = NET.since; bp = NET.self; capable = typeof NETWS !== 'undefined' && !!NETWS.url; }
   for (const R of NET.peers.values()) {
     if (!R.slow || !R.slow.on) continue;
     if (R.srv || R.slow.srv) { best = R.peer; bs = -1; bp = R.peer; break; } // a server is the host whenever it is there
-    if (R.slow.since < bs || (R.slow.since === bs && R.peer < bp)) { best = R.peer; bs = R.slow.since; bp = R.peer; }
+    const scene = R.slow.sharedScene === 2;
+    if (scene && !capable || scene === capable && (R.slow.since < bs || R.slow.since === bs && R.peer < bp)) {
+      best = R.peer; bs = R.slow.since; bp = R.peer; capable = scene;
+    }
   }
+  // The server's admitted scene authority wins over clocks from different pages.
+  if (typeof NETWS !== 'undefined' && NETWS.state === 'on' && NET.serverSceneHost) best = NET.serverSceneHost;
   const was = NET.host;
   NET.host = best === 'me' ? NET.self : best || '';
   NET.isHost = !!me && (NET.host === NET.self || best === 'me');
@@ -783,6 +854,11 @@ function netWorldTake(w, part = '') {
       captureKeep(K, r, null);
       NET.stats.keepsApplied++;
     });
+    if (part === 'initialize') {
+      WAR.keeps.forEach((K, i) => setDoorState(K.door, w.g[i] === 1, w.g[i] === 1 ? 1 : 0));
+      CAMPAIGN.n = w.cn;
+      CAMPAIGN.claims.forEach((c, i) => Object.assign(c, { k: w.cl[i][0], h: w.cl[i][1], kOn: false, hOn: false, warned: 0 }));
+    }
     // the claims on the March, while it is the same campaign: one war panel for everyone here
     if (part === 'keeps' || part === 'keepsall') return;
     if (w.cl && w.cn === (CAMPAIGN.n || 0)) CAMPAIGN.claims.forEach((c, i) => { const h = w.cl[i]; if (Math.abs(c.k - h[0]) > 3) c.k = h[0]; if (Math.abs(c.h - h[1]) > 3) c.h = h[1]; });
@@ -798,3 +874,4 @@ function netState() {
   const peers = [...NET.peers.values()].map((R) => ({ peer: R.peer, by: R.by, srv: !!R.srv, on: R.slow ? R.slow.on : 0, name: R.slow ? R.slow.dn : '', realm: R.slow ? R.slow.r : -1, cls: R.slow ? R.slow.c : '', level: R.slow ? R.slow.l : 0, party: R.slow ? R.slow.pt : '', ghost: R.ghost ? R.ghost.id : null, gx: R.ghost ? netR2(R.ghost.x) : null, gz: R.ghost ? netR2(R.ghost.z) : null, gy: R.ghost ? netR2(R.ghost.y) : null, alive: R.ghost ? R.ghost.alive : null, hp: R.ghost ? Math.round(R.ghost.hp) : null, act: R.ghost ? R.ghost.netAct : null, amt: R.ghost ? netR3(R.ghost.anim.amt) : null, mount: R.ghost ? !!R.ghost.mount : null, fx: R.fast ? R.fast.x : null, fz: R.fast ? R.fast.z : null, buf: R.buf.length, off: Math.round(R.off) }));
   return { state: NET.state, kind: NET.link ? NET.link.kind : '', self: NET.self, host: NET.host, isHost: NET.isHost, party: NET.party, lead: NET.partyLead, invites: NET.invites.map((i) => i.peer), peers, stats: { ...NET.stats }, out: NET.out.length, seq: NET.seq, lastFastBytes: NET.lastFast ? JSON.stringify(NET.lastFast).length : 0, slowBytes: NET.slowKey.length, log: NET.log.slice(-12) };
 }
+

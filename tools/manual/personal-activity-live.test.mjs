@@ -90,9 +90,10 @@ function readFixture() {
   const opened = { head, digest, proofKind: 'owner-key-authenticated-checkpoint', record: { ownerDid: owner.subjectDid,
     save: { char: { x: { activity: profile.save(), learningDelivery: { schema: 'hallowmarch.gameplay-learning-delivery/v1', ownerDid: owner.subjectDid,
       characterId: owner.accountId, throughOrdinal: event.ordinal, acknowledgedCount: 1, pending: null } } } } } };
+  const consentNow = Date.now();
   const history = { ownerDid: owner.subjectDid, consents: [{ purpose: 'record-gameplay-activity', recipient: contract.write.target,
     taskId: 'hallowmarch-activity:' + owner.accountId + ':' + consentSession, sessionId: consentSession,
-    issuedAt: new Date(Date.now() - 1000).toISOString(), expiresAt: new Date(Date.now() + 899000).toISOString(), revoked: true }] };
+    issuedAt: new Date(consentNow - 1000).toISOString(), expiresAt: new Date(consentNow + 899000).toISOString(), revoked: true }] };
   const transport = { acct: { id: owner.accountId, nativeBound: true }, token: 'PRIVATE-BEARER', generation: 1, reload: false };
   const player = { alive: true }, game = { GAME: { started: true, player }, net: { NETWS: transport }, SAVE: { native: true, readConfirmed: true },
     activity: { snapshot: () => profile.snapshot() }, consulting: { status: { privateHistoryOpen: true, enabled: false, busy: false } },

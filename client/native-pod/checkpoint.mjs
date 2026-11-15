@@ -48,7 +48,7 @@ export function checkpointRecordDigest({ ownerDid, graphIri, operationId, record
 /** The host supplies the existing vault and its authenticated native operations.
  * There is no signer private key, bearer, arbitrary endpoint, or retry policy here. */
 export function createOwnerCheckpointStore({ ownerDid, podUrl, vault, crypto, now, resourceClient,
-  nativeHead, readBinding, prepareBinding, publishBinding, validateRecord, active, registered }) {
+  nativeHead, readBinding, prepareBinding, publishBinding, validateRecord, active, registered, isProvisional = () => false }) {
   const uncertain = new Map();
   const resourceClients = new Map();
   async function resource(graphIri) {
@@ -142,7 +142,8 @@ export function createOwnerCheckpointStore({ ownerDid, podUrl, vault, crypto, no
     }
     return { client, resourceUrl, found, selected, verified };
   }
-  function pendingResult(graphIri, operationId) { return { saved: false, status: 'uncertain', operationId, graphIri, checkpointBinding: true, proofKind: 'owner-key-authenticated-checkpoint' }; }
+  function pendingResult(graphIri, operationId) { return { saved: false, status: 'uncertain', operationId, graphIri, checkpointBinding: true,
+    ...(uncertain.get(operationId)?.quotaExhausted ? { reason: 'guest_quota_exhausted' } : {}), proofKind: 'owner-key-authenticated-checkpoint' }; }
   function observed(graphIri, value) {
     const { found, selected } = value;
     check(value.verified, 'checkpoint_binding_pending');
@@ -194,6 +195,7 @@ export function createOwnerCheckpointStore({ ownerDid, podUrl, vault, crypto, no
       // The original request may still finish, but native CAS permits one winner.
       try { await value.client.write(original[1].write); }
       catch (cause) {
+        if (isProvisional() && cause.code === 'HTTP' && cause.status === 507) { original[1].quotaExhausted = true; return pendingResult(graphIri, original[0]); }
         if (cause.writeMayHaveCommitted) return pendingResult(graphIri, original[0]);
         if (cause.code !== 'CONFLICT') throw cause;
       }
@@ -252,6 +254,7 @@ export function createOwnerCheckpointStore({ ownerDid, podUrl, vault, crypto, no
     active();
     try { await value.client.write(write); }
     catch (cause) {
+      if (isProvisional() && cause.code === 'HTTP' && cause.status === 507) { uncertain.get(operationId).quotaExhausted = true; return pendingResult(graphIri, operationId); }
       if (!cause.writeMayHaveCommitted) { uncertain.delete(operationId); throw failure(cause.code === 'CONFLICT' ? 'conflict' : cause.code === 'HTTP' && cause.status === 401 ? 'needs_reauth' : 'native_unavailable', 'The native checkpoint was not saved.'); }
       return pendingResult(graphIri, operationId);
     }
@@ -263,3 +266,4 @@ export function createOwnerCheckpointStore({ ownerDid, podUrl, vault, crypto, no
   }
   return Object.freeze({ load, currentHead, save, confirm, reconcile, hasPending: id => uncertain.has(id), pendingCount: () => uncertain.size });
 }
+

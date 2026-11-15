@@ -86,7 +86,7 @@ async def shot(page, name, js, n=4):
 async def realm_case(page, realm):
     name = ['Logres', 'Eriu', 'Thule'][realm]
     print(f'--- {name} ---', flush=True)
-    await page.evaluate(f"(() => {{ if (__hm.GAME.player) __hm.fn.newCharacter(); __hm.start({{ realm: {realm}, cls: 'warrior', level: 35 }}); }})()")
+    await page.evaluate(f"(async () => {{ if (__hm.GAME.player) __hm.fn.newCharacter(); await __hm.start({{ realm: {realm}, cls: 'warrior', level: 35 }}); }})()")
     await page.evaluate(HELPERS + '\n;0')
     r = await ev(page, 'place', """(() => { const P = T.H.GAME.player; T.clearWeather(); T.H.setTod(0.55); const R = T.H.REALMS[P.faction];
       const m = T.meadow(R.town.x * 0.8, R.town.z * 0.8); T.H.teleport(m.x, m.z); window.T.m = m; T.setRR(1);

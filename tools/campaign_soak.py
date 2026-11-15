@@ -149,7 +149,7 @@ async def main():
         b, page, logs = await setup(p, w=320, h=180)
         page.set_default_timeout(3000000)
         await page.evaluate(f"__hm.fn.setQuality('{QUALITY}')")
-        await page.evaluate(f"(() => {{ __hm.start({{ realm: {REALM}, cls: 'warrior', level: 20 }}); __hm.UI.modal = 'menu'; return 0; }})()")  # [loops] realm=
+        await page.evaluate(f"(async () => {{ await __hm.start({{ realm: {REALM}, cls: 'warrior', level: 20 }}); __hm.UI.modal = 'menu'; return 0; }})()")  # [loops] realm=
         await page.evaluate(WATCH_JS)
         print(f'soak {MINS} min, {QUALITY} band count, booted in {time.time() - T0:.0f}s', flush=True)
         last = None

@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { projectGamingEvents, createFoxxiSink, FOXXI_XAPI_ACTION, FOXXI_XAPI_ACTION_PUBLISHED, isFoxxiXapiAction, GAMING_NS } from './learning.js';
+import { projectGamingEvents, createFoxxiSink, FOXXI_XAPI_ACTION, FOXXI_XAPI_ACTION_PUBLISHED, isFoxxiXapiAction, GAMING_NS,
+  committedGameplayStatements, COMMITTED_GAMEPLAY_PROFILE_VERSION } from './learning.js';
 
 const DID = 'did:example:alice';
 const at = '2026-10-16T00:16:18.000Z';
@@ -157,6 +158,42 @@ test('exports exact measured own-lens xAPI with stable ids; never invents result
   await f.sink.publish([event(1)], session);
   assert.equal(s.id, f.signed[1].body.statements[0].id);
   assert.equal(f.calls[0].url, descriptor.target);
+});
+
+test('explicit committed Profile projection has separate stable IDs and the actual supplied run registration', async () => {
+  const registration = '413f08a1-0347-46e5-b06b-dfd6785474b4';
+  const input = [event(1), event(2, 'knowledge.consulted', { resourceId: 'https://example.org/notes' })];
+  const before = JSON.stringify(input), options = { domain: 'hallowmarch', gameId: 'march', subjectDid: DID, registration };
+  const first = committedGameplayStatements(input, options), replay = committedGameplayStatements(input, options);
+  assert.deepEqual(first, replay);
+  assert.deepEqual(committedGameplayStatements(input, { ...options, registration: registration.toUpperCase() }), first,
+    'UUID casing cannot create a second statement or registration for the same run');
+  assert.equal(JSON.stringify(input), before);
+  assert.deepEqual(first.map(s => s.context.registration), [registration, registration]);
+  assert.deepEqual(first[0].context.contextActivities.category, [{ id: COMMITTED_GAMEPLAY_PROFILE_VERSION }]);
+  assert.equal(first[0].actor.account.name, DID);
+  assert.equal(first[0].context.extensions[`${GAMING_NS}source`].eventId, input[0].id);
+  assert.equal(first[0].result, undefined);
+  assert.notEqual(first[0].id, projectGamingEvents(input, options).evidence[0].id, 'does not rewrite legacy statement identities');
+  assert.notEqual(first[0].id, committedGameplayStatements(input, { ...options, registration: '536632e3-6288-491a-980a-ac696f621c89' })[0].id);
+  const legacy = fixture(); await legacy.sink.publish(input, session);
+  assert.equal(legacy.signed[0].body.statements[0].id, projectGamingEvents(input, session).evidence[0].id);
+  assert.equal(legacy.signed[0].body.statements[0].context.registration, undefined, 'default sink remains the original projection');
+  assert.equal(legacy.signed[0].body.statements[0].context.contextActivities, undefined);
+});
+
+test('explicit committed projection refuses fabricated registrations, unsupported kinds and subject/provenance changes', () => {
+  const options = { subjectDid: DID, registration: '413f08a1-0347-46e5-b06b-dfd6785474b4' };
+  for (const registration of [undefined, 'session1', 'not-a-uuid', ''])
+    assert.throws(() => committedGameplayStatements([event(1)], { ...options, registration }), /registration UUID/);
+  assert.throws(() => committedGameplayStatements([event(1)], { ...options, subjectDid: 'opaque' }), /subject DID/);
+  assert.throws(() => committedGameplayStatements([event(1)], { ...options, actorId: 'different-account' }), /subject bindings/);
+  assert.throws(() => committedGameplayStatements([event(1)], { ...options, authority: 'owner-browser-observation' }), /authoritative-game-log/);
+  assert.throws(() => committedGameplayStatements([{ ...event(1), at: '2026' }], options), /observed ISO timestamp/);
+  assert.throws(() => committedGameplayStatements([event(1, 'learned', {})], options), /outside this Profile/);
+  assert.throws(() => committedGameplayStatements([event(1, 'damage', { amount: 1 }, { actorKind: 'npc', humanSubject: false })], options), /player or authenticated agent/);
+  const mapped = committedGameplayStatements([event(1, 'damage', { amount: 1 }, { actorId: 'account-1' })], { ...options, actorId: 'account-1' });
+  assert.equal(mapped[0].actor.account.name, DID, 'caller supplies the authenticated game-account/subject binding');
 });
 
 test('batches at 20 and checks consent again before each batch', async () => {

@@ -1,0 +1,49 @@
+{
+  "revision": "be8decea8934f8082da1f854143bd32fc0c66fd1",
+  "functions": {
+    "buildMapImage": {
+      "file": "10_ui.js",
+      "sha256": "8e91f59b75cc36a10ae6d9e0b373e0c5e3a10f87dd0fc301a6e1cdbc99dc4330",
+      "source": "function buildMapImage() {\n  const S = 512;\n  const c = document.createElement('canvas');\n  c.width = S; c.height = S;\n  const ctx = c.getContext('2d');\n  const img = ctx.createImageData(S, S);\n  const rcols = REALMS.map((R) => hex3(R.color));\n  for (let py = 0; py < S; py++) {\n    for (let px = 0; px < S; px++) {\n      const x = -HALF + (px + 0.5) * (WSIZE / S), z = -HALF + (py + 0.5) * (WSIZE / S);\n      const h = heightAt(x, z);\n      const hx = heightAt(x + 2, z) - heightAt(x - 2, z), hz = heightAt(x, z + 2) - heightAt(x, z - 2);\n      const shade = clamp(0.78 + (-hx * 0.55 - hz * 0.55) * 0.12, 0.45, 1.2);\n      const rw = realmWeightsAt(x, z);\n      // [perf2] the same sums channel by channel (six arrays a pixel were made and thrown away: a phone spent seconds here)\n      let c0 = 0.34, c1 = 0.42, c2 = 0.24;\n      for (let k = 0; k < 3; k++) { const rc = rcols[k], w = rw[k]; c0 = c0 + (rc[0] - 0.35) * w * 0.18; c1 = c1 + (rc[1] - 0.35) * w * 0.18; c2 = c2 + (rc[2] - 0.35) * w * 0.18; }\n      const rk = sampleGrid(W.rock, x, z), rd = sampleGrid(W.road, x, z), fl = sampleGrid(W.field, x, z);\n      c0 = lerp(c0, 0.5, rk); c1 = lerp(c1, 0.48, rk); c2 = lerp(c2, 0.45, rk);\n      if (h > 24) { const sk = clamp((h - 24) / 16, 0, 0.8); c0 = lerp(c0, 0.88, sk); c1 = lerp(c1, 0.88, sk); c2 = lerp(c2, 0.88, sk); }\n      c0 = lerp(c0, 0.72, fl * 0.8); c1 = lerp(c1, 0.6, fl * 0.8); c2 = lerp(c2, 0.3, fl * 0.8);\n      c0 = lerp(c0, 0.6, rd * 0.9); c1 = lerp(c1, 0.5, rd * 0.9); c2 = lerp(c2, 0.36, rd * 0.9);\n      { const wa = waterAt(x, z); if (wa && wa.depth > 0.05) { if (wa.fx || wa.fz) { c0 = 0.16; c1 = 0.3; c2 = 0.38; } else { c0 = 0.12; c1 = 0.24; c2 = 0.32; } } } // [water] lakes, ponds and rivers\n      const k = (py * S + px) * 4;\n      img.data[k] = clamp(c0 * shade, 0, 1) * 255; img.data[k + 1] = clamp(c1 * shade, 0, 1) * 255; img.data[k + 2] = clamp(c2 * shade, 0, 1) * 255; img.data[k + 3] = 255;\n    }\n  }\n  ctx.putImageData(img, 0, 0);\n  ctx.fillStyle = 'rgba(16, 40, 20, 0.5)';\n  for (const t of W.trees) { const px = (t.x + HALF) / 2, py = (t.z + HALF) / 2; ctx.fillRect(px - 0.8, py - 0.8, 1.6, 1.6); }\n  UI.mapImg = c;\n}"
+    },
+    "buildDungeonMap": {
+      "file": "10_ui.js",
+      "sha256": "105de8b2d365c3a9bfb32802789a6a05eb1fa60a1e327984697ad763edf591b1",
+      "source": "function buildDungeonMap() {\n  const GW = DUN.GW, GH = DUN.GH, k = DMAP_PX;\n  const c = document.createElement('canvas');\n  c.width = GW * k; c.height = GH * k;\n  const ctx = c.getContext('2d');\n  ctx.fillStyle = '#0b0c0e'; ctx.fillRect(0, 0, c.width, c.height);\n  for (let j = 0; j < GH; j++) for (let i = 0; i < GW; i++) {\n    const t = DUN.cell[j * GW + i];\n    if (!t) continue;\n    const f = DUN.fy[j * GW + i];\n    const g = Math.round(clamp(118 + f * 6, 60, 140));\n    ctx.fillStyle = t === 3 ? '#cfd9e2' : `rgb(${g + 14},${g + 6},${g - 8})`;\n    ctx.fillRect(i * k, j * k, k, k);\n  }\n  // walls drawn as a darker rim\n  ctx.fillStyle = 'rgba(30,26,22,0.95)';\n  for (let j = 0; j < GH; j++) for (let i = 0; i < GW; i++) {\n    if (DUN.cell[j * GW + i]) continue;\n    let near = false;\n    for (const [a, b] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const q = dunIdx(i + a, j + b); if (q >= 0 && DUN.cell[q]) near = true; }\n    if (near) ctx.fillRect(i * k, j * k, k, k);\n  }\n  UI.dunImg = c;\n}"
+    },
+    "heightAt": {
+      "file": "01_world.js",
+      "sha256": "3e5bf0606b8d0c8e5379057a438bba4783314cc462479b47a875f44a27db15f1",
+      "source": "function heightAt(x, z) {\n  if (x > DUN_X0) return dunFloorAt(x, z);\n  const gx = clamp((x + HALF) / HS, 0, HN - 1.0001), gz = clamp((z + HALF) / HS, 0, HN - 1.0001);\n  const i = Math.floor(gx), j = Math.floor(gz), fx = gx - i, fz = gz - j;\n  const H = W.H, k = j * HN + i;\n  const a = H[k], b = H[k + 1], c = H[k + HN], d = H[k + HN + 1];\n  return a + (b - a) * fx + (c - a) * fz + (a - b - c + d) * fx * fz;\n}"
+    },
+    "sampleGrid": {
+      "file": "01_world.js",
+      "sha256": "4438f139abe441051c51a9bc1d5d616d80ec7343a70ba5341aeab7bd40b73b50",
+      "source": "function sampleGrid(arr, x, z) {\n  const gx = clamp((x + HALF) / HS, 0, HN - 1.0001), gz = clamp((z + HALF) / HS, 0, HN - 1.0001);\n  const i = Math.floor(gx), j = Math.floor(gz), fx = gx - i, fz = gz - j;\n  const k = j * HN + i;\n  const a = arr[k], b = arr[k + 1], c = arr[k + HN], d = arr[k + HN + 1];\n  return a + (b - a) * fx + (c - a) * fz + (a - b - c + d) * fx * fz;\n}"
+    },
+    "realmWeightsAt": {
+      "file": "01_world.js",
+      "sha256": "bf12a6059a4e7add8ef4db36d4456dedcee6b2b4e166aca91266add5fe0f922c",
+      "source": "function realmWeightsAt(x, z) {\n  const b = bearingOf(x, z), r = Math.hypot(x, z);\n  const w = REALMS.map((R) => Math.pow(Math.max(0, Math.cos(angDiff(b, R.bearing) * 0.75)), 6));\n  const blend = sstep(10, 60, r);\n  let s = 0;\n  for (let k = 0; k < 3; k++) { w[k] = lerp(1 / 3, w[k], blend); s += w[k]; }\n  for (let k = 0; k < 3; k++) w[k] /= s || 1;\n  return w;\n}"
+    },
+    "waterAt": {
+      "file": "01b_water.js",
+      "sha256": "9e08bf8a6bd13b41592837ca309e1f8fd199a17745ba02c5d3cf3143ebc3ab51",
+      "source": "function waterAt(x, z, out = _wa) {\n  const S = WATERGRID.surf;\n  if (x > DUN_X0) return late3WaterAt(x, z, out); // [late3] the Deep Barrow's cistern (10m_deep.js)\n  if (!S || Math.abs(x) > HALF - 2 || Math.abs(z) > HALF - 2) return null;\n  const gx = (x + HALF) / HS, gz = (z + HALF) / HS, i = Math.floor(gx), j = Math.floor(gz), u = gx - i, v = gz - j;\n  // the surface of the water from the four texels around the point that have water\n  let y = 0, w = 0, fx = 0, fz = 0;\n  for (let q = 0; q < 4; q++) {\n    const ii = i + (q & 1), jj = j + (q >> 1), k = jj * HN + ii, s = S[k];\n    if (isNaN(s)) continue;\n    const ww = ((q & 1) ? u : 1 - u) * ((q >> 1) ? v : 1 - v) + 1e-4;\n    y += s * ww; fx += WATERGRID.fx[k] * ww; fz += WATERGRID.fz[k] * ww; w += ww;\n  }\n  if (!w) return null;\n  y /= w;\n  const g = heightAt(x, z);\n  if (y <= g + 0.01) return null;\n  out.y = y; out.depth = y - g; out.fx = fx / w; out.fz = fz / w;\n  return out;\n}"
+    },
+    "hex3": {
+      "file": "00_util.js",
+      "sha256": "4ad2b3d4cb3f723ca8636231f3a1ec5f912b1be7cc10fa02bb04803da0a72618",
+      "source": "function hex3(h) {\n  const n = parseInt(h.slice(1), 16);\n  return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];\n}"
+    },
+    "dunIdx": {
+      "file": "04d_barrow.js",
+      "sha256": "a9911588b7ed11f4459d86c31537dea2928ae9d24423f8158a15f83448758607",
+      "source": "function dunIdx(i, j) { return i < 0 || j < 0 || i >= DUN.GW || j >= DUN.GH ? -1 : j * DUN.GW + i; }"
+    }
+  },
+  "common": {
+    "sha256": "67911e4f320b9d58957d7c3853638c6c31aaba27ba6bd9a7ecc7cd29ff6f0736",
+    "source": "const TAU = Math.PI * 2;\nconst clamp = (x, a, b) => (x < a ? a : x > b ? b : x);\nconst lerp = (a, b, t) => a + (b - a) * t;\nconst sstep = (e0, e1, x) => { const t = clamp((x - e0) / (e1 - e0), 0, 1); return t * t * (3 - 2 * t); };\nconst angDiff = (a, b) => { let d = (b - a) % TAU; if (d > Math.PI) d -= TAU; else if (d < -Math.PI) d += TAU; return d; };\nconst bearingOf = (x, z) => Math.atan2(x, -z);"
+  }
+}

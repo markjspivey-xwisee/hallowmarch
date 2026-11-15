@@ -27,13 +27,14 @@ function spawnBarrowMob(type, lvl, u, v, pack, extra = {}) {
   const p = dunPoint(u, v);
   const look = barrowLook(type, lvl, extra);
   const name = extra.name || (BARROW_NAMES[type] || M.names)[clamp(lvl - 15, 0, 3)];
-  // the dead grow stronger as the living do: the barrow keeps pace past level 20
+  // Encounter placement and appearance are separate from each creature's earned level.
   const e = makeEnt({
-    kind: M.kind, faction: FACTION_MONSTER, role: 'mob', mobType: type, level: lvl + barrowBoost(), baseLevel: lvl, name, x: p.x, z: p.z, y: p.y, yaw: Math.random() * TAU,
+    kind: M.kind, faction: FACTION_MONSTER, role: 'mob', mobType: type, level: 1, baseLevel: 1, name, x: p.x, z: p.z, y: p.y, yaw: Math.random() * TAU,
     scale: extra.scale || look.scale || 1, radius: M.radius, home: { x: p.x, z: p.z, r: pack ? pack.wander || 2 : 2 }, look, hover: M.kind === 'wisp' ? 1.6 : 0,
     dunPack: pack ? pack.idx : -1, camp: null,
   });
   if (extra.hp || extra.dmg) e.tweak = { hp: extra.hp || 0, dmg: extra.dmg || 0 };
+  if (typeof worldActorDevelop === 'function') worldActorDevelop(e);
   setupStats(e);
   if (extra.elite) e.elite = true;
   return e;
@@ -91,11 +92,12 @@ function spawnWarden() {
 function spawnKing() {
   const sp = DUN.spots.seat;
   const e = makeEnt({
-    kind: 'humanoid', faction: FACTION_MONSTER, role: 'dungeonBoss', mobType: 'skeleton', level: 21 + barrowBoost(), baseLevel: 21, name: 'The Hollow King', tweak: { speed: 6.0, swing: 2.5, meleeRange: 3.0 },
+    kind: 'humanoid', faction: FACTION_MONSTER, role: 'dungeonBoss', mobType: 'skeleton', level: 1, baseLevel: 1, name: 'The Hollow King', tweak: { speed: 6.0, swing: 2.5, meleeRange: 3.0 },
     x: sp.x, z: sp.z, y: -6.2, yaw: -Math.PI / 2, scale: 1.62, radius: 0.5,
     look: { tabard: [0.13, 0.1, 0.16], armor: [0.6, 0.46, 0.24], skin: 0.2, hair: 0.3, mask: WB.sword | WB.cape | WB.circlet | WB.pauldron | WB.tabard | WB.belt | WB.skirt, flags: 1 | (2 << 4) | (3 << 7), scale: 1.62, outfit: OUTFIT.skeleton, emblem: 3, fem: 0, bulk: -0.6 },
     home: { x: sp.x, z: sp.z, r: 1 }, camp: null,
   });
+  if (typeof worldActorDevelop === 'function') worldActorDevelop(e);
   setupStats(e);
   e.ai.awake = false;
   e.seat = { y: sp.y }; e.fixedY = -6.2;
@@ -110,7 +112,7 @@ function spawnKing() {
 
 /* ---- a flow field over the floor grid: every cell knows the way to the player ---- */
 function updateFlow() {
-  const P = GAME.player;
+  const P = netEntityLivePlayers().find(inDungeon);
   if (!P || !P.alive || !inDungeon(P)) return;
   const k0 = dunCellAt(P.x, P.z);
   if (k0 < 0 || (k0 === BARROW_STATE.flowCell && GAME.t - BARROW_STATE.flowAt < 3) || GAME.t - BARROW_STATE.flowAt < 0.3) return;
@@ -164,7 +166,8 @@ function packAggro(e, t) {
   }
 }
 function thinkBarrowMob(e, dt) {
-  const ai = e.ai, P = GAME.player;
+  const ai = e.ai, P = netEntityLivePlayers().filter(inDungeon)
+    .sort((a, b) => dist2(e.x, e.z, a.x, a.z) - dist2(e.x, e.z, b.x, b.z))[0];
   if (e.rise || GAME.t < (ai.riseUntil || 0)) return;
   let t = getEnt(e.target);
   if (t && (!t.alive || !isEnemy(e, t) || !inDungeon(t))) { t = null; e.target = null; }
@@ -234,7 +237,7 @@ const VENT_PERIOD = 4.4;
 function ventState(V) { return ((GAME.t / VENT_PERIOD + V.k * 0.16) % 1 + 1) % 1; }
 function updateVents(dt) {
   const P = GAME.player;
-  if (!P || !inDungeon(P) || Math.abs(dunU(P.x) - 116) > 60) return;
+  if (!netEntityLivePlayers().some(p => inDungeon(p) && Math.abs(dunU(p.x) - 116) <= 60)) return;
   DUN.vents.forEach((V, i) => {
     V.k = i;
     const s = ventState(V);
@@ -263,6 +266,7 @@ function updateVents(dt) {
 
 /* ---- chests ---- */
 function openChest(ch) {
+  if (typeof netDungeonUseChest === 'function' && netDungeonUseChest(ch)) return;
   if (ch.deep) { late3OpenChest(ch); return; } // [late3] the Deep Barrow's chests (10m_deep.js)
   const P = GAME.player;
   if (!ch.ready || ch.opened || !P) return;
@@ -291,7 +295,7 @@ function updateChests(dt) {
       ch.lid = clamp(ch.lid + Math.sign(want - ch.lid) * dt * 1.6, 0, 1);
       if (ch.lidMesh) ch.lidMesh.rotation.x = -smooth(ch.lid) * 1.75;
     }
-    if (ch.opened && GAME.t > ch.refillAt && ch.id === 'crypt' && !(GAME.player && inDungeon(GAME.player) && dist2(GAME.player.x, GAME.player.z, ch.x, ch.z) < 30 * 30)) { ch.opened = false; }
+    if (ch.opened && GAME.t > ch.refillAt && ch.id === 'crypt' && !netEntityLivePlayers().some(p => inDungeon(p) && dist2(p.x, p.z, ch.x, ch.z) < 30 * 30)) { ch.opened = false; }
     // a glint over a chest that has not been opened
     if (INDOOR.on && ch.ready && !ch.opened && Math.random() < dt * 4) FX.trail(ch.x + (Math.random() - 0.5) * 1.1, ch.y + 0.7 + Math.random() * 0.2, ch.z + (Math.random() - 0.5) * 0.7, [1.8, 1.4, 0.6], 0.07, 0.9);
   }
@@ -388,7 +392,8 @@ function updateBarrowMotion(dt) {
 }
 function kingCast(e, id, total) { e.casting = { id, custom: true, t: 0, total, targetId: e.target }; }
 function thinkHollowKing(e, dt) {
-  const ai = e.ai, P = GAME.player, S = BARROW_STATE;
+  const ai = e.ai, P = netEntityLivePlayers().filter(p => inDungeon(p) && dunU(p.x) >= 154)
+    .sort((a, b) => dist2(e.x, e.z, a.x, a.z) - dist2(e.x, e.z, b.x, b.z))[0], S = BARROW_STATE;
   // a cold light about him, brighter as he weakens
   if (INDOOR.on && Math.random() < dt * (ai.enraged ? 30 : 12)) FX.trail(e.x + (Math.random() - 0.5) * 1.2, e.y + 0.5 + Math.random() * 2.6, e.z + (Math.random() - 0.5) * 1.2, ai.enraged ? [0.6, 1.4, 2.4] : [0.4, 1.1, 1.3], 0.12, 1.0);
   if (ai.stepOff) return;
@@ -516,20 +521,19 @@ function onEnterBarrow() {
 }
 function onLeaveBarrow(dead) {
   const k = getEnt(BARROW_STATE.king);
-  if (k && k.alive && k.ai.awake) resetKing(k);
+  if (k && k.alive && k.ai.awake && netEntityCanSimulateWorld()
+    && !netEntityLivePlayers().some(p => p !== GAME.player && inDungeon(p) && dunU(p.x) >= 154)) resetKing(k);
   if (!dead) uiLog('You climb back into the daylight.', 'sys');
 }
 function updateBarrow(dt) {
   if (!DUN.built) return;
-  const S = BARROW_STATE, P = GAME.player, now = GAME.t;
-  checkBarrowDoor();
+  const S = BARROW_STATE, now = GAME.t;
   updateBarrowMotion(dt);
-  if (P && P.alive && INDOOR.on && inDungeon(P) && dunU(P.x) < -5.4 && !UI.travelling) leaveBarrow();
   updateFlow();
   updateVents(dt);
   updateChests(dt);
   late3Update(dt); // [late3] the Deep Barrow: its seal, slabs, pitch, water, dead and lord (10m_deep.js)
-  const playerNear = (x, z, r) => P && inDungeon(P) && dist2(P.x, P.z, x, z) < r * r;
+  const playerNear = (x, z, r) => netEntityLivePlayers().some(p => inDungeon(p) && dist2(p.x, p.z, x, z) < r * r);
   for (const pk of BARROW_PACKS) {
     for (let i = pk.respawn.length - 1; i >= 0; i--) {
       const R = pk.respawn[i];
@@ -542,6 +546,14 @@ function updateBarrow(dt) {
   }
   if (S.wardenDead && now > S.wardenAt && !playerNear(dunWX(150), dunWZ(0), 40)) spawnWarden();
   if (S.kingDead && now > S.kingAt && !playerNear(DUN.spots.throne.x, DUN.spots.throne.z, 50)) spawnKing();
+}
+// Travel, private notes and the local view must run on every device, including viewers.
+function updateBarrowLocal(dt) {
+  if (!DUN.built) return;
+  checkBarrowDoor();
+  const P = GAME.player;
+  if (P && P.alive && INDOOR.on && inDungeon(P) && dunU(P.x) < -5.4 && !UI.travelling) leaveBarrow();
+  late3LocalUpdate(dt);
   if (!INDOOR.on || !P) return;
   // dust motes drifting through the torchlight, and the well breathing ghost-light
   if (Math.random() < dt * 9) {
