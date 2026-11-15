@@ -81,6 +81,7 @@ async function fixturePage(view) {
   assert.match(nativeSaves, /function saveNow\(/, 'Live UI progress must exercise the real saveNow implementation.');
   const websocket = await fs.readFile(path.join(root, 'src/14p_netws.js'), 'utf8');
   const logout = websocket.slice(websocket.indexOf('async function netAcctOut()'), websocket.indexOf('// A remote reference'));
+  const forgetToken = websocket.slice(websocket.indexOf('async function netWsTokenForget('), websocket.indexOf('function netWsSend('));
   // The footer registers world lore/debug globals outside this isolated UI host.
   // Keep the real UI functions; omit that unrelated module initialization only.
   const players = (await fs.readFile(path.join(root, 'src/14o_netui.js'), 'utf8')).split('Object.assign(FIELD_NOTES,')[0];
@@ -99,6 +100,7 @@ async function fixturePage(view) {
   return `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>Native identity UI verification</title><style>${styles}</style><body class="touch">${title}<div id="hud" hidden></div><script>
 const $=id=>document.getElementById(id),IS_TOUCH=true;
 ${coldTransport || `const NETWS={token:${JSON.stringify(GAME_TOKEN)},host:location.host,acct:{id:${JSON.stringify(live ? 'fixture-native-account' : 'fixture-account')},guest:false,name:'Fixture player',nativeBound:${bound}}};`}
+${cold ? '' : forgetToken}
 const fixtureMemory={v:1,char:{name:'Kept in-memory character',n:9,inventory:['unsaved item']}};
 const SAVE={native:${bound || cold},backend:'local',loaded:null,pending:${live} ? structuredClone(fixtureMemory):null,readConfirmed:${bound && !recovery},chain:Promise.resolve(),nativeFlight:null,nativePaused:false,lastBody:'',lastCore:'',ref:null};
 const GAME={started:${live},ready:true,player:${live}?{name:fixtureMemory.char.name}:null};
@@ -265,9 +267,11 @@ async function contextForMobile(width = 390) {
   });
   return context;
 }
-async function openFixture(context, view) {
+async function openFixture(context, view, { enterRecovery = view === 'recovery-check' } = {}) {
   const page = await context.newPage(); await page.goto(base + '/fixture-ui?view=' + view);
-  await page.waitForFunction(() => window.identityTest?.ready,undefined,{timeout:5000}); return page;
+  await page.waitForFunction(() => window.identityTest?.ready,undefined,{timeout:5000});
+  if (enterRecovery) await page.getByRole('button', { name: 'Find my character', exact: true }).click();
+  return page;
 }
 async function callbackFixture(view) {
   const context = await contextForMobile();
@@ -326,8 +330,8 @@ try {
     recoveryReply = recoveryResponse(); recoveryReply.legacySave.character.name = name;
     const before = recoveryRequests.length, url = page.url(), requestsBefore = urls.length;
     const box = page.locator('#title .native-player');
-    assert.equal(await box.locator('button.primary:visible').innerText(), 'Check recovery options');
-    await box.getByRole('button', { name: 'Check recovery options', exact: true }).click();
+    assert.equal(await box.locator('button.primary:visible').innerText(), 'Check this browser');
+    await box.getByRole('button', { name: 'Look for an older save', exact: true }).click();
     await page.waitForFunction(() => !NATIVE_PLAYER.busy && !!NATIVE_PLAYER.recoveryCheck);
     assert((await box.textContent()).includes(name)); assert((await box.textContent()).includes('level 17'));
     assert((await box.textContent()).includes('Ériu')); assert.equal(await box.locator('[data-recovery-injection]').count(), 0);
@@ -348,7 +352,7 @@ try {
     if (invalid === 'pod') recoveryReply.owner.podUrl = 'https://pod.example/other/';
     if (invalid === 'malformed') recoveryReply.legacySave.character.level = 'unreadable';
     const box = page.locator('#title .native-player');
-    await box.getByRole('button', { name: 'Check recovery options', exact: true }).click();
+    await box.getByRole('button', { name: 'Look for an older save', exact: true }).click();
     await page.waitForFunction(() => !NATIVE_PLAYER.busy && !!NATIVE_PLAYER.message);
     assert(!(await box.textContent()).includes('PRIVATE_REJECTED_CHARACTER'));
     assert.equal(await page.evaluate(() => NATIVE_PLAYER.recoveryCheck || null), null);
@@ -360,7 +364,7 @@ try {
     await context.route('https://evil.example/**', async route => { remote.push(route.request().url()); await route.fulfill({ status: 418, body: 'Refused fixture remote request' }); });
     const page = await openFixture(context, 'recovery-check'); recoveryAffordanceMode = mode;
     const before = recoveryRequests.length;
-    await page.locator('#title .native-player').getByRole('button', { name: 'Check recovery options', exact: true }).click();
+    await page.locator('#title .native-player').getByRole('button', { name: 'Look for an older save', exact: true }).click();
     await page.waitForFunction(() => !NATIVE_PLAYER.busy && !!NATIVE_PLAYER.message);
     assert.equal(recoveryRequests.length, before); assert.deepEqual(remote, []);
     assert.equal(await page.evaluate(() => NATIVE_PLAYER.recoveryCheck || null), null);
@@ -371,7 +375,7 @@ try {
     const context = await contextForMobile(), page = await openFixture(context, 'recovery-check');
     recoveryReply = recoveryResponse(); recoveryReply.legacySave.character.name = 'PRIVATE_DELAYED_CHARACTER';
     recoveryHold = gate();
-    await page.locator('#title .native-player').getByRole('button', { name: 'Check recovery options', exact: true }).click();
+    await page.locator('#title .native-player').getByRole('button', { name: 'Look for an older save', exact: true }).click();
     await recoveryHold.entered;
     await page.evaluate(() => { NETWS.acct = { id: 'switched-account', guest: false }; nativePlayerRender(); });
     recoveryHold.release(); await page.waitForFunction(() => !NATIVE_PLAYER.busy);
@@ -396,6 +400,7 @@ try {
     await page.evaluate(failed => { window.failRecoveryRestore = failed; recoveryResult = { status: 'verified_character', handle: 'fixture-verified-handle',
       summary: { name: 'Verified file hero', level: 13, realm: 0, calling: 'warrior', realmPoints: 12 } }; }, failed);
     const box = page.locator('#title .native-player'), phrase = 'synthetic encrypted file phrase';
+    await box.locator('details.native-recovery-file > summary').click();
     await box.locator('.native-source-recovery').fill(phrase);
     await box.locator('input[type="file"]').setInputFiles({ name: 'synthetic-encrypted-recovery.json', mimeType: 'application/json',
       buffer: Buffer.from(JSON.stringify({ schema: 'fixture-encrypted-recovery' })) });
@@ -428,6 +433,8 @@ try {
       loads: identityCalls.load, oldClosed: identityCalls.profileClosed, newProfiles: identityCalls.newProfiles, entries: identityCalls.entries.length })),
       { discover: 1, activate: 1, saves: 0, loads: 1, oldClosed: 1, newProfiles: 1, entries: 0 });
     assert.equal(await page.evaluate(() => SAVE.readConfirmed), true);
+    assert(await page.locator('#title-recovery-back').isHidden());
+    assert.equal(await page.locator('#btn-begin').innerText(), 'Continue as Verified browser hero');
     await context.close();
   });
   await check('a real title-load timeout retains stale data without claiming that recovery opened its character', async () => {
@@ -544,12 +551,15 @@ try {
     await page.keyboard.press('Tab');
     assert(await details.getByRole('button', { name: 'Reconnect identity', exact: true }).evaluate(node => node === document.activeElement));
     await details.getByRole('button', { name: 'Recovery options', exact: true }).click();
-    const recovery = details.locator('.native-source-recovery'); await recovery.fill('fixture private recovery phrase');
+    const recoveryFiles = page.locator('#title details.native-recovery-file');
+    await recoveryFiles.locator('summary').click();
+    const recovery = recoveryFiles.locator('.native-source-recovery'); await recovery.fill('fixture private recovery phrase');
     await page.evaluate(() => identityTest.changed());
     assert.equal(await recovery.inputValue(), 'fixture private recovery phrase');
     assert(await recovery.evaluate(node => node === document.activeElement), 'status refresh preserves the focused recovery field');
-    assert(await details.evaluate(node => node.open), 'status refresh preserves an explicitly opened disclosure');
+    assert(await recoveryFiles.evaluate(node => node.open), 'status refresh preserves an explicitly opened disclosure');
     assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+    await page.getByRole('button', { name: 'Back to title', exact: true }).click();
     await page.locator('#btn-begin').click(); await page.waitForFunction(() => identityCalls.entries.length === 1);
     assert.deepEqual(await page.evaluate(() => identityCalls.entries[0]), { ...saved.char, fresh: false });
     assert.deepEqual(await page.evaluate(() => SAVE.loaded), saved, 'continuing must preserve the original save');
@@ -570,10 +580,12 @@ try {
     const box = page.locator('#title .native-player');
     assert.deepEqual(await page.locator('#title button.primary:visible').allTextContents(), ['Reconnect identity']);
     assert(await box.getByRole('button', { name: 'Reconnect identity', exact: true }).isEnabled());
-    assert.equal(await box.getByRole('button', { name: /^(Check recovery options|Check this browser)$/ }).count(), 0);
+    assert.equal(await box.getByRole('button', { name: /^(Find my character|Check this browser)$/ }).count(), 0);
     assert(await page.locator('#btn-begin').isDisabled()); assert(await page.locator('#btn-continue').isHidden());
     await page.evaluate(() => { NATIVE_PLAYER.status.verified = true; nativePlayerRender(); });
-    assert.deepEqual(await page.locator('#title button.primary:visible').allTextContents(), ['Check recovery options']);
+    assert.deepEqual(await page.locator('#title button.primary:visible').allTextContents(), ['Find my character']);
+    assert.equal(await box.getByRole('button', { name: 'Check this browser', exact: true }).count(), 0);
+    await box.getByRole('button', { name: 'Find my character', exact: true }).click();
     assert(await box.getByRole('button', { name: 'Check this browser', exact: true }).isVisible());
     assert(await page.locator('#btn-begin').isDisabled());
     assert.equal(calls.length, before, 'rendering must not start sign-in or create a character');
@@ -602,9 +614,12 @@ try {
       NATIVE_PLAYER.profile = { status: () => ({ hasRecord: true, keyPresent: false, pending: false }) };
       nativePlayerRender();
     });
-    assert.equal(await page.locator('#title button.primary:visible').innerText(), 'Check recovery options');
-    assert(await page.locator('#title .native-source-recovery').isVisible(), 'missing held key exposes recovery without another hidden setup step');
+    assert.equal(await page.locator('#title button.primary:visible').innerText(), 'Find my character');
+    await page.getByRole('button', { name: 'Find my character', exact: true }).click();
+    await page.getByText('Use a recovery file', { exact: true }).click();
+    assert(await page.locator('#title .native-source-recovery').isVisible());
     assert(await page.locator('#btn-begin').isDisabled());
+    await page.getByRole('button', { name: 'Back to title', exact: true }).click();
     await page.evaluate(() => {
       NATIVE_PLAYER.status.verified = true; NATIVE_PLAYER.profile = { status: () => ({ hasRecord: true, keyPresent: true, pending: false }) };
       NATIVE_PLAYER.state = 'uncertain'; nativePlayerRender();
@@ -706,7 +721,7 @@ try {
       window.draftRecoveryProfile = NATIVE_PLAYER.profile; nativePlayerRender();
     });
     assert(await page.locator('#character-create-fields').isHidden()); assert(await page.locator('#btn-begin').isDisabled());
-    assert.equal(await page.locator('#title button.primary:visible').innerText(), 'Check recovery options');
+    assert.equal(await page.locator('#title button.primary:visible').innerText(), 'Find my character');
     await page.evaluate(() => { nativePlayerRender(); nativePlayerRender(); });
     assert(await page.evaluate(() => NATIVE_PLAYER.profile === draftRecoveryProfile));
     await page.evaluate(() => { NATIVE_PLAYER.profile = null; NATIVE_PLAYER.state = 'uncertain'; nativePlayerRender(); });
@@ -740,32 +755,60 @@ try {
     assert.deepEqual(await page.evaluate(() => ({ saves: identityCalls.save, loads: identityCalls.load, entries: identityCalls.entries.length })), { saves: 0, loads: 0, entries: 0 });
     await context.close();
   });
-  await check('locked title exposes read-only recovery checks and explicit file restore, then alternatives retain draft and focus', async () => {
+  await check('locked title opens one recovery screen with a visible exit and clears its passphrase on return', async () => {
     const context = await contextForMobile(), page = await openFixture(context, 'title');
     await page.evaluate(() => {
       SAVE.readConfirmed = false; NATIVE_PLAYER.state = 'key_required';
-      NATIVE_PLAYER.profile.status = () => ({ hasRecord: true, keyPresent: false, pending: false }); nativePlayerRender();
+      NATIVE_PLAYER.profile.status = () => ({ hasRecord: true, keyPresent: false, pending: false }); identityTest.showTitle(null);
     });
     const box = page.locator('#title .native-player'), alternatives = box.locator('details.native-player-alternatives');
-    assert.deepEqual(await box.locator('button:visible:enabled').allTextContents(), ['Check recovery options', 'Check this browser', 'Restore recovery file']);
+    const find = box.getByRole('button', { name: 'Find my character', exact: true });
+    const back = page.getByRole('button', { name: 'Back to title', exact: true });
+    assert.deepEqual(await box.locator('button:visible:enabled').allTextContents(), ['Find my character']);
     assert(await page.locator('#btn-begin').isDisabled()); assert(await alternatives.evaluate(node => !node.open));
-    assert(await box.locator('.native-source-recovery').isVisible());
-    assert.equal(await box.getByRole('button', { name: /^(Recovery options|Hide recovery options|Retry pod save)$/ }).count(), 0, 'forced recovery has no no-op toggle or duplicate read retry');
-    assert(await box.getByRole('button', { name: 'Reconnect identity', exact: true }).isHidden());
-    assert(await box.getByRole('button', { name: 'Retry connection', exact: true }).isHidden());
-    await box.locator('.native-source-recovery').fill('Kept private fixture phrase');
-    await alternatives.locator('summary').click();
-    assert(await box.getByRole('button', { name: 'Reconnect identity', exact: true }).isVisible());
-    assert(await box.getByRole('button', { name: 'Retry connection', exact: true }).isVisible());
-    await box.getByRole('button', { name: 'Retry connection', exact: true }).focus();
-    await page.evaluate(() => { NATIVE_PLAYER.message = 'Synthetic connection status changed'; nativePlayerRender(); });
-    assert(await alternatives.evaluate(node => node.open));
-    assert(await box.getByRole('button', { name: 'Retry connection', exact: true }).evaluate(node => node === document.activeElement));
-    assert.equal(await box.locator('.native-source-recovery').inputValue(), 'Kept private fixture phrase');
-    await box.locator('.native-source-recovery').focus();
-    await page.evaluate(() => { NATIVE_PLAYER.message = 'Another synthetic status change'; nativePlayerRender(); });
-    assert(await box.locator('.native-source-recovery').evaluate(node => node === document.activeElement));
+    await find.click();
+    assert(await back.isVisible());
+    assert(await back.evaluate(node => node.getBoundingClientRect().bottom <= innerHeight));
+    assert(await page.locator('#btn-begin').isHidden());
+    assert.deepEqual(await box.locator('button:visible:enabled').allTextContents(), ['Check this browser', 'Look for an older save']);
+    const file = box.locator('.native-source-recovery');
+    assert(await file.isHidden());
+    await box.getByText('Use a recovery file', { exact: true }).click();
+    await file.fill('Kept private fixture phrase');
+    await page.evaluate(() => { NATIVE_PLAYER.message = 'Synthetic status change'; nativePlayerRender(); });
+    assert(await file.evaluate(node => node === document.activeElement));
+    assert.equal(await file.inputValue(), 'Kept private fixture phrase');
+    await page.keyboard.press('Escape');
+    assert(await back.isHidden());
+    assert(await find.evaluate(node => node === document.activeElement));
+    await find.click(); await box.getByText('Use a recovery file', { exact: true }).click();
+    assert.equal(await file.inputValue(), '');
+    await back.click(); assert(await back.isHidden());
     assert.deepEqual(await page.evaluate(() => ({ saves: identityCalls.save, loads: identityCalls.load, entries: identityCalls.entries.length })), { saves: 0, loads: 0, entries: 0 });
+    await context.close();
+  });
+  for (const changed of [false, true]) await check('leaving recovery for guest play ' + (changed ? 'preserves a newer session' : 'retires the current session and preserves the owner save'), async () => {
+    const context = await contextForMobile(), page = await openFixture(context, 'recovery-check', { enterRecovery: false });
+    const before = await page.evaluate(changed => {
+      NATIVE_PLAYER.promoted = true;
+      NATIVE_PLAYER.status.provisionalPlay = { enabled: true };
+      localStorage.setItem('fixture-encrypted-character-key', 'kept');
+      localStorage.setItem('hallowmarch.token.' + location.host, changed ? 'fixture-newer-session' : NETWS.token);
+      nativePlayerRender();
+      return identityCalls.reloadMarker;
+    }, changed);
+    await page.getByRole('button', { name: 'Find my character', exact: true }).click();
+    assert(await page.getByRole('button', { name: 'Play as guest', exact: true }).isHidden());
+    await page.getByRole('button', { name: 'Back to title', exact: true }).click();
+    await page.evaluate(() => addEventListener('beforeunload', () => {
+      sessionStorage.setItem('save-activity', String(identityCalls.save + identityCalls.activate + identityCalls.entries.length));
+    }));
+    await page.getByRole('button', { name: 'Play as guest', exact: true }).click();
+    await page.waitForFunction(({ before, changed }) => window.identityTest?.ready && (changed
+      ? NATIVE_PLAYER.message.includes('Another game session arrived') : identityCalls.reloadMarker !== before), { before, changed });
+    assert.deepEqual(await page.evaluate(() => ({ token: localStorage.getItem('hallowmarch.token.' + location.host),
+      key: localStorage.getItem('fixture-encrypted-character-key'), saveActivity: sessionStorage.getItem('save-activity') })),
+      { token: changed ? 'fixture-newer-session' : null, key: 'kept', saveActivity: changed ? null : '0' });
     await context.close();
   });
   await check('a retry moving between primary and closed alternatives preserves its exact focus or lands on the disclosure safely', async () => {
@@ -787,20 +830,22 @@ try {
     assert(await alternatives.evaluate(node => node.open));
     await context.close();
   });
-  for (const boundary of ['owner', 'host']) await check(boundary + ' change closes recovery alternatives and clears prior recovery text without retargeting focus', async () => {
+  for (const boundary of ['owner', 'host']) await check(boundary + ' change returns to title and clears the prior recovery phrase', async () => {
     const context = await contextForMobile(), page = await openFixture(context, 'title');
     await page.evaluate(() => {
       SAVE.readConfirmed = false; NATIVE_PLAYER.profile.status = () => ({ hasRecord: true, keyPresent: false, pending: false }); nativePlayerRender();
     });
     const box = page.locator('#title .native-player'), alternatives = box.locator('details.native-player-alternatives');
+    await box.getByRole('button', { name: 'Find my character', exact: true }).click();
+    await box.getByText('Use a recovery file', { exact: true }).click();
     await box.locator('.native-source-recovery').fill('Prior owner private fixture phrase');
-    await alternatives.locator('summary').click(); await box.locator('.native-source-recovery').focus();
     await page.evaluate(boundary => {
       if (boundary === 'owner') NETWS.acct = { id: 'different-fixture-owner' }; else NETWS.host = 'different-fixture-host.invalid';
       nativePlayerRender();
     }, boundary);
     assert(await alternatives.evaluate(node => !node.open));
-    assert.equal(await box.locator('.native-source-recovery').inputValue(), '');
+    assert(await page.locator('#title-recovery-back').isHidden());
+    assert.equal(await box.locator('.native-source-recovery').count(), 0);
     assert(await box.locator('.native-player-status').evaluate(node => node === document.activeElement));
     assert.deepEqual(await page.evaluate(() => ({ saves: identityCalls.save, loads: identityCalls.load, entries: identityCalls.entries.length })), { saves: 0, loads: 0, entries: 0 });
     await context.close();
@@ -1205,7 +1250,9 @@ try {
   for(const view of ['title','players'])await check(view+' mobile native controls fit with 44px buttons, 16px input and retained entry',async()=>{
     const context=await contextForMobile(),page=await openFixture(context,view),selector=view==='title'?'#title .native-player':'#netsheet .native-player';
     const box=page.locator(selector);assert.equal(await box.locator('input[type=password]').count(),0,'recovery setup is deferred until explicitly opened');
-    await box.getByRole('button',{name:'Recovery options',exact:true}).click();await box.locator('input[type=password]').fill('a private recovery phrase');
+    await box.getByRole('button',{name:view==='title'?'Find my character':'Recovery options',exact:true}).click();
+    if(view==='title')await box.getByText('Recovery files',{exact:true}).click();
+    await box.locator('input[type=password]').fill('a private recovery phrase');
     const geometry=await box.evaluate(node=>({width:innerWidth,scroll:document.documentElement.scrollWidth,box:node.getBoundingClientRect().width,
       buttons:[...node.querySelectorAll('button')].map(button=>({height:button.getBoundingClientRect().height,width:button.getBoundingClientRect().width})),
       inputSize:parseFloat(getComputedStyle(node.querySelector('input[type=password]')).fontSize)}));

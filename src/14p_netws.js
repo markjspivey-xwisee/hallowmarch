@@ -146,7 +146,7 @@ async function netWsTokenKeep(host, t) {
     }
   } catch (e) { /* a viewer who may not write keeps it in this browser */ }
 }
-// Explicit title recovery removes only the refused app-session proof. Native
+// An explicit title choice can remove only its current app-session proof. Native
 // owner grants, encryption keys and private characters belong to other ports.
 async function netWsTokenForget(host, rejectedToken, allowed = () => false) {
   const deadline = Date.now() + 8000; let valid = true, timer;

@@ -20,7 +20,8 @@ const identity=actual('14v_nativeidentity.js',['NATIVE_PLAYER_EARLY_POLICY','NAT
   'NATIVE_PLAYER_CONNECTED_IDENTITY','NATIVE_PLAYER_CONNECTED_IDENTITY_EPOCH',
   'nativePlayerConnectedIdentityContext','nativePlayerConnectedIdentityValues','nativePlayerConnectedIdentityCurrent',
   'nativePlayerClearConnectedIdentity','nativePlayerRememberConnectedIdentity','nativePlayerConnectedIdentity','nativePlayerRenderConnectedIdentity',
-  'nativePlayerRender','nativePlayerBegin','nativePlayerSaveRef','nativePlayerChanged','nativePlayerCanPlayNow']);
+  'nativePlayerRender','nativePlayerBegin','nativePlayerSaveRef','nativePlayerChanged','nativePlayerCanPlayNow',
+  'nativePlayerSwitchIdle','nativePlayerCanPlayAsGuest','nativePlayerPlayAsGuest']);
 class Node {
   constructor(tag='div',id=''){this.tagName=tag;this.id=id;this.children=[];this.parentNode=null;this.className='';this.hidden=false;this.disabled=false;this.value='';this.style={};this.dataset={};this.attributes={};this.listeners={};this.scrollTop=0;this.focusCalls=0;}
   get parentElement(){return this.parentNode;} get nextSibling(){return this.parentNode?.children[this.parentNode.children.indexOf(this)+1]||null;}
