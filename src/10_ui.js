@@ -128,12 +128,14 @@ function prepareTitleDraft(save) {
   $('continue').hidden = !save?.char;
   $('character-create-fields').hidden = !!save?.char;
   $('btn-dice').disabled = true;
+  const signIn = $('loading-sign-in'), signInFocused = signIn && document.activeElement === signIn;
   document.querySelector('#create .card-foot').prepend(loading);
   document.body.classList.add('title-preparing');
   nativePlayerRender();
   titleDraftSync();
   if (TITLE_DRAFT !== draft) return false;
   syncTitle(); $('title').hidden = false;
+  if (signInFocused && !signIn.disabled) signIn.focus({ preventScroll: true });
   titleDraftObserveLayout(draft);
   return TITLE_DRAFT === draft;
 }
@@ -191,6 +193,7 @@ function bindTitle() {
   UI.titleBound = true;
 }
 function setupTitle(save) {
+  const signIn = $('loading-sign-in'), signInFocused = signIn && document.activeElement === signIn;
   if (typeof entryFeedbackCancel === 'function') entryFeedbackCancel();
   titleDraftCancel();
   if (typeof loreCancelBegin === 'function') loreCancelBegin(); // A title/account reset cancels the old character's Begin intent.
@@ -211,6 +214,7 @@ function setupTitle(save) {
   nativePlayerRender();
   syncTitle();
   $('title').hidden = false;
+  if (signInFocused && !signIn.disabled) signIn.focus({ preventScroll: true });
 }
 
 /* ------------------------------------------------------------------ */

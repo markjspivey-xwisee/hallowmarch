@@ -26,7 +26,12 @@ const nativeCode = declarations(identity, node => node.type === 'FunctionDeclara
 // is the fixture's controlled state; no selector or cancellation helper is stubbed.
 const saveCode = declarations(save, node => node.type === 'FunctionDeclaration'
   || node.type === 'VariableDeclaration' && node.declarations.every(item => item.id.name !== 'SAVE'));
-const guardCode = declarations(ui, node => node.type === 'FunctionDeclaration' && node.id.name === 'titleEntryBlocked');
+const titleCode = declarations(ui, node => ['titleEntryBlocked', 'bindTitle', 'syncTitle', 'menuRadioKey'].includes(node.id?.name)
+  || node.declarations?.some(item => item.id.name === 'REALM_BLURB'));
+const realmCode = declarations(readFileSync(new URL('../../src/01_world.js', import.meta.url), 'utf8'),
+  node => node.declarations?.some(item => item.id.name === 'REALMS'));
+const callingCode = declarations(readFileSync(new URL('../../src/06_data.js', import.meta.url), 'utf8'),
+  node => ['iconSvg', 'emblemSvg'].includes(node.id?.name) || node.declarations?.some(item => ['CLASSES', 'ICONS', 'REALM_EMBLEM'].includes(item.id.name)));
 const transportHook = declarations(transport, node => node.type === 'FunctionDeclaration'
   && ['netWsClearIdentityDisplay', 'netWsAdmissionUpdate', 'netWsAdmissionStatus'].includes(node.id.name));
 let browser;
@@ -60,7 +65,7 @@ async function accountFixture(t, options = {}) {
   // This script executes in the disposable document only. No real socket,
   // native SDK, credential, key, owner browser storage or auth flow exists.
   await f.page.evaluate(`window.__early = (() => { const options = ${JSON.stringify(options)};
-      ${guardCode}\n${saveCode}\n${nativeCode}\n${transportHook}\n
+      ${titleCode}\n${saveCode}\n${nativeCode}\n${transportHook}\n
       const calls = { fetch: [], request: [], link: 0, peek: 0, auth: [], write: 0, key: 0, settled: 0, popup: 0, token: 0, start: 0, entry: 0, retries: 0 };
       const deferred = () => { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; };
       const manifest = deferred(), status = deferred(), metadata = deferred(), authorization = deferred();
@@ -75,7 +80,9 @@ async function accountFixture(t, options = {}) {
         NETWS.sessionRefusal = { code: 'native_signin_required', host: NETWS.host, token: 'synthetic-retired-proof', generation: NETWS.generation }; }
       const SAVE = { native: false, backend: 'local', readConfirmed: false, loaded: null, loading: null,
         pending: null, nativeFlight: null, ref: null };
-      const UI = {}, REALMS = [], CLASSES = {};
+      const UI = { realm: 0, cls: 'warrior' }, DEG = Math.PI / 180;
+      ${realmCode}\n${callingCode}\n
+      const titleDraftActive = () => document.body.classList.contains('title-preparing');
       const startGame = async () => { calls.entry++; };
       const crypto = { randomUUID: () => '00000000-0000-4000-8000-000000000001' };
       const BroadcastChannel = class { close() {} };
@@ -86,8 +93,11 @@ async function accountFixture(t, options = {}) {
         setItem: (key, value) => popupStore.set(key, value) }, close() {}, location: { replace() {} } }; };
       const netServerUrl = () => options.server === undefined ? 'wss://march.example/ws' : options.server;
       const netLinkWS = async () => { calls.link++; return !options.refused && options.socket !== false; };
-      const fetch = async target => { calls.fetch.push(new URL(target).pathname); await manifest.promise;
+      const fetch = async target => { const pathname = new URL(target, location.origin).pathname; calls.fetch.push(pathname);
+        if (pathname === '/gaming/identity/start') return { ok: false, status: 429, json: async () => ({ error: 'identity_ceremony_limit' }) };
+        await manifest.promise;
         return { ok: options.manifestStatus !== 503, status: options.manifestStatus || 200, json: async () => options.manifest || { playerIdentity: { enabled: true, provisionalPlay: { enabled: true } } } }; };
+      const actualRequest = nativePlayerRequest;
       nativePlayerRequest = async path => { calls.request.push(path); if (path === '/gaming/identity/start') { calls.start++; return authorization.promise; } return status.promise; };
       const actualConnect = nativePlayerConnect;
       nativePlayerConnect = fresh => { calls.auth.push({ fresh }); };
@@ -107,6 +117,9 @@ async function accountFixture(t, options = {}) {
         start, releaseManifest: () => manifest.resolve(), releaseStatus: value => status.resolve(value), rejectStatus: () => status.reject(Error('synthetic status unavailable')),
         releaseMetadata: value => metadata.resolve(value), result: () => result, finish: () => finished,
         render: () => { if (typeof nativePlayerRenderEarlySignIn === 'function') nativePlayerRenderEarlySignIn(); },
+        renderTitle: nativePlayerRender,
+        renderCharacterChoices: () => { bindTitle(); syncTitle(); },
+        refusePendingSignIn: () => nativePlayerTask(() => actualRequest('/gaming/identity/start', { method: 'POST' })),
         useRetryProbe: () => { loadSave = async options => { if (options.retry === true) calls.retries++; };
           nativePlayerTask = async operation => operation(); },
         clear: () => netWsClearIdentityDisplay(), refuse: () => netWsAdmissionUpdate({ admission: 'identity-required', code: 'native_signin_required' }),
@@ -506,6 +519,56 @@ test('the narrow loading shell keeps readable copy and a touch-sized sign-in tar
   await page.setViewportSize({ width: 1280, height: 800 });
   assert.equal(await page.locator('#loading-sign-in').isVisible(), true);
   await page.screenshot({ path: fileURLToPath(new URL('../out/early-signin-1280.png', import.meta.url)) });
+});
+
+test('the same keyboard-accessible Sign in stays beside Play as the title becomes ready', async t => {
+  const { page } = await accountFixture(t);
+  await page.setViewportSize({ width: 480, height: 640 });
+  await acceptStatus(page);
+  const signIn = page.locator('#loading-sign-in');
+  assert.equal(await signIn.innerText(), 'Sign in');
+  await page.evaluate(() => {
+    __early.originalSignIn = document.getElementById('loading-sign-in');
+    document.body.classList.add('title-preparing');
+    document.getElementById('title').hidden = false;
+    __early.renderCharacterChoices();
+    document.querySelector('#create .card-foot').prepend(document.getElementById('loading'));
+    document.getElementById('load-detail').hidden = false;
+    document.getElementById('load-detail').textContent = 'Preparing the first view, water, people, shadows and the final drawing fence.';
+    __early.renderTitle();
+    __early.originalSignIn.focus();
+  });
+  assert.equal(await page.locator('#create .card-foot #loading-sign-in').count(), 1);
+  assert.equal(await page.locator('#create .native-player:visible').count(), 0);
+  assert.equal(await page.locator('#realm-pick .realm-card').count(), 3);
+  assert.equal(await page.locator('#class-pick .class-card').count(), 4);
+  assert.equal(await page.locator('#btn-begin').isDisabled(), true);
+  assert.equal(await page.locator('#create .card-foot').evaluate(foot => foot.scrollWidth === foot.clientWidth), true);
+  assert.equal(await signIn.evaluate(button => button === document.activeElement), true);
+  mkdirSync(new URL('../out/', import.meta.url), { recursive: true });
+  await page.screenshot({ path: fileURLToPath(new URL('../out/title-loading-480.png', import.meta.url)) });
+
+  await page.evaluate(() => {
+    __early.GAME.ready = true;
+    document.getElementById('loading').hidden = true;
+    document.body.classList.remove('title-preparing');
+    __early.renderTitle();
+  });
+  assert.equal(await signIn.innerText(), 'Sign in');
+  assert.equal(await signIn.evaluate(button => button === __early.originalSignIn && button === document.activeElement), true);
+  assert.equal(await page.getByRole('button', { name: 'I already have an identity', exact: true }).count(), 0);
+  assert.equal(await page.locator('#btn-begin').isEnabled(), true);
+  await page.keyboard.press('Enter');
+  assert.equal(await page.evaluate(() => __early.calls.auth.length), 1);
+  assert.equal(await page.evaluate(() => __early.calls.entry + __early.calls.key + __early.calls.write), 0);
+  await page.evaluate(() => __early.refusePendingSignIn());
+  assert.equal(await page.locator('#loading-identity-status').innerText(), 'Too many sign-in requests are pending. Try again in a few minutes.');
+  assert.equal(await page.locator('#save-note').isHidden(), true);
+  await page.evaluate(() => { __early.NATIVE_PLAYER.message = ''; __early.renderTitle(); });
+  await page.screenshot({ path: fileURLToPath(new URL('../out/title-ready-480.png', import.meta.url)) });
+  await page.setViewportSize({ width: 1280, height: 800 });
+  assert.equal(await signIn.isVisible(), true);
+  await page.screenshot({ path: fileURLToPath(new URL('../out/title-ready-1280.png', import.meta.url)) });
 });
 
 for (const [width, height] of [[844, 320], [640, 360]]) {

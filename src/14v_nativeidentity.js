@@ -377,9 +377,43 @@ function nativePlayerEarlySignInChoice() {
   if (nativePlayerEarlySignInCurrent(NATIVE_PLAYER_EARLY_REFUSAL)) return NATIVE_PLAYER_EARLY_REFUSAL;
   return nativePlayerEarlySignInCurrent(NATIVE_PLAYER_EARLY_PROOF) ? NATIVE_PLAYER_EARLY_PROOF : null;
 }
-function nativePlayerRenderEarlySignIn() {
+function nativePlayerRenderEarlySignIn(readyAction) {
   const box = $('loading-identity'), button = $('loading-sign-in'), message = $('loading-identity-status');
   if (!box || !button || !message) return;
+  const titleSlot = $('title-identity-slot');
+  if (titleSlot && GAME.ready) {
+    // A loading-only update must not replace the ready title's chosen action.
+    if (readyAction === undefined) {
+      if (!box._readyTitleAction) { box.hidden = true; button.disabled = true; }
+      return;
+    }
+    box._readyTitleAction = !!readyAction;
+    titleSlot.hidden = box.hidden = !readyAction || GAME.started;
+    button.disabled = titleSlot.hidden || NATIVE_PLAYER.busy || NATIVE_PLAYER.switching || titleEntryBlocked();
+    button.onclick = null;
+    if (!readyAction || GAME.started) return;
+    if (box.parentElement !== titleSlot) titleSlot.appendChild(box);
+    button.classList.toggle('primary', readyAction.primary);
+    const signInPending = NATIVE_PLAYER.channel && readyAction.label !== 'Retry connection';
+    button.textContent = signInPending && !button.disabled ? 'Restart sign-in' : readyAction.label;
+    message.textContent = NATIVE_PLAYER.message || (signInPending ? 'Finish sign-in in the other window.'
+      : readyAction.label === 'Sign in' ? 'Open a saved character with Interego.' : '');
+    message.hidden = !message.textContent;
+    const click = () => {
+      if (button.onclick === click && !button.disabled && !GAME.started && !titleEntryBlocked()) return readyAction.run();
+    };
+    button.onclick = click;
+    return;
+  }
+  if (titleSlot) {
+    box._readyTitleAction = false;
+    const drafting = typeof titleDraftActive === 'function' && titleDraftActive();
+    const parent = drafting ? titleSlot : $('loading')?.querySelector('.inner');
+    if (parent && box.parentElement !== parent) parent.appendChild(box);
+    titleSlot.hidden = !drafting || !SAVE.native;
+    button.classList.toggle('primary', true);
+  }
+  message.hidden = false;
   const choice = nativePlayerEarlySignInChoice();
   const load = SAVE.loading;
   const canRetry = () => SAVE.native && load === SAVE.loading && load?.identityError === true && load.settled && load.active
@@ -396,14 +430,14 @@ function nativePlayerRenderEarlySignIn() {
   button.textContent = retry ? 'Retry sign-in check' : pending ? 'Restart sign-in' : choice?.mode === 'expired' ? 'Open my saved character' : choice?.mode === 'fresh'
     ? choice.refusal.reason === 'native_owner_mismatch' ? 'Sign in with a different account' : 'Start a fresh sign-in'
     : connected ? 'Reconnect identity' : 'Sign in';
-  message.textContent = retry ? 'Sign-in could not be checked. Retry the connection. Your saved character is kept.'
+  message.textContent = retry ? 'Sign-in is unavailable right now. Try the connection again.'
     : pending ? 'Finish sign-in in the other window. If you closed it, restart sign-in here.'
     : NATIVE_PLAYER.busy ? 'Your identity connection is being checked. Your world is still loading.'
+      : NATIVE_PLAYER.message ? NATIVE_PLAYER.message
       : connected ? 'Your identity is connected. Your world is still loading.'
         : choice?.mode === 'expired' ? 'Your temporary session ended. Sign in with your existing identity to open its saved character.'
-          : choice ? 'Sign in now. You can enter the realm when your world and identity are ready.'
-            : NATIVE_PLAYER.message && ['guest_expired', 'native_signin_required'].includes(NATIVE_PLAYER.state) ? NATIVE_PLAYER.message
-          : 'Checking sign-in options. Your world is loading in the background.';
+          : choice ? 'Open a saved character with Interego.'
+            : 'Checking sign-in options…';
   button.onclick = () => {
     if (retry && canRetry()) {
       void nativePlayerTask(() => loadSave({ retry: true }), 'Checking sign-in…');
@@ -513,7 +547,10 @@ async function nativePlayerRequest(url, { method = 'GET', body, timeoutMs, token
     ...(body ? { body: JSON.stringify(body) } : {}) });
   if (!response.ok) {
     let code = 'unavailable'; try { code = (await response.json()).error || code; } catch (e) { /* response may be unavailable */ }
-    throw Object.assign(nativePlayerError(response.status === 404 ? 'not_available' : code, 'The identity service could not confirm this request. Try again.'), { httpStatus: response.status });
+    const message = url === '/gaming/identity/start' && response.status === 429 && code === 'identity_ceremony_limit'
+      ? 'Too many sign-in requests are pending. Try again in a few minutes.'
+      : 'The identity service could not confirm this request. Try again.';
+    throw Object.assign(nativePlayerError(response.status === 404 ? 'not_available' : code, message), { httpStatus: response.status });
   }
   return response.json();
 }
@@ -963,9 +1000,9 @@ function nativePlayerSaveMessage() {
   return 'Connect your identity to open and save your private character.';
 }
 function nativePlayerRender() {
-  nativePlayerRenderEarlySignIn();
   const connectedIdentity = nativePlayerConnectedIdentity();
   if (typeof titleDraftSync === 'function') titleDraftSync();
+  if (!GAME.ready) nativePlayerRenderEarlySignIn();
   if (typeof entryFeedbackSync === 'function') entryFeedbackSync();
   const preparing = typeof titleEntryBlocked === 'function' ? titleEntryBlocked() : GAME.ready === false;
   const drafting = typeof titleDraftActive === 'function' && titleDraftActive();
@@ -989,7 +1026,8 @@ function nativePlayerRender() {
   const canStartExpired = expired && nativePlayerExpiredAdventureAllowed();
   const expiredSignIn = expired && NATIVE_PLAYER_STARTUP_CEREMONY?.context.expiredChoice ? NATIVE_PLAYER_STARTUP_CEREMONY : null;
   let titleRecoveryTask = false;
-  for (const target of [document.querySelector('#create .card-body'), $('netsheet-acct')]) {
+  const titleBody = document.querySelector('#create .card-body');
+  for (const target of [titleBody, $('netsheet-acct')]) {
     if (!target) continue;
     if (!status?.enabled) { target.querySelector('.native-player')?.remove(); continue; }
     let box = target.querySelector('.native-player');
@@ -1021,6 +1059,8 @@ function nativePlayerRender() {
     const typedClaimPassphrase = sameOwner && box._claimProfile === currentClaimProfile ? box.querySelector('.native-target-recovery')?.value || '' : '';
     box._claimProfile = currentClaimProfile;
     box._nativeOwner = ownerKey;
+    box._entryAction = null;
+    box.hidden = false;
     box.replaceChildren();
     let content = box;
     if (compact) {
@@ -1055,7 +1095,13 @@ function nativePlayerRender() {
       : status.bound && !status.verified ? 'Reconnect identity'
       : status.bound && profileStatus && !SAVE.readConfirmed ? 'Retry connection'
       : status.bound ? 'Reconnect identity' : 'I already have an identity';
+    const entry = title && !GAME.started && !!$('title-identity-slot') && !!$('loading-sign-in') && !compact && !claimRecovery;
     const action = (label, run, parent = taskPanel && label !== primary ? alternativeBody : content) => {
+      const signInAction = ['I already have an identity', 'Reconnect identity', 'Open my saved character', 'Start a fresh sign-in', 'Retry connection'].includes(label);
+      if (entry && signInAction && (label === primary || !taskPanel && ['I already have an identity', 'Reconnect identity'].includes(label))) {
+        box._entryAction = { label: label === 'I already have an identity' ? 'Sign in' : label, run, primary: taskPanel };
+        return;
+      }
       const b = add('button', label, parent); b.type = 'button'; b.className = 'btn' + (label === primary ? ' primary' : ''); b.disabled = preparing || NATIVE_PLAYER.busy || NATIVE_PLAYER.switching;
       b.dataset.nativeAction = label;
       b.style.minHeight = '44px'; b.style.margin = '4px'; b.style.touchAction = 'manipulation';
@@ -1078,7 +1124,8 @@ function nativePlayerRender() {
     if (target.classList.contains('card-body') && nativePlayerNewAdventureAllowed()) action('Play with a new character', nativePlayerNewAdventure);
     if (target.classList.contains('card-body') && nativePlayerFreshAllowed() && !(expired && provisional)) action(
       NATIVE_PLAYER.authRefusal.reason === 'native_owner_mismatch' ? 'Sign in with a different account' : 'Start a fresh sign-in', () => nativePlayerConnect(true));
-    const connectionRetry = !expired && SAVE.native && !SAVE.readConfirmed && !GAME.started && !NATIVE_PLAYER.switching;
+    const connectionRetry = !expired && SAVE.native && !SAVE.readConfirmed && !GAME.started && !NATIVE_PLAYER.switching
+      && (!entry || taskPanel || SAVE.loading?.identityError);
     if (connectionRetry) action('Retry connection', () => nativePlayerTask(nativePlayerRetryLoad));
     if (canCheckRecovery && (forcedRecovery || NATIVE_PLAYER.recoveryOpen)) {
       add('p', 'You are signed in. Opening a private character also needs its character key. These checks keep your existing saves and keys.');
@@ -1162,8 +1209,12 @@ function nativePlayerRender() {
         pass.value = ''; await nativePlayerFinishClaim();
       }); };
     }
-    if (NATIVE_PLAYER.message) { const p = add('p', NATIVE_PLAYER.message); p.setAttribute('role', 'status'); }
-    if (taskPanel && alternativeBody.children.length) content.appendChild(alternatives);
+    if (NATIVE_PLAYER.message && !box._entryAction) { const p = add('p', NATIVE_PLAYER.message); p.setAttribute('role', 'status'); }
+    if ((taskPanel || box._entryAction) && alternativeBody.children.length) content.appendChild(alternatives);
+    if (box._entryAction) {
+      if (!content.querySelector('button') && !content.querySelector('details') && !content.querySelector('input')) box.hidden = true;
+      else if (!expired) { hint.hidden = true; box.querySelector('h3').hidden = true; }
+    }
     if (focused) {
       const replacement = !sameOwner ? null : focusSummary
         ? [...box.querySelectorAll('summary')].find(summary => summary.dataset.nativeDisclosure === focusSummary) : focusAction
@@ -1181,11 +1232,15 @@ function nativePlayerRender() {
         : sameOwner && box.querySelector('summary') || hint).focus({ preventScroll: true });
     }
   }
+  if (GAME.ready) nativePlayerRenderEarlySignIn(titleBody?.querySelector('.native-player')?._entryAction || null);
   const titleBusy = NATIVE_PLAYER.busy && !GAME.started;
   if ($('save-note')) {
     const note = $('save-note'); note.setAttribute('role', 'status'); note.setAttribute('aria-live', 'polite'); note.setAttribute('aria-atomic', 'true');
     note.textContent = preparing && drafting ? 'Preview your character while the view is prepared.' : titleBusy ? nativePlayerSaveMessage() : !GAME.started && NATIVE_PLAYER.message ? NATIVE_PLAYER.message
       : nativePlayerGuestExpired() || NATIVE_PLAYER.expiredAdventure ? 'Expired session. Existing saves and browser keys are kept.' : nativePlayerSaveMessage();
+    const signIn = $('loading-identity');
+    note.hidden = !!(signIn && $('title-identity-slot')?.contains(signIn) && !$('title-identity-slot').hidden && !signIn.hidden
+      && (preparing && drafting || note.textContent === $('loading-identity-status')?.textContent));
   }
   // The owner index may reveal a record without any game-server pointer. Only
   // an actual private read (or confirmed absence) and held key permit entry.
