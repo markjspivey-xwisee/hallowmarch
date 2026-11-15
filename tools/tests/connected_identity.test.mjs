@@ -81,7 +81,8 @@ function fixture() {
     'NATIVE_PLAYER_CONNECTED_IDENTITY', 'NATIVE_PLAYER_CONNECTED_IDENTITY_EPOCH', 'nativePlayerConnectedIdentityContext',
     'nativePlayerConnectedIdentityValues', 'nativePlayerConnectedIdentityCurrent',
     'nativePlayerRememberConnectedIdentity', 'nativePlayerClearConnectedIdentity', 'nativePlayerConnectedIdentity',
-    'nativePlayerRenderConnectedIdentity', 'nativePlayerRender']) + '\n'
+    'nativePlayerRenderConnectedIdentity', 'nativePlayerRender', 'nativePlayerSwitchIdle',
+    'nativePlayerCanPlayAsGuest', 'nativePlayerPlayAsGuest']) + '\n'
     + actual(transport, ['netWsClearIdentityDisplay']) + '\n'
     + 'globalThis.render=nativePlayerRender;globalThis.capture=()=>typeof nativePlayerConnectedIdentityContext===\'function\'?nativePlayerConnectedIdentityContext():{};'
     + 'globalThis.accept=(value,scope)=>{NATIVE_PLAYER.status=value;if(typeof nativePlayerRememberConnectedIdentity===\'function\')nativePlayerRememberConnectedIdentity(value,scope);};'

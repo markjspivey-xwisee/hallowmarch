@@ -1025,8 +1025,9 @@ function nativePlayerRender() {
   const expired = nativePlayerGuestExpired() || !!NATIVE_PLAYER.expiredAdventure;
   const canStartExpired = expired && nativePlayerExpiredAdventureAllowed();
   const expiredSignIn = expired && NATIVE_PLAYER_STARTUP_CEREMONY?.context.expiredChoice ? NATIVE_PLAYER_STARTUP_CEREMONY : null;
-  let titleRecoveryTask = false;
+  let titleRecoveryTask = false, titleRecoveryActive = false;
   const titleBody = document.querySelector('#create .card-body');
+  const recoveryBack = $('title-recovery-back');
   for (const target of [titleBody, $('netsheet-acct')]) {
     if (!target) continue;
     if (!status?.enabled) { target.querySelector('.native-player')?.remove(); continue; }
@@ -1039,19 +1040,30 @@ function nativePlayerRender() {
     const currentClaimProfile = NATIVE_PLAYER.provisional?.claimProfile();
     const claimRecovery = !!currentClaimProfile?.status().hasRecord && !currentClaimProfile.status().keyPresent;
     const ownerKey = JSON.stringify([NETWS.acct?.id, NETWS.host, status.binding?.subjectDid, status.binding?.podUrl]);
+    const provisional = nativePlayerIsProvisional();
+    const profile = NATIVE_PLAYER.switching ? null : NATIVE_PLAYER.profile;
+    const forcedRecovery = profile && profileStatus?.hasRecord && !profileStatus.keyPresent;
+    const canCheckRecovery = profile && status.bound && status.verified && !provisional && !GAME.started;
+    const titleFinder = title && !!recoveryBack && canCheckRecovery && !claimRecovery && !NATIVE_PLAYER.conflict
+      && !NATIVE_PLAYER.claimConfirmationPending;
+    const finding = titleFinder && NATIVE_PLAYER.recoveryOpen && NATIVE_PLAYER.titleRecoveryOwner === ownerKey;
+    const findFromTitle = titleFinder && (forcedRecovery || !SAVE.loaded?.char);
+    const guestChoice = title && !finding && !SAVE.readConfirmed && nativePlayerCanPlayAsGuest();
+    if (finding) titleRecoveryActive = true;
     const taskPanel = title && !GAME.started && (blocked || claimRecovery);
     if (taskPanel && claimRecovery) titleRecoveryTask = true;
-    const compact = title && !GAME.started && !blocked && typeof UI !== 'undefined' && !!UI.titleSave?.char
+    const compact = title && !finding && !GAME.started && !blocked && typeof UI !== 'undefined' && !!UI.titleSave?.char
       && !SAVE.pending && !NATIVE_PLAYER.authRefusal && !NATIVE_PLAYER.conflict && !NATIVE_PLAYER.claimConfirmationPending && !claimRecovery;
     const recoveryCheck = NATIVE_PLAYER.recoveryCheck?.ownerKey === ownerKey ? NATIVE_PLAYER.recoveryCheck.result : null;
     const browserRecovery = NATIVE_PLAYER.browserRecovery?.ownerKey === ownerKey ? NATIVE_PLAYER.browserRecovery.result : null;
-    const renderKey = JSON.stringify([ownerKey, connectedIdentity, status.bound, status.verified, status.provisional, status.provisionalPlay?.enabled, SAVE.readConfirmed, !!SAVE.loaded, SAVE.loading?.settled, NATIVE_PLAYER.state, NATIVE_PLAYER.busy, NATIVE_PLAYER.switching, NATIVE_PLAYER.message, NATIVE_PLAYER.recoveryOpen, !!NATIVE_PLAYER.conflict, NATIVE_PLAYER.profile?.status(), nativePlayerFreshAllowed(), nativePlayerNewAdventureAllowed(), expired, canStartExpired, expiredSignIn?.context.epoch, compact, !!SAVE.pending, !!GAME.started, !!blocked, preparing, currentClaimProfile?.status(), recoveryCheck, browserRecovery?.status, browserRecovery?.summary]);
+    const renderKey = JSON.stringify([ownerKey, connectedIdentity, status.bound, status.verified, status.provisional, status.provisionalPlay?.enabled, SAVE.readConfirmed, !!SAVE.loaded, SAVE.loading?.settled, NATIVE_PLAYER.state, NATIVE_PLAYER.busy, NATIVE_PLAYER.switching, NATIVE_PLAYER.message, NATIVE_PLAYER.recoveryOpen, !!NATIVE_PLAYER.conflict, NATIVE_PLAYER.profile?.status(), nativePlayerFreshAllowed(), nativePlayerNewAdventureAllowed(), expired, canStartExpired, expiredSignIn?.context.epoch, compact, !!SAVE.pending, !!GAME.started, !!blocked, preparing, currentClaimProfile?.status(), recoveryCheck, browserRecovery?.status, browserRecovery?.summary, finding, guestChoice]);
     if (box._nativeKey === renderKey && box._claimProfile === currentClaimProfile) continue;
     box._nativeKey = renderKey;
     const sameOwner = box._nativeOwner === ownerKey;
     const detailsOpen = sameOwner && box.querySelector('details.native-player-more')?.open;
     const alternativesOpen = sameOwner && box.querySelector('details.native-player-alternatives')?.open;
     const connectedIdentityOpen = sameOwner && box.querySelector('details.native-connected-identity')?.open;
+    const recoveryFileOpen = sameOwner && box.querySelector('details.native-recovery-file')?.open;
     const focused = box.contains(document.activeElement) ? document.activeElement : null;
     const focusAction = focused?.dataset.nativeAction, focusInput = focused?.className;
     const focusSummary = focused?.dataset.nativeDisclosure;
@@ -1076,26 +1088,30 @@ function nativePlayerRender() {
     alternativeSummary.dataset.nativeDisclosure = 'connection-options';
     alternativeSummary.style.cssText = 'min-height:44px;display:list-item;box-sizing:border-box;padding:12px 4px;cursor:pointer';
     const alternativeBody = document.createElement('div'); alternatives.appendChild(alternativeSummary); alternatives.appendChild(alternativeBody);
-    const provisional = nativePlayerIsProvisional();
-    if (!compact) add('h3', expired ? 'Temporary session expired' : provisional ? 'Keep your character' : status.bound ? 'Your identity and character' : nativePlayerCanPlayNow() ? 'Start your adventure' : 'Your identity and character');
-    const hint = add('p', expired || status.bound || nativePlayerCanPlayNow() || nativePlayerNewAdventureAllowed() ? nativePlayerSaveMessage() : 'Connect your Interego identity to open your private character.');
+    if (!compact) add('h3', finding ? 'Find your character' : findFromTitle ? 'Your saved character'
+      : expired ? 'Temporary session expired' : provisional ? 'Keep your character' : status.bound ? 'Your identity and character'
+        : nativePlayerCanPlayNow() ? 'Start your adventure' : 'Your identity and character');
+    const hint = add('p', finding ? (NATIVE_PLAYER.busy ? NATIVE_PLAYER.busyMessage : 'Check this browser first, or use a Hallowmarch recovery file.')
+      : findFromTitle && forcedRecovery ? 'Signed in. Your saved character needs its recovery key.'
+      : findFromTitle && SAVE.readConfirmed && !profileStatus?.hasRecord ? 'Signed in. No active character was found for this account.'
+      : expired || status.bound || nativePlayerCanPlayNow() || nativePlayerNewAdventureAllowed() ? nativePlayerSaveMessage()
+        : 'Connect your Interego identity to open your private character.');
     hint.className = 'native-player-status'; hint.tabIndex = -1;
-    nativePlayerRenderConnectedIdentity(box, connectedIdentity, !!connectedIdentityOpen);
-    const profile = NATIVE_PLAYER.switching ? null : NATIVE_PLAYER.profile;
-    const forcedRecovery = profile && profileStatus?.hasRecord && !profileStatus.keyPresent;
-    const canCheckRecovery = profile && status.bound && status.verified && !provisional && !GAME.started;
-    const primary = !taskPanel ? null : claimRecovery ? 'Restore saved character'
+    if (!finding) nativePlayerRenderConnectedIdentity(box, connectedIdentity, !!connectedIdentityOpen);
+    const primary = finding ? (browserRecovery?.status === 'verified_character' ? 'Use this key on this site'
+      : browserRecovery?.status === 'verified_empty' ? 'Use this key to unlock the record' : 'Check this browser')
+      : !taskPanel ? null : claimRecovery ? 'Restore saved character'
       : nativePlayerFreshAllowed() && !provisional && NATIVE_PLAYER.authRefusal.reason !== 'native_owner_mismatch'
         ? 'Start a fresh sign-in' : expired ? 'Open my saved character'
       : NATIVE_PLAYER.claimConfirmationPending ? 'Confirm kept character'
-      : forcedRecovery && canCheckRecovery ? 'Check recovery options'
+      : forcedRecovery && canCheckRecovery ? titleFinder ? 'Find my character' : 'Check recovery options'
       : nativePlayerFreshAllowed() && NATIVE_PLAYER.authRefusal.reason !== 'native_owner_mismatch' ? 'Start a fresh sign-in'
       : nativePlayerFreshAllowed() && NATIVE_PLAYER.authRefusal.reason === 'native_owner_mismatch' ? 'Reconnect identity'
       : provisional ? nativePlayerQuotaExhausted() && SAVE.pending ? 'Keep last confirmed save' : 'Keep my character'
       : status.bound && !status.verified ? 'Reconnect identity'
       : status.bound && profileStatus && !SAVE.readConfirmed ? 'Retry connection'
       : status.bound ? 'Reconnect identity' : 'I already have an identity';
-    const entry = title && !GAME.started && !!$('title-identity-slot') && !!$('loading-sign-in') && !compact && !claimRecovery;
+    const entry = title && !finding && !GAME.started && !!$('title-identity-slot') && !!$('loading-sign-in') && !compact && !claimRecovery;
     const action = (label, run, parent = taskPanel && label !== primary ? alternativeBody : content) => {
       const signInAction = ['I already have an identity', 'Reconnect identity', 'Open my saved character', 'Start a fresh sign-in', 'Retry connection'].includes(label);
       if (entry && signInAction && (label === primary || !taskPanel && ['I already have an identity', 'Reconnect identity'].includes(label))) {
@@ -1107,30 +1123,31 @@ function nativePlayerRender() {
       b.style.minHeight = '44px'; b.style.margin = '4px'; b.style.touchAction = 'manipulation';
       b.onclick = () => { if (!(typeof titleEntryBlocked === 'function' && titleEntryBlocked())) return run(); }; return b;
     };
-    if (expired) {
+    if (!finding && expired) {
       action('Open my saved character', nativePlayerOpenExistingIdentity);
       if (title && canStartExpired) action('Start a new character', nativePlayerExpiredAdventure, content);
       if (title && expiredSignIn) action('Back to character choices', () => nativePlayerBackFromExpiredSignIn(expiredSignIn), content);
       if (NATIVE_PLAYER.provisional?.status().claim?.targetAvailable || NATIVE_PLAYER.provisional?.status().claimStarted) add('p', 'A character claim was started. Connect the identity you used to keep it; its original browser key has not been replaced.');
-    } else if (provisional) {
+    } else if (!finding && provisional) {
       if (nativePlayerQuotaExhausted() && SAVE.pending) {
         add('p', 'Your latest progress is waiting to save. Keep the last confirmed checkpoint first; this open game will then save its latest progress to your identity.');
         action('Keep last confirmed save', () => nativePlayerClaimConnect({ lastConfirmed: true }));
       } else action('Keep my character', nativePlayerClaimConnect);
       action('Refresh temporary connection', () => nativePlayerTask(nativePlayerRefreshGuest));
       if (NATIVE_PLAYER.provisional?.status().claim?.targetAvailable) action('Retry keeping character', () => nativePlayerTask(() => nativePlayerFinishClaim()));
-    } else if (NATIVE_PLAYER.claimConfirmationPending) action('Confirm kept character', () => nativePlayerTask(nativePlayerConfirmClaim));
-    else action(status.bound ? 'Reconnect identity' : 'I already have an identity', nativePlayerConnect);
-    if (target.classList.contains('card-body') && nativePlayerNewAdventureAllowed()) action('Play with a new character', nativePlayerNewAdventure);
-    if (target.classList.contains('card-body') && nativePlayerFreshAllowed() && !(expired && provisional)) action(
+    } else if (!finding && NATIVE_PLAYER.claimConfirmationPending) action('Confirm kept character', () => nativePlayerTask(nativePlayerConfirmClaim));
+    else if (!finding) action(status.bound ? 'Reconnect identity' : 'I already have an identity', nativePlayerConnect);
+    if (!finding && title && nativePlayerNewAdventureAllowed()) action('Play with a new character', nativePlayerNewAdventure);
+    if (!finding && title && nativePlayerFreshAllowed() && !(expired && provisional)) action(
       NATIVE_PLAYER.authRefusal.reason === 'native_owner_mismatch' ? 'Sign in with a different account' : 'Start a fresh sign-in', () => nativePlayerConnect(true));
-    const connectionRetry = !expired && SAVE.native && !SAVE.readConfirmed && !GAME.started && !NATIVE_PLAYER.switching
+    const connectionRetry = !finding && !expired && SAVE.native && !SAVE.readConfirmed && !GAME.started && !NATIVE_PLAYER.switching
       && (!entry || taskPanel || SAVE.loading?.identityError);
     if (connectionRetry) action('Retry connection', () => nativePlayerTask(nativePlayerRetryLoad));
-    if (canCheckRecovery && (forcedRecovery || NATIVE_PLAYER.recoveryOpen)) {
-      add('p', 'You are signed in. Opening a private character also needs its character key. These checks keep your existing saves and keys.');
-      action('Check recovery options', nativePlayerCheckRecovery, content);
+    const showRecovery = finding || !titleFinder && (forcedRecovery || NATIVE_PLAYER.recoveryOpen);
+    if (canCheckRecovery && showRecovery) {
+      if (!finding) add('p', 'You are signed in. Opening a private character also needs its character key. These checks keep your existing saves and keys.');
       action('Check this browser', nativePlayerFindRetainedKey, content);
+      action(finding ? 'Look for an older save' : 'Check recovery options', nativePlayerCheckRecovery, content);
       if (recoveryCheck) {
         const legacy = recoveryCheck.legacySave;
         if (legacy?.hasCharacter && legacy.character?.name) {
@@ -1157,13 +1174,25 @@ function nativePlayerRender() {
       }
     }
     if (profile) {
-      if (!forcedRecovery) action(NATIVE_PLAYER.recoveryOpen ? 'Hide recovery options' : 'Recovery options', () => { NATIVE_PLAYER.recoveryOpen = !NATIVE_PLAYER.recoveryOpen; nativePlayerRender(); });
-      if (SAVE.pending || profile.status().pending) action('Retry saving character', () => nativePlayerTask(async () => {
+      if (titleFinder && !finding) {
+        action(findFromTitle ? 'Find my character' : 'Recovery options', () => {
+          NATIVE_PLAYER.recoveryOpen = true; NATIVE_PLAYER.titleRecoveryOwner = ownerKey; nativePlayerRender();
+          const heading = box.querySelector('h3');
+          if (heading) { heading.tabIndex = -1; heading.focus(); }
+        }, content);
+      } else if (!titleFinder && !forcedRecovery) action(NATIVE_PLAYER.recoveryOpen ? 'Hide recovery options' : 'Recovery options', () => { NATIVE_PLAYER.recoveryOpen = !NATIVE_PLAYER.recoveryOpen; nativePlayerRender(); });
+      if (!finding && (SAVE.pending || profile.status().pending)) action('Retry saving character', () => nativePlayerTask(async () => {
         await NATIVE_PLAYER.provisional?.retry(); await saveNow({ final: true });
       }));
     }
-    if (profile && (NATIVE_PLAYER.recoveryOpen || profileStatus?.hasRecord && !profileStatus.keyPresent)) {
-      const recoveryParent = taskPanel && !forcedRecovery ? alternativeBody : content;
+    if (guestChoice) action('Play as guest', nativePlayerPlayAsGuest, content);
+    if (profile && showRecovery) {
+      let recoveryParent = taskPanel && !forcedRecovery ? alternativeBody : content;
+      if (finding) {
+        recoveryParent = add('details', '', content); recoveryParent.className = 'native-recovery-file'; recoveryParent.open = !!recoveryFileOpen;
+        const summary = add('summary', profileStatus.keyPresent ? 'Recovery files' : 'Use a recovery file', recoveryParent);
+        summary.dataset.nativeDisclosure = 'recovery-file';
+      }
       if (forcedRecovery) add('p', 'Have a Hallowmarch character recovery file? Enter its original passphrase, then choose Restore recovery file. Your Interego sign-in backup is a separate file.', recoveryParent);
       const pass = document.createElement('input'); pass.type = 'password'; pass.autocomplete = forcedRecovery ? 'current-password' : 'new-password';
       pass.disabled = preparing;
@@ -1177,7 +1206,7 @@ function nativePlayerRender() {
       action('Restore recovery file', () => file.click(), recoveryParent);
       file.disabled = preparing;
       file.onchange = () => { if (!(typeof titleEntryBlocked === 'function' && titleEntryBlocked()) && file.files[0]) nativePlayerRestore(file.files[0], pass.value); };
-      if (!(taskPanel && connectionRetry && !profile.status().pending)) action(taskPanel && connectionRetry ? 'Confirm pending private save' : 'Retry pod save', () => nativePlayerTask(async () => {
+      if (!finding && !(taskPanel && connectionRetry && !profile.status().pending)) action(taskPanel && connectionRetry ? 'Confirm pending private save' : 'Retry pod save', () => nativePlayerTask(async () => {
         if (!GAME.started && !SAVE.readConfirmed) {
           if (profile.status().pending) await profile.retry();
           await nativePlayerRetryLoad(); return;
@@ -1230,6 +1259,21 @@ function nativePlayerRender() {
       };
       (shown(replacement) ? replacement : sameOwner && shown(alternativeSummary) && alternatives.parentElement ? alternativeSummary
         : sameOwner && box.querySelector('summary') || hint).focus({ preventScroll: true });
+    }
+  }
+  $('create')?.classList?.toggle('title-recovery-view', titleRecoveryActive);
+  if (recoveryBack) {
+    recoveryBack.hidden = !titleRecoveryActive;
+    if (!recoveryBack.onclick) {
+      $('create')?.addEventListener('keydown', event => {
+        if (event.key === 'Escape' && !recoveryBack.hidden) { event.preventDefault(); recoveryBack.click(); }
+      });
+      recoveryBack.onclick = () => {
+        NATIVE_PLAYER.recoveryOpen = false; NATIVE_PLAYER.titleRecoveryOwner = null; nativePlayerRender();
+        const ownerAction = titleBody?.querySelector('[data-native-action="Find my character"]');
+        const characterDetails = titleBody?.querySelector('details.native-player-more > summary');
+        (ownerAction && !ownerAction.disabled ? ownerAction : characterDetails || $('btn-begin'))?.focus({ preventScroll: true });
+      };
     }
   }
   if (GAME.ready) nativePlayerRenderEarlySignIn(titleBody?.querySelector('.native-player')?._entryAction || null);
@@ -1413,6 +1457,29 @@ async function nativePlayerUseExistingTarget() {
 function nativePlayerSwitchIdle() {
   return !GAME.started && !SAVE.pending && !SAVE.nativeFlight && !SAVE.wiping && !NATIVE_PLAYER.profile?.status().pending
     && (!SAVE.loading || SAVE.loading.settled);
+}
+function nativePlayerCanPlayAsGuest() {
+  const status = NATIVE_PLAYER.status;
+  return nativePlayerSwitchIdle() && !SAVE.loaded?.char && !SAVE.privateApplied && status?.bound && status.verified
+    && status.provisionalPlay?.enabled === true && NETWS.acct?.nativeBound === true && !!NETWS.host && !!NETWS.token
+    && !NETWS.reload && !NETWS.openP && !NETWS.linkP && !NATIVE_PLAYER.switching && !NATIVE_PLAYER.channel
+    && status.provisional !== true && !NATIVE_PLAYER.provisional && !NATIVE_PLAYER.claimPendingResume
+    && !NATIVE_PLAYER.claimConfirmationPending && !NATIVE_PLAYER.openExistingPending;
+}
+function nativePlayerPlayAsGuest() {
+  if (!nativePlayerCanPlayAsGuest()) return;
+  const { host, token, acct, generation } = NETWS;
+  const { status, profile } = NATIVE_PLAYER;
+  const current = () => nativePlayerCanPlayAsGuest() && NETWS.host === host && NETWS.token === token
+    && NETWS.acct === acct && NETWS.generation === generation
+    && NATIVE_PLAYER.status === status && NATIVE_PLAYER.profile === profile;
+  return nativePlayerTask(async () => {
+    // Only the app session is retired. The owner's key and save stay in place.
+    await netWsTokenForget(host, token, current);
+    if (!current()) throw new Error('The connection changed. Try Play as guest again from the title.');
+    NETWS.reload = true;
+    location.reload();
+  }, 'Opening guest play…');
 }
 function nativePlayerFreshAllowed() {
   return nativePlayerSwitchIdle() && !!NATIVE_PLAYER.authRefusal && NATIVE_PLAYER.authRefusal.host === NETWS.host;
@@ -1832,6 +1899,7 @@ function nativePlayerUseRetainedKey() {
     await nativePlayerRetryLoad();
     if (NETWS.acct?.id !== context.accountId || NETWS.host !== context.host
       || NATIVE_PLAYER.status?.binding?.subjectDid !== context.ownerDid || NATIVE_PLAYER.status?.binding?.podUrl !== context.podUrl) return;
+    if (SAVE.readConfirmed) { NATIVE_PLAYER.recoveryOpen = false; NATIVE_PLAYER.titleRecoveryOwner = null; }
     NATIVE_PLAYER.message = SAVE.readConfirmed && SAVE.loaded?.char
       ? 'Your existing character opened with its saved key. Your original key and saves were kept.'
       : SAVE.readConfirmed ? 'Your private record opened. It contains no active character; no new character was created.'

@@ -80,6 +80,12 @@
   #character-create-fields { display: grid; gap: 16px; }
   #title .card-foot { padding: 12px 22px 14px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; border-top: 1px solid var(--line); }
   #title .card-foot .fineprint { overflow-wrap: anywhere; }
+  #create.title-recovery-view .card-body > :not(.native-player),
+  #create.title-recovery-view .card-foot > :not(#title-recovery-back) { display: none; }
+  #create.title-recovery-view .native-player { display: grid; gap: 10px; overflow-wrap: anywhere; }
+  #create.title-recovery-view .native-player h3,
+  #create.title-recovery-view .native-player p { margin: 0; }
+  #title-recovery-back { min-height: 44px; }
   #title h2 { margin: 0; font: 400 15px/1 var(--caps); letter-spacing: 0.12em; color: var(--bronze-hi); text-transform: uppercase; }
   .step { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
   .realms { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
@@ -1433,6 +1439,7 @@
       <button class="btn primary" id="btn-begin" type="button">Play now</button>
       <div id="title-identity-slot"></div>
       <p class="fineprint" id="save-note">Progress saves automatically.</p>
+      <button class="btn" id="title-recovery-back" type="button" hidden>Back to title</button>
     </div>
   </div>
 </div>
