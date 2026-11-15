@@ -44,9 +44,9 @@ function nativePlayerStartupUnselected(proof) {
   return !!proof?.empty && proof.session === session && proof.sessionContext === NATIVE_PLAYER.provisionalContext
     && proof.empty === NATIVE_PLAYER_EMPTY_PROVISIONAL && !session.status().pending;
 }
-function nativePlayerStartupProof() {
+function nativePlayerStartupProof(ownStart = false) {
   try {
-    if (NATIVE_PLAYER.busy || NATIVE_PLAYER.switching || NATIVE_PLAYER_STARTUP_HANDOFF) return null;
+    if ((NATIVE_PLAYER.busy && !ownStart) || NATIVE_PLAYER.switching || NATIVE_PLAYER_STARTUP_HANDOFF) return null;
     const load = SAVE.loading, session = NATIVE_PLAYER.provisional, empty = NATIVE_PLAYER_EMPTY_PROVISIONAL;
     const proof = { load, session, sessionContext: NATIVE_PLAYER.provisionalContext, empty };
     if (!load || !saveLoadOwned(load) || !nativePlayerEarlyPolicyCurrent(NATIVE_PLAYER_EARLY_POLICY)
@@ -199,9 +199,41 @@ function nativePlayerAbortStartup(handoff) {
   return true;
 }
 function nativePlayerStartupConsume(channel) {
+  const signIn = NATIVE_PLAYER.signInWindow;
+  if (signIn?.channel === channel) {
+    clearTimeout(signIn.timer);
+    NATIVE_PLAYER.signInWindow = null;
+  }
   channel.close();
   if (NATIVE_PLAYER.channel === channel) NATIVE_PLAYER.channel = null;
   if (NATIVE_PLAYER_STARTUP_CEREMONY?.channel === channel) NATIVE_PLAYER_STARTUP_CEREMONY = null;
+}
+function nativePlayerReleaseSignIn(context) {
+  if (context.ownsSwitching && !GAME.started && !NATIVE_PLAYER_STARTUP_HANDOFF && context.load === SAVE.loading
+    && context.host === NETWS.host && context.token === NETWS.token && context.generation === NETWS.generation) {
+    NATIVE_PLAYER.switching = false;
+  }
+}
+function nativePlayerWatchSignIn(popup, channel, ceremony, context, isFinishing) {
+  const signIn = NATIVE_PLAYER.signInWindow = { popup, channel, timer: 0 };
+  let sawClosed = false;
+  const check = () => {
+    if (NATIVE_PLAYER.signInWindow !== signIn || NATIVE_PLAYER.channel !== channel) return;
+    const closed = popup.closed === true, expired = Date.now() > ceremony.expiresAt;
+    // The relay can close immediately after sending its result. Give the
+    // channel time to deliver it before treating a closed window as a cancel.
+    if (!isFinishing() && (expired || closed && sawClosed)) {
+      nativePlayerStartupConsume(channel);
+      nativePlayerReleaseSignIn(context);
+      if (expired && !closed) popup.close();
+      NATIVE_PLAYER.message = expired ? 'Sign-in timed out. Try again when you’re ready.' : '';
+      nativePlayerRender();
+      return;
+    }
+    sawClosed = closed;
+    signIn.timer = setTimeout(check, 1000);
+  };
+  signIn.timer = setTimeout(check, 1000);
 }
 function nativePlayerBackFromExpiredSignIn(pending) {
   // The exact window can still be dismissed after its sign-in deadline.
@@ -407,6 +439,7 @@ function nativePlayerRenderEarlySignIn(readyAction) {
   if (!box || !button || !message) return;
   const titleSlot = $('title-identity-slot');
   const guest = $('loading-play-guest');
+  const returningToWindow = !!NATIVE_PLAYER.signInWindow && NATIVE_PLAYER.signInWindow.channel === NATIVE_PLAYER.channel;
   const playGuest = guest && nativePlayerGuestEntryAction();
   if (guest && !(GAME.ready && readyAction === undefined)) {
     guest.hidden = guest.disabled = !playGuest;
@@ -433,7 +466,7 @@ function nativePlayerRenderEarlySignIn(readyAction) {
     message.hidden = !message.textContent;
     if (!readyAction) return;
     button.classList.toggle('primary', !playGuest && readyAction.primary);
-    button.textContent = signInPending && !button.disabled ? 'Restart sign-in' : readyAction.label;
+    button.textContent = signInPending && !button.disabled ? returningToWindow ? 'Return to sign-in' : 'Restart sign-in' : readyAction.label;
     const click = () => {
       if (button.onclick === click && !button.disabled && !GAME.started && !titleEntryBlocked()) return readyAction.run();
     };
@@ -462,11 +495,11 @@ function nativePlayerRenderEarlySignIn(readyAction) {
   box.hidden = !SAVE.native || GAME.ready || GAME.started || GRAPHICS_STARTUP.stopped || GRAPHICS_CONTEXT_LOST || nativePlayerGuestSetupCurrent();
   button.hidden = false;
   button.disabled = !choice && !retry;
-  button.textContent = retry ? 'Retry sign-in check' : pending ? 'Restart sign-in' : choice?.mode === 'expired' && !playGuest ? 'Open my saved character' : choice?.mode === 'fresh'
+  button.textContent = retry ? 'Retry sign-in check' : pending ? returningToWindow ? 'Return to sign-in' : 'Restart sign-in' : choice?.mode === 'expired' && !playGuest ? 'Open my saved character' : choice?.mode === 'fresh'
     ? choice.refusal.reason === 'native_owner_mismatch' ? 'Sign in with a different account' : 'Start a fresh sign-in'
     : connected ? 'Reconnect identity' : 'Sign in';
   message.textContent = retry ? 'Sign-in is unavailable right now. Try the connection again.'
-    : pending ? 'Finish sign-in in the other window. If you closed it, restart sign-in here.'
+    : pending ? returningToWindow ? 'Finish sign-in in the other window.' : 'Finish sign-in in the other window. If you closed it, restart sign-in here.'
     : NATIVE_PLAYER.busy ? 'Your identity connection is being checked. Your world is still loading.'
       : NATIVE_PLAYER.message ? NATIVE_PLAYER.message
       : connected ? 'Your identity is connected. Your world is still loading.'
@@ -1657,6 +1690,11 @@ function nativePlayerNewAdventure() {
 }
 function nativePlayerConnect(fresh = false, expiredChoice = null) {
   if (NATIVE_PLAYER.busy || NATIVE_PLAYER_STARTUP_HANDOFF) return;
+  const waiting = NATIVE_PLAYER.signInWindow;
+  if (waiting && NATIVE_PLAYER.channel === waiting.channel) {
+    if (waiting.popup.closed !== true) waiting.popup.focus?.();
+    return;
+  }
   if (!expiredChoice && !GAME.started && nativePlayerIsProvisional() && NATIVE_PLAYER.provisional?.status().provisional !== false
     && (nativePlayerGuestExpired() || NATIVE_PLAYER.expiredAdventure)) return nativePlayerOpenExistingIdentity();
   if (expiredChoice && (!nativePlayerExpiredSignInCurrent(expiredChoice) || !nativePlayerExpiredSignInStoredCurrent(expiredChoice)
@@ -1672,14 +1710,15 @@ function nativePlayerConnect(fresh = false, expiredChoice = null) {
   if (expected && (!expected.accountId || !expected.ownerDid || !expected.podUrl || !expected.profile || !SAVE.readConfirmed)) {
     NATIVE_PLAYER.message = 'Your current character is still in memory. Confirm its original identity before reconnecting.'; nativePlayerRender(); return;
   }
-  const startupProof = !GAME.started ? nativePlayerStartupProof() : null;
+  let startupProof = !GAME.started ? nativePlayerStartupProof() : null;
+  const refreshGuest = !expiredChoice && !!startupProof?.session;
   const selectedCanonical = !GAME.started ? nativePlayerStartupCanonical() : null;
   nativePlayerClearConnectedIdentity();
   // A retained sign-in window may still be cross-origin; seed a fresh window.
   const popup = window.open('about:blank', '_blank', 'popup,width=520,height=760');
   if (!popup) { NATIVE_PLAYER.message = 'Allow this sign-in window, then connect again.'; nativePlayerRender(); return; }
   let starting;
-  starting = nativePlayerTask(async () => {
+  const startSignIn = async () => {
     const host = NETWS.host;
     if (expiredChoice) {
       try {
@@ -1691,11 +1730,15 @@ function nativePlayerConnect(fresh = false, expiredChoice = null) {
       } catch (error) { popup.close(); throw error; }
     }
     if (fresh) {
+      let switching = false;
       try {
-        if (!freshAllowed()) throw new Error('Keep the current character open. Its session cannot be replaced.');
-        NATIVE_PLAYER.switching = true; SAVE.readConfirmed = false; nativePlayerRender();
-        await netWsTokenForget(host, expiredChoice ? expiredChoice.refusedToken : NATIVE_PLAYER.authRefusal.token, freshAllowed);
-        if (!freshAllowed()) throw new Error('Keep the current character open. Its session cannot be replaced.');
+        const canRefresh = () => freshAllowed() && (!refreshGuest || nativePlayerStartupUnselected(startupProof));
+        if (!canRefresh() || refreshGuest && await startupProof.session.peek() !== null || !canRefresh() || popup.closed === true) {
+          throw new Error('The previous game connection changed. Try signing in again.');
+        }
+        switching = NATIVE_PLAYER.switching = true; SAVE.readConfirmed = false; nativePlayerRender();
+        await netWsTokenForget(host, expiredChoice ? expiredChoice.refusedToken : NATIVE_PLAYER.authRefusal.token, canRefresh);
+        if (!canRefresh()) throw new Error('Keep the current character open. Its session cannot be replaced.');
         SAVE.readConfirmed = false;
         NATIVE_PLAYER.authRefusal = null;
         if (NETWS.link) NETWS.link.close();
@@ -1715,11 +1758,25 @@ function nativePlayerConnect(fresh = false, expiredChoice = null) {
           expiredChoice = NATIVE_PLAYER_EXPIRED_SIGNIN = { ...expiredChoice, phase: 'fresh', accountId: NETWS.acct.id,
             socketToken: NETWS.token, token: NETWS.token, generation: NETWS.generation, epoch: NATIVE_PLAYER_EARLY_EPOCH,
             sessionRefusal: NETWS.sessionRefusal };
+        } else if (refreshGuest) {
+          const { acct, token, generation } = NETWS;
+          const current = () => !GAME.started && NETWS.host === host && NETWS.acct === acct && NETWS.token === token
+            && NETWS.generation === generation && nativePlayerSignInTransportCurrent();
+          if (generation !== transitionGeneration + 1 || NATIVE_PLAYER_EARLY_EPOCH !== transitionEpoch + 1
+            || acct?.guest !== true || acct.nativeBound === true || !current()) throw new Error('The new game connection could not be confirmed.');
+          NATIVE_PLAYER.newAdventure = null;
+          NATIVE_PLAYER.switching = false;
+          await loadSave({ retry: true, isCurrent: current });
+          startupProof = nativePlayerStartupProof(true);
+          if (!current() || !startupProof?.session) throw new Error('The title connection changed. Try signing in again.');
         }
       } catch (error) {
-        if (expiredChoice && NATIVE_PLAYER_EXPIRED_SIGNIN === expiredChoice && SAVE.loading === expiredChoice.initialization
-          && NATIVE_PLAYER.provisional === expiredChoice.session && NATIVE_PLAYER.provisionalContext === expiredChoice.sessionContext
-          && !GAME.started && !NATIVE_PLAYER_STARTUP_HANDOFF) NATIVE_PLAYER.switching = false;
+        const ownsExpired = expiredChoice && NATIVE_PLAYER_EXPIRED_SIGNIN === expiredChoice
+          && SAVE.loading === expiredChoice.initialization && NATIVE_PLAYER.provisional === expiredChoice.session
+          && NATIVE_PLAYER.provisionalContext === expiredChoice.sessionContext;
+        const ownsGuest = !expiredChoice && refreshGuest && SAVE.loading === startupProof?.load
+          && NETWS.host === host && nativePlayerStartupUnselected(startupProof);
+        if (switching && (ownsExpired || ownsGuest) && !GAME.started && !NATIVE_PLAYER_STARTUP_HANDOFF) NATIVE_PLAYER.switching = false;
         popup.close(); throw error;
       }
     }
@@ -1738,8 +1795,9 @@ function nativePlayerConnect(fresh = false, expiredChoice = null) {
       epoch: ++NATIVE_PLAYER_STARTUP_EPOCH, channelName };
     const ceremony = { channel: channelName, token, host, expiresAt: Date.now() + 10 * 60 * 1000,
       ...(expected ? { expectedAccountId: expected.accountId, expectedOwnerDid: expected.ownerDid, expectedPodUrl: expected.podUrl } : {}) };
+    if (popup.closed === true) { nativePlayerReleaseSignIn(startupContext); return; }
     popup.sessionStorage.setItem('hallowmarch.identity.ceremony.v1', JSON.stringify(ceremony));
-    NATIVE_PLAYER.channel?.close();
+    if (NATIVE_PLAYER.channel) nativePlayerStartupConsume(NATIVE_PLAYER.channel);
     const channel = NATIVE_PLAYER.channel = new BroadcastChannel(channelName);
     NATIVE_PLAYER_STARTUP_CEREMONY = startupProof || expiredChoice ? { context: startupContext, channel, ceremony, popup } : null;
     let processingConnected = false;
@@ -1787,6 +1845,11 @@ function nativePlayerConnect(fresh = false, expiredChoice = null) {
     };
     try {
       const result = await nativePlayerRequest('/gaming/identity/start', { method: 'POST', token, body: { ownerPodWriteAccess: true } });
+      if (popup.closed === true) {
+        nativePlayerStartupConsume(channel);
+        nativePlayerReleaseSignIn(startupContext);
+        return;
+      }
       if (/^[A-Za-z0-9_-]{43}$/.test(result.browserCeremony || '')) {
         ceremony.browserCeremony = result.browserCeremony;
         const pendingCeremony = JSON.parse(popup.sessionStorage.getItem('hallowmarch.identity.ceremony.v1') || 'null');
@@ -1794,23 +1857,32 @@ function nativePlayerConnect(fresh = false, expiredChoice = null) {
       }
       NATIVE_PLAYER.authRefusal = null;
       popup.location.replace(result.authorizationUrl);
+      nativePlayerWatchSignIn(popup, channel, ceremony, startupContext, () => processingConnected);
       if ((startupProof || expiredChoice) && fresh && NATIVE_PLAYER_STARTUP_CEREMONY?.channel === channel
         && nativePlayerStartupCurrent(startupContext, channel, ceremony)) NATIVE_PLAYER.switching = false;
       NATIVE_PLAYER.message = 'Complete sign-in in the identity window, then return here.';
     } catch (error) {
       if (error.httpStatus === 401 && error.code === 'game_account_required'
         && nativePlayerStartupCurrent(startupContext, channel, ceremony) && nativePlayerStartupIdle(startupContext)) {
-        NATIVE_PLAYER.authRefusal = { host, token };
+        NATIVE_PLAYER.authRefusal = fresh && refreshGuest ? null : { host, token };
         nativePlayerRememberEarlyRefusal(earlyRefusalContext, token);
         if (expiredChoice) NATIVE_PLAYER_EXPIRED_SIGNIN = { ...expiredChoice, phase: 'refused',
           refusal: NATIVE_PLAYER.authRefusal, refusedToken: token };
-        error.message = 'The previous game session has expired or was refused. Start a fresh sign-in, then choose your existing identity.';
+        if (!fresh && refreshGuest && popup.closed !== true && nativePlayerStartupUnselected(startupProof)) {
+          nativePlayerStartupConsume(channel);
+          fresh = true;
+          return startSignIn();
+        }
+        error.message = fresh && refreshGuest ? 'Sign-in could not start. Try again.'
+          : 'The previous game session has expired or was refused. Start a fresh sign-in, then choose your existing identity.';
       }
       popup.close(); nativePlayerStartupConsume(channel);
-      if ((startupProof || expiredChoice) && fresh && !NATIVE_PLAYER_STARTUP_HANDOFF) NATIVE_PLAYER.switching = false;
+      nativePlayerReleaseSignIn(startupContext);
       throw error;
     }
-  });
+  };
+  starting = nativePlayerTask(startSignIn, 'Opening sign-in…');
+  return starting;
 }
 async function nativePlayerReconnect(expected, notification) {
   const sameSession = () => expected && GAME.started && NETWS.acct?.id === expected.accountId && NETWS.host === expected.host

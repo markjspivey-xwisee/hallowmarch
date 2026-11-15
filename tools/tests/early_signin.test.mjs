@@ -9,6 +9,7 @@ import { parse } from 'acorn';
 import { chromium } from '../node_modules/playwright/index.mjs';
 
 const shell = readFileSync(new URL('../../src/page.html', import.meta.url), 'utf8');
+const fixtureRelay = 'http://hm-identity.test/authorize';
 const sourceFile = name => process.env.HM_EXPIRED_SOURCE_DIR
   ? join(process.env.HM_EXPIRED_SOURCE_DIR, 'pr93-before-' + name) : new URL('../../src/' + name, import.meta.url);
 const identity = readFileSync(sourceFile('14v_nativeidentity.js'), 'utf8');
@@ -54,6 +55,9 @@ async function fixture(t) {
         'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src 'none'; connect-src 'none'; frame-src 'none'; form-action 'none'",
       }, body: shell });
     }
+    if (route.request().url() === fixtureRelay && route.request().method() === 'GET') {
+      return route.fulfill({ contentType: 'text/html', body: '<title>Test identity window</title>' });
+    }
     return route.abort();
   });
   await page.goto('http://hm-early.test/', { waitUntil: 'domcontentloaded' });
@@ -88,9 +92,11 @@ async function accountFixture(t, options = {}) {
       const BroadcastChannel = class { close() {} };
       const netStr = (value, limit) => typeof value === 'string' ? value.slice(0, limit) : '';
       const netWsToken = async () => { calls.token++; return 'synthetic-retired-proof'; };
+      const openPopup = window.open.bind(window);
       const popupStore = new Map();
-      window.open = () => { calls.popup++; return { sessionStorage: { getItem: key => popupStore.get(key) || null,
-        setItem: (key, value) => popupStore.set(key, value) }, close() {}, location: { replace() {} } }; };
+      window.open = (...args) => { calls.popup++; return options.realPopup ? openPopup(...args)
+        : { sessionStorage: { getItem: key => popupStore.get(key) || null, setItem: (key, value) => popupStore.set(key, value) },
+          close() {}, location: { replace() {} } }; };
       const netServerUrl = () => options.server === undefined ? 'wss://march.example/ws' : options.server;
       const netLinkWS = async () => { calls.link++; return !options.refused && options.socket !== false; };
       const fetch = async target => { const pathname = new URL(target, location.origin).pathname; calls.fetch.push(pathname);
@@ -124,9 +130,10 @@ async function accountFixture(t, options = {}) {
           nativePlayerTask = async operation => operation(); },
         clear: () => netWsClearIdentityDisplay(), refuse: () => netWsAdmissionUpdate({ admission: 'identity-required', code: 'native_signin_required' }),
         loseGraphics: () => { GRAPHICS_CONTEXT_LOST = true; }, actualConnect: () => actualConnect(false),
+        useActualConnect: () => { nativePlayerConnect = actualConnect; },
         attemptBegin: () => nativePlayerBegin({ name: 'Synthetic recruit', realm: 0, cls: 'warrior', fresh: true }),
         failAuthorization: () => authorization.reject(Object.assign(Error('synthetic refusal'), { httpStatus: 401, code: 'game_account_required' })),
-        completeAuthorization: () => authorization.resolve({ browserCeremony: 'a'.repeat(43), authorizationUrl: 'https://identity.invalid/authorize' }),
+        completeAuthorization: () => authorization.resolve({ browserCeremony: 'a'.repeat(43), authorizationUrl: ${JSON.stringify(fixtureRelay)} }),
         mismatchNotification: () => NATIVE_PLAYER.channel.onmessage({ data: { type: 'hallowmarch-native-failed', host: NETWS.host,
           browserCeremony: 'a'.repeat(43), error: 'native_owner_mismatch' } }) };
     })()`);
@@ -487,24 +494,40 @@ test('canonical connected identity is acknowledged during loading only from curr
   assert.equal(await page.locator('#loading-sign-in').isEnabled(), false);
 });
 
-test('a pending existing sign-in window has honest restart guidance without an automatic retry', async t => {
-  const { page } = await accountFixture(t);
-  await acceptStatus(page);
-  await page.evaluate(() => __early.releaseMetadata(null));
-  await page.evaluate(() => __early.finish());
-  await page.evaluate(() => __early.actualConnect());
-  await page.waitForFunction(() => __early.calls.start === 1);
-  assert.equal(await page.locator('#loading-sign-in').isDisabled(), true, 'The established in-flight task stays busy.');
-  await page.evaluate(() => __early.completeAuthorization());
-  await page.waitForFunction(() => !__early.NATIVE_PLAYER.busy);
-  assert.equal(await page.locator('#loading-sign-in').innerText(), 'Restart sign-in');
-  assert.match(await page.locator('#loading-identity-status').innerText(), /other window.*closed it.*restart/i);
-  assert.equal(await page.evaluate(() => __early.calls.start), 1);
-  assert.deepEqual(await page.evaluate(() => __early.calls.auth), []);
-  await page.locator('#loading-sign-in').click();
-  assert.deepEqual(await page.evaluate(() => __early.calls.auth), [{ fresh: false }]);
-  assert.equal(await page.evaluate(() => __early.calls.start), 1);
-});
+for (const ready of [false, true]) {
+  test(`closing a real cross-origin sign-in popup restores both choices on the ${ready ? 'ready' : 'loading'} screen`, async t => {
+    const { page } = await accountFixture(t, { anonymous: true, realPopup: true });
+    await acceptStatus(page);
+    await page.evaluate(async ready => {
+      __early.releaseMetadata(null);
+      await __early.finish();
+      __early.useActualConnect();
+      if (ready) {
+        __early.GAME.ready = true;
+        document.getElementById('title').hidden = false;
+        document.getElementById('loading').hidden = true;
+      }
+      __early.renderTitle();
+    }, ready);
+    const signIn = page.getByRole('button', { name: 'Sign in', exact: true });
+    const guest = page.getByRole('button', { name: 'Play as guest', exact: true });
+    assert(await signIn.isEnabled() && await guest.isEnabled());
+    const opening = page.waitForEvent('popup');
+    await signIn.click();
+    const popup = await opening;
+    await page.waitForFunction(() => __early.calls.start === 1);
+    assert(await page.locator('#loading-sign-in').isDisabled());
+    await page.evaluate(() => __early.completeAuthorization());
+    await popup.waitForURL(fixtureRelay);
+    await page.getByRole('button', { name: 'Return to sign-in' }).waitFor();
+    assert(await guest.isHidden());
+    await popup.close();
+    await guest.waitFor();
+    assert(await signIn.isEnabled() && await guest.isEnabled());
+    assert.deepEqual(await page.evaluate(() => [__early.calls.popup, __early.calls.start,
+      __early.calls.entry, __early.calls.key, __early.calls.write]), [1, 1, 0, 0, 0]);
+  });
+}
 
 test('the narrow loading shell keeps readable copy and a touch-sized sign-in target', async t => {
   const { page } = await accountFixture(t);
