@@ -86,13 +86,25 @@ test('independent da387 pins and whole-source inverses restrict changes to appro
   const mapStart = "  await loadStep(0.84, 'Drawing the map'";
   assert.equal(inverse.split(mapStart).length,2);
   inverse = inverse.replace(mapStart,"  if (typeof prepareTitleDraft === 'function') prepareTitleDraft(saveLoadPresented());\n"+mapStart);
-  // Undo only the four reviewed current-load boot substitutions. Keep the
-  // pinned oracle and every unrelated byte, clock and simulation assertion.
+  // Undo the exact current-load and offscreen preparation changes. The
+  // remaining startup source, clock and simulation still match the oracle.
   for (const [current, original] of [
     ['  await savePromise;', '  const save = await savePromise;'],
     ['  saveLoadApply();', '  if (save) { applySettings(save.settings); applyWorldSave(save.world); }'],
     ["  if (typeof prepareTitleDraft === 'function') prepareTitleDraft(saveLoadPresented());", "  if (typeof prepareTitleDraft === 'function') prepareTitleDraft(save);"],
     ['  if (!drafted) setupTitle(saveLoadPresented());', '  if (!drafted) setupTitle(save);'],
+    ["  const fullViewport = id !== 'post' && !combined ? sceneRT.viewport.clone() : null;\n", ''],
+    [`    if (fullViewport) {
+      // Draw the same camera and shader variants into a small part of the
+      // existing target. Only the combined title needs the full raster area.
+      const scale = Math.min(1, 96 / Math.max(fullViewport.z, fullViewport.w));
+      sceneRT.viewport.set(0, 0, Math.ceil(fullViewport.z * scale), Math.ceil(fullViewport.w * scale));
+    }
+`, ''],
+    [`    // A family warm-up only needs its scene draw. Warm the full-screen
+    // passes once and composite again for the completed title frame.
+    if (id === 'post' || combined) renderPost();`, '    renderPost();'],
+    ['    if (fullViewport) sceneRT.viewport.copy(fullViewport);\n', ''],
   ]) {
     assert.equal(inverse.split(current).length, 2, 'Unique approved startup substitution: ' + current.trim());
     inverse = inverse.replace(current, original);

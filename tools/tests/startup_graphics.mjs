@@ -5,7 +5,7 @@ import vm from 'node:vm';
 import { createHash } from 'node:crypto';
 
 const root = new URL('../../', import.meta.url);
-const read = name => readFileSync(new URL('src/' + name, root), 'utf8');
+const read = name => readFileSync(new URL('src/' + name, root), 'utf8').replace(/\r\n/g, '\n');
 const render = read('02_render.js').split('const camera =')[0];
 const titleCompile = read('13o_title_compile.js');
 function extract(source, name) {
@@ -344,6 +344,10 @@ test('standard recovery link drops diagnostic mode and preserves URL and native 
 
 function titleFixture({autoPaint=false}={}) {
   const main=read('13_main.js'), declarations=main.split('\n').filter(line=>line.startsWith('let TITLE_')).join('\n');
+  const viewport = { x: 0, y: 0, z: 1200, w: 800, clone() { return { ...this }; },
+    set(x, y, z, w) { Object.assign(this, { x, y, z, w }); },
+    copy({ x, y, z, w }) { this.set(x, y, z, w); } };
+  const drawSizes = [];
   assert.ok(declarations,'test executes the actual staged title state');
   const events=[],staticCalls=[],fences=[],paints=[],glErrors=[],sizeCalls=[],originalTrail={name:'live-trail'},originalShaderError=()=>{};
   const documentListeners=new Map(),canvasListeners=new Map(),windowListeners=new Map(),resizeTimers=new Map();
@@ -389,7 +393,7 @@ function titleFixture({autoPaint=false}={}) {
     graphicsAssertActive(){if(ctx.GRAPHICS_CONTEXT_LOST)throw Error('Graphics context was lost');},
     THREE:{DataTexture:class {constructor(){throw Error('title must not allocate a texture');}}},
     U:{uTrail:{value:originalTrail},uCloudDomeOn:{value:{x:1}},uCloudSh:{value:{w:1}},uCloudScrP:{value:{z:1}},uFoliageCut:{value:0}},
-    trailA:{texture:{name:'already-cleared-neutral-trail'}},sceneRT:{name:'scene-target'},scene:{name:'world-scene'},
+    trailA:{texture:{name:'already-cleared-neutral-trail'}},sceneRT:{name:'scene-target',viewport},scene:{name:'world-scene'},
     view:{w:1024,h:768},quality:{dpr:1,scale:1,msaa:0,level:'low'},BOOT_SAFE:true,DEG:Math.PI/180,
     makeTargets(){events.push('targets');sizeCalls.push([ctx.view.w,ctx.view.h]);},setupShadows(){},
     flowerMat:{uniforms:{uAlphaCut:{value:0}}},fxAdd:{mesh:{material:focalMaterial()}},fxAlpha:{mesh:{material:focalMaterial()}},
@@ -419,6 +423,7 @@ function titleFixture({autoPaint=false}={}) {
         assert.equal(scene,ctx.scene);assert.equal(camera,ctx.camera);
         assert.equal(ctx.U.uTrail.value,ctx.trailA.texture);
         events.push('scene:'+ctx.GRAPHICS_STARTUP.titleStage);
+        drawSizes.push([ctx.GRAPHICS_STARTUP.titleStage, viewport.z, viewport.w]);
         for(const object of inventory.renderables)if(object.visible)this.renderBufferDirect(camera,scene,object.geometry,object.material,object,null);
       },
     },
@@ -461,7 +466,7 @@ function titleFixture({autoPaint=false}={}) {
   vm.createContext(ctx);
   vm.runInContext(titleCompile+'\n'+adaptiveClock+'\n'+main.slice(resizeStart,resizeEnd)+'\n'+declarations+'\n'+['prepareTitleView','graphicsRenderRatio','applyGraphicsSize','resize','captureTitleResizeRequest','titleAssertActive','titleGraphicsBusy','titleLoadingProgress','submitTitleStage','renderTitleFrame','waitForTitleVisibility',
     'renderFirstTitleFrame','tick','frame','startGame'].map(name=>extract(main,name)).join('\n'),ctx);
-  const f={ctx,nodes,events,staticCalls,fences,paints,glErrors,sizeCalls,inventory,objects,hidden,postState,originalTrail,originalShaderError,direct,
+  const f={ctx,nodes,events,staticCalls,fences,paints,glErrors,sizeCalls,inventory,objects,hidden,postState,originalTrail,originalShaderError,direct,drawSizes,
     grassCenter,grassCamera,flowerCenter,flowerCamera,documentListeners,canvasListeners,windowListeners,resizeTimers,
     run:()=>vm.runInContext('renderTitleFrame()',ctx),resize:()=>vm.runInContext('resize()',ctx),
     dispatchResize(){for(const fn of [...(windowListeners.get('resize')||[])])fn();},
@@ -577,6 +582,9 @@ test('actual title stages require a completed fence and paint before advancing t
   }
   assert.equal(f.ctx.GRAPHICS_STARTUP.titleSubmitted,1);assert.equal(f.ctx.GRAPHICS_STARTUP.titleCompleted,1);
   assert.equal(f.ctx.GRAPHICS_STARTUP.titleFenceWaitMs,12);assert.equal(f.ctx.GRAPHICS_STARTUP.titleFinal.newPrograms,0,'combined draw reuses warmed programs');assert.equal(f.ctx.GAME.t,27);assert.equal(f.ctx.GAME.started,false);f.restored();
+  assert.deepEqual(f.events.filter(event => event.startsWith('post:')), ['post:post', 'post:combined']);
+  assert(f.drawSizes.slice(0, -1).every(([, width, height]) => width === 96 && height === 64));
+  assert.deepEqual(f.drawSizes.at(-1), ['combined', 1200, 800]);
   const calls=f.events.length;await f.flush();assert.equal(f.events.length,calls,'standby creates no automatic batch, frame or timer');
 });
 test('family warming preserves hidden objects and reports empty families without claiming exercised work',async()=>{
