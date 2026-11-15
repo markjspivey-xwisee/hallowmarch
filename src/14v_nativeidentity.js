@@ -1565,8 +1565,13 @@ async function nativePlayerOpenSeparateCharacter(host) {
   const current = () => selected() && NETWS.acct === acct && NETWS.token === token && NETWS.generation === generation;
   await loadSave({ retry: true, isCurrent: current });
   if (!current()) throw new Error('The character connection changed. Retry the connection before playing.');
+  const load = SAVE.loading;
   if (!GAME.ready && typeof prepareTitleDraft === 'function'
-    && !(typeof graphicsDiagnosticActive === 'function' && graphicsDiagnosticActive())) prepareTitleDraft(SAVE.loaded);
+    && !(typeof graphicsDiagnosticActive === 'function' && graphicsDiagnosticActive()) && prepareTitleDraft(SAVE.loaded)
+    && SAVE.loading === load && load?.titleTimer) {
+    // Boot finishes this draft. A second title setup would erase its edits.
+    clearTimeout(load.titleTimer); load.titleTimer = 0;
+  }
 }
 function nativePlayerPlayAsGuest() {
   if (!nativePlayerCanPlayAsGuest()) return;

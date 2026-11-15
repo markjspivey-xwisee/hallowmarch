@@ -998,6 +998,26 @@ test('an exact expired game proof offers explicit new-character recovery, then a
   assert.equal(h.H.SAVE.loaded, null); assert.deepEqual(h.failures, []);
 });
 
+test('starting a guest from an expired session during loading leaves its draft to the Ready transition', async () => {
+  const h = await refusedProgressiveTitle();
+  h.H.GAME.ready = false;
+  let prepared = 0;
+  h.context.prepareTitleDraft = save => {
+    assert.equal(save, h.H.SAVE.loaded);
+    assert(h.H.SAVE.loading.titleTimer, 'The separate load has queued a title update');
+    prepared++;
+    return true;
+  };
+  const opening = h.H.nativePlayerNewAdventure(); await flush();
+  await h.sockets[1].open(); await flush();
+  h.welcome(h.sockets[1]); await opening;
+  assert.equal(prepared, 1);
+  assert.equal(h.H.SAVE.loading.titleTimer, 0);
+  h.H.GAME.ready = true; await h.clock.advance(200);
+  assert.deepEqual(h.titleUpdates, []);
+  assert.equal(h.provisionalCalls.bootstrap, 0);
+});
+
 test('unknown denials, anonymous refusals, missing public policy and existing guest metadata cannot offer new-character recovery', async () => {
   for (const [extra, denial] of [
     [{}, { t: 'denied', code: 'other_refusal', why: 'Sign-in expired' }],

@@ -26,7 +26,7 @@ const nativeCode = declarations(identity, node => node.type === 'FunctionDeclara
 // is the fixture's controlled state; no selector or cancellation helper is stubbed.
 const saveCode = declarations(save, node => node.type === 'FunctionDeclaration'
   || node.type === 'VariableDeclaration' && node.declarations.every(item => item.id.name !== 'SAVE'));
-const titleCode = declarations(ui, node => ['titleEntryBlocked', 'bindTitle', 'syncTitle', 'menuRadioKey'].includes(node.id?.name)
+const titleCode = declarations(ui, node => ['titleEntryBlocked', 'titleDraftPreviewCurrent', 'bindTitle', 'syncTitle', 'menuRadioKey'].includes(node.id?.name)
   || node.declarations?.some(item => item.id.name === 'REALM_BLURB'));
 const realmCode = declarations(readFileSync(new URL('../../src/01_world.js', import.meta.url), 'utf8'),
   node => node.declarations?.some(item => item.id.name === 'REALMS'));
@@ -521,13 +521,16 @@ test('the narrow loading shell keeps readable copy and a touch-sized sign-in tar
   await page.screenshot({ path: fileURLToPath(new URL('../out/early-signin-1280.png', import.meta.url)) });
 });
 
-test('the same keyboard-accessible Sign in stays beside Play as the title becomes ready', async t => {
-  const { page } = await accountFixture(t);
+test('guest play and the same keyboard-accessible Sign in stay together as the title becomes ready', async t => {
+  const { page } = await accountFixture(t, { anonymous: true });
   await page.setViewportSize({ width: 480, height: 640 });
   await acceptStatus(page);
   const signIn = page.locator('#loading-sign-in');
+  const guest = page.getByRole('button', { name: 'Play as guest', exact: true });
   assert.equal(await signIn.innerText(), 'Sign in');
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
+    __early.releaseMetadata(null);
+    await __early.finish();
     __early.originalSignIn = document.getElementById('loading-sign-in');
     document.body.classList.add('title-preparing');
     document.getElementById('title').hidden = false;
@@ -538,7 +541,9 @@ test('the same keyboard-accessible Sign in stays beside Play as the title become
     __early.renderTitle();
     __early.originalSignIn.focus();
   });
-  assert.equal(await page.locator('#create .card-foot #loading-sign-in').count(), 1);
+  assert.equal(await page.locator('#title-identity-slot #loading-sign-in').count(), 1);
+  assert(await guest.isEnabled() && await signIn.isEnabled());
+  assert.equal((await guest.boundingBox()).y, (await signIn.boundingBox()).y);
   assert.equal(await page.locator('#create .native-player:visible').count(), 0);
   assert.equal(await page.locator('#realm-pick .realm-card').count(), 3);
   assert.equal(await page.locator('#class-pick .class-card').count(), 4);
@@ -557,7 +562,8 @@ test('the same keyboard-accessible Sign in stays beside Play as the title become
   assert.equal(await signIn.innerText(), 'Sign in');
   assert.equal(await signIn.evaluate(button => button === __early.originalSignIn && button === document.activeElement), true);
   assert.equal(await page.getByRole('button', { name: 'I already have an identity', exact: true }).count(), 0);
-  assert.equal(await page.locator('#btn-begin').isEnabled(), true);
+  assert(await guest.isEnabled() && await signIn.isEnabled());
+  assert(await page.locator('#btn-begin').isHidden());
   await page.keyboard.press('Enter');
   assert.equal(await page.evaluate(() => __early.calls.auth.length), 1);
   assert.equal(await page.evaluate(() => __early.calls.entry + __early.calls.key + __early.calls.write), 0);
