@@ -1264,12 +1264,17 @@ function nativePlayerRender() {
   $('create')?.classList?.toggle('title-recovery-view', titleRecoveryActive);
   if (recoveryBack) {
     recoveryBack.hidden = !titleRecoveryActive;
-    recoveryBack.onclick = () => {
-      NATIVE_PLAYER.recoveryOpen = false; NATIVE_PLAYER.titleRecoveryOwner = null; nativePlayerRender();
-      const ownerAction = titleBody?.querySelector('[data-native-action="Find my character"]');
-      const characterDetails = titleBody?.querySelector('details.native-player-more > summary');
-      (ownerAction && !ownerAction.disabled ? ownerAction : characterDetails || $('btn-begin'))?.focus({ preventScroll: true });
-    };
+    if (!recoveryBack.onclick) {
+      $('create')?.addEventListener('keydown', event => {
+        if (event.key === 'Escape' && !recoveryBack.hidden) { event.preventDefault(); recoveryBack.click(); }
+      });
+      recoveryBack.onclick = () => {
+        NATIVE_PLAYER.recoveryOpen = false; NATIVE_PLAYER.titleRecoveryOwner = null; nativePlayerRender();
+        const ownerAction = titleBody?.querySelector('[data-native-action="Find my character"]');
+        const characterDetails = titleBody?.querySelector('details.native-player-more > summary');
+        (ownerAction && !ownerAction.disabled ? ownerAction : characterDetails || $('btn-begin'))?.focus({ preventScroll: true });
+      };
+    }
   }
   if (GAME.ready) nativePlayerRenderEarlySignIn(titleBody?.querySelector('.native-player')?._entryAction || null);
   const titleBusy = NATIVE_PLAYER.busy && !GAME.started;

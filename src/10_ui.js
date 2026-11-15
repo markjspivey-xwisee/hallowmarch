@@ -190,10 +190,6 @@ function bindTitle() {
     audioUnlock();
     void nativePlayerBegin({ ...s.char, fresh: false });
   };
-  $('create')?.addEventListener('keydown', (event) => {
-    const back = $('title-recovery-back');
-    if (event.key === 'Escape' && back && !back.hidden) { event.preventDefault(); back.click(); }
-  });
   UI.titleBound = true;
 }
 function setupTitle(save) {
