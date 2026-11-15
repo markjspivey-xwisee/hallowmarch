@@ -130,7 +130,13 @@ window.WebSocket=class {constructor(){this.readyState=0;queueMicrotask(()=>{this
 send(raw){const message=JSON.parse(raw);if(message.t!=='hello')return;identityCalls.hellos.push(message);const reply=()=>this.onmessage?.({data:JSON.stringify(message.token?{t:'denied',why:'native_signin_required'}:{t:'welcome',v:1,peer:'fixture-fresh-peer',token:${JSON.stringify(GUEST_TOKEN)},acct:{id:'fixture-fresh-guest',guest:true},world:{k:[]}})});if(message.token&&coldHelloHold)coldHelloReplies.push(reply);else queueMicrotask(reply)}
 close(){this.readyState=3;this.onclose?.({code:1008,reason:'native_signin_required'})}};` : `const netServerUrl=()=>location.origin,netLinkWS=async()=>{identityCalls.links.push(NETWS.token); window.fixtureGuestConnection?.(); return true};`}
 const CAPTURE={on:false},buildSave=()=>structuredClone(fixtureMemory),coreKey=value=>JSON.stringify(value);
-const withTimeout=(promise,ms)=>{const delay=window.recoveryTimeoutMs&&ms===45000?window.recoveryTimeoutMs:ms;if(delay!==ms)identityCalls.shortenedTimeout=ms;return Promise.race([promise,new Promise(resolve=>setTimeout(()=>resolve(null),delay))])};
+const withTimeout=(promise,ms)=>{
+  if(window.holdRecoveryDeadline&&ms===45000){
+    identityCalls.shortenedTimeout=ms;
+    return Promise.race([promise,new Promise(resolve=>{window.releaseRecoveryDeadline=()=>resolve(null)})]);
+  }
+  return Promise.race([promise,new Promise(resolve=>setTimeout(()=>resolve(null),ms))]);
+};
 ${nativeSaves}
 if(!${live})saveNow=async()=>{identityCalls.save++};
 ${players}
@@ -451,10 +457,11 @@ try {
     const box = page.locator('#title .native-player');
     await box.getByRole('button', { name: 'Check this browser', exact: true }).click();
     await page.waitForFunction(() => !NATIVE_PLAYER.busy && NATIVE_PLAYER.browserRecovery?.result.status === 'verified_character');
-    // Only the fixture's wait port is shortened. The actual src12 loader still
-    // supplies its original 45-second deadline and owns timedOut/readConfirmed.
-    await page.evaluate(() => { window.holdRecoveryRead = true; window.recoveryTimeoutMs = 40; });
+    // Expire the real loader's deadline once its private read is pending.
+    await page.evaluate(() => { window.holdRecoveryRead = true; window.holdRecoveryDeadline = true; });
     await box.getByRole('button', { name: 'Use this key on this site', exact: true }).click();
+    await page.waitForFunction(() => typeof window.releaseRecoveryRead === 'function' && typeof window.releaseRecoveryDeadline === 'function');
+    await page.evaluate(() => window.releaseRecoveryDeadline());
     await page.waitForFunction(() => !NATIVE_PLAYER.busy && SAVE.loading?.timedOut === true, undefined, { timeout: 5000 });
     assert.deepEqual(await page.evaluate(() => ({ deadline: identityCalls.shortenedTimeout, sameStaleSave: SAVE.loaded === staleRecoverySave,
       phase: SAVE.loading.phase, settled: SAVE.loading.settled, readConfirmed: SAVE.readConfirmed, getWasHeld: typeof releaseRecoveryRead === 'function',
