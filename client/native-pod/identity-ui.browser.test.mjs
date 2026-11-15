@@ -65,6 +65,9 @@ async function fixturePage(view) {
   // Use actual game CSS, title markup, Players account renderer and native UI.
   const page = await fs.readFile(path.join(root, 'src/page.html'), 'utf8');
   const styles = page.match(/<style>([\s\S]*?)<\/style>/)[1];
+  const frontDoor = view === 'front-door';
+  const loading = frontDoor ? page.slice(page.indexOf('<div id="loading">'), page.indexOf('<div id="entry-feedback"'))
+    .replace('<div id="loading">', '<div id="loading" hidden>') : '';
   const title = page.slice(page.indexOf('<div id="title" hidden>'), page.indexOf('<div id="hud" hidden>'))
     .replace('<div id="title" hidden>', '<div id="title">');
   const native = await fs.readFile(path.join(root, 'src/14v_nativeidentity.js'), 'utf8');
@@ -86,7 +89,7 @@ async function fixturePage(view) {
   // Keep the real UI functions; omit that unrelated module initialization only.
   const players = (await fs.readFile(path.join(root, 'src/14o_netui.js'), 'utf8')).split('Object.assign(FIELD_NOTES,')[0];
   const cold = view === 'connect-expired';
-  const recovery = view === 'recovery-check';
+  const recovery = view === 'recovery-check' || frontDoor;
   const loadSelectionState = saves.match(/^const SAVE_LOAD_SELECTIONS = new WeakMap\(\);$/m)?.[0];
   assert(loadSelectionState, 'The fixture must retain the real private save-selection provenance state.');
   const commonLoad = saves.slice(saves.indexOf('function saveLoadOwned('), saves.indexOf('async function loadSave('));
@@ -97,7 +100,7 @@ async function fixturePage(view) {
   const bound = view !== 'connect' && !cold;
   const live = view === 'players-reauth';
   const coldTransport = cold ? websocket.slice(0, websocket.indexOf('// Login keeps')) : '';
-  return `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>Native identity UI verification</title><style>${styles}</style><body class="touch">${title}<div id="hud" hidden></div><script>
+  return `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>Native identity UI verification</title><style>${styles}</style><body class="touch">${loading}${title}<div id="hud" hidden></div><script>
 const $=id=>document.getElementById(id),IS_TOUCH=true;
 ${coldTransport || `const NETWS={token:${JSON.stringify(GAME_TOKEN)},host:location.host,acct:{id:${JSON.stringify(live ? 'fixture-native-account' : 'fixture-account')},guest:false,name:'Fixture player',nativeBound:${bound}}};`}
 ${cold ? '' : forgetToken}
@@ -127,7 +130,13 @@ window.WebSocket=class {constructor(){this.readyState=0;queueMicrotask(()=>{this
 send(raw){const message=JSON.parse(raw);if(message.t!=='hello')return;identityCalls.hellos.push(message);const reply=()=>this.onmessage?.({data:JSON.stringify(message.token?{t:'denied',why:'native_signin_required'}:{t:'welcome',v:1,peer:'fixture-fresh-peer',token:${JSON.stringify(GUEST_TOKEN)},acct:{id:'fixture-fresh-guest',guest:true},world:{k:[]}})});if(message.token&&coldHelloHold)coldHelloReplies.push(reply);else queueMicrotask(reply)}
 close(){this.readyState=3;this.onclose?.({code:1008,reason:'native_signin_required'})}};` : `const netServerUrl=()=>location.origin,netLinkWS=async()=>{identityCalls.links.push(NETWS.token); window.fixtureGuestConnection?.(); return true};`}
 const CAPTURE={on:false},buildSave=()=>structuredClone(fixtureMemory),coreKey=value=>JSON.stringify(value);
-const withTimeout=(promise,ms)=>{const delay=window.recoveryTimeoutMs&&ms===45000?window.recoveryTimeoutMs:ms;if(delay!==ms)identityCalls.shortenedTimeout=ms;return Promise.race([promise,new Promise(resolve=>setTimeout(()=>resolve(null),delay))])};
+const withTimeout=(promise,ms)=>{
+  if(window.holdRecoveryDeadline&&ms===45000){
+    identityCalls.shortenedTimeout=ms;
+    return Promise.race([promise,new Promise(resolve=>{window.releaseRecoveryDeadline=()=>resolve(null)})]);
+  }
+  return Promise.race([promise,new Promise(resolve=>setTimeout(()=>resolve(null),ms))]);
+};
 ${nativeSaves}
 if(!${live})saveNow=async()=>{identityCalls.save++};
 ${players}
@@ -448,10 +457,11 @@ try {
     const box = page.locator('#title .native-player');
     await box.getByRole('button', { name: 'Check this browser', exact: true }).click();
     await page.waitForFunction(() => !NATIVE_PLAYER.busy && NATIVE_PLAYER.browserRecovery?.result.status === 'verified_character');
-    // Only the fixture's wait port is shortened. The actual src12 loader still
-    // supplies its original 45-second deadline and owns timedOut/readConfirmed.
-    await page.evaluate(() => { window.holdRecoveryRead = true; window.recoveryTimeoutMs = 40; });
+    // Expire the real loader's deadline once its private read is pending.
+    await page.evaluate(() => { window.holdRecoveryRead = true; window.holdRecoveryDeadline = true; });
     await box.getByRole('button', { name: 'Use this key on this site', exact: true }).click();
+    await page.waitForFunction(() => typeof window.releaseRecoveryRead === 'function' && typeof window.releaseRecoveryDeadline === 'function');
+    await page.evaluate(() => window.releaseRecoveryDeadline());
     await page.waitForFunction(() => !NATIVE_PLAYER.busy && SAVE.loading?.timedOut === true, undefined, { timeout: 5000 });
     assert.deepEqual(await page.evaluate(() => ({ deadline: identityCalls.shortenedTimeout, sameStaleSave: SAVE.loaded === staleRecoverySave,
       phase: SAVE.loading.phase, settled: SAVE.loading.settled, readConfirmed: SAVE.readConfirmed, getWasHeld: typeof releaseRecoveryRead === 'function',
@@ -503,6 +513,58 @@ try {
       { sameProfile: true, sameRef: true, sameLoading: true, close: 0, load: 0, save: 0, entries: 0 });
     if (boundary === 'pending') assert.deepEqual(await page.evaluate(() => SAVE.pending), { privateProgress: 'kept while activation was queued' });
     await context.close();
+  });
+  await check('expired title shows the two entry choices, preserves the old key, and returns from guest creation', async () => {
+    const context = await contextForMobile(390), page = await openFixture(context, 'front-door');
+    try {
+      const before = await page.evaluate(() => {
+        SAVE.readConfirmed = false; SAVE.ref = null; NATIVE_PLAYER.profile = null;
+        NETWS.acct = null; NETWS.token = ''; NETWS.state = 'off'; NETWS.generation = 1;
+        NETWS.link = { close() { NETWS.link = null; } };
+        const refusal = NETWS.sessionRefusal = { host: NETWS.host, code: 'native_signin_required', token: 'expired-fixture-session', generation: 1 };
+        const session = NATIVE_PLAYER.provisional = { peek: async () => null, status: () => ({ provisional: false }), claimProfile: () => null, close() {} };
+        NATIVE_PLAYER.status = { enabled: true, bound: false, verified: false, provisionalPlay: { enabled: true } };
+        NATIVE_PLAYER.newAdventure = { refusal, session, accountId: undefined, socketToken: '' };
+        localStorage.setItem('hallowmarch.token.' + location.host, refusal.token);
+        localStorage.setItem('fixture-old-character-key', 'retained');
+        window.fixtureGuestConnection = () => {
+          NETWS.acct = { id: 'new-guest', guest: true }; NETWS.token = 'new-guest-game-session';
+        };
+        loadSave = async ({ isCurrent }) => {
+          if (!isCurrent()) throw Error('Fixture guest connection changed');
+          identityCalls.load++;
+          NATIVE_PLAYER.status = { ...NATIVE_PLAYER.status, provisionalPlay: { enabled: true } };
+          const initialization = SAVE.loading = { settled: true };
+          const guest = NATIVE_PLAYER.provisional = { status: () => ({ provisional: false }), claimProfile: () => null };
+          NATIVE_PLAYER.draftPreview = { initialization, session: guest, context: NATIVE_PLAYER.provisionalContext,
+            host: NETWS.host, account: NETWS.acct.id, status: NATIVE_PLAYER.status };
+          identityTest.showTitle(null);
+        };
+        identityTest.showTitle(null);
+        return identityCalls.reloadMarker;
+      });
+      const choice = page.locator('#title #loading-identity');
+      const guest = choice.getByRole('button', { name: 'Play as guest', exact: true });
+      const signIn = choice.getByRole('button', { name: 'Sign in', exact: true });
+      assert(await guest.isEnabled() && await signIn.isEnabled());
+      assert.equal((await guest.boundingBox()).y, (await signIn.boundingBox()).y);
+      assert((await page.locator('#create').boundingBox()).height < 210);
+      assert(await page.locator('#btn-begin').isHidden());
+      assert.equal(await page.locator('#title .native-player-alternatives:visible').count(), 0);
+      await guest.click();
+      const play = page.getByRole('button', { name: 'Play now', exact: true });
+      await play.waitFor();
+      assert(await play.isEnabled());
+      assert(await page.locator('#name-input').isVisible());
+      assert.equal(await signIn.count(), 0);
+      await page.getByRole('button', { name: 'Back to title', exact: true }).click();
+      assert(await guest.isEnabled() && await signIn.isEnabled());
+      assert(await page.locator('#btn-begin').isHidden());
+      await guest.click();
+      assert(await play.isEnabled());
+      assert.deepEqual(await page.evaluate(() => ({ document: identityCalls.reloadMarker, load: identityCalls.load, save: identityCalls.save,
+        key: localStorage.getItem('fixture-old-character-key') })), { document: before, load: 1, save: 0, key: 'retained' });
+    } finally { await context.close(); }
   });
   for (const width of [320, 390, 1280]) await check(width + 'px first-player title has one entry action and optional sign-in', async () => {
     const context = await contextForMobile(width), page = await openFixture(context, 'connect');
@@ -800,6 +862,7 @@ try {
       loadSave = async ({ isCurrent }) => {
         if (!isCurrent()) throw Error('The new character selection changed');
         identityCalls.load++;
+        NATIVE_PLAYER.status = { ...NATIVE_PLAYER.status, provisionalPlay: { enabled: true } };
         const initialization = SAVE.loading = { settled: true };
         const session = NATIVE_PLAYER.provisional = { status: () => ({ provisional: false }), claimProfile: () => null };
         NATIVE_PLAYER.draftPreview = { initialization, session, context: NATIVE_PLAYER.provisionalContext,

@@ -23,7 +23,8 @@ window.__menuQA=(()=>{
   const fixtureSave={v:1,char:{v:1,name:'Rowan',realm:0,cls:'warrior',level:12,xp:0,rp:150,fresh:false}};
   const resetNative=()=>{
     Object.assign(NATIVE_PLAYER,{status:null,profile:null,state:'idle',message:'',busy:false,busyMessage:'',switching:false,
-      provisional:null,promoted:false,recoveryOpen:false,conflict:null,claimConfirmationPending:false,expiredAdventure:false,authRefusal:null});
+      provisional:null,provisionalContext:null,draftPreview:null,newCharacterSetup:null,
+      promoted:false,recoveryOpen:false,conflict:null,claimConfirmationPending:false,expiredAdventure:false,authRefusal:null});
     Object.assign(SAVE,{native:false,readConfirmed:true,loaded:null,pending:null,loading:null});
     NETWS.acct=null;NETWS.token=null;
     for(const box of document.querySelectorAll('.native-player'))box.remove();
@@ -39,6 +40,12 @@ window.__menuQA=(()=>{
     if(kind==='expired')NATIVE_PLAYER.expiredAdventure=true;
     SAVE.native=true;SAVE.readConfirmed=bound&&!locked&&!pending;SAVE.loaded=SAVE.readConfirmed?structuredClone(fixtureSave):null;
     SAVE.loading={settled:true};NETWS.acct=bound?{id:'menu-qa-player'}:null;
+    if(kind==='new'){
+      NETWS.acct={id:'menu-qa-guest',guest:true};
+      const session=NATIVE_PLAYER.provisional={status:()=>({provisional:false}),claimProfile:()=>null};
+      const context=NATIVE_PLAYER.provisionalContext={host:NETWS.host,accountId:NETWS.acct.id};
+      NATIVE_PLAYER.draftPreview={initialization:SAVE.loading,session,context,host:NETWS.host,account:NETWS.acct.id,status:NATIVE_PLAYER.status};
+    }
     setupTitle(bound&&!locked&&!pending?structuredClone(fixtureSave):null);
     return kind;
   }
@@ -360,8 +367,15 @@ async def audit(args):
                 await page.evaluate('(kind)=>__menuQA.title(kind)',kind)
                 state=await capture('title-'+kind)
                 report['checks'].append({'task':label+'-title-'+kind+'-single-primary','passed':len(state['primary'])==1,'primary':state['primary']})
-                report['checks'].append({'task':label+'-title-'+kind+'-creator-context','passed':state['creatorVisible']==(kind=='new'),'creatorVisible':state['creatorVisible']})
+                report['checks'].append({'task':label+'-title-'+kind+'-creator-context','passed':not state['creatorVisible'],'creatorVisible':state['creatorVisible']})
+                if kind=='new':
+                    choices=[button['label'] for button in state['buttons'] if button['id'] in ('loading-play-guest','loading-sign-in') and not button['disabled']]
+                    report['checks'].append({'task':label+'-title-guest-and-sign-in','passed':choices==['Play as guest','Sign in'],'choices':choices})
             await page.evaluate("__menuQA.title('new')")
+            await page.get_by_role('button',name='Play as guest',exact=True).click()
+            state=await capture('title-guest-creation')
+            report['checks'].append({'task':label+'-title-guest-creator-context','passed':state['creatorVisible'] and state['primary']==['Play now'],
+              'creatorVisible':state['creatorVisible'],'primary':state['primary']})
             for group,key in [('#realm-pick','data-realm'),('#class-pick','data-cls')]:
                 values=await page.locator(group+' [role=radio]').evaluate_all('(els)=>els.map(e=>({value:e.getAttribute("'+key+'"),checked:e.getAttribute("aria-checked")==="true"}))')
                 current=next((i for i,v in enumerate(values) if v['checked']),0)

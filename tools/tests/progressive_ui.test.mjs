@@ -12,6 +12,7 @@ const startSource = main.slice(main.indexOf('function startGame('), main.indexOf
 const liveplay = await fs.readFile(new URL('../../src/14m_liveplay.js', import.meta.url), 'utf8');
 const eligibleSource = liveplay.slice(liveplay.indexOf('function netHumanEligible()'), liveplay.indexOf('function netHumanLive()'));
 const validSave = saves.slice(saves.indexOf('function validSave(s)'), saves.indexOf('function saveLoadOwned('));
+const invalidateSave = saves.slice(saves.indexOf('function saveLoadInvalidate('), saves.indexOf('function saveLoadReturn('));
 const fresh = () => ({ v: 1, name: 'New recruit', realm: 0, cls: 'warrior', level: 1, fresh: true });
 const clone = value => JSON.parse(JSON.stringify(value));
 const flush = async () => { for (let n = 0; n < 12; n++) await Promise.resolve(); };
@@ -61,7 +62,7 @@ function fixture({ prior = null, snapshot = { v: 1, char: null }, bootstrapGate,
     set: async () => {}, profile: () => profile, status: () => ({ provisional: true }),
   };
   context.fixtureProfile = profile; context.fixtureSession = session; context.fixtureStatus = initialStatus;
-  vm.runInContext(validSave + '\n' + identity + `
+  vm.runInContext(validSave + '\n' + invalidateSave + '\n' + identity + `
     NATIVE_PLAYER.status = fixtureStatus;
     NATIVE_PLAYER.profile = ${canonical} ? fixtureProfile : null;
     nativePlayerRender = () => {};
@@ -92,7 +93,7 @@ function expiredFixture() {
   f.session.close = () => {};
   f.context.netWsRetire = () => {};
   f.context.netWsTokenForget = async (host, token, allowed) => { assert.equal(allowed(), true); assert.equal(token, 'opaque-game-token'); forgotten++; };
-  f.context.netLinkWS = async () => { f.NETWS.token = 'fresh-game-token'; f.NETWS.acct = { id: 'fresh-transport' }; return true; };
+  f.context.netLinkWS = async () => { f.NETWS.token = 'fresh-game-token'; f.NETWS.acct = { id: 'fresh-transport', guest: true, nativeBound: false }; return true; };
   f.context.loadSave = async () => { f.NATIVE_PLAYER.status = { enabled: true, bound: false, provisionalPlay: { enabled: true } }; };
   const actual = vm.runInContext('({ nativePlayerExpiredAdventureAllowed, nativePlayerExpiredAdventure, nativePlayerSaveMessage })', f.context);
   return { ...f, ...actual, setMetadata: value => { metadata = value; }, get archives() { return archives; }, get forgotten() { return forgotten; } };
@@ -231,7 +232,8 @@ test('expired guest requires an explicit restart and preserves its key before op
   await f.nativePlayerExpiredAdventure();
   assert.equal(f.archives, 1); assert.equal(f.forgotten, 1); assert.equal(f.NETWS.token, 'fresh-game-token');
   assert.equal(f.nativePlayerCanPlayNow(), true); assert.equal(f.calls.bootstrap, 0); assert.equal(f.calls.starts.length, 0);
-  assert.match(f.NATIVE_PLAYER.message, /expired browser key.*kept/); assert.equal(f.NATIVE_PLAYER.switching, false);
+  assert.equal(f.NATIVE_PLAYER.newCharacterSetup?.host, f.NETWS.host);
+  assert.equal(f.NATIVE_PLAYER.switching, false);
 });
 
 test('expired restart refuses pending saves, known characters, owner claims and changed connections', async () => {

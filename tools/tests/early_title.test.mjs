@@ -16,7 +16,7 @@ const identity=actual('14v_nativeidentity.js',['NATIVE_PLAYER_EARLY_POLICY','NAT
   'nativePlayerOpenExistingIdentity','nativePlayerSignInTransportCurrent',
   'nativePlayerEarlyRequestCurrent',
   'nativePlayerEarlyPolicyCurrent','nativePlayerEarlySignInContext','nativePlayerEarlySignInCurrent','nativePlayerEarlySignInChoice',
-  'nativePlayerRenderEarlySignIn','nativePlayerClearEarlySignIn','nativePlayerRememberEarlyRefusal',
+  'nativePlayerGuestSetupCurrent','nativePlayerGuestEntryAction','nativePlayerRenderEarlySignIn','nativePlayerClearEarlySignIn','nativePlayerRememberEarlyRefusal',
   'NATIVE_PLAYER_CONNECTED_IDENTITY','NATIVE_PLAYER_CONNECTED_IDENTITY_EPOCH',
   'nativePlayerConnectedIdentityContext','nativePlayerConnectedIdentityValues','nativePlayerConnectedIdentityCurrent',
   'nativePlayerClearConnectedIdentity','nativePlayerRememberConnectedIdentity','nativePlayerConnectedIdentity','nativePlayerRenderConnectedIdentity',

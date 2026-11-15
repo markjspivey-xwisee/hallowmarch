@@ -12,6 +12,8 @@ const sourceParts = ['12_save.js', '14n_net.js', '14p_netws.js']
   .map(name => fs.readFileSync(path.join(root, 'src', name), 'utf8'));
 const source = sourceParts.join('\n');
 const nativeSource = fs.readFileSync(path.join(root, 'src/14v_nativeidentity.js'), 'utf8');
+const titleSource = fs.readFileSync(path.join(root, 'src/10_ui.js'), 'utf8');
+const guestPreview = titleSource.slice(titleSource.indexOf('function titleDraftPreviewCurrent()'), titleSource.indexOf('function titleDraftEligible('));
 const HOST = 'march.test', URL_WS = 'wss://' + HOST + '/ws';
 const deferred = () => {
   let resolve, reject;
@@ -175,7 +177,7 @@ function harness(options = {}) {
     NATIVE_PLAYER: { state: 'ready' }, nativePlayerRender() {},
   });
   const bootOrderSource = options.earlyBoot ? sourceParts[0] + '\nglobalThis.earlyLoading=loadSave(); earlyLoading.catch(()=>{});\n' + sourceParts.slice(1).join('\n') : source;
-  vm.runInContext(bootOrderSource + '\n' + (options.nativePolicy ? nativeSource : '') + '\n' + [
+  vm.runInContext(bootOrderSource + '\n' + (options.nativePolicy ? nativeSource + '\n' + guestPreview : '') + '\n' + [
     'netHostElect = netInbox = netGhosts = netDeathWatch = netWorldKeep = () => {};',
     'netPeerLeft = (peer) => NET.peers.delete(peer);',
     'netSlowObj = () => ({on:1,n:GAME.player?.name || "",r:0,c:"warrior",l:1});',
@@ -994,6 +996,26 @@ test('an exact expired game proof offers explicit new-character recovery, then a
   assert.equal(h.buttons.get('btn-begin').textContent, 'Play now');
   assert.equal(h.provisionalCalls.bootstrap, 0, 'a later actual Play click creates the new encrypted character');
   assert.equal(h.H.SAVE.loaded, null); assert.deepEqual(h.failures, []);
+});
+
+test('starting a guest from an expired session during loading leaves its draft to the Ready transition', async () => {
+  const h = await refusedProgressiveTitle();
+  h.H.GAME.ready = false;
+  let prepared = 0;
+  h.context.prepareTitleDraft = save => {
+    assert.equal(save, h.H.SAVE.loaded);
+    assert(h.H.SAVE.loading.titleTimer, 'The separate load has queued a title update');
+    prepared++;
+    return true;
+  };
+  const opening = h.H.nativePlayerNewAdventure(); await flush();
+  await h.sockets[1].open(); await flush();
+  h.welcome(h.sockets[1]); await opening;
+  assert.equal(prepared, 1);
+  assert.equal(h.H.SAVE.loading.titleTimer, 0);
+  h.H.GAME.ready = true; await h.clock.advance(200);
+  assert.deepEqual(h.titleUpdates, []);
+  assert.equal(h.provisionalCalls.bootstrap, 0);
 });
 
 test('unknown denials, anonymous refusals, missing public policy and existing guest metadata cannot offer new-character recovery', async () => {
