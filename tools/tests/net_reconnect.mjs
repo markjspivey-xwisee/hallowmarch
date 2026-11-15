@@ -12,6 +12,8 @@ const sourceParts = ['12_save.js', '14n_net.js', '14p_netws.js']
   .map(name => fs.readFileSync(path.join(root, 'src', name), 'utf8'));
 const source = sourceParts.join('\n');
 const nativeSource = fs.readFileSync(path.join(root, 'src/14v_nativeidentity.js'), 'utf8');
+const titleSource = fs.readFileSync(path.join(root, 'src/10_ui.js'), 'utf8');
+const guestPreview = titleSource.slice(titleSource.indexOf('function titleDraftPreviewCurrent()'), titleSource.indexOf('function titleDraftEligible('));
 const HOST = 'march.test', URL_WS = 'wss://' + HOST + '/ws';
 const deferred = () => {
   let resolve, reject;
@@ -175,7 +177,7 @@ function harness(options = {}) {
     NATIVE_PLAYER: { state: 'ready' }, nativePlayerRender() {},
   });
   const bootOrderSource = options.earlyBoot ? sourceParts[0] + '\nglobalThis.earlyLoading=loadSave(); earlyLoading.catch(()=>{});\n' + sourceParts.slice(1).join('\n') : source;
-  vm.runInContext(bootOrderSource + '\n' + (options.nativePolicy ? nativeSource : '') + '\n' + [
+  vm.runInContext(bootOrderSource + '\n' + (options.nativePolicy ? nativeSource + '\n' + guestPreview : '') + '\n' + [
     'netHostElect = netInbox = netGhosts = netDeathWatch = netWorldKeep = () => {};',
     'netPeerLeft = (peer) => NET.peers.delete(peer);',
     'netSlowObj = () => ({on:1,n:GAME.player?.name || "",r:0,c:"warrior",l:1});',

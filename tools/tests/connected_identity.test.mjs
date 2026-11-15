@@ -77,7 +77,7 @@ function fixture() {
     'nativePlayerStartupPending', 'nativePlayerStartupUnselected', 'nativePlayerStartupProof', 'nativePlayerRememberEmptyProvisional',
     'nativePlayerStartupCurrent', 'nativePlayerStartupIdle', 'nativePlayerStartupConsume', 'nativePlayerRefreshStartup',
     'nativePlayerEarlyPolicyCurrent', 'nativePlayerEarlySignInContext', 'nativePlayerEarlySignInCurrent', 'nativePlayerEarlySignInChoice',
-    'nativePlayerRenderEarlySignIn', 'nativePlayerClearEarlySignIn', 'nativePlayerRememberEarlyRefusal',
+    'nativePlayerGuestSetupCurrent', 'nativePlayerGuestEntryAction', 'nativePlayerRenderEarlySignIn', 'nativePlayerClearEarlySignIn', 'nativePlayerRememberEarlyRefusal',
     'NATIVE_PLAYER_CONNECTED_IDENTITY', 'NATIVE_PLAYER_CONNECTED_IDENTITY_EPOCH', 'nativePlayerConnectedIdentityContext',
     'nativePlayerConnectedIdentityValues', 'nativePlayerConnectedIdentityCurrent',
     'nativePlayerRememberConnectedIdentity', 'nativePlayerClearConnectedIdentity', 'nativePlayerConnectedIdentity',
