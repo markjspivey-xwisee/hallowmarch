@@ -125,7 +125,7 @@ ${cold ? `window.__HM_NET_SERVER='ws://'+location.host+'/ws';
 const netNote=()=>{},netStr=(value,n)=>String(value).slice(0,n);
 window.WebSocket=class {constructor(){this.readyState=0;queueMicrotask(()=>{this.readyState=1;this.onopen?.({})})}
 send(raw){const message=JSON.parse(raw);if(message.t!=='hello')return;identityCalls.hellos.push(message);const reply=()=>this.onmessage?.({data:JSON.stringify(message.token?{t:'denied',why:'native_signin_required'}:{t:'welcome',v:1,peer:'fixture-fresh-peer',token:${JSON.stringify(GUEST_TOKEN)},acct:{id:'fixture-fresh-guest',guest:true},world:{k:[]}})});if(message.token&&coldHelloHold)coldHelloReplies.push(reply);else queueMicrotask(reply)}
-close(){this.readyState=3;this.onclose?.({code:1008,reason:'native_signin_required'})}};` : `const netServerUrl=()=>location.origin,netLinkWS=async()=>{identityCalls.links.push(NETWS.token);return true};`}
+close(){this.readyState=3;this.onclose?.({code:1008,reason:'native_signin_required'})}};` : `const netServerUrl=()=>location.origin,netLinkWS=async()=>{identityCalls.links.push(NETWS.token); window.fixtureGuestConnection?.(); return true};`}
 const CAPTURE={on:false},buildSave=()=>structuredClone(fixtureMemory),coreKey=value=>JSON.stringify(value);
 const withTimeout=(promise,ms)=>{const delay=window.recoveryTimeoutMs&&ms===45000?window.recoveryTimeoutMs:ms;if(delay!==ms)identityCalls.shortenedTimeout=ms;return Promise.race([promise,new Promise(resolve=>setTimeout(()=>resolve(null),delay))])};
 ${nativeSaves}
@@ -787,28 +787,45 @@ try {
     assert.deepEqual(await page.evaluate(() => ({ saves: identityCalls.save, loads: identityCalls.load, entries: identityCalls.entries.length })), { saves: 0, loads: 0, entries: 0 });
     await context.close();
   });
-  for (const changed of [false, true]) await check('leaving recovery for guest play ' + (changed ? 'preserves a newer session' : 'retires the current session and preserves the owner save'), async () => {
+  for (const changed of [false, true]) await check('starting a separate character ' + (changed ? 'preserves a newer session' : 'reuses the loaded world and keeps the owner save'), async () => {
     const context = await contextForMobile(), page = await openFixture(context, 'recovery-check', { enterRecovery: false });
     const before = await page.evaluate(changed => {
       NATIVE_PLAYER.promoted = true;
       NATIVE_PLAYER.status.provisionalPlay = { enabled: true };
+      window.originalCharacterCache = NATIVE_PLAYER.cache;
       localStorage.setItem('fixture-encrypted-character-key', 'kept');
       localStorage.setItem('hallowmarch.token.' + location.host, changed ? 'fixture-newer-session' : NETWS.token);
+      NETWS.link = { close() { NETWS.link = null; } };
+      window.fixtureGuestConnection = () => { NETWS.acct = { id: 'fixture-new-adventure', guest: true, nativeBound: false }; NETWS.token = 'guest-fixture-session'; };
+      loadSave = async ({ isCurrent }) => {
+        if (!isCurrent()) throw Error('The new character selection changed');
+        identityCalls.load++;
+        const initialization = SAVE.loading = { settled: true };
+        const session = NATIVE_PLAYER.provisional = { status: () => ({ provisional: false }), claimProfile: () => null };
+        NATIVE_PLAYER.draftPreview = { initialization, session, context: NATIVE_PLAYER.provisionalContext,
+          host: NETWS.host, account: NETWS.acct.id, status: NATIVE_PLAYER.status };
+        setupTitle(null);
+      };
       nativePlayerRender();
       return identityCalls.reloadMarker;
     }, changed);
     await page.getByRole('button', { name: 'Find my character', exact: true }).click();
-    assert(await page.getByRole('button', { name: 'Play as guest', exact: true }).isHidden());
+    assert(await page.getByRole('button', { name: 'Start a new character', exact: true }).isHidden());
     await page.getByRole('button', { name: 'Back to title', exact: true }).click();
-    await page.evaluate(() => addEventListener('beforeunload', () => {
-      sessionStorage.setItem('save-activity', String(identityCalls.save + identityCalls.activate + identityCalls.entries.length));
-    }));
-    await page.getByRole('button', { name: 'Play as guest', exact: true }).click();
-    await page.waitForFunction(({ before, changed }) => window.identityTest?.ready && (changed
-      ? NATIVE_PLAYER.message.includes('Another game session arrived') : identityCalls.reloadMarker !== before), { before, changed });
+    await page.getByRole('button', { name: 'Start a new character', exact: true }).click();
+    await page.waitForFunction(changed => !NATIVE_PLAYER.busy && (changed
+      ? NATIVE_PLAYER.message.includes('Another game session arrived') : identityCalls.load === 1), changed);
     assert.deepEqual(await page.evaluate(() => ({ token: localStorage.getItem('hallowmarch.token.' + location.host),
-      key: localStorage.getItem('fixture-encrypted-character-key'), saveActivity: sessionStorage.getItem('save-activity') })),
-      { token: changed ? 'fixture-newer-session' : null, key: 'kept', saveActivity: changed ? null : '0' });
+      key: localStorage.getItem('fixture-encrypted-character-key'), document: identityCalls.reloadMarker,
+      cacheKept: NATIVE_PLAYER.cache === originalCharacterCache, opened: identityCalls.entries.length,
+      writes: identityCalls.save, closed: identityCalls.profileClosed })),
+      { token: changed ? 'fixture-newer-session' : null, key: 'kept', document: before, cacheKept: true,
+        opened: 0, writes: 0, closed: changed ? 0 : 1 });
+    if (!changed) {
+      assert(await page.locator('#character-create-fields').isVisible());
+      assert(await page.getByRole('button', { name: 'Play now', exact: true }).isEnabled());
+      assert(await page.getByRole('button', { name: /^(Sign in|I already have an identity|Reconnect identity)$/ }).count() === 0);
+    }
     await context.close();
   });
   await check('a retry moving between primary and closed alternatives preserves its exact focus or lands on the disclosure safely', async () => {

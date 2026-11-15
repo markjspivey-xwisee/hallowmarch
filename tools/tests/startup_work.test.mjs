@@ -160,7 +160,7 @@ test('the actual season-map preparation step stays cooperative before title admi
 
 test('the actual profiling wrapper preserves resumable generation through its last chunk',async()=>{
   const h=harness(),seen=[];
-  const perf=readFileSync(new URL('../../src/13p_perf.js',import.meta.url),'utf8');
+  const perf=readFileSync(new URL('../../src/13p_perf.js',import.meta.url),'utf8').replace(/\r\n/g,'\n');
   const start=perf.indexOf('{\n  const ls0 = loadStep;'),end=perf.indexOf('\n}',start);
   assert(start>=0&&end>start);h.ctx.PERFX={boot:[]};
   vm.runInContext(perf.slice(start,end+2),h.ctx);

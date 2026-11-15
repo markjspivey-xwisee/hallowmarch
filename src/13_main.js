@@ -290,6 +290,7 @@ async function submitTitleStage(id, members, inventory, combined = false) {
   const saved = gpuDiagCaptureRenderer(), oldTrail = U.uTrail.value;
   const direct = renderer.renderBufferDirect, debug = renderer.debug;
   const oldShaderError = debug && debug.onShaderError, oldShaderCheck = debug && debug.checkShaderErrors;
+  const fullViewport = id !== 'post' && !combined ? sceneRT.viewport.clone() : null;
   let current = null, workCalls = 0, workTriangles = 0;
   GRAPHICS_STARTUP.titleStage = id;
   const message = document.getElementById('loadmsg');
@@ -325,17 +326,26 @@ async function submitTitleStage(id, members, inventory, combined = false) {
     };
     if (members) for (const [object, visible] of visibility) object.visible = visible && members.has(object);
     U.uTrail.value = trailA.texture; // neutral, already cleared during ordinary boot
+    if (fullViewport) {
+      // Draw the same camera and shader variants into a small part of the
+      // existing target. Only the combined title needs the full raster area.
+      const scale = Math.min(1, 96 / Math.max(fullViewport.z, fullViewport.w));
+      sceneRT.viewport.set(0, 0, Math.ceil(fullViewport.z * scale), Math.ceil(fullViewport.w * scale));
+    }
     renderer.info.reset();
     renderer.setRenderTarget(sceneRT); renderer.setClearColor(0x000000, 1); renderer.clear(true, true, false);
     if (combined) GRAPHICS_STARTUP.titleSubmitted++;
     if (id !== 'post') renderer.render(scene, camera);
     workCalls = renderer.info.render.calls; workTriangles = renderer.info.render.triangles;
-    renderPost();
+    // A family warm-up only needs its scene draw. Warm the full-screen
+    // passes once and composite again for the completed title frame.
+    if (id === 'post' || combined) renderPost();
     if (id === 'post') { workCalls = renderer.info.render.calls; workTriangles = renderer.info.render.triangles; }
   } finally {
     // Restore every shared CPU value before the fence yields. No further GL
     // calls are made here, including when a shader or context has failed.
     for (const [object, visible] of visibility) object.visible = visible;
+    if (fullViewport) sceneRT.viewport.copy(fullViewport);
     U.uTrail.value = oldTrail;
     renderer.renderBufferDirect = direct;
     if (debug) { debug.onShaderError = oldShaderError; debug.checkShaderErrors = oldShaderCheck; }
