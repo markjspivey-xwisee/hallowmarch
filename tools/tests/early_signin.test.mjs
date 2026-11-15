@@ -42,13 +42,13 @@ test.before(async () => { browser = await chromium.launch({
 }); });
 test.after(async () => { await browser?.close(); });
 
-async function fixture(t) {
+async function fixture(t, { realPopup = false } = {}) {
   const context = await browser.newContext({ viewport: { width: 390, height: 780 }, serviceWorkers: 'block', offline: true });
   t.after(() => context.close());
   const page = await context.newPage();
-  page.setDefaultTimeout(5000);
+  page.setDefaultTimeout(realPopup ? 15000 : 5000);
   const requests = [];
-  await page.route('**/*', route => {
+  await context.route('**/*', route => {
     requests.push({ method: route.request().method(), url: route.request().url() });
     if (route.request().url() === 'http://hm-early.test/' && route.request().method() === 'GET') {
       return route.fulfill({ contentType: 'text/html', headers: {
@@ -65,7 +65,7 @@ async function fixture(t) {
 }
 
 async function accountFixture(t, options = {}) {
-  const f = await fixture(t);
+  const f = await fixture(t, options);
   // This script executes in the disposable document only. No real socket,
   // native SDK, credential, key, owner browser storage or auth flow exists.
   await f.page.evaluate(`window.__early = (() => { const options = ${JSON.stringify(options)};
