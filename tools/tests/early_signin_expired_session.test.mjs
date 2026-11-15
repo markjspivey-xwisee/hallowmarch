@@ -14,8 +14,9 @@ const identity = source('14v_nativeidentity.js', 'pr93-before-14v_nativeidentity
 const transport = source('14p_netws.js', 'pr93-before-14p_netws.js');
 const save = readFileSync(new URL('src/12_save.js', root), 'utf8').split('function graphicsSaveSettings()')[0];
 const ui = readFileSync(new URL('src/10_ui.js', root), 'utf8');
-const node = parse(ui, { ecmaVersion: 'latest' }).body.find(item => item.type === 'FunctionDeclaration' && item.id.name === 'titleEntryBlocked');
-const guard = ui.slice(node.start, node.end);
+const titleGuards = parse(ui, { ecmaVersion: 'latest' }).body
+  .filter(item => item.type === 'FunctionDeclaration' && ['titleEntryBlocked', 'titleDraftPreviewCurrent'].includes(item.id.name))
+  .map(item => ui.slice(item.start, item.end)).join('\n');
 const OLD = 'synthetic-expired-game-token', FRESH = 'synthetic-fresh-game-token', CANONICAL = 'synthetic-canonical-game-token';
 const OWNER = 'did:example:synthetic-existing-owner', POD = 'https://pod.example/synthetic-existing-owner/';
 const canonical = () => ({ enabled: true, bound: true, verified: true, account: { id: 'canonical-account' },
@@ -71,6 +72,10 @@ function fixture(options = {}) {
   store.set('synthetic-native-cache', 'sealed-existing-access'); store.set('synthetic-character-key', 'retained-existing-key');
   const nodes = Object.fromEntries(['loading-identity', 'loading-sign-in', 'loading-identity-status', 'btn-begin', 'btn-continue', 'character-create-fields', 'save-note']
     .map(id => [id, new Element(id.startsWith('btn-') || id === 'loading-sign-in' ? 'button' : 'div')]));
+  if (options.frontDoor) {
+    nodes['title-identity-slot'] = new Element('div');
+    nodes['loading-play-guest'] = new Element('button');
+  }
   const dom = new Element('main'), target = new Element('div'); target.className = 'card-body'; dom.appendChild(target);
   Object.values(nodes).forEach(item => dom.appendChild(item));
   const document = { activeElement: null, createElement: tag => new Element(tag), getElementById: id => nodes[id] || null,
@@ -140,7 +145,8 @@ function fixture(options = {}) {
     window: { __hm: {}, __HM_NET_SERVER: 'wss://game.example/ws', open() {
       counts.popup++; const popupStore = new Map(); const popup = { closed: false, document,
         sessionStorage: { getItem: key => popupStore.get(key) || null, setItem: (key, value) => popupStore.set(key, value) },
-        close() { popup.closed = true; counts.popupClosed++; }, location: { replace(url) { popup.destination = url; } } };
+        close() { popup.closed = true; counts.popupClosed++; }, focus() { popup.focused = true; },
+        location: { replace(url) { popup.destination = url; } } };
       popups.push(popup); return popup;
     } },
     GAME: { ready: false, started: false, player: null, built: false }, GRAPHICS_STARTUP: { stopped: false }, GRAPHICS_CONTEXT_LOST: false,
@@ -177,7 +183,7 @@ function fixture(options = {}) {
     : { doc: () => ({ async get() { counts.privateTokenReads++; await forgetGate.promise;
       return { exists: true, data: () => ({ tokens: { 'game.example': OLD } }) }; },
     async set() { counts.privateTokenWrites++; throw Error('No private-token write is permitted by this fixture.'); } }) } };
-  vm.runInContext(save + '\n' + transport + '\n' + guard + '\n' + identity + `
+  vm.runInContext(save + '\n' + transport + '\n' + titleGuards + '\n' + identity + `
     globalThis.H = { SAVE, NETWS, NATIVE_PLAYER, loadSave, netWsOpen, netWsRetire,
       render: nativePlayerRender, renderEarly: nativePlayerRenderEarlySignIn,
       connectedIdentity: nativePlayerConnectedIdentity, startupPending: nativePlayerStartupPending,
@@ -387,10 +393,14 @@ test('successful fresh sign-in from an expired retained session verifies the can
   assert(f.counts.requests.every(row => row.token !== 'sdk-only-synthetic-access')); assertNoGameplay(f);
 });
 
-test('restarting the pending expired-session popup reuses only its fresh game session and the old callback cannot select an owner', async () => {
+test('the pending popup can be focused, and a new sign-in after closing it ignores the old callback', async () => {
   const f = await knownExpired(); await f.clickLoader(); const oldChannel = f.channels.at(-1);
   const removals = f.counts.tokenRemoves.length, hellos = f.counts.packets.length;
-  assert.match(f.nodes['loading-sign-in'].textContent, /restart sign-in/i);
+  assert.match(f.nodes['loading-sign-in'].textContent, /return to sign-in/i);
+  await f.clickLoader(); assert.equal(f.counts.starts, 1); assert.equal(f.counts.popup, 1); assert.equal(f.popups[0].focused, true);
+  f.popups[0].close(); await f.advance(2000);
+  assert.equal(oldChannel.closed, true);
+  assert.equal(f.nodes['loading-sign-in'].textContent, 'Open my saved character');
   await f.clickLoader(); assert.equal(f.counts.starts, 2); assert.equal(f.counts.packets.length, hellos);
   assert.equal(f.counts.tokenRemoves.length, removals); assert.equal(oldChannel.closed, true);
   assert.deepEqual(f.counts.requests.filter(row => row.path === '/gaming/identity/start').map(row => row.token), [FRESH, FRESH]);
@@ -468,16 +478,24 @@ test('a current status401 is shown as an explicit fresh-sign-in route, with no a
   assertNoGameplay(f);
 });
 
-test('after an actual start401 the primary action does not repeatedly repost the rejected game bearer', async () => {
-  const f = fixture({ welcomeOld: true, empty: true, nonProvisional: true }); await f.initial();
-  f.context.GAME.ready = true; f.H.render();
-  const existing = f.target.querySelectorAll('button').find(button => button.textContent === 'I already have an identity');
-  assert(existing, 'Use the actual existing-identity action while Play now is still available.'); existing.onclick(); await until(() => !f.H.NATIVE_PLAYER.busy);
-  assert.deepEqual(f.counts.requests.filter(row => row.path === '/gaming/identity/start').map(row => row.token), [OLD]);
-  assert.match(f.primary()?.textContent || '', /fresh sign-in|sign in again/i); assert.equal(f.sockets.length, 1);
-  await f.clickPrimary(); assert.deepEqual(f.counts.requests.filter(row => row.path === '/gaming/identity/start').map(row => row.token), [OLD, FRESH]);
-  assert.equal(f.counts.starts, 2); assertNoGameplay(f);
-});
+for (const ready of [false, true]) {
+  test(`an expired empty guest retries in the same sign-in popup when the world is ${ready ? 'ready' : 'loading'}`, async () => {
+    const f = fixture({ welcomeOld: true, empty: true, nonProvisional: true, frontDoor: true }); await f.initial();
+    f.context.GAME.ready = ready; f.H.render();
+    const guest = f.nodes['loading-play-guest'], signIn = f.nodes['loading-sign-in'];
+    assert.equal(guest.hidden, false); assert.equal(signIn.textContent, 'Sign in');
+    await f.clickLoader();
+    assert.deepEqual(f.counts.requests.filter(row => row.path === '/gaming/identity/start').map(row => row.token), [OLD, FRESH]);
+    assert.equal(f.counts.starts, 2); assert.equal(f.counts.popup, 1); assert.equal(f.counts.popupClosed, 0);
+    assert.equal(f.popups[0].destination, 'https://identity.example/authorize');
+    assert.equal(guest.hidden, true);
+    f.popups[0].close(); await f.advance(2000);
+    assert.equal(f.H.NATIVE_PLAYER.channel, null); assert.equal(f.H.startupPending(), false);
+    assert.equal(signIn.disabled, false); assert.equal(signIn.textContent, 'Sign in');
+    assert.equal(guest.hidden, false); assert.equal(guest.disabled, false);
+    assertNoGameplay(f);
+  });
+}
 
 test('a reused title component without early policy still turns a current start401 into an explicit fresh-sign-in action', async () => {
   const f = fixture({ welcomeOld: true, empty: true, nonProvisional: true }); await f.initial();
