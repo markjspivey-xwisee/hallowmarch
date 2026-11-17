@@ -7,6 +7,10 @@ const SAVE_LOAD_SELECTIONS = new WeakMap();
 
 const withTimeout = (p, ms) => Promise.race([p, new Promise((res) => setTimeout(() => res(null), ms))]);
 async function initSaveBackend(initialization) {
+  // [guest] an Interego general guest's session keeps its character with the March's own server (14w_generalguest.js).
+  // Asked only where such a session is kept or arriving, so every other way in starts exactly as before.
+  const guest = typeof generalGuestWanted === 'function' && generalGuestWanted() ? await generalGuestSaveRef(initialization) : undefined;
+  if (guest !== undefined) return initialization.active ? guest : null;
   const native = await nativePlayerSaveRef(initialization);
   if (!initialization.active) return null;
   if (native) return native;

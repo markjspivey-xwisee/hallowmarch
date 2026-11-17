@@ -84,7 +84,7 @@ jobs:
               node --test tools/tests/season_ice_settle.test.mjs
               node --test tools/tests/early_title.test.mjs
               node --test tools/tests/early_signin.test.mjs
-              node --test tools/tests/early_signin_handoff.test.mjs tools/tests/early_signin_load.test.mjs
+              node --test tools/tests/early_signin_handoff.test.mjs tools/tests/early_signin_load.test.mjs tools/tests/general_guest_client.test.mjs tools/tests/general_guest_button.browser.test.mjs
               node --test tools/tests/early_signin_idle_transport.test.mjs
               node --test tools/tests/early_signin_expired_session.test.mjs
               node --test tools/tests/entry_feedback.test.mjs tools/tests/adaptive_quality_clock.test.mjs tools/tests/minimap_size_observer.test.mjs tools/tests/mobile_hud_spacing.test.mjs tools/tests/hud_watch_noise.test.mjs

@@ -155,6 +155,72 @@ receipts through the same native room store. Schedule that method only after
 the sink is configured. Revocation prevents subsequent export; already delivered
 records remain subject to the destination's own retention controls.
 
+## Interego's general guest (issue 105)
+
+One more way in, beside the per-application guest and owner sign-in, which are
+unchanged. A general guest is one guest per browser across every Interego
+application: its key lives on identity's guest door, never in this origin.
+`general-guest.js` is a plain-JavaScript port of Interego's
+`applications/_shared/guest-access/door.ts` and `session.ts`.
+
+Off unless `HM_GENERAL_GUEST` is exactly `1`. With it on, the server refuses to
+start unless all of these hold:
+
+```
+HM_GENERAL_GUEST=1
+HM_GENERAL_GUEST_DOOR_ORIGIN=https://door.interego.xwisee.com   # the door page's own origin
+HM_PUBLIC_ORIGIN or RAILWAY_PUBLIC_DOMAIN                       # this deployment's origin: the grant's audience
+the game's service agent (HM_GAMING_BOOTSTRAP=1, or the manual service identity)   # signs the grant through the relay
+```
+
+Identity is `HM_GAMING_SERVICE_IDENTITY_ORIGIN` (default
+`https://identity.interego.xwisee.com`) and the relay is
+`HM_INTEREGO_RELAY_CATALOG`, as for the per-application guest. In identity's
+`PROVISIONAL_PLAY_CLIENTS`, this deployment's entry needs `"generalGuest": true`
+and `"generalGuestReturnPath": "/guest/general/return"`.
+
+- `GET /guest/general/start` keeps a state and a PKCE verifier here, has the
+  service agent sign the grant through the relay's `sign_request` (the same
+  signer as the per-application grant), checks that what was signed carries the
+  five values asked for, binds the browser with the HttpOnly, Secure,
+  SameSite=Lax cookie `__Host-hallowmarch-guest-door`, and redirects to the door
+  with the grant in the fragment.
+- `GET /guest/general/return` is the one registered return path. It checks the
+  cookie binding and the state, posts `{code, codeVerifier, audience, state}` to
+  identity's `/guest/exchange` from the server, and checks every part of the
+  answer. A return without the cookie, or with another browser's, is refused and
+  spends nothing. It redirects to `/?interego-guest=arrived` (or `refused`,
+  `unavailable`, `busy`): a flag, never a code or a bearer.
+- `POST /guest/general/session` gives the page its game session once, by that
+  cookie, for a request whose `Origin` is this origin. Identity's token is
+  dropped with the exchange answer.
+
+Who the session is for: the registered account identity states the guest is
+linked to (`subjectAttributes.linkedTo`), else the guest. Both must be owners of
+the configured identity. The game account is derived from that subject DID
+(`gg-<sha256 of the DID>`), so a linked guest plays the same account character
+from any linked browser, and after an unlink the browser returns as itself.
+
+The session is this game's own bearer (`issueGeneralGuest` in
+`game-session.js`), bounded when it is made: never past `guestExpiresAt`, four
+hours at most, and ten minutes for a linked guest, after which the browser goes
+back through the door, where the link is read again. The bound is enforced on
+the open socket too. A general guest is never a native owner: its character is
+held by this server (`saves/gg-….json`), not in a pod, because the browser holds
+no key of its own in this origin. Its session is refused by every
+`/gaming/identity/*` route, keeps no name or password, receives no long-lived
+legacy bearer, and is no verified native principal: where native players are
+required it cannot enter the shared expedition, and it can neither delegate an
+agent nor found a company. A session that acts as a linked account cannot delete that
+account's character, and cannot reach the account's own pod character, ledger
+binding or legacy save at all (they belong to another game account).
+
+Tests: `general-guest.test.mjs` (the door, the checks, the bounds, link and
+unlink, against a stand-in identity), `general-guest-server.test.mjs` (the real
+server off, misconfigured and on) and `tools/tests/general_guest_client.test.mjs`
+(the page). None calls a live service; the deployed round trip with identity's
+door still needs its own check once identity registers the return path.
+
 ## Evidence and limitations
 
 Run `node --test server/gaming/*.test.mjs` and

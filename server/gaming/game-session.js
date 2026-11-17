@@ -1,13 +1,28 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 
 /** Game transport credentials only. Native OAuth keys/bearers never enter here. */
-export function createGameSessionTokens({ secret, now = Date.now, nativeTtlMs = 3_600_000, reauthenticationTtlMs = 86_400_000 } = {}) {
+export function createGameSessionTokens({ secret, now = Date.now, nativeTtlMs = 3_600_000, reauthenticationTtlMs = 86_400_000,
+  generalGuestTtlMs = 86_400_000, linkedGuestTtlMs = 600_000 } = {}) {
   if (typeof secret !== 'string' || !secret || !Number.isSafeInteger(nativeTtlMs) || nativeTtlMs < 1000 || nativeTtlMs > 3_600_000
-    || !Number.isSafeInteger(reauthenticationTtlMs) || reauthenticationTtlMs < 1000 || reauthenticationTtlMs > 86_400_000) {
+    || !Number.isSafeInteger(reauthenticationTtlMs) || reauthenticationTtlMs < 1000 || reauthenticationTtlMs > 86_400_000
+    || !Number.isSafeInteger(generalGuestTtlMs) || generalGuestTtlMs < 1000 || generalGuestTtlMs > 86_400_000
+    || !Number.isSafeInteger(linkedGuestTtlMs) || linkedGuestTtlMs < 1000 || linkedGuestTtlMs > 600_000) {
     throw new TypeError('Stable game signing secret and bounded native-session TTL required.');
   }
   const mac = body => createHmac('sha256', secret).update(body).digest('base64url');
   const validId = id => typeof id === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(id);
+  const guestDid = did => typeof did === 'string' && /^did:[a-z0-9]+:[^\s<>"'\\]{1,200}$/.test(did);
+  // A general guest's session (general-guest.js) is its own kind: it names the
+  // subject it acts as and the guest that arrived, and is never a native owner.
+  function guestClaims(claims, time) {
+    const g = claims.guest;
+    if (!g || typeof g !== 'object' || Array.isArray(g) || claims.nativeDid !== undefined || claims.nativeVerifiedAt !== undefined
+      || claims.provisional !== undefined || !guestDid(g.sub) || !guestDid(g.did) || !Number.isSafeInteger(g.at) || g.at < 0 || g.at > time
+      || (g.linked !== undefined && g.linked !== true) || (g.linked === true) === (g.sub === g.did)
+      || claims.exp <= g.at || claims.exp > g.at + (g.linked ? linkedGuestTtlMs : generalGuestTtlMs)) return null;
+    return { id: claims.id, exp: claims.exp, generalGuest: true, guestSubjectDid: g.sub, guestDid: g.did, guestIssuedAt: g.at,
+      ...(g.linked ? { linked: true } : {}) };
+  }
   const encode = claims => { const body = Buffer.from(JSON.stringify(claims)).toString('base64url'); return body + '.' + mac(body); };
   function signedClaims(token, time) {
     if (typeof token !== 'string' || token.length > 1000 || !/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{43}$/.test(token)) return null;
@@ -16,6 +31,7 @@ export function createGameSessionTokens({ secret, now = Date.now, nativeTtlMs = 
     let claims;
     try { claims = JSON.parse(Buffer.from(body, 'base64url').toString('utf8')); } catch { return null; }
     if (!claims || !validId(claims.id) || !Number.isSafeInteger(claims.exp)) return null;
+    if (claims.guest !== undefined) return guestClaims(claims, time);
     if (claims.nativeDid !== undefined || claims.nativeVerifiedAt !== undefined) {
       if (typeof claims.nativeDid !== 'string' || !/^did:[a-z0-9]+:[^\s<>"'\\]{1,400}$/.test(claims.nativeDid)
         || !Number.isSafeInteger(claims.nativeVerifiedAt) || claims.nativeVerifiedAt < 0 || claims.nativeVerifiedAt > time
@@ -38,6 +54,16 @@ export function createGameSessionTokens({ secret, now = Date.now, nativeTtlMs = 
       const verifiedAt = now(), expiresAt = Math.min(verifiedAt + nativeTtlMs, ownerExpiresAt ?? Infinity);
       if (typeof provisional !== 'boolean' || !Number.isSafeInteger(expiresAt) || expiresAt <= verifiedAt) throw new TypeError('Live native owner expiry required.');
       return { token: encode({ id, exp: expiresAt, nativeDid, nativeVerifiedAt: verifiedAt, ...(provisional ? { provisional: true } : {}) }), expiresAt };
+    },
+    /** A session for a general guest, bounded when it is made: never past
+     * `expiresAt`, and about ten minutes when it acts as a linked account. */
+    issueGeneralGuest(id, { subjectDid, guestDid: arrived, linked = false, expiresAt } = {}) {
+      const at = now();
+      if (!validId(id) || !guestDid(subjectDid) || !guestDid(arrived) || typeof linked !== 'boolean' || linked === (subjectDid === arrived)
+        || !Number.isSafeInteger(expiresAt)) throw new TypeError('General guest subject, arrival and expiry required.');
+      const exp = Math.min(expiresAt, at + (linked ? linkedGuestTtlMs : generalGuestTtlMs));
+      if (exp <= at) throw new TypeError('Live general guest expiry required.');
+      return { token: encode({ id, exp, guest: { sub: subjectDid, did: arrived, at, ...(linked ? { linked: true } : {}) } }), expiresAt: exp };
     },
     read(token) {
       const time = now(), claims = signedClaims(token, time);

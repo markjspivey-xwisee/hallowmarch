@@ -30,6 +30,8 @@ import { createAgentHttp, gamingAgentAffordances } from './gaming/agent-http.js'
 import { configuredNativeAgentHost } from './gaming/native-agent-host.js';
 import { createPlayerAccountHost } from './gaming/player-account-host.js';
 import { createGameSessionTokens } from './gaming/game-session.js';
+import { configuredGeneralGuest, createGeneralGuestAccounts } from './gaming/general-guest.js';
+import { createNativePlayGrantSigner } from './gaming/provisional-play.js';
 import { createPlayerBrowserAssets } from './gaming/player-browser-assets.js';
 import { createWorldAgentAssets } from './gaming/world-agent-assets.js';
 import { createPerformanceResourceHttp } from './gaming/performance-resource-http.js';
@@ -183,7 +185,6 @@ const worldsSave = () => {
 /* ------------------------------------------------------------------ */
 const GAME_SESSIONS = createGameSessionTokens({ secret: SECRET });
 const tokenFor = id => GAME_SESSIONS.issueLegacy(id);
-const tokenRead = token => GAME_SESSIONS.read(token)?.id || null;
 const cleanName = (s) => (typeof s === 'string' ? s.replace(/[^A-Za-z0-9 _'-]/g, '').trim().slice(0, 20) : '');
 function accountNew(name, guest, pass) {
   const id = (guest ? 'g' : 'a') + crypto.randomBytes(9).toString('base64url').replace(/[^A-Za-z0-9]/g, 'x');
@@ -209,8 +210,11 @@ function accountResolve(h) {
     if (!A || !A.pass || !crypto.timingSafeEqual(Buffer.from(crypto.scryptSync(pass, A.pass.salt, 32).toString('hex')), Buffer.from(A.pass.hash))) return { err: 'No such name and password' };
     return { A };
   }
-  const id = tokenRead(h.token);
-  if (id && ACCOUNTS[id]) return { A: ACCOUNTS[id] };
+  const claims = GAME_SESSIONS.read(h.token), id = claims?.id || null;
+  // A general guest's account is entered only by its own live, bounded session
+  // (issue 105): never by a long-lived legacy bearer, and not once the door is off.
+  if (claims?.generalGuest) { const A = generalGuestAccount(claims); if (A) return { A }; }
+  else if (id && ACCOUNTS[id] && ACCOUNTS[id].generalGuest !== true) return { A: ACCOUNTS[id] };
   // A rejected saved credential must never silently replace an active native
   // account with a new guest. Reauthentication uses its own HTTP-only verifier.
   if (typeof h.token === 'string' && h.token) return { err: 'Your sign-in expired. Reconnect your account to continue.', code: 'native_signin_required' };
@@ -286,7 +290,7 @@ const FIELD = makeField(SEASON, ROOMS, sendSeasonField, regionOf, WORLD, STATS, 
 WORLD_STATE?.attach({ worlds: WORLDS, season: SEASON, field: FIELD, rooms: ROOMS });
 // This is a Hallowmarch-owned participation ledger, not a copy of a player's
 // character. Personal saves remain in their owner's client-sealed pod record.
-const PLAYER_ACCOUNTS = createPlayerAccountHost({ store: gamingStore,
+const NATIVE_PLAYER_ACCOUNTS = createPlayerAccountHost({ store: gamingStore,
   publicOrigin: gamingEnvironment.HM_PUBLIC_ORIGIN || (gamingEnvironment.RAILWAY_PUBLIC_DOMAIN
     ? 'https://' + gamingEnvironment.RAILWAY_PUBLIC_DOMAIN : 'https://march-production-f6d9.up.railway.app'),
   clientName: 'hallowmarch', allowOwnerBrowserHandoff: true, successPath: '/gaming/identity/finish',
@@ -295,7 +299,10 @@ const PLAYER_ACCOUNTS = createPlayerAccountHost({ store: gamingStore,
   // commit and verified readback to settle; provider requests retain 15s.
   bindingTimeoutMs: 30_000,
   playRelayCatalog: gamingEnvironment.HM_INTEREGO_RELAY_CATALOG,
-  tokenClaims: token => GAME_SESSIONS.read(token), getAccount: id => ACCOUNTS[id] || null,
+  // A general guest's session is never a game account for the native owner
+  // ceremonies: it cannot bind, claim, link a record or read a legacy save.
+  tokenClaims: token => { const claims = GAME_SESSIONS.read(token); return claims?.generalGuest ? null : claims; },
+  getAccount: id => ACCOUNTS[id] || null,
   reauthenticationClaims: token => GAME_SESSIONS.readForReauthentication(token),
   provisionalProofClaims: token => GAME_SESSIONS.readForProvisionalProof(token),
   restoreAccount: record => {
@@ -319,7 +326,56 @@ const PLAYER_ACCOUNTS = createPlayerAccountHost({ store: gamingStore,
     return { token: session.token, acct: { id: account.id, name: account.name, guest: account.guest, nativeBound: true }, nativeVerifiedUntil: session.expiresAt };
   },
   readLegacySave: accountId => store.read(path.join('saves', accountId + '.json'), null) });
-await PLAYER_ACCOUNTS.ready;
+await NATIVE_PLAYER_ACCOUNTS.ready;
+// Interego's general guest (issue 105; server/gaming/general-guest.js): one guest
+// per browser across every application, admitted by a code round trip through
+// identity's guest door. Off unless HM_GENERAL_GUEST is exactly 1; on with a
+// prerequisite missing, the server refuses to start. Its session is this game's
+// own bounded bearer for a server-held character; it is never a native owner.
+const generalGuestAccount = claims => GENERAL_GUEST ? GENERAL_GUEST_ACCOUNTS.accountFor(claims) : null;
+const GENERAL_GUEST_ACCOUNTS = createGeneralGuestAccounts({ accounts: ACCOUNTS, sessions: GAME_SESSIONS });
+const GENERAL_GUEST = configuredGeneralGuest({ env: process.env,
+  publicOrigin: gamingEnvironment.HM_PUBLIC_ORIGIN || (gamingEnvironment.RAILWAY_PUBLIC_DOMAIN ? 'https://' + gamingEnvironment.RAILWAY_PUBLIC_DOMAIN : ''),
+  publicOriginConfigured: !!(gamingEnvironment.HM_PUBLIC_ORIGIN || gamingEnvironment.RAILWAY_PUBLIC_DOMAIN),
+  identityOrigin: gamingEnvironment.HM_GAMING_SERVICE_IDENTITY_ORIGIN || 'https://identity.interego.xwisee.com',
+  // The same service agent and relay signer the per-application guest grant uses.
+  signGrant: typeof gamingStore?.publicationIdentity === 'function' ? createNativePlayGrantSigner({
+    identityProvider: () => gamingStore.publicationIdentity(), catalogUrl: gamingEnvironment.HM_INTEREGO_RELAY_CATALOG }) : null,
+  issueSession: standing => GENERAL_GUEST_ACCOUNTS.issue(standing) });
+if (GENERAL_GUEST) console.log('general guest: on (door ' + GENERAL_GUEST.manifest().doorOrigin + ', return ' + GENERAL_GUEST.paths.return + ')');
+// Who a socket plays as. With the door on, a live general guest session is a
+// human principal for this deployment's entry policy; with it off, the native
+// host is used exactly as it is.
+const generalGuestPrincipal = c => GENERAL_GUEST ? GENERAL_GUEST_ACCOUNTS.principalFor(c) : null;
+const PLAYER_ACCOUNTS = GENERAL_GUEST ? Object.freeze({ ...NATIVE_PLAYER_ACCOUNTS,
+  humanPrincipalFor: c => c?.acct?.generalGuest === true ? generalGuestPrincipal(c) : NATIVE_PLAYER_ACCOUNTS.humanPrincipalFor(c) }) : NATIVE_PLAYER_ACCOUNTS;
+// A general guest's socket, before the ordinary ingress. Its session ends at its
+// bound on every deployment, whatever the native policy: nothing more is read,
+// written or played. While it lives it keeps no name or password here, and a
+// session that acts as a linked account never deletes that account's character
+// (its browser holds a guest's key, not the account's). True: answered here.
+function generalGuestIngress(c, raw) {
+  if (c.acct?.generalGuest !== true || typeof raw !== 'string' || raw.length > CFG.maxSave + 1024) return false;
+  let m;
+  try { m = JSON.parse(raw); } catch { return false; }
+  if (!m || typeof m.t !== 'string') return false;
+  if (generalGuestPrincipal(c)) {
+    if (m.t === 'acct') { send(c, { t: 'acct', ok: false, why: 'An Interego guest keeps its character by claiming or linking the guest with Interego' }); return true; }
+    if (m.t === 'wipe' && !GENERAL_GUEST_ACCOUNTS.mayDelete(c)) { send(c, { t: 'saved', ok: false, error: 'linked_guest_cannot_delete' }); return true; }
+    return false;
+  }
+  if (m.t === 'ping') return false;
+  HUMAN_PLAY.forget(c);
+  if (m.t === 'load') send(c, { t: 'save', d: null, error: 'native_identity_required' });
+  else if (m.t === 'save' || m.t === 'wipe') send(c, { t: 'saved', ok: false, error: 'native_identity_required' });
+  else if (m.t === 'acct') send(c, { t: 'acct', ok: false, why: 'Your Interego guest session ended' });
+  else if (m.t === 'slow' && c.liveAdmission !== 'identity-required') {
+    c.liveAdmission = 'identity-required';
+    send(c, { t: 'world-status', ok: true, standby: true, admission: 'identity-required', code: 'native_signin_required',
+      why: 'Your Interego guest session ended. Continue as an Interego guest to go on. Your character is saved.' });
+  }
+  return true;
+}
 const playerBrowserAssets = createPlayerBrowserAssets({ clientRoot: path.join(ROOT, 'client', 'native-pod') });
 const worldAgentAssets = createWorldAgentAssets({ clientFile: path.join(ROOT, 'client', 'world-agent-client.mjs') });
 const nativePlayerConfigured = gamingEnvironment.HM_GAMING_ENABLED === '1' || process.env.HM_GAMING_BOOTSTRAP === '1';
@@ -531,6 +587,7 @@ function sendWorldInit(c) {
   SHARED_SCENE.sync(c.room, c);
 }
 const gamingManifest = () => ({ ...GAMING.manifest(), nativeDiscovery: gamingCapabilityStatus(), worldAdmission: worldAdmission(),
+  ...(GENERAL_GUEST ? { generalGuest: GENERAL_GUEST.manifest() } : {}),
   mainWorldAgents: { ...worldAgentHost.manifest(), scope: 'main-world', nativePublication: playerCapabilityStatus() },
   worldAuthority: { ...worldPersistenceStatus(), status: '/gaming/world-state', descriptor: '/gaming/world-state/descriptor', nativePublication: worldCapabilityStatus() },
   ...(nativePlayerConfigured || gamingEnvironment.HM_NATIVE_AGENT_ENABLED === '1'
@@ -750,7 +807,8 @@ function onHello(c, h) {
   const nativeBound = c.acct.nativeBound === true || !!c.authClaims?.nativeDid || PLAYER_ACCOUNTS.isBound(c.acct.id);
   c.worldAdmission = world ? worldAdmission() : null;
   send(c, { t: 'welcome', v: 1, peer: c.peer, worldAdmission: c.worldAdmission, acct: { id: c.acct.id, name: c.acct.name, guest: c.acct.guest, nativeBound },
-    token: c.authClaims?.nativeDid ? h.token : tokenFor(c.acct.id), nativeBound,
+    ...(c.authClaims?.generalGuest === true ? { generalGuest: { expiresAt: c.authClaims.exp, linked: c.authClaims.linked === true } } : {}),
+    token: c.authClaims?.nativeDid || c.authClaims?.generalGuest ? h.token : tokenFor(c.acct.id), nativeBound,
     room: R.name, world, worldAuthority: worldPersistenceStatus(), interest: CFG.interest, season: !R.diagnostic && SEASON.RS ? { file: SEASON.M.file, speed: SEASON.speed } : null });
   for (const o of R.clients.values()) if (o !== c && o.slow) send(c, { t: 'peer', peer: o.peer, by: o.acct.id, slow: o.slow, fast: o.fast ? { ...o.fast, ev: [] } : undefined });
 }
@@ -759,6 +817,8 @@ function onHello(c, h) {
 // nothing the page saves before it reloads lands on the named account); six tries a minute a socket
 function onAcct(c, m) {
   const now = Date.now(), no = (why) => send(c, { t: 'acct', ok: false, why });
+  // A general guest keeps no name or password here: its session stays bounded by the door (issue 105).
+  if (c.acct.generalGuest === true) { no('An Interego guest keeps its character by claiming or linking the guest with Interego'); return; }
   if (m.op === 'claim' && companyAccount(c).nativeBound) { no('Use your native owner sign-in for this account'); return; }
   c.acctTries = (c.acctTries || []).filter((t) => now - t < 60000);
   if (c.acctTries.length >= 6) { STATS.acctRefused++; no('Too many tries: wait a minute'); return; }
@@ -1131,6 +1191,7 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(409, { 'content-type': 'application/json', 'cache-control': 'no-store' });
     res.end(JSON.stringify({ ok: false, error: 'human_play_required', standby: true })); return;
   }
+  if (GENERAL_GUEST && await GENERAL_GUEST.handle(req, res)) return;
   if (await PLAYER_ACCOUNTS.handle(req, res)) return;
   if (await nativeAgentHost.handle(req, res, u.pathname)) return;
   if (await worldAgentHost.handle(req, res, u.pathname)) return;
@@ -1204,7 +1265,7 @@ wss.on('connection', (ws) => {
   c.inactiveTimer = setTimeout(() => { if (!isHumanPlaying(c)) ws.close(4000, 'Human play not started'); }, 15000);
   c.inactiveTimer.unref?.();
   const helloTimer = setTimeout(() => { if (!c.acct && !c.gamingAgent) ws.close(4001, 'no hello'); }, 10000);
-  ws.on('message', (data) => { try { onMsg(c, String(data)); } catch (e) { STATS.badMsgs++; console.warn('message', e.message); } });
+  ws.on('message', (data) => { try { const raw = String(data); if (!generalGuestIngress(c, raw)) onMsg(c, raw); } catch (e) { STATS.badMsgs++; console.warn('message', e.message); } });
   ws.on('close', () => {
     clearTimeout(helloTimer); clearTimeout(c.inactiveTimer);
     HUMAN_PLAY.forget(c); LIVE_CONNECTIONS.delete(c);
