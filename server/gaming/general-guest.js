@@ -114,12 +114,12 @@ export function provisionalMayUse(facts, audience, nowMs) {
  * identity names it; `doorOrigin` is where identity serves the door page.
  */
 export function createGeneralGuestDoor({ identityOrigin, doorOrigin, audience, signGrant, fetch: transport = globalThis.fetch,
-  now = Date.now, maxVisits = 1024, timeoutMs = 15_000 } = {}) {
+  now = Date.now, maxVisits = 1024, timeoutMs = 15_000, keepPodToken = false } = {}) {
   const issuer = httpsOrigin(identityOrigin, 'The identity origin'), door = httpsOrigin(doorOrigin ?? identityOrigin, 'The door origin');
   const application = httpsOrigin(audience, 'The application audience');
   if (typeof signGrant !== 'function' || typeof transport !== 'function' || typeof now !== 'function'
     || !Number.isSafeInteger(maxVisits) || maxVisits < 1 || maxVisits > 4096
-    || !Number.isSafeInteger(timeoutMs) || timeoutMs < 100 || timeoutMs > 30_000) throw new TypeError('Bounded general guest door ports required.');
+    || !Number.isSafeInteger(timeoutMs) || timeoutMs < 100 || timeoutMs > 30_000 || typeof keepPodToken !== 'boolean') throw new TypeError('Bounded general guest door ports required.');
   const visits = new Map(); let starting = 0, closed = false;
   const prune = () => { const time = now(); for (const [state, visit] of visits) if (visit.expiresAt <= time) visits.delete(state); };
 
@@ -155,7 +155,9 @@ export function createGeneralGuestDoor({ identityOrigin, doorOrigin, audience, s
    * Finish the visit the browser returned from. A return presented with the
    * visit's own binding spends the visit, whatever identity then answers; one
    * presented without it, or with another's, is refused and spends nothing.
-   * Identity's token for the guest is not part of what this returns.
+   * Identity's token for the guest is not part of what this returns, unless
+   * the door was made to keep it for the guest's own pod (`keepPodToken`):
+   * then it is returned apart, as `pod`, for general-guest-pod.js alone.
    */
   async function finish({ code, state, binding } = {}) {
     if (closed || !text(state, 128) || !STATE.test(state) || !text(code, 2048) || !/^[\x21-\x7e]+$/.test(code)
@@ -181,7 +183,13 @@ export function createGeneralGuestDoor({ identityOrigin, doorOrigin, audience, s
       || !facts || facts.subject !== body.ownerDid || Number(facts.standingUntil) * 1000 !== expires) refuse(401, 'guest_door_exchange_refused');
     // The application's own decision over what identity stated, default-deny.
     if (!provisionalMayUse(facts, application, now())) refuse(403, 'guest_access_denied');
-    return { userId: body.userId, ownerDid: body.ownerDid, guestExpiresAt: expires, attributes: structuredClone(facts) };
+    const guest = { userId: body.userId, ownerDid: body.ownerDid, guestExpiresAt: expires, attributes: structuredClone(facts) };
+    if (!keepPodToken) return guest;
+    // The application token writes two sealed documents of the guest's own pod and nothing else (the storage gate's rule).
+    const pod = text(body.token, 8192) && text(body.tokenExpiresAt, 64) && text(body.podUrl, 2048)
+      && (body.namespace === undefined || text(body.namespace, 32))
+      ? { token: body.token, tokenExpiresAt: body.tokenExpiresAt, podUrl: body.podUrl, namespace: body.namespace ?? 'hallowmarch' } : null;
+    return { ...guest, pod };
   }
   return Object.freeze({ identityOrigin: issuer, doorOrigin: door, audience: application, start, finish,
     /** A browser starting again gives up the visit it had: one browser holds one place. */
@@ -204,7 +212,7 @@ export function guestSessionStanding(guest, now, maxSessionMs) {
   if (!subject || (linked && subject === guest.ownerDid)) refuse(401, 'guest_door_exchange_refused');
   const expiresAt = Math.min(guest.guestExpiresAt, now + maxSessionMs, linked ? now + LINKED_GUEST_SESSION_MS : Infinity);
   if (!Number.isFinite(expiresAt) || expiresAt <= now) refuse(401, 'guest_door_exchange_refused');
-  return { subject, linked, guestDid: guest.ownerDid, expiresAt };
+  return { subject, linked, guestDid: guest.ownerDid, expiresAt, guestExpiresAt: guest.guestExpiresAt };
 }
 
 function cookieOf(req, name) {
@@ -232,7 +240,8 @@ const setCookie = (value, maxAgeSeconds) => `${GENERAL_GUEST_COOKIE}=${value}; P
  */
 export function createGeneralGuestHost({ door, publicOrigin, startPath = '/guest/general/start', returnPath = '/guest/general/return',
   sessionPath = '/guest/general/session', landingPath = '/', issueSession, maxSessionMs = 4 * 3_600_000, now = Date.now,
-  maxArrivals = 256, startsPerMinute = 30 } = {}) {
+  maxArrivals = 256, startsPerMinute = 6, startsPerMinuteAll = 90, requestsPerMinute = 60, sessionsPerGuest = 12,
+  clientAddress = req => req.socket?.remoteAddress || 'unknown', pod = null } = {}) {
   const origin = httpsOrigin(publicOrigin, 'The public origin'), host = new URL(origin).host;
   const paths = Object.freeze({ start: generalGuestPath(startPath, 'The start path'), return: generalGuestPath(returnPath, 'The return path'),
     session: generalGuestPath(sessionPath, 'The session path') });
@@ -240,9 +249,25 @@ export function createGeneralGuestHost({ door, publicOrigin, startPath = '/guest
   if (new Set(Object.values(paths)).size !== 3 || !door || door.audience !== origin || typeof issueSession !== 'function'
     || typeof now !== 'function' || !Number.isSafeInteger(maxSessionMs) || maxSessionMs < 60_000 || maxSessionMs > 86_400_000
     || !Number.isSafeInteger(maxArrivals) || maxArrivals < 1 || maxArrivals > 4096
-    || !Number.isSafeInteger(startsPerMinute) || startsPerMinute < 1) throw new TypeError('The general guest door must name this game as its audience, with bounded ports.');
+    || !Number.isSafeInteger(startsPerMinute) || startsPerMinute < 1 || !Number.isSafeInteger(startsPerMinuteAll) || startsPerMinuteAll < startsPerMinute
+    // Every started visit holds a place at the door for ten minutes: all the starts of that time must fit under its ceiling.
+    || startsPerMinuteAll > 100 || !Number.isSafeInteger(requestsPerMinute) || requestsPerMinute < 1
+    || !Number.isSafeInteger(sessionsPerGuest) || sessionsPerGuest < 1 || typeof clientAddress !== 'function'
+    || (pod !== null && !['shadow', 'authoritative'].includes(pod))) throw new TypeError('The general guest door must name this game as its audience, with bounded ports.');
   const arrivals = new Map(), starts = []; let closed = false;
-  const counts = { started: 0, returned: 0, refused: 0, collected: 0 };
+  const counts = { started: 0, returned: 0, refused: 0, collected: 0, limited: 0 };
+  // One window a key (a client address, or a guest): `limit` in `windowMs`. Bounded, so a flood of addresses cannot grow it.
+  const windows = new Map();
+  function allowed(kind, key, limit, windowMs = 60_000) {
+    const time = now(), name = kind + ':' + key;
+    let hits = (windows.get(name) ?? []).filter(at => at > time - windowMs);
+    if (hits.length >= limit) { windows.set(name, hits); counts.limited++; return false; }
+    hits.push(time); windows.delete(name); windows.set(name, hits);
+    // Least lately used first (a key is put back at the end each time it is counted).
+    if (windows.size > 8192) for (const other of windows.keys()) { if (windows.size <= 4096) break; windows.delete(other); }
+    return true;
+  }
+  const address = req => { let value; try { value = clientAddress(req); } catch { value = null; } return typeof value === 'string' && value.length > 0 && value.length <= 64 ? value : 'unknown'; };
   const headers = extra => ({ 'Cache-Control': 'no-store', Pragma: 'no-cache', 'Referrer-Policy': 'no-referrer', 'X-Content-Type-Options': 'nosniff', ...extra });
   const json = (res, status, value, extra = {}) => { res.writeHead(status, headers({ 'Content-Type': 'application/json; charset=utf-8', ...extra })); res.end(JSON.stringify(value)); };
   const redirect = (res, location, extra = {}) => { res.writeHead(302, headers({ Location: location, ...extra })); res.end(); };
@@ -252,8 +277,14 @@ export function createGeneralGuestHost({ door, publicOrigin, startPath = '/guest
 
   async function start(req, res) {
     const time = now();
+    // Only this origin's own page, or an address typed or followed from nowhere, starts a visit: another
+    // site cannot send a visitor's browser into the door (browsers that state where a navigation came from).
+    const from = req.headers['sec-fetch-site'];
+    if (from !== undefined && from !== 'same-origin' && from !== 'none') { counts.refused++; return redirect(res, landing('refused')); }
+    // Per client first, so one address cannot spend what the others share; then the ceiling for all.
+    if (!allowed('start', address(req), startsPerMinute)) { counts.refused++; return redirect(res, landing('busy')); }
     while (starts.length && starts[0] <= time - 60_000) starts.shift();
-    if (starts.length >= startsPerMinute) { counts.refused++; return redirect(res, landing('busy')); }
+    if (starts.length >= startsPerMinuteAll) { counts.refused++; return redirect(res, landing('busy')); }
     starts.push(time);
     const abandoned = cookieOf(req, GENERAL_GUEST_COOKIE);
     if (abandoned && BINDING.test(abandoned)) { door.abandon(abandoned); arrivals.delete(digest(abandoned)); }
@@ -272,6 +303,7 @@ export function createGeneralGuestHost({ door, publicOrigin, startPath = '/guest
     const code = url.searchParams.get('code'), state = url.searchParams.get('state');
     // A return without this browser's cookie, or with anything but one code and one state, finishes nothing and spends nothing.
     if (!binding || !BINDING.test(binding) || keys.length !== 2 || !code || !state) { counts.refused++; return redirect(res, landing('refused')); }
+    if (!allowed('return', address(req), requestsPerMinute)) { counts.refused++; return redirect(res, landing('busy')); }
     let guest;
     try { guest = await door.finish({ code, state, binding }); }
     catch (error) {
@@ -283,14 +315,19 @@ export function createGeneralGuestHost({ door, publicOrigin, startPath = '/guest
     let session;
     try {
       const standing = guestSessionStanding(guest, now(), maxSessionMs);
-      session = await issueSession(Object.freeze({ ...standing, userId: guest.userId }));
+      // One guest, whatever addresses it comes from, is issued a bounded number of sessions in ten minutes.
+      if (!allowed('guest', guest.userId, sessionsPerGuest, 600_000)) refuse(429, 'guest_door_busy');
+      // The guest's pod token (where the door keeps one) goes beside the standing, never in it, and never for a
+      // linked guest: that session plays an account's character, which is not the guest's own to keep.
+      session = await issueSession(Object.freeze({ ...standing, userId: guest.userId }), standing.linked ? null : guest.pod ?? null);
       if (!plain(session) || !text(session.token, 8192) || !plain(session.acct) || !text(session.acct.id, 256)
         || !Number.isSafeInteger(session.expiresAt) || session.expiresAt > standing.expiresAt || session.expiresAt <= now()) refuse(503, 'guest_session_unavailable');
       session = { token: session.token, acct: { id: session.acct.id, name: String(session.acct.name ?? 'Guest').slice(0, 80), guest: true, generalGuest: true },
         expiresAt: session.expiresAt, linked: standing.linked };
     } catch (error) {
       counts.refused++;
-      return redirect(res, landing(error instanceof GeneralGuestError && error.status === 401 ? 'refused' : 'unavailable'), { 'Set-Cookie': setCookie('', 0) });
+      return redirect(res, landing(error instanceof GeneralGuestError && error.status === 401 ? 'refused'
+        : error instanceof GeneralGuestError && error.status === 429 ? 'busy' : 'unavailable'), { 'Set-Cookie': setCookie('', 0) });
     }
     pruneArrivals();
     while (arrivals.size >= maxArrivals) arrivals.delete(arrivals.keys().next().value);
@@ -300,6 +337,7 @@ export function createGeneralGuestHost({ door, publicOrigin, startPath = '/guest
   }
 
   function collect(req, res) {
+    if (!allowed('session', address(req), requestsPerMinute)) return json(res, 429, { error: 'general_guest_busy' }, { 'Retry-After': '60' });
     const binding = cookieOf(req, GENERAL_GUEST_COOKIE), key = binding && BINDING.test(binding) ? digest(binding) : null;
     pruneArrivals();
     const arrival = key ? arrivals.get(key) : null;
@@ -311,7 +349,8 @@ export function createGeneralGuestHost({ door, publicOrigin, startPath = '/guest
   }
 
   return Object.freeze({ paths,
-    manifest() { return { enabled: !closed, startPath: paths.start, returnPath: paths.return, sessionPath: paths.session, doorOrigin: door.doorOrigin }; },
+    manifest() { return { enabled: !closed, startPath: paths.start, returnPath: paths.return, sessionPath: paths.session, doorOrigin: door.doorOrigin,
+      ...(pod ? { pod } : {}) }; },
     status() { pruneArrivals(); return { enabled: !closed, ...door.status(), arrivals: arrivals.size, ...counts }; },
     close() { closed = true; arrivals.clear(); door.close(); },
     /** Answers true where the request was one of the three routes. */
@@ -355,14 +394,17 @@ export function generalGuestAccountId(subjectDid) {
  *   mayDelete     false for a session that acts as a linked account: that
  *                 browser holds a guest's key, not the account's.
  */
-export function createGeneralGuestAccounts({ accounts, sessions, now = Date.now } = {}) {
+export function createGeneralGuestAccounts({ accounts, sessions, now = Date.now, changed = () => {} } = {}) {
   if (!plain(accounts) || typeof sessions?.issueGeneralGuest !== 'function' || typeof sessions.read !== 'function'
-    || typeof now !== 'function') throw new TypeError('The game account table and its session tokens are required.');
+    || typeof now !== 'function' || typeof changed !== 'function') throw new TypeError('The game account table and its session tokens are required.');
   const live = claims => plain(claims) && claims.generalGuest === true && typeof claims.guestSubjectDid === 'string'
     && Number.isFinite(claims.exp) && claims.exp > now() && claims.id === generalGuestAccountId(claims.guestSubjectDid);
   function accountFor(claims) {
     if (!live(claims)) return null;
-    if (!Object.hasOwn(accounts, claims.id)) accounts[claims.id] = { id: claims.id, name: 'Guest', guest: true, generalGuest: true, created: now(), last: now() };
+    if (!Object.hasOwn(accounts, claims.id)) {
+      accounts[claims.id] = { id: claims.id, name: 'Guest', guest: true, generalGuest: true, created: now(), last: now(), ...(claims.linked ? { linked: true } : {}) };
+      changed();
+    }
     const account = accounts[claims.id];
     return account.id === claims.id && account.generalGuest === true && account.guest === true && !account.pass && !account.nativeBound ? account : null;
   }
@@ -374,6 +416,10 @@ export function createGeneralGuestAccounts({ accounts, sessions, now = Date.now 
         guestDid: standing.guestDid, linked: standing.linked, expiresAt: standing.expiresAt });
       const account = accountFor(sessions.read(session.token));
       if (!account) throw new Error('General guest account is unavailable.');
+      // What the sweep reads (generalGuestSweep): whether the character is an account's, the guest's own deadline, the last arrival.
+      if (standing.linked) account.linked = true; else delete account.linked;
+      if (Number.isFinite(standing.guestExpiresAt) && !standing.linked) account.guestUntil = Math.floor(standing.guestExpiresAt); else delete account.guestUntil;
+      account.last = now(); changed();
       return { token: session.token, acct: { id: account.id, name: account.name }, expiresAt: session.expiresAt };
     },
     principalFor(client) {
@@ -382,6 +428,34 @@ export function createGeneralGuestAccounts({ accounts, sessions, now = Date.now 
     },
     mayDelete(client) { return !(client?.authClaims?.generalGuest === true && client.authClaims.linked === true); },
   });
+}
+
+const GUEST_LIFE_MS = 7 * 86_400_000;
+/**
+ * The general guest accounts whose characters are no longer anyone's, by the
+ * game's own table and clock (identity is not asked):
+ *
+ *   an unlinked guest's   an hour after the guest's own deadline as identity
+ *                         stated it at its last arrival; where none was kept
+ *                         (an account made before this), a guest's longest
+ *                         life after its last arrival;
+ *   a linked account's    after `linkedIdleMs` with no arrival: the character
+ *                         is the account's, not the guest's, so no guest's
+ *                         deadline ends it.
+ *
+ * Answers the ids. The caller removes each account, its save and its pod token.
+ */
+export function generalGuestSweep({ accounts, now, graceMs = 3_600_000, linkedIdleMs = 90 * 86_400_000 } = {}) {
+  if (!plain(accounts) || !Number.isFinite(now) || !(graceMs >= 0) || !(linkedIdleMs >= 86_400_000)) throw new TypeError('The account table, a clock and bounded ages are required.');
+  const gone = [];
+  for (const [id, account] of Object.entries(accounts)) {
+    if (!plain(account) || account.generalGuest !== true || account.id !== id || !/^gg-[0-9a-f]{40}$/.test(id)) continue;
+    const seen = Math.max(Number.isFinite(account.last) ? account.last : 0, Number.isFinite(account.created) ? account.created : 0);
+    const until = account.linked === true ? seen + linkedIdleMs
+      : (Number.isFinite(account.guestUntil) ? Math.min(account.guestUntil, seen + GUEST_LIFE_MS) : seen + GUEST_LIFE_MS) + graceMs;
+    if (until < now) gone.push(id);
+  }
+  return gone;
 }
 
 /**
@@ -398,7 +472,7 @@ export function createGeneralGuestAccounts({ accounts, sessions, now = Date.now 
  * when. Both the guest and a linked account must be owners of this identity.
  */
 export function configuredGeneralGuest({ env = {}, publicOrigin, publicOriginConfigured = false, identityOrigin, signGrant, issueSession,
-  fetch: transport = globalThis.fetch, now = Date.now } = {}) {
+  fetch: transport = globalThis.fetch, now = Date.now, pod = null } = {}) {
   if (env.HM_GENERAL_GUEST !== '1') return null;
   const missing = message => { throw new Error('HM_GENERAL_GUEST=1: ' + message); };
   if (!env.HM_GENERAL_GUEST_DOOR_ORIGIN) missing('HM_GENERAL_GUEST_DOOR_ORIGIN is not set (the guest door\'s HTTPS origin).');
@@ -408,14 +482,22 @@ export function configuredGeneralGuest({ env = {}, publicOrigin, publicOriginCon
   let door, issuer;
   try {
     issuer = httpsOrigin(identityOrigin, 'The identity origin');
-    door = createGeneralGuestDoor({ identityOrigin: issuer, doorOrigin: env.HM_GENERAL_GUEST_DOOR_ORIGIN, audience: publicOrigin, signGrant, fetch: transport, now });
+    door = createGeneralGuestDoor({ identityOrigin: issuer, doorOrigin: env.HM_GENERAL_GUEST_DOOR_ORIGIN, audience: publicOrigin, signGrant, fetch: transport, now,
+      keepPodToken: pod !== null });
   } catch (error) { missing(error instanceof TypeError ? error.message + '.' : 'the door could not be configured.'); }
   const users = `did:web:${new URL(issuer).host.replace(/:/g, '%3A')}:users:`;
-  return createGeneralGuestHost({ door, publicOrigin, now, issueSession: standing => {
+  // Behind a proxy every socket is the proxy's: the deployment names the one header its proxy sets with the client's address.
+  const header = env.HM_GENERAL_GUEST_CLIENT_IP_HEADER;
+  if (header !== undefined && header !== '' && !/^[a-z][a-z0-9-]{0,63}$/.test(header)) missing('HM_GENERAL_GUEST_CLIENT_IP_HEADER must be one lower-case header name.');
+  const clientAddress = req => {
+    const stated = header ? req.headers[header] : undefined;
+    return typeof stated === 'string' && /^[0-9A-Fa-f:.]{2,45}$/.test(stated.trim()) ? stated.trim() : req.socket?.remoteAddress || 'unknown';
+  };
+  return createGeneralGuestHost({ door, publicOrigin, now, pod, clientAddress, issueSession: (standing, guestPod) => {
     // The guest, and the account it is linked to, are owners of THIS identity and never the same one.
     const account = standing.subject.startsWith(users) ? standing.subject.slice(users.length) : '';
     if (standing.guestDid !== users + standing.userId || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(account)
       || (standing.linked ? account === standing.userId : standing.subject !== standing.guestDid)) refuse(401, 'guest_door_exchange_refused');
-    return issueSession(standing);
+    return issueSession(standing, guestPod ?? null);
   } });
 }

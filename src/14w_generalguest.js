@@ -7,6 +7,10 @@
  *   - on the way back collects its game session once, by that cookie, and takes the flag out of
  *     the address (no code and no bearer is ever in an address);
  *   - plays with the March's server holding the character (the save's `load`, `save`, `wipe`);
+ *   - where the server says so (`pod`), also keeps an unlinked guest's character in the guest's OWN Interego pod,
+ *     sealed here with an X25519 key this browser makes and never sends (guest-checkpoint.mjs): the server forwards
+ *     ciphertext only. `shadow`: beside the server's save. `authoritative`: instead of it, with this browser's
+ *     own copy between the pod's spaced writes. Another browser cannot open what this one sealed;
  *   - when the session's bound comes (a guest's own deadline; about ten minutes for a guest
  *     linked to an account, so an unlink reaches this browser), saves and asks to go back
  *     through the door, where identity reads the link again.
@@ -28,7 +32,8 @@ function generalGuestPolicy() {
     const m = window.__HM_GAMING && window.__HM_GAMING.generalGuest;
     const path = (p) => typeof p === 'string' && /^\/[A-Za-z0-9._~/-]{1,127}$/.test(p) && !p.includes('//') && !p.includes('..');
     if (origin !== location.origin || !m || m.enabled !== true || !path(m.startPath) || !path(m.sessionPath)) return null;
-    return { host: u.host, start: origin + m.startPath, session: origin + m.sessionPath };
+    return { host: u.host, start: origin + m.startPath, session: origin + m.sessionPath,
+      pod: m.pod === 'shadow' || m.pod === 'authoritative' ? m.pod : null };
   } catch (e) { return null; }
 }
 const generalGuestKey = (host) => 'hallowmarch.generalguest.' + host;
@@ -110,7 +115,11 @@ function generalGuestWatch() {
   const s = GENERAL_GUEST.session;
   if (!s) return;
   const left = s.expiresAt - Date.now();
-  GENERAL_GUEST.timers.push(setTimeout(() => { if (GAME.started && GAME.player && typeof saveNow === 'function') saveNow(); }, Math.max(0, left - 25000)));
+  GENERAL_GUEST.timers.push(setTimeout(() => {
+    if (!GAME.started || !GAME.player || typeof saveNow !== 'function') return;
+    // The pod's copy is brought up to date before the session's token goes with its bound.
+    Promise.resolve(saveNow()).then(() => generalGuestPodFlush(), () => {});
+  }, Math.max(0, left - 25000)));
   GENERAL_GUEST.timers.push(setTimeout(generalGuestEnded, Math.max(0, left - 2000)));
 }
 // Is a guest session kept here, or arriving? Synchronous, so a boot with neither starts exactly as it always did.
@@ -154,11 +163,146 @@ async function generalGuestSaveRef(initialization) {
     setTimeout(() => location.reload(), 50);
     return null;
   }
-  GENERAL_GUEST.session = { host: policy.host, accountId: marker.accountId, expiresAt: marker.expiresAt, linked: marker.linked, start: policy.start };
+  GENERAL_GUEST.session = { host: policy.host, accountId: marker.accountId, expiresAt: marker.expiresAt, linked: marker.linked, start: policy.start,
+    pod: marker.linked ? null : policy.pod };
   generalGuestRender(); generalGuestWatch();
   if (!ref) return null; // the server could not be reached: this browser keeps the character until it can
-  return { server: true, generalGuest: true, get: ref.get, set: ref.set,
+  const pod = GENERAL_GUEST.session.pod;
+  if (pod === 'authoritative') {
+    // The pod holds the character, so a session whose pod token the server no longer has (it restarted) keeps
+    // nothing: back through the door, where a fresh one is given.
+    const state = await generalGuestPodAsk({ op: 'budget' });
+    if (!initialization.active) return null;
+    if (state && state.ok === false && state.code !== 'busy') {
+      generalGuestEnd(policy.host); NETWS.reload = true;
+      setTimeout(() => location.reload(), 50);
+      return null;
+    }
+    return { server: true, generalGuest: true, generalGuestPod: pod, get: () => generalGuestPodGet(ref), set: generalGuestPodSet, delete: () => generalGuestPodDelete(ref) };
+  }
+  return { server: true, generalGuest: true, get: ref.get,
+    // Shadow: the server's save is the character; the sealed copy follows it and never delays or fails it.
+    set: pod === 'shadow' ? async (s, o) => { await ref.set(s, o); void generalGuestPodPut(s, o); } : ref.set,
     // A guest linked to an account plays that account's guest character and never deletes it.
     delete: marker.linked ? async () => { throw { code: 'not_granted' }; } : ref.delete };
 }
+
+/* ---- an unlinked guest's character in the guest's own pod ---- */
+// This game's part of the guest's lifetime write budget at the pod (1024 attempts and 32 MiB for every application
+// together): the server keeps the same count and refuses past it; the page keeps its own so it never asks in vain.
+const GENERAL_GUEST_POD = { vault: null, vaultFor: '', waits: new Map(), n: 0, busy: false, dirty: null, timer: 0,
+  WRITES: 192, BYTES: 12 * 1024 * 1024, INTERVAL: 10 * 60000, FLOOR: 5 * 60000, SPREAD: 32 * 3600000,
+  stats: { sealed: 0, written: 0, failed: 0, skipped: 0, opened: 0, unreadable: 0, last: '' },
+  load: () => import('/gaming/identity/assets/guest-checkpoint.mjs') };
+const generalGuestPodKey = (account) => 'hallowmarch.generalguest.pod.' + account;
+function generalGuestPodUsage(account) {
+  let u = null;
+  try { u = JSON.parse(localStorage.getItem(generalGuestPodKey(account)) || 'null'); } catch (e) { u = null; }
+  const n = (v) => (Number.isSafeInteger(v) && v >= 0 ? v : 0);
+  return { writes: n(u && u.writes), bytes: n(u && u.bytes), lastAt: n(u && u.lastAt), lastBytes: n(u && u.lastBytes), wipedAt: n(u && u.wipedAt) };
+}
+function generalGuestPodKeep(account, usage) {
+  try { localStorage.setItem(generalGuestPodKey(account), JSON.stringify(usage)); } catch (e) { /* storage blocked: the server still counts */ }
+}
+// Ten minutes between writes, longer for a large character, so the byte part lasts about 32 hours of play.
+const generalGuestPodInterval = (bytes) => Math.max(GENERAL_GUEST_POD.INTERVAL, Math.ceil(GENERAL_GUEST_POD.SPREAD * bytes / GENERAL_GUEST_POD.BYTES));
+function generalGuestPodReply(m) {
+  const wait = GENERAL_GUEST_POD.waits.get(m && m.n);
+  if (wait) { GENERAL_GUEST_POD.waits.delete(m.n); wait(m); }
+}
+function generalGuestPodAsk(o) {
+  return new Promise((resolve) => {
+    const n = ++GENERAL_GUEST_POD.n;
+    if (typeof netWsSend !== 'function' || NETWS.state !== 'on' || !netWsSend({ t: 'gpod', n, ...o })) { resolve(null); return; }
+    GENERAL_GUEST_POD.waits.set(n, resolve);
+    setTimeout(() => { if (GENERAL_GUEST_POD.waits.delete(n)) resolve(null); }, 25000);
+  });
+}
+async function generalGuestPodVault() {
+  const s = GENERAL_GUEST.session;
+  if (!s || !s.pod) return null;
+  if (GENERAL_GUEST_POD.vault && GENERAL_GUEST_POD.vaultFor === s.accountId) return GENERAL_GUEST_POD.vault;
+  const module = await GENERAL_GUEST_POD.load();
+  GENERAL_GUEST_POD.vault = module.createGuestCheckpoint({ account: s.accountId }); GENERAL_GUEST_POD.vaultFor = s.accountId;
+  return GENERAL_GUEST_POD.vault;
+}
+// Seal the character here and have the server forward the envelope. Never throws; answers whether the pod took it.
+async function generalGuestPodPut(save, { final = false } = {}) {
+  const s = GENERAL_GUEST.session, P = GENERAL_GUEST_POD, done = (kind, why) => { P.stats[kind]++; P.stats.last = why; return kind === 'written'; };
+  if (!s || !s.pod) return false;
+  const usage = generalGuestPodUsage(s.accountId), time = Date.now();
+  const due = usage.lastAt + (final ? P.FLOOR : Math.max(P.FLOOR, generalGuestPodInterval(usage.lastBytes)));
+  if (P.busy || time < due) {
+    // Kept for the next write that is due: the pod's copy lags, it is never dropped.
+    P.dirty = save;
+    if (!P.timer && !P.busy) P.timer = setTimeout(() => { P.timer = 0; void generalGuestPodFlush(); }, Math.min(due - time + 250, 2147483647));
+    return done('skipped', P.busy ? 'busy' : 'spaced');
+  }
+  if (usage.writes >= P.WRITES || usage.bytes >= P.BYTES) return done('skipped', 'budget');
+  P.busy = true; P.dirty = null;
+  try {
+    const vault = await generalGuestPodVault();
+    if (!vault || GENERAL_GUEST.session !== s) return done('failed', 'no_vault');
+    const sealed = await vault.seal(save);
+    if (usage.bytes + sealed.bytes > P.BYTES) return done('skipped', 'budget');
+    P.stats.sealed++;
+    // Counted before it is sent, as the server and the pod count it: an attempt is spent whatever is answered.
+    generalGuestPodKeep(s.accountId, { ...usage, writes: usage.writes + 1, bytes: usage.bytes + sealed.bytes, lastAt: time, lastBytes: sealed.bytes });
+    const reply = await generalGuestPodAsk({ op: 'put', env: sealed.envelope });
+    if (reply && reply.ok) return done('written', 'ok');
+    const code = reply && typeof reply.code === 'string' ? reply.code : 'no_reply';
+    // Refused before anything left the server: the attempt was not spent.
+    if (!reply || ['too_soon', 'busy', 'reauth', 'not_sealed', 'linked', 'off'].includes(code)) generalGuestPodKeep(s.accountId, { ...usage, lastAt: code === 'too_soon' ? time : usage.lastAt });
+    if (code === 'budget' || code === 'pod_full') generalGuestPodKeep(s.accountId, { ...usage, writes: P.WRITES, lastAt: time });
+    if (code !== 'budget' && code !== 'pod_full' && code !== 'not_sealed') P.dirty = save;
+    // The server no longer holds this guest's pod token: where the pod is the character, back through the door.
+    if (code === 'reauth' && s.pod === 'authoritative' && GENERAL_GUEST.session === s) generalGuestEnded();
+    return done('failed', code);
+  } catch (e) { return done('failed', e && e.code === 'too_large' ? 'too_large' : 'seal'); }
+  finally { P.busy = false; }
+}
+// What was held back by the spacing goes once it is due (and before the session's bound, or as the page is hidden).
+function generalGuestPodFlush() {
+  const save = GENERAL_GUEST_POD.dirty;
+  return save ? generalGuestPodPut(save, { final: true }) : Promise.resolve(false);
+}
+function generalGuestLocal() {
+  try { const text = localStorage.getItem(SAVE.lsKey); return text ? JSON.parse(text) : null; } catch (e) { return null; }
+}
+// Authoritative: the newer of the pod's sealed copy and this browser's own (the pod's lags by its spacing).
+async function generalGuestPodGet(serverRef) {
+  const s = GENERAL_GUEST.session, P = GENERAL_GUEST_POD;
+  const reply = await generalGuestPodAsk({ op: 'get' });
+  if (!reply || !reply.ok) throw { code: 'unavailable' };
+  const local = generalGuestLocal(), usage = s ? generalGuestPodUsage(s.accountId) : null;
+  let kept = null;
+  if (reply.env && s) {
+    const vault = await generalGuestPodVault(), opened = vault ? await vault.open(reply.env) : null;
+    if (opened) { P.stats.opened++; if (opened.at > usage.wipedAt) kept = opened.save; }
+    // Sealed by another browser's key: it cannot be opened here, and a character made here will take its place.
+    else { P.stats.unreadable++; GENERAL_GUEST.podUnreadable = true; }
+  } else if (!reply.env) {
+    // Nothing in the pod yet: a character the server kept before the pod became its home is read once, and sealed at the next save.
+    try { const before = await serverRef.get(); if (before && before.exists) kept = before.data(); } catch (e) { /* none */ }
+  }
+  const newer = kept && local ? ((local.savedAt || 0) > (kept.savedAt || 0) ? local : kept) : kept || local;
+  return { exists: !!newer, data: () => newer };
+}
+async function generalGuestPodSet(save, options) {
+  let local = false;
+  try { localStorage.setItem(SAVE.lsKey, JSON.stringify(save)); local = true; } catch (e) { /* storage blocked */ }
+  const written = await generalGuestPodPut(save, options);
+  if (!local && !written) throw { code: 'unavailable' };
+}
+async function generalGuestPodDelete(serverRef) {
+  const s = GENERAL_GUEST.session;
+  if (!s) throw { code: 'unavailable' };
+  // The pod takes no deletion from a guest: its copy is marked as given up here, and overwritten by the next character.
+  generalGuestPodKeep(s.accountId, { ...generalGuestPodUsage(s.accountId), wipedAt: Date.now() });
+  GENERAL_GUEST_POD.dirty = null;
+  try { await serverRef.delete(); } catch (e) { /* no save kept from before */ }
+  void generalGuestPodPut(null, { final: true });
+}
+try { addEventListener('pagehide', () => { void generalGuestPodFlush(); }); } catch (e) { /* no page events here */ }
+Promise.resolve().then(() => { try { if (window.__hm) window.__hm.generalGuest = { GENERAL_GUEST, GENERAL_GUEST_POD, flush: generalGuestPodFlush, usage: generalGuestPodUsage }; } catch (e) { /* test hooks only */ } });
 try { generalGuestRender(); } catch (e) { /* the control is optional: the other ways in stay */ }

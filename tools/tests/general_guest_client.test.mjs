@@ -18,11 +18,12 @@ function fixture({ href = ORIGIN + '/', manifest = MANIFEST, storage = {}, sessi
   const element = () => ({ hidden: true, disabled: true, textContent: '', onclick: null, style: {}, classList: { add() {} }, setAttribute() {}, append() {}, focus() {} });
   const nodes = { 'loading-general-guest': element(), 'loading-general-guest-status': element() };
   const store = new Map(Object.entries(storage)), calls = { fetch: [], assigned: [], replaced: [], reloads: 0, appended: [], timers: [], saves: 0, wipes: 0, native: 0 };
+  const clock = { t: now };
   const location = { href, get origin() { return new URL(this.href).origin; }, get search() { return new URL(this.href).search; },
     assign(url) { calls.assigned.push(url); }, reload() { calls.reloads++; } };
   const ref = { get: async () => ({ exists: false }), set: async () => { calls.saves++; }, delete: async () => { calls.wipes++; } };
   const context = vm.createContext({ console, URL, URLSearchParams, JSON, Object, Number, Math, Promise, AbortSignal,
-    Date: Object.assign(function () { return new Date(now); }, { now: () => now }),
+    Date: Object.assign(function () { return new Date(clock.t); }, { now: () => clock.t }),
     window: { __HM_GAMING: manifest ? { generalGuest: manifest } : {} }, location,
     history: { state: null, replaceState(state, title, url) { calls.replaced.push(url); location.href = new URL(url, location.href).href; } },
     localStorage: { getItem: key => store.has(key) ? store.get(key) : null, setItem: (key, value) => { store.set(key, String(value)); }, removeItem: key => { store.delete(key); } },
@@ -43,7 +44,7 @@ function fixture({ href = ORIGIN + '/', manifest = MANIFEST, storage = {}, sessi
     nativePlayerSaveRef: async () => { calls.native++; context.SAVE.native = true; return null; },
     validSave: () => null, readLocal: () => null, saveNow() { calls.saves++; } });
   vm.runInContext(source + '\n' + hook + '\nglobalThis.H = { GENERAL_GUEST, generalGuestWanted, generalGuestSaveRef, generalGuestRender, generalGuestEnded, initSaveBackend };', context);
-  return { context, H: context.H, nodes, store, calls, location, ref };
+  return { context, H: context.H, nodes, store, calls, location, ref, clock };
 }
 const marker = (over = {}) => JSON.stringify({ accountId: ACCOUNT, expiresAt: 1_800_000_000_000 + 600_000, linked: false, prior: '', ...over });
 
@@ -149,4 +150,128 @@ test('the end of a session offers the way back through the door, by text only', 
   again.onclick(); assert.deepEqual(f.calls.assigned, [ORIGIN + '/guest/general/start']);
   leave.onclick();
   assert.equal(f.store.get('hallowmarch.token.' + HOST), 'prior-native-token'); assert.equal(f.calls.reloads, 1);
+});
+
+/* ---- the guest's own pod: the shipping page code with the shipping sealing module and a stand-in server ---- */
+globalThis.self = globalThis;
+const { createGuestCheckpoint } = await import('../../client/native-pod/guest-checkpoint.mjs');
+async function settle(page) { for (let n = 0; n < 200; n++) { await flush(); if (!page.P.busy) { await flush(); return; } await new Promise(resolve => setTimeout(resolve, 5)); } }
+const CHARACTER = { v: 1, savedAt: 5, char: { name: 'Synthetic Guest', level: 4 } };
+/** A page with a live guest session where the server offers the pod, and the server's side of `gpod` as server.js answers it. */
+async function podPage(mode, { markerOver = {}, keys = new Map(), server = {} } = {}) {
+  const f = fixture({ manifest: { ...MANIFEST, pod: mode }, storage: { ['hallowmarch.token.' + HOST]: 'guest-session-token', ['hallowmarch.generalguest.' + HOST]: marker(markerOver) } });
+  const P = vm.runInContext('GENERAL_GUEST_POD', f.context), sent = [];
+  const state = { env: null, lastAt: -Infinity, token: true, legacy: null, answer: null, ...server };
+  f.context.NETWS.state = 'on';
+  f.context.netWsSend = message => {
+    sent.push(structuredClone(message));
+    assert.equal(message.t, 'gpod');
+    let reply;
+    if (state.answer) reply = state.answer(message);
+    else if (!state.token) reply = { ok: false, code: 'reauth' };
+    else if (message.op === 'budget') reply = { ok: true, mode };
+    else if (message.op === 'get') reply = { ok: true, env: state.env };
+    else if (f.clock.t < state.lastAt + P.FLOOR) reply = { ok: false, code: 'too_soon' };
+    else { state.env = message.env; state.lastAt = f.clock.t; reply = { ok: true }; }
+    if (reply) Promise.resolve().then(() => f.context.generalGuestPodReply({ t: 'gpod', op: message.op, n: message.n, ...reply }));
+    return true;
+  };
+  P.load = async () => ({ createGuestCheckpoint: ({ account }) => createGuestCheckpoint({ account, now: () => f.clock.t,
+    storage: { load: async key => keys.get(key) ?? null, create: async (key, value) => { if (!keys.has(key)) keys.set(key, value); return keys.get(key); } } }) });
+  f.ref.get = async () => state.legacy ? { exists: true, data: () => state.legacy } : { exists: false };
+  const ref = await f.H.initSaveBackend({ active: true });
+  return { ...f, P, sent, state, saveRef: ref, keys, usage: () => f.context.generalGuestPodUsage(ACCOUNT), puts: () => sent.filter(message => message.op === 'put') };
+}
+
+test('shadow: every save goes to the server as before, and a sealed copy follows to the pod, spaced and counted', async () => {
+  const p = await podPage('shadow');
+  assert.equal(p.saveRef.generalGuestPod, undefined); assert.equal(p.sent.length, 0, 'nothing is asked of the pod before a save');
+  await p.saveRef.set(CHARACTER); await settle(p);
+  assert.equal(p.calls.saves, 1, 'the server\'s save is written first, unchanged');
+  assert.equal(p.puts().length, 1);
+  const envelope = p.puts()[0].env;
+  assert.deepEqual(Object.keys(envelope).sort(), ['algorithm', 'content', 'version', 'wrappedKeys']); assert.equal(envelope.wrappedKeys.length, 1);
+  assert.ok(!JSON.stringify(p.sent).includes('Synthetic Guest'), 'the page sends the pod ciphertext only');
+  assert.deepEqual({ ...p.usage(), bytes: 0, lastBytes: 0 }, { writes: 1, bytes: 0, lastAt: p.clock.t, lastBytes: 0, wipedAt: 0 });
+  assert.ok(p.usage().bytes > 200 && p.usage().bytes === p.usage().lastBytes);
+  // A minute later: the server's save still goes, the pod's copy waits for its spacing, and is not dropped.
+  p.clock.t += 60_000;
+  await p.saveRef.set({ ...CHARACTER, savedAt: 6, char: { ...CHARACTER.char, level: 5 } }); await settle(p);
+  assert.equal(p.calls.saves, 2); assert.equal(p.puts().length, 1); assert.equal(p.P.stats.skipped, 1); assert.equal(p.P.stats.last, 'spaced');
+  const due = p.calls.timers.at(-1);
+  assert.ok(due.ms > 8.9 * 60_000 && due.ms <= 9 * 60_000 + 1000, 'the held copy is sent when its ten minutes are up: ' + due.ms);
+  p.clock.t += due.ms; due.fn(); await flush(); await settle(p);
+  assert.equal(p.puts().length, 2); assert.equal(p.usage().writes, 2);
+  // The pod failing never fails or delays the save.
+  p.clock.t += 11 * 60_000; p.state.answer = () => ({ ok: false, code: 'pod_unreachable' });
+  await p.saveRef.set({ ...CHARACTER, savedAt: 7 }); await settle(p);
+  assert.equal(p.calls.saves, 3); assert.equal(p.P.stats.failed, 1); assert.equal(p.usage().writes, 3, 'an attempt that left the server is spent');
+  assert.equal(p.calls.appended.length, 0, 'in shadow nothing is shown for it');
+  // A linked guest plays an account's character: nothing of it is sealed for the guest's pod.
+  const linked = await podPage('shadow', { markerOver: { linked: true } });
+  await linked.saveRef.set(CHARACTER); await settle(linked);
+  assert.equal(linked.calls.saves, 1); assert.equal(linked.sent.length, 0);
+});
+
+test('the page never asks past this game\'s part of the guest\'s lifetime budget', async () => {
+  const p = await podPage('shadow');
+  p.store.set('hallowmarch.generalguest.pod.' + ACCOUNT, JSON.stringify({ writes: p.P.WRITES, bytes: 1000, lastAt: 0, lastBytes: 500 }));
+  await p.saveRef.set(CHARACTER); await settle(p);
+  assert.equal(p.calls.saves, 1); assert.equal(p.sent.length, 0); assert.equal(p.P.stats.last, 'budget');
+  p.store.set('hallowmarch.generalguest.pod.' + ACCOUNT, JSON.stringify({ writes: 3, bytes: p.P.BYTES - 10, lastAt: 0, lastBytes: 500 }));
+  await p.saveRef.set(CHARACTER); await settle(p);
+  assert.equal(p.sent.length, 0);
+  // The server saying so (its own count, or the pod's 507) stops the page for good.
+  const q = await podPage('shadow', { server: { answer: () => ({ ok: false, code: 'pod_full' }) } });
+  await q.saveRef.set(CHARACTER); await settle(q);
+  q.clock.t += 3_600_000; await q.saveRef.set({ ...CHARACTER, savedAt: 9 }); await settle(q);
+  assert.equal(q.puts().length, 1); assert.equal(q.usage().writes, q.P.WRITES);
+  assert.ok(p.P.WRITES <= 256 && p.P.BYTES <= 16 * 1024 * 1024 && p.P.FLOOR >= 5 * 60_000 && p.P.INTERVAL >= 10 * 60_000);
+});
+
+test('authoritative: the pod\'s sealed copy and this browser\'s own are the character; the server is sent no save', async () => {
+  const keys = new Map(), p = await podPage('authoritative', { keys });
+  assert.equal(p.saveRef.generalGuestPod, 'authoritative'); assert.deepEqual(p.sent.map(message => message.op), ['budget']);
+  assert.deepEqual(await p.saveRef.get().then(found => found.exists), false);
+  await p.saveRef.set(CHARACTER);
+  assert.equal(p.calls.saves, 0, 'no save is sent to the server'); assert.equal(p.puts().length, 1);
+  assert.equal(JSON.parse(p.store.get('hallowmarch.generalguest.save.' + ACCOUNT)).char.name, 'Synthetic Guest', 'this browser keeps its own copy between the pod\'s writes');
+  // Two minutes on: the pod's copy lags, this browser's is current; a reload reads the newer.
+  p.clock.t += 120_000;
+  const later = { ...CHARACTER, savedAt: 9, char: { ...CHARACTER.char, level: 6 } };
+  await p.saveRef.set(later);
+  assert.equal(p.puts().length, 1);
+  const again = await podPage('authoritative', { keys, server: { env: p.state.env } });
+  for (const [key, value] of p.store) again.store.set(key, value);
+  assert.equal((await again.saveRef.get()).data().char.level, 6, 'the browser\'s newer copy');
+  again.store.delete('hallowmarch.generalguest.save.' + ACCOUNT);
+  assert.equal((await again.saveRef.get()).data().char.level, 4, 'with its own copy gone, the pod\'s is opened with this browser\'s key');
+  // Another browser has no key for it: nothing opens, nothing is shown of it, and a new character may begin.
+  const other = await podPage('authoritative', { server: { env: p.state.env } });
+  assert.equal((await other.saveRef.get()).exists, false); assert.equal(other.H.GENERAL_GUEST.podUnreadable, true);
+  // A character the server kept before the pod became its home is read once.
+  const before = await podPage('authoritative', { server: { legacy: { v: 1, savedAt: 2, char: { name: 'Kept Before' } } } });
+  assert.equal((await before.saveRef.get()).data().char.name, 'Kept Before');
+  // Deleting: this browser's copy goes and the pod's is given up, even before the pod takes the sealed deletion.
+  await again.saveRef.delete(); await settle(again);
+  assert.equal(again.calls.wipes, 1); assert.ok(again.usage().wipedAt > 0);
+  again.state.env = p.state.env;
+  assert.equal((await again.saveRef.get()).exists, false, 'the given-up copy is not read back');
+});
+
+test('authoritative: without the server\'s pod token the session goes back through the door, and nothing is lost meanwhile', async () => {
+  const cold = await podPage('authoritative', { server: { token: false } });
+  assert.equal(cold.saveRef, null);
+  assert.equal(cold.store.has('hallowmarch.generalguest.' + HOST), false, 'the session is over for this browser');
+  cold.calls.timers.at(-1).fn(); assert.equal(cold.calls.reloads, 1);
+  // The token going mid-session: the save stays in this browser, and the way back through the door is offered.
+  const p = await podPage('authoritative');
+  p.state.token = false;
+  await p.saveRef.set(CHARACTER);
+  assert.equal(JSON.parse(p.store.get('hallowmarch.generalguest.save.' + ACCOUNT)).char.name, 'Synthetic Guest');
+  assert.equal(p.calls.appended.length, 1, 'the door is offered again'); assert.equal(p.usage().writes, 0, 'no attempt was spent');
+  // The pod out of reach when the character is read: the read is not confirmed, so nothing is overwritten.
+  const down = await podPage('authoritative', { server: { answer: message => message.op === 'get' ? null : { ok: true, mode: 'authoritative' } } });
+  down.context.setTimeout = (fn) => { fn(); return 1; };
+  await assert.rejects(down.saveRef.get(), value => value.code === 'unavailable');
 });

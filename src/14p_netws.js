@@ -345,6 +345,7 @@ function netWsOpen() {
       else if (m.t === 'world-agent' && typeof mainWorldAgentMessage === 'function') mainWorldAgentMessage(m);
       else if (m.t === 'pong') NETWS.stats.rtt = Math.round(performance.now() - m.c);
       else if (m.t === 'save' || m.t === 'saved') { const w = NETWS.waits.shift(); if (w) w(m); }
+      else if (m.t === 'gpod') { if (typeof generalGuestPodReply === 'function') generalGuestPodReply(m); } // [guest] a guest's sealed character, to and from its own pod (14w_generalguest.js)
       else if (m.t === 'acct') { const w = NETWS.acctWait; NETWS.acctWait = null; if (w) w(m); }
       else if (m.t === 'season' || m.t === 'contrib' || m.t === 'order') { if (m.persistence) netWsWorldStatus(m.persistence); netSeasonMsg(m); }
       else if (m.t === 'company' || m.t === 'co') coMsg(m);

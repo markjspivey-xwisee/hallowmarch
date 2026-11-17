@@ -6,7 +6,7 @@ import { createHash, createHmac, randomBytes } from 'node:crypto';
 import { createGameSessionTokens } from './game-session.js';
 import { configuredGeneralGuest, createGeneralGuestAccounts, createGeneralGuestDoor, createGeneralGuestHost, generalGuestAccountId,
   generalGuestPath, guestSessionStanding, provisionalMayUse, subjectFacts, GENERAL_GUEST_COOKIE, GENERAL_GUEST_PURPOSE,
-  LINKED_GUEST_SESSION_MS } from './general-guest.js';
+  LINKED_GUEST_SESSION_MS, generalGuestSweep } from './general-guest.js';
 
 const ISSUER = 'https://identity.example', DOOR = 'https://door.identity.example';
 const GAME = 'https://game.example', OTHER = 'https://other.example';
@@ -94,7 +94,8 @@ function browser(host, seen) {
       const res = { headersSent: false,
         writeHead(status, headers = {}) { result.status = status; Object.assign(result.headers, headers); this.headersSent = true; },
         end(body = '') { result.body = String(body); } };
-      const req = { method, url: target, headers: { host: hostHeader, ...(cookie ? { cookie: `other=1; ${GENERAL_GUEST_COOKIE}=${cookie}` } : {}), ...(origin ? { origin } : {}) } };
+      const req = { method, url: target, socket: { remoteAddress: arguments[2]?.address ?? '203.0.113.7' },
+        headers: { host: hostHeader, ...(cookie ? { cookie: `other=1; ${GENERAL_GUEST_COOKIE}=${cookie}` } : {}), ...(origin ? { origin } : {}), ...(arguments[2]?.headers ?? {}) } };
       result.handled = await host.handle(req, res);
       const set = result.headers['Set-Cookie'];
       if (set) {
@@ -139,7 +140,7 @@ test('a general guest goes through the door and collects one bounded game sessio
   assert.equal(claims.nativeDid, undefined, 'never a native owner');
   assert.equal(given.expiresAt, claims.exp); assert.ok(claims.exp <= T0 + 4 * 3_600_000 && claims.exp <= T0 + 86_400_000);
   assert.equal(guestAccounts.accountFor(claims), accounts[given.acct.id]);
-  assert.deepEqual({ ...accounts[given.acct.id], created: 0, last: 0 }, { id: given.acct.id, name: 'Guest', guest: true, generalGuest: true, created: 0, last: 0 });
+  assert.deepEqual({ ...accounts[given.acct.id], created: 0, last: 0 }, { id: given.acct.id, name: 'Guest', guest: true, generalGuest: true, created: 0, last: 0, guestUntil: T0 + 86_400_000 });
   assert.equal(guestAccounts.principalFor({ acct: accounts[given.acct.id], authClaims: claims }), guestDid);
 
   // Collected once: the same cookie, or none, gets nothing more.
@@ -295,7 +296,7 @@ test('a session is never past the guest\'s own deadline', async () => {
   await arrive(b, identity, key);
   assert.equal(sessions.read((await collect(b)).json().token).exp, T0 + 86_400_000);
   const standing = { ownerDid: USERS + 'g', guestExpiresAt: T0 + 3_600_000, attributes: { subject: USERS + 'g', provisional: true } };
-  assert.deepEqual(guestSessionStanding(standing, T0, 14_400_000), { subject: USERS + 'g', linked: false, guestDid: USERS + 'g', expiresAt: T0 + 3_600_000 });
+  assert.deepEqual(guestSessionStanding(standing, T0, 14_400_000), { subject: USERS + 'g', linked: false, guestDid: USERS + 'g', expiresAt: T0 + 3_600_000, guestExpiresAt: T0 + 3_600_000 });
   assert.equal(guestSessionStanding(standing, T0, 60_000).expiresAt, T0 + 60_000);
   assert.throws(() => guestSessionStanding(standing, T0 + 3_600_000, 60_000), /guest_door_exchange_refused/);
   assert.throws(() => guestSessionStanding({ ...standing, attributes: { ...standing.attributes, subject: USERS + 'h' } }, T0, 60_000), /guest_door_exchange_refused/);
@@ -399,4 +400,87 @@ test('attributes are read whole or not at all', () => {
     { ...facts, admittedBy: [GAME, GAME] }, { ...facts, admittedBy: ['game.example'] }, { ...facts, linkedTo: facts.subject }, { ...facts, extra: 1 }]) {
     assert.equal(subjectFacts(bad), null); assert.equal(provisionalMayUse(bad, GAME, T0), false);
   }
+});
+
+test('starts are bounded for each client address, then for all; a guest is issued a bounded number of sessions', async () => {
+  const clock = { t: T0 }, identity = standIn(clock);
+  const door = createGeneralGuestDoor({ identityOrigin: ISSUER, doorOrigin: DOOR, audience: GAME, signGrant: identity.signAs(), fetch: identity.fetch, now: () => clock.t });
+  const accounts = {}, sessions = createGameSessionTokens({ secret: 'fixture-session-secret', now: () => clock.t });
+  const guestAccounts = createGeneralGuestAccounts({ accounts, sessions, now: () => clock.t });
+  const host = createGeneralGuestHost({ door, publicOrigin: GAME, now: () => clock.t, issueSession: standing => guestAccounts.issue(standing),
+    startsPerMinute: 3, startsPerMinuteAll: 5, sessionsPerGuest: 2 });
+  const noisy = browser(host, []), quiet = browser(host, []);
+  for (let n = 0; n < 3; n++) assert.ok((await noisy.visit('GET', START, { address: '198.51.100.1' })).headers.Location.startsWith(DOOR));
+  assert.equal((await noisy.visit('GET', START, { address: '198.51.100.1' })).headers.Location, GAME + '/?interego-guest=busy', 'one address is held to its own share');
+  assert.ok((await quiet.visit('GET', START, { address: '198.51.100.2' })).headers.Location.startsWith(DOOR), 'another address is not held by it');
+  assert.ok((await browser(host, []).visit('GET', START, { address: '198.51.100.3' })).headers.Location.startsWith(DOOR));
+  assert.equal((await browser(host, []).visit('GET', START, { address: '198.51.100.4' })).headers.Location, GAME + '/?interego-guest=busy', 'the ceiling for all still holds');
+  assert.equal(host.status().limited, 1);
+  clock.t += 61_000;
+  // One guest, from changing addresses: two sessions in ten minutes, and the third is refused after its code is spent.
+  for (let n = 0; n < 3; n++) {
+    const b = browser(host, []), started = await b.visit('GET', START, { address: '198.51.100.' + (10 + n) });
+    const returned = await b.visit('GET', pathOf(identity.page('one-guest-key', started.headers.Location)), { address: '198.51.100.' + (10 + n) });
+    assert.equal(returned.headers.Location, GAME + '/?interego-guest=' + (n < 2 ? 'arrived' : 'busy'));
+  }
+  clock.t += 601_000;
+  const later = browser(host, []), again = await later.visit('GET', START);
+  assert.equal((await later.visit('GET', pathOf(identity.page('one-guest-key', again.headers.Location)))).headers.Location, GAME + '/?interego-guest=arrived');
+  assert.throws(() => createGeneralGuestHost({ door, publicOrigin: GAME, issueSession: () => ({}), startsPerMinuteAll: 200 }), /bounded/);
+});
+
+test('another site cannot start a visit, and the deployment names the header its proxy states the client by', async () => {
+  const clock = { t: T0 }, identity = standIn(clock), { host } = game(clock, identity, { env: { HM_GENERAL_GUEST: '1', HM_GENERAL_GUEST_DOOR_ORIGIN: DOOR,
+    HM_GENERAL_GUEST_CLIENT_IP_HEADER: 'x-real-ip' } });
+  for (const site of ['cross-site', 'same-site']) {
+    const b = browser(host, []), refused = await b.visit('GET', START, { headers: { 'sec-fetch-site': site } });
+    assert.equal(refused.headers.Location, GAME + '/?interego-guest=refused'); assert.equal(b.cookie, null, 'no visit was bound');
+  }
+  for (const site of ['same-origin', 'none']) assert.ok((await browser(host, []).visit('GET', START, { headers: { 'sec-fetch-site': site } })).headers.Location.startsWith(DOOR));
+  // Six a minute for one stated address, whatever socket (the proxy's) it arrives on; a malformed statement falls back to the socket.
+  for (let n = 0; n < 6; n++) assert.ok((await browser(host, []).visit('GET', START, { headers: { 'x-real-ip': '192.0.2.44' } })).headers.Location.startsWith(DOOR));
+  assert.equal((await browser(host, []).visit('GET', START, { headers: { 'x-real-ip': '192.0.2.44' } })).headers.Location, GAME + '/?interego-guest=busy');
+  assert.ok((await browser(host, []).visit('GET', START, { headers: { 'x-real-ip': '192.0.2.45' } })).headers.Location.startsWith(DOOR));
+  assert.ok((await browser(host, []).visit('GET', START, { address: '192.0.2.99', headers: { 'x-real-ip': 'not an address' } })).headers.Location.startsWith(DOOR));
+  assert.throws(() => game(clock, identity, { env: { HM_GENERAL_GUEST: '1', HM_GENERAL_GUEST_DOOR_ORIGIN: DOOR, HM_GENERAL_GUEST_CLIENT_IP_HEADER: 'X Real' } }), /CLIENT_IP_HEADER/);
+});
+
+test('identity\'s token for the guest leaves the door only where the pod is configured, apart from the standing, and never for a linked guest', async () => {
+  const clock = { t: T0 }, identity = standIn(clock), given = [];
+  const plainGame = game(clock, identity, { issueSession: (standing, pod) => { given.push([standing, pod]); return plainGame.guestAccounts.issue(standing); } });
+  await arrive(browser(plainGame.host, []), identity, 'key-a');
+  assert.equal(given[0][1], null); assert.equal(plainGame.host.manifest().pod, undefined);
+  assert.ok(!JSON.stringify(given[0][0]).includes(IDENTITY_TOKEN));
+  const podGame = game(clock, identity, { pod: 'shadow', issueSession: (standing, pod) => { given.push([standing, pod]); return podGame.guestAccounts.issue(standing); } });
+  assert.equal(podGame.host.manifest().pod, 'shadow');
+  const key = 'key-b', b = browser(podGame.host, []), seen = [];
+  await arrive(b, identity, key);
+  const [standing, pod] = given[1], userId = identity.guestDid(key).slice(USERS.length);
+  assert.deepEqual(pod, { token: IDENTITY_TOKEN, tokenExpiresAt: new Date(T0 + 3_600_000).toISOString(), podUrl: `https://pods.example/${userId}/`, namespace: 'game' });
+  assert.ok(!JSON.stringify(standing).includes(IDENTITY_TOKEN)); assert.equal(standing.guestExpiresAt, T0 + 86_400_000);
+  assert.ok(!JSON.stringify((await collect(b)).json()).includes(IDENTITY_TOKEN), 'the page is never given it');
+  identity.link('key-c', 'u-pk-0123456789ab');
+  await arrive(browser(podGame.host, seen), identity, 'key-c');
+  assert.equal(given[2][0].linked, true); assert.equal(given[2][1], null, 'a linked guest plays an account\'s character: its pod token is dropped');
+  assert.throws(() => game(clock, identity, { pod: 'everything' }), /bounded/);
+});
+
+test('a guest\'s server-held character is swept after the guest\'s own deadline; an account\'s only when long unused', () => {
+  const day = 86_400_000, id = n => 'gg-' + String(n).repeat(40);
+  const accounts = {
+    [id(1)]: { id: id(1), generalGuest: true, guest: true, created: T0, last: T0, guestUntil: T0 + day },
+    [id(2)]: { id: id(2), generalGuest: true, guest: true, created: T0, last: T0 + 6 * day },                       // made before deadlines were kept
+    [id(3)]: { id: id(3), generalGuest: true, guest: true, created: T0, last: T0 + 2 * day, linked: true },
+    [id(4)]: { id: id(4), generalGuest: true, guest: true, created: T0, last: T0, guestUntil: T0 + 4000 * day },     // a deadline no guest has
+    gabc: { id: 'gabc', guest: true, created: 0, last: 0 }, aNamed: { id: 'aNamed', name: 'Named', pass: {}, created: 0, last: 0 },
+    [id(5)]: { id: id(6), generalGuest: true, guest: true, created: 0, last: 0 },                                    // not its own record
+  };
+  const at = now => generalGuestSweep({ accounts, now }).sort();
+  assert.deepEqual(at(T0 + day + 3_599_000), []);
+  assert.deepEqual(at(T0 + day + 3_601_000), [id(1)]);
+  assert.deepEqual(at(T0 + 7 * day + 3_601_000), [id(1), id(4)], 'never longer than a guest can live');
+  assert.deepEqual(at(T0 + 13 * day + 3_601_000), [id(1), id(2), id(4)]);
+  assert.deepEqual(at(T0 + 93 * day), [id(1), id(2), id(3), id(4)]);
+  assert.deepEqual(generalGuestSweep({ accounts, now: T0 + 20 * day, linkedIdleMs: 10 * day }).sort(), [id(1), id(2), id(3), id(4)]);
+  assert.throws(() => generalGuestSweep({ accounts, now: T0, linkedIdleMs: 1000 }), /bounded/);
 });

@@ -206,8 +206,8 @@ The session is this game's own bearer (`issueGeneralGuest` in
 hours at most, and ten minutes for a linked guest, after which the browser goes
 back through the door, where the link is read again. The bound is enforced on
 the open socket too. A general guest is never a native owner: its character is
-held by this server (`saves/gg-….json`), not in a pod, because the browser holds
-no key of its own in this origin. Its session is refused by every
+held by this server (`saves/gg-….json`) unless the pod flags below say otherwise.
+Its session is refused by every
 `/gaming/identity/*` route, keeps no name or password, receives no long-lived
 legacy bearer, and is no verified native principal: where native players are
 required it cannot enter the shared expedition, and it can neither delegate an
@@ -215,10 +215,77 @@ agent nor found a company. A session that acts as a linked account cannot delete
 account's character, and cannot reach the account's own pod character, ledger
 binding or legacy save at all (they belong to another game account).
 
-Tests: `general-guest.test.mjs` (the door, the checks, the bounds, link and
+The door is bounded for each client, not only for all: six starts a minute for
+one client address (ninety for all, which keeps every started visit's
+ten-minute place under the door's ceiling), sixty returns and collections a
+minute for one address, and twelve sessions in ten minutes for one guest,
+whatever addresses it comes from. Behind a proxy every socket is the proxy's, so
+set `HM_GENERAL_GUEST_CLIENT_IP_HEADER` to the one header the platform's proxy
+sets with the client's address (Railway: `x-real-ip`); unset, the socket's
+address is used. A start that a browser says came from another site
+(`Sec-Fetch-Site` other than `same-origin` or `none`) is refused.
+
+A guest's server-held character does not outlive the guest. At start, as play
+resumes, and every hour while someone plays (`HM_GENERAL_GUEST_SWEEP_MS`; the
+server schedules nothing in standby), whether or not the door is on,
+`generalGuestSweep` removes the account and `saves/gg-….json` of an unlinked
+guest an hour after the guest's own deadline as identity stated it at its last
+arrival (never more than seven days after that arrival), of a linked account's
+guest character after `HM_GENERAL_GUEST_LINKED_IDLE_DAYS` (90) without an
+arrival, and any `saves/gg-….json` with no account that is eight days old.
+
+### The guest's own pod (`general-guest-pod.js`)
+
+Two flags, both off by default, move an unlinked guest's character toward the
+guest's own Interego pod. Either needs `HM_GENERAL_GUEST=1` and
+`HM_GENERAL_GUEST_POD_ORIGIN` (the HTTPS origin the guests' pods are served
+from, the only place a guest's token is sent), or the server refuses to start.
+
+```
+HM_GENERAL_GUEST_POD_SHADOW=1          # the server's save stays the character; a sealed copy follows to the pod
+HM_GENERAL_GUEST_POD_AUTHORITATIVE=1   # the pod's sealed copy is the character; no saves/gg-* is written for an unlinked guest
+HM_GENERAL_GUEST_POD_ORIGIN=https://…  # the pods' origin
+```
+
+- The browser seals. `client/native-pod/guest-checkpoint.mjs` makes an X25519 key
+  at the game's origin (the substrate's `ClientKeyVault`: the secret wrapped by a
+  non-extractable AES-GCM key in this origin's IndexedDB) and seals the gzipped
+  save in the substrate's envelope, with one wrapped key, its own sender. The key
+  is never sent, so another browser cannot open the character.
+- The server forwards ciphertext only. With either flag the door keeps the
+  application token identity gives for the guest at the exchange (otherwise it is
+  dropped), in memory, for the session, and never for a linked guest. The page
+  sends `{t:'gpod', op:'put', env}` on its socket; `sealedGuestEnvelope` refuses
+  anything but an envelope of the gate's shape with no other member, and the
+  server PUTs it as a native commit, conditional on the revision, to
+  `<pod>/<namespace>/checkpoints/<sha256('urn:graph:<namespace>:player-profile:<sha256(ownerDid)>')>.json`.
+  Reads carry no bearer.
+- The budget. The storage gate gives a guest 1024 write attempts and 32 MiB for
+  its life, for every application together. This game takes at most 192 attempts
+  and 12 MiB of it (`GUEST_POD_LIMITS`), counted before each attempt and kept
+  with the account (`accounts.json`, `pod`), so a restart cannot reset it. The
+  page spaces writes ten minutes apart (longer for a large envelope, so the byte
+  part lasts 32 hours of play); the server refuses anything nearer than five
+  minutes. A `507` from the gate stops this game's writes for that guest.
+- Shadow: every save goes to the server exactly as before; the sealed copy is
+  sent after it and can neither fail nor delay it. Counts (never content) are
+  logged when they change (`general guest pod (shadow): {…}`) and are in
+  `/stats` as `generalGuestPod`.
+- Authoritative: an unlinked guest's `save` is refused (`guest_pod_only`); the
+  page keeps its own copy in this browser between the pod's spaced writes and
+  loads the newer of the two. A save the server kept from before is read once
+  and removed when the pod first takes the character. A session made before a
+  restart has no pod token here: the page is sent back through the door. A
+  linked guest's character is an account's, shared by its linked browsers, so it
+  stays with the server.
+
+Tests: `general-guest-pod.test.mjs` (sealing, the gate's rules, the budget),
+`general-guest.test.mjs` (the door, the checks, the bounds, link and
 unlink, against a stand-in identity), `general-guest-server.test.mjs` (the real
 server off, misconfigured and on) and `tools/tests/general_guest_client.test.mjs`
-(the page). None calls a live service; the deployed round trip with identity's
+(the page) and `tools/tests/general_guest_pod.browser.test.mjs` (a real browser
+through a stand-in door to the real server and a stand-in pod, both flags).
+None calls a live service; the deployed round trip with identity's
 door still needs its own check once identity registers the return path.
 
 ## Evidence and limitations

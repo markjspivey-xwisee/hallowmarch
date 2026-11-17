@@ -30,7 +30,8 @@ import { createAgentHttp, gamingAgentAffordances } from './gaming/agent-http.js'
 import { configuredNativeAgentHost } from './gaming/native-agent-host.js';
 import { createPlayerAccountHost } from './gaming/player-account-host.js';
 import { createGameSessionTokens } from './gaming/game-session.js';
-import { configuredGeneralGuest, createGeneralGuestAccounts } from './gaming/general-guest.js';
+import { configuredGeneralGuest, createGeneralGuestAccounts, generalGuestSweep } from './gaming/general-guest.js';
+import { configuredGuestPod } from './gaming/general-guest-pod.js';
 import { createNativePlayGrantSigner } from './gaming/provisional-play.js';
 import { createPlayerBrowserAssets } from './gaming/player-browser-assets.js';
 import { createWorldAgentAssets } from './gaming/world-agent-assets.js';
@@ -333,16 +334,65 @@ await NATIVE_PLAYER_ACCOUNTS.ready;
 // prerequisite missing, the server refuses to start. Its session is this game's
 // own bounded bearer for a server-held character; it is never a native owner.
 const generalGuestAccount = claims => GENERAL_GUEST ? GENERAL_GUEST_ACCOUNTS.accountFor(claims) : null;
-const GENERAL_GUEST_ACCOUNTS = createGeneralGuestAccounts({ accounts: ACCOUNTS, sessions: GAME_SESSIONS });
-const GENERAL_GUEST = configuredGeneralGuest({ env: process.env,
+const GENERAL_GUEST_ACCOUNTS = createGeneralGuestAccounts({ accounts: ACCOUNTS, sessions: GAME_SESSIONS, changed: () => accountsSave() });
+// An unlinked guest's character in the guest's OWN pod (server/gaming/general-guest-pod.js), sealed by its
+// browser. Off unless HM_GENERAL_GUEST_POD_SHADOW or HM_GENERAL_GUEST_POD_AUTHORITATIVE is exactly 1. The
+// guest's pod token is held in memory for the session; what this game has spent of the guest's lifetime
+// write budget is kept with its account, so a restart cannot reset it.
+const GUEST_POD = configuredGuestPod({ env: process.env,
+  usage: id => ACCOUNTS[id]?.generalGuest === true ? ACCOUNTS[id].pod : null,
+  keep: (id, used) => { if (ACCOUNTS[id]?.generalGuest === true) { ACCOUNTS[id].pod = used; accountsSave(); } } });
+const GENERAL_GUEST = configuredGeneralGuest({ env: process.env, pod: GUEST_POD?.mode ?? null,
   publicOrigin: gamingEnvironment.HM_PUBLIC_ORIGIN || (gamingEnvironment.RAILWAY_PUBLIC_DOMAIN ? 'https://' + gamingEnvironment.RAILWAY_PUBLIC_DOMAIN : ''),
   publicOriginConfigured: !!(gamingEnvironment.HM_PUBLIC_ORIGIN || gamingEnvironment.RAILWAY_PUBLIC_DOMAIN),
   identityOrigin: gamingEnvironment.HM_GAMING_SERVICE_IDENTITY_ORIGIN || 'https://identity.interego.xwisee.com',
   // The same service agent and relay signer the per-application guest grant uses.
   signGrant: typeof gamingStore?.publicationIdentity === 'function' ? createNativePlayGrantSigner({
     identityProvider: () => gamingStore.publicationIdentity(), catalogUrl: gamingEnvironment.HM_INTEREGO_RELAY_CATALOG }) : null,
-  issueSession: standing => GENERAL_GUEST_ACCOUNTS.issue(standing) });
-if (GENERAL_GUEST) console.log('general guest: on (door ' + GENERAL_GUEST.manifest().doorOrigin + ', return ' + GENERAL_GUEST.paths.return + ')');
+  issueSession: (given, guestPod) => {
+    // Where the pod is the character, the session does not outlast the token that writes it.
+    const tokenUntil = GUEST_POD?.mode === 'authoritative' && !given.linked ? Date.parse(String(guestPod?.tokenExpiresAt ?? '')) : NaN;
+    const standing = Number.isFinite(tokenUntil) ? { ...given, expiresAt: Math.min(given.expiresAt, Math.floor(tokenUntil)) } : given;
+    const session = GENERAL_GUEST_ACCOUNTS.issue(standing);
+    if (GUEST_POD && !standing.linked) {
+      const admitted = !!guestPod && GUEST_POD.store.admit(session.acct.id, { ...guestPod, userId: standing.userId, ownerDid: standing.guestDid, sessionExpiresAt: session.expiresAt });
+      // Where the pod is the character, a session that cannot write it would keep nothing: none is made.
+      if (!admitted && GUEST_POD.mode === 'authoritative') throw new Error('The guest pod did not admit this session.');
+    }
+    return session;
+  } });
+if (GENERAL_GUEST) console.log('general guest: on (door ' + GENERAL_GUEST.manifest().doorOrigin + ', return ' + GENERAL_GUEST.paths.return
+  + (GUEST_POD ? ', pod ' + GUEST_POD.mode : '') + ')');
+// A guest's server-held character does not outlive the guest (generalGuestSweep): its save file, its account
+// and its pod token go together. This runs whether or not the door is on, so turning it off still clears them.
+const guestSaveFile = id => path.join(CFG.data, 'saves', id + '.json');
+function generalGuestCleanup() {
+  let accounts = 0, files = 0;
+  try {
+    for (const id of generalGuestSweep({ accounts: ACCOUNTS, now: Date.now(),
+      linkedIdleMs: Math.max(1, +(process.env.HM_GENERAL_GUEST_LINKED_IDLE_DAYS || 90) || 90) * 86_400_000 })) {
+      GUEST_POD?.store.forget(id);
+      try { fs.unlinkSync(guestSaveFile(id)); files++; } catch { /* none kept */ }
+      delete ACCOUNTS[id]; accounts++;
+    }
+    // A save with no account left (a crash between the two, or a table restored from before): by its age alone.
+    for (const name of fs.readdirSync(path.join(CFG.data, 'saves'))) {
+      const id = /^(gg-[0-9a-f]{40})\.json$/.exec(name)?.[1];
+      if (!id || Object.hasOwn(ACCOUNTS, id)) continue;
+      try { if (Date.now() - fs.statSync(guestSaveFile(id)).mtimeMs > 8 * 86_400_000) { fs.unlinkSync(guestSaveFile(id)); files++; } } catch { /* gone already */ }
+    }
+  } catch (error) { console.warn('general guest cleanup:', error?.code || 'failed'); }
+  if (accounts) accountsSave();
+  if (accounts || files) console.log(`general guest cleanup: ${accounts} expired accounts, ${files} saves removed`);
+  return { accounts, files };
+}
+generalGuestCleanup();
+// Counts only, never content: what was forwarded to guests' pods and what was not, when either changed.
+let guestPodSaid = '';
+function generalGuestPodReport() {
+  const line = JSON.stringify(GUEST_POD.store.status());
+  if (line !== guestPodSaid) { guestPodSaid = line; console.log('general guest pod (' + GUEST_POD.mode + '): ' + line); }
+}
 // Who a socket plays as. With the door on, a live general guest session is a
 // human principal for this deployment's entry policy; with it off, the native
 // host is used exactly as it is.
@@ -360,6 +410,10 @@ function generalGuestIngress(c, raw) {
   try { m = JSON.parse(raw); } catch { return false; }
   if (!m || typeof m.t !== 'string') return false;
   if (generalGuestPrincipal(c)) {
+    if (m.t === 'gpod') { generalGuestPod(c, m); return true; }
+    // Where the pod is the character, the server keeps no save for an unlinked guest. A save it kept from
+    // before may still be read (and deleted): the page seals it into the pod, and it is removed then.
+    if (m.t === 'save' && GUEST_POD?.mode === 'authoritative' && c.authClaims.linked !== true) { send(c, { t: 'saved', ok: false, error: 'guest_pod_only' }); return true; }
     if (m.t === 'acct') { send(c, { t: 'acct', ok: false, why: 'An Interego guest keeps its character by claiming or linking the guest with Interego' }); return true; }
     if (m.t === 'wipe' && !GENERAL_GUEST_ACCOUNTS.mayDelete(c)) { send(c, { t: 'saved', ok: false, error: 'linked_guest_cannot_delete' }); return true; }
     return false;
@@ -375,6 +429,22 @@ function generalGuestIngress(c, raw) {
       why: 'Your Interego guest session ended. Continue as an Interego guest to go on. Your character is saved.' });
   }
   return true;
+}
+// The sealed envelope of an unlinked guest's character, to and from the guest's own pod. The page seals and
+// opens; this forwards ciphertext, under the guest's own token, within this game's part of its write budget.
+function generalGuestPod(c, m) {
+  const id = c.acct.id, n = Number.isSafeInteger(m.n) ? m.n : 0, op = m.op === 'get' ? 'get' : m.op === 'put' ? 'put' : 'budget';
+  const answer = result => { if (c.ws.readyState === 1) send(c, { t: 'gpod', op, n, ...result, ...(GUEST_POD ? { budget: GUEST_POD.store.budget(id) } : {}) }); };
+  if (!GUEST_POD || c.authClaims.linked === true) return answer({ ok: false, code: GUEST_POD ? 'linked' : 'off' });
+  if (op === 'budget') return answer(GUEST_POD.store.has(id) ? { ok: true, mode: GUEST_POD.mode } : { ok: false, code: 'reauth', mode: GUEST_POD.mode });
+  const time = Date.now();
+  c.guestPodAsks = (c.guestPodAsks || []).filter(at => time - at < 60_000);
+  if (c.guestPodBusy || c.guestPodAsks.length >= 12) return answer({ ok: false, code: 'busy' });
+  c.guestPodAsks.push(time); c.guestPodBusy = true;
+  (op === 'get' ? GUEST_POD.store.get(id) : GUEST_POD.store.put(id, m.env)).then(result => {
+    if (op === 'put' && result.ok && GUEST_POD.mode === 'authoritative') { try { fs.unlinkSync(guestSaveFile(id)); } catch { /* none kept */ } }
+    answer(result);
+  }, () => answer({ ok: false, code: 'failed' })).finally(() => { c.guestPodBusy = false; });
 }
 const playerBrowserAssets = createPlayerBrowserAssets({ clientRoot: path.join(ROOT, 'client', 'native-pod') });
 const worldAgentAssets = createWorldAgentAssets({ clientFile: path.join(ROOT, 'client', 'world-agent-client.mjs') });
@@ -1247,7 +1317,7 @@ const server = http.createServer(async (req, res) => {
     give(400, { ok: false }); return;
   }
   if (u.pathname === '/season') { const fenced = WORLD_STATE && !WORLD_STATE.canMutate(); res.writeHead(fenced ? 503 : 200, { 'content-type': 'application/json', 'access-control-allow-origin': '*' }); res.end(JSON.stringify(fenced ? { ok: false, persistence: worldPersistenceStatus() } : realmPublicSeasonSummary(-1, (SEASON.RS ? SEASON.RS.t : 0) - 86400))); return; }
-  if (u.pathname === '/stats') { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ ...STATS, proc: { mem: process.memoryUsage(), cpu: process.cpuUsage(), up: process.uptime() }, season: SEASON.RS ? { file: SEASON.M.file, t: SEASON.RS.t, phase: SEASON.RS.phase, stepMs: SEASON.stepMs.length ? { last: SEASON.stepMs[SEASON.stepMs.length - 1], max: Math.max(...SEASON.stepMs), mean: SEASON.stepMs.reduce((a, b) => a + b, 0) / SEASON.stepMs.length } : null, roster: Object.keys(SEASON.roster).length } : null, companies: { n: Object.keys(COMP.D.list).length, ...COMP.stats }, rooms: [...ROOMS.values()].map((R) => ({ regions: R.regions || {}, name: R.name, players: R.clients.size, host: roomHost(R)?.peer || null, world: worldCheck(WORLDS[R.name]) })), accounts: Object.keys(ACCOUNTS).length })); return; }
+  if (u.pathname === '/stats') { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ ...STATS, proc: { mem: process.memoryUsage(), cpu: process.cpuUsage(), up: process.uptime() }, season: SEASON.RS ? { file: SEASON.M.file, t: SEASON.RS.t, phase: SEASON.RS.phase, stepMs: SEASON.stepMs.length ? { last: SEASON.stepMs[SEASON.stepMs.length - 1], max: Math.max(...SEASON.stepMs), mean: SEASON.stepMs.reduce((a, b) => a + b, 0) / SEASON.stepMs.length } : null, roster: Object.keys(SEASON.roster).length } : null, companies: { n: Object.keys(COMP.D.list).length, ...COMP.stats }, rooms: [...ROOMS.values()].map((R) => ({ regions: R.regions || {}, name: R.name, players: R.clients.size, host: roomHost(R)?.peer || null, world: worldCheck(WORLDS[R.name]) })), accounts: Object.keys(ACCOUNTS).length, ...(GENERAL_GUEST ? { generalGuest: GENERAL_GUEST.status() } : {}), ...(GUEST_POD ? { generalGuestPod: { mode: GUEST_POD.mode, ...GUEST_POD.store.status() } } : {}) })); return; }
   if (u.pathname === '/' || u.pathname === '/index.html') {
     let html;
     try { html = fs.readFileSync(CFG.page, 'utf8'); } catch (e) { res.writeHead(404); res.end('The game is not built here (python3 build.py)'); return; }
@@ -1378,6 +1448,9 @@ function setHumanWorkActive(active) {
       c.ws.close(4000, 'No live human players');
     return;
   }
+  // Like every repeating task here, these run only while someone plays: the sweep at start (above), as play resumes, then hourly.
+  liveTask(generalGuestCleanup, Math.max(1000, +(process.env.HM_GENERAL_GUEST_SWEEP_MS || 3_600_000) || 3_600_000), 5000);
+  if (GUEST_POD) liveTask(generalGuestPodReport, Math.max(1000, +(process.env.HM_GENERAL_GUEST_POD_LOG_MS || 600_000) || 600_000));
   liveTask(publishGamingCapabilities, 30000, 1000);
   liveTask(publishPlayerCapabilities, 30000, 2000);
   liveTask(publishWorldCapability, 30000, 3000);
