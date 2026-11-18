@@ -406,6 +406,9 @@ const PLAYER_ACCOUNTS = GENERAL_GUEST ? Object.freeze({ ...NATIVE_PLAYER_ACCOUNT
 // (its browser holds a guest's key, not the account's). True: answered here.
 function generalGuestIngress(c, raw) {
   if (c.acct?.generalGuest !== true || typeof raw !== 'string' || raw.length > CFG.maxSave + 1024) return false;
+  // A large message is parsed here only where it is a sealed character or a save (as onMsg admits only a save):
+  // any other is left to onMsg's own cheap refusal, not parsed whole on every arrival.
+  if (raw.length > CFG.maxMsg && !raw.slice(0, 24).includes('"gpod"') && !raw.slice(0, 20).includes('"save"')) return false;
   let m;
   try { m = JSON.parse(raw); } catch { return false; }
   if (!m || typeof m.t !== 'string') return false;

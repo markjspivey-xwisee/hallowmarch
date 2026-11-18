@@ -239,6 +239,8 @@ async function generalGuestPodPut(save, { final = false } = {}) {
     return done('skipped', P.busy ? 'busy' : 'spaced');
   }
   if (usage.writes >= P.WRITES || usage.bytes >= P.BYTES) return done('skipped', 'budget');
+  // The pod holds a character this browser cannot open: nothing is written over it unless the player chose to.
+  if (GENERAL_GUEST.podUnreadable && !GENERAL_GUEST.podReplace) { P.dirty = save; return done('skipped', 'unreadable'); }
   P.busy = true; P.dirty = null;
   try {
     const vault = await generalGuestPodVault();
@@ -279,14 +281,42 @@ async function generalGuestPodGet(serverRef) {
   if (reply.env && s) {
     const vault = await generalGuestPodVault(), opened = vault ? await vault.open(reply.env) : null;
     if (opened) { P.stats.opened++; if (opened.at > usage.wipedAt) kept = opened.save; }
-    // Sealed by another browser's key: it cannot be opened here, and a character made here will take its place.
-    else { P.stats.unreadable++; GENERAL_GUEST.podUnreadable = true; }
+    // Sealed by another browser's key (or this browser's key was cleared): it cannot be opened here. It is kept,
+    // and a character made here is written over it only once the player says so.
+    else { P.stats.unreadable++; generalGuestPodUnreadable(); }
+  } else if (reply.present === true) {
+    // A document stands in the pod that is not a sealed character this game can read: never taken for an empty pod.
+    P.stats.unreadable++; generalGuestPodUnreadable();
   } else if (!reply.env) {
     // Nothing in the pod yet: a character the server kept before the pod became its home is read once, and sealed at the next save.
     try { const before = await serverRef.get(); if (before && before.exists) kept = before.data(); } catch (e) { /* none */ }
   }
   const newer = kept && local ? ((local.savedAt || 0) > (kept.savedAt || 0) ? local : kept) : kept || local;
   return { exists: !!newer, data: () => newer };
+}
+// The pod's character cannot be opened here. Play goes on with this browser's own copy; the pod's is replaced only
+// by the player's own choice (a lost key, or another browser, must never silently cost a character).
+function generalGuestPodUnreadable() {
+  if (GENERAL_GUEST.podUnreadable) return;
+  GENERAL_GUEST.podUnreadable = true; GENERAL_GUEST.podReplace = false;
+  const show = () => {
+    if (!document.body || $('general-guest-pod-unreadable')) return;
+    const box = document.createElement('div'), text = document.createElement('p'), keep = document.createElement('button'), replace = document.createElement('button');
+    box.id = 'general-guest-pod-unreadable'; box.setAttribute('role', 'alertdialog'); box.setAttribute('aria-labelledby', 'general-guest-pod-unreadable-text');
+    box.style.cssText = 'position:fixed;left:50%;top:max(12px,env(safe-area-inset-top));transform:translateX(-50%);z-index:2147483000;display:grid;gap:8px;'
+      + 'width:min(22rem,calc(100vw - 24px));padding:12px;border-radius:10px;background:rgba(14,16,20,0.94);color:#f1ead8;font:400 14px/1.4 system-ui,sans-serif;text-align:center';
+    text.id = 'general-guest-pod-unreadable-text'; text.style.margin = '0';
+    text.textContent = 'Your Interego pod holds a character this browser cannot open (it was saved from another browser, or this browser\'s key was cleared). '
+      + 'It is kept: nothing is written over it unless you choose.';
+    for (const b of [keep, replace]) { b.type = 'button'; b.className = 'btn'; b.style.minHeight = '44px'; }
+    keep.classList.add('primary'); keep.textContent = 'Keep it (this browser saves only here)';
+    replace.textContent = 'Replace it with this browser\'s character';
+    keep.onclick = () => box.remove();
+    replace.onclick = () => { GENERAL_GUEST.podReplace = true; box.remove(); void generalGuestPodFlush(); };
+    box.append(text, keep, replace); document.body.appendChild(box);
+    keep.focus({ preventScroll: true });
+  };
+  try { setTimeout(show, 0); } catch (e) { /* no page here */ }
 }
 async function generalGuestPodSet(save, options) {
   let local = false;

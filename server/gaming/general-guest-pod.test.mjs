@@ -194,7 +194,7 @@ test('the pod full, the token refused or gone, the pod down: each is counted by 
   assert.ok(!JSON.stringify(s).includes(TOKEN) && !JSON.stringify(s).includes(USER), 'counts only');
   // What another application, or anything else, left in the document is never handed on as an envelope.
   const o = fixture(); o.admit(); o.pod.documents.set(o.pod.target, { text: JSON.stringify({ readable: 'Synthetic Guest' }), revision: 'sha256:' + 'e'.repeat(64) });
-  assert.deepEqual(await o.store.get(ACCOUNT), { ok: true, env: null });
+  assert.deepEqual(await o.store.get(ACCOUNT), { ok: true, present: true, env: null });
 });
 
 test('as a deployment configures it: off by default, and on only with the guest itself and the pods\' origin', () => {
@@ -206,4 +206,44 @@ test('as a deployment configures it: off by default, and on only with the guest 
   assert.throws(() => configuredGuestPod({ env: { HM_GENERAL_GUEST_POD_SHADOW: '1', HM_GENERAL_GUEST_POD_ORIGIN: POD }, ...ports }), /HM_GENERAL_GUEST is not 1/);
   assert.throws(() => configuredGuestPod({ env: { HM_GENERAL_GUEST: '1', HM_GENERAL_GUEST_POD_AUTHORITATIVE: '1' }, ...ports }), /HM_GENERAL_GUEST_POD_ORIGIN is not set/);
   assert.throws(() => configuredGuestPod({ env: { HM_GENERAL_GUEST: '1', HM_GENERAL_GUEST_POD_SHADOW: '1', HM_GENERAL_GUEST_POD_ORIGIN: POD + '/pods' }, ...ports }), /HTTPS origin with no path/);
+});
+
+test('a new arrival during a write cannot let a second write past the count or the spacing', async () => {
+  const f = fixture(); f.admit();
+  const sealed = (await browserVault().seal(SAVE)).envelope;
+  const first = f.store.put(ACCOUNT, sealed);
+  // The guest arrives again (another tab through the door) while the first write is on its way.
+  f.admit();
+  assert.deepEqual(await f.store.put(ACCOUNT, sealed), { ok: false, code: 'busy' });
+  assert.equal((await first).ok, true);
+  assert.equal(f.pod.calls.filter(call => call.method === 'PUT').length, 1);
+  assert.equal(f.kept.get(ACCOUNT).writes, 1);
+});
+
+test('a read takes the engine\'s revision from a strong or a weak tag, bound by Interego-Revision and the body digest', async () => {
+  const revision = 'sha256:' + '1'.repeat(64), sealed = (await browserVault().seal(SAVE)).envelope, text = JSON.stringify(sealed);
+  const cases = [
+    [{ ETag: `"${revision}-0123456789abcdef"`, 'Interego-Revision': revision, 'Interego-Body-Digest': 'sha256:' + hex(text) }, true],
+    [{ ETag: `W/"${revision}-0123456789abcdef"`, 'Interego-Revision': revision, 'Interego-Body-Digest': 'sha256:' + hex(text) }, true],
+    [{ 'Interego-Revision': revision }, true],
+    [{ ETag: `W/"${revision}-0123456789abcdef"`, 'Interego-Revision': 'sha256:' + '2'.repeat(64) }, false],
+    [{ ETag: `"${revision}"`, 'Interego-Body-Digest': 'sha256:' + hex('other bytes') }, false],
+    [{}, false],
+  ];
+  for (const [headers, readable] of cases) {
+    const store = createGuestPodStore({ podOrigin: POD, now: () => T0, usage: () => null, keep: () => {},
+      fetch: async () => new Response(text, { status: 200, headers: { 'Content-Type': 'application/json', ...headers } }) });
+    store.admit(ACCOUNT, { token: TOKEN, tokenExpiresAt: new Date(T0 + 3_600_000).toISOString(), podUrl: `${POD}/${USER}/`, userId: USER, ownerDid: OWNER, sessionExpiresAt: T0 + 3_600_000 });
+    const got = await store.get(ACCOUNT);
+    assert.equal(got.ok, readable, JSON.stringify(headers));
+    if (readable) { assert.equal(got.present, true); assert.deepEqual(got.env, sealed); }
+  }
+});
+
+test('a document that is not a sealed character is reported present, never as an empty pod', async () => {
+  const f = fixture(); f.admit();
+  f.pod.documents.set(f.pod.target, { text: '{"not":"an envelope"}', revision: 'sha256:' + '3'.repeat(64) });
+  assert.deepEqual(await f.store.get(ACCOUNT), { ok: true, present: true, env: null });
+  const empty = fixture(); empty.admit();
+  assert.deepEqual(await empty.store.get(ACCOUNT), { ok: true, present: false, env: null });
 });

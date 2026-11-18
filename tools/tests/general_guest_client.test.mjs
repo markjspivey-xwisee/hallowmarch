@@ -275,3 +275,28 @@ test('authoritative: without the server\'s pod token the session goes back throu
   down.context.setTimeout = (fn) => { fn(); return 1; };
   await assert.rejects(down.saveRef.get(), value => value.code === 'unavailable');
 });
+
+test('authoritative: a pod character this browser cannot open is never written over unless the player chooses to', async () => {
+  const owner = await podPage('authoritative');
+  await owner.saveRef.set(CHARACTER);
+  const sealedElsewhere = owner.state.env;
+  // Another browser (or this one with its key cleared): the pod's copy cannot be opened, and play starts here.
+  const other = await podPage('authoritative', { server: { env: sealedElsewhere } });
+  assert.equal((await other.saveRef.get()).exists, false);
+  assert.equal(other.H.GENERAL_GUEST.podUnreadable, true);
+  await other.saveRef.set({ ...CHARACTER, savedAt: 11, char: { name: 'New Here' } }); await settle(other);
+  assert.equal(other.puts().length, 0, 'nothing is sent over the pod\'s unopened character');
+  assert.equal(other.P.stats.last, 'unreadable'); assert.equal(other.usage().writes, 0);
+  assert.equal(JSON.parse(other.store.get('hallowmarch.generalguest.save.' + ACCOUNT)).char.name, 'New Here', 'this browser still keeps its own copy');
+  // The choice is offered; only the player's "replace" lets the next write go.
+  const ask = other.calls.timers.find(t => t.ms === 0); assert.ok(ask, 'the choice is offered'); ask.fn();
+  assert.ok(other.calls.appended.length >= 1, 'a choice is shown');
+  other.H.GENERAL_GUEST.podReplace = true; await other.context.generalGuestPodFlush(); await settle(other);
+  assert.equal(other.puts().length, 1, 'replaced by the player\'s own choice');
+  // A document that stands in the pod but is not a sealed character is not taken for an empty pod either.
+  const odd = await podPage('authoritative', { server: { answer: message => message.op === 'get' ? { ok: true, present: true, env: null }
+    : message.op === 'budget' ? { ok: true, mode: 'authoritative' } : { ok: true } } });
+  assert.equal((await odd.saveRef.get()).exists, false); assert.equal(odd.H.GENERAL_GUEST.podUnreadable, true);
+  await odd.saveRef.set(CHARACTER); await settle(odd);
+  assert.equal(odd.puts().length, 0);
+});
