@@ -210,7 +210,7 @@ test('shadow: a guest comes through the door, plays, and each save is also seale
   log('first save:', JSON.stringify(first.after), 'usage', JSON.stringify(first.usage));
   assert.equal(first.after.written, 1, JSON.stringify(first) + d.output()); assert.equal(first.after.failed, 0);
   // The server's save is the character, as before.
-  assert.deepEqual(await d.saves(), [session.accountId + '.json']);
+  assert.deepEqual(await d.saves(), [session.accountId + '.guest.json', session.accountId + '.json'], 'the save, and its small record beside it');
   const held = JSON.parse(await readFile(path.join(d.data, 'saves', session.accountId + '.json'), 'utf8'));
   assert.equal(held.char.name, 'Synthetic Wayfarer'); assert.equal(held.char.gold, 4321);
   // The pod was sent one conditional native commit of ciphertext, under the guest's token, to the guest's own document.

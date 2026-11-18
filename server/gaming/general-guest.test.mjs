@@ -6,7 +6,7 @@ import { createHash, createHmac, randomBytes } from 'node:crypto';
 import { createGameSessionTokens } from './game-session.js';
 import { configuredGeneralGuest, createGeneralGuestAccounts, createGeneralGuestDoor, createGeneralGuestHost, generalGuestAccountId,
   generalGuestPath, guestSessionStanding, provisionalMayUse, subjectFacts, GENERAL_GUEST_COOKIE, GENERAL_GUEST_PURPOSE,
-  LINKED_GUEST_SESSION_MS, generalGuestSweep } from './general-guest.js';
+  LINKED_GUEST_SESSION_MS, generalGuestSweep, generalGuestSaveRecord, generalGuestOrphans } from './general-guest.js';
 
 const ISSUER = 'https://identity.example', DOOR = 'https://door.identity.example';
 const GAME = 'https://game.example', OTHER = 'https://other.example';
@@ -514,4 +514,27 @@ test('a guest\'s server-held character is swept after the guest\'s own deadline;
   assert.deepEqual(generalGuestSweep({ accounts, now: T0 + 20 * day, linkedIdleMs: 10 * day }).sort(), [id(1), id(2), id(3), id(4)]);
   assert.throws(() => generalGuestSweep({ accounts, now: T0, linkedIdleMs: 1000 }), /bounded/);
   for (const odd of [0, -1, NaN, Infinity, '90']) assert.throws(() => generalGuestSweep({ accounts, now: T0, linkedIdleMs: odd }), /bounded/, String(odd));
+});
+
+test('a save with no account entry is judged by its own record, and with none it is kept', () => {
+  const day = 86_400_000, id = n => 'gg-' + String(n).repeat(40);
+  assert.deepEqual(generalGuestSaveRecord({ id: id(1), name: 'Synthetic', generalGuest: true, guest: true, created: T0, last: T0 + 5, guestUntil: T0 + day + 0.5, pod: { writes: 1 } }),
+    { v: 1, id: id(1), linked: false, guestUntil: T0 + day, last: T0 + 5 });
+  assert.deepEqual(generalGuestSaveRecord({ id: id(2), generalGuest: true, guest: true, linked: true, created: T0, last: T0, guestUntil: T0 + day }),
+    { v: 1, id: id(2), linked: true, guestUntil: null, last: T0 }, 'an account\'s character has no guest\'s deadline');
+  for (const other of [null, {}, { id: 'gplain', guest: true }, { id: 'aNamed', generalGuest: true }, { id: id(1), guest: true }]) assert.equal(generalGuestSaveRecord(other), null);
+  const unlinked = { v: 1, id: id(1), linked: false, guestUntil: T0 + day, last: T0 }, linked = { v: 1, id: id(2), linked: true, guestUntil: null, last: T0 };
+  const records = { [id(1)]: unlinked, [id(2)]: linked, [id(3)]: { v: 1, id: id(3), linked: false, guestUntil: null, last: T0 },
+    [id(4)]: null, [id(5)]: 'text', [id(6)]: { ...unlinked }, [id(7)]: { v: 2, id: id(7), linked: false, guestUntil: 1, last: 1 },
+    [id(8)]: { v: 1, id: id(8), guestUntil: 1, last: 1 }, [id(9)]: { v: 1, id: id(9), linked: true, guestUntil: 1, last: 1 },
+    gplain: { v: 1, id: 'gplain', linked: false, guestUntil: 1, last: 1 }, [id(0)]: { v: 1, id: id(0), linked: false, guestUntil: 1, last: 0 } };
+  const unrecorded = [id(0), id(4), id(5), id(6), id(7), id(8), id(9), 'gplain'].sort();
+  const at = (now, more = {}) => { const judged = generalGuestOrphans({ records, now, ...more }); return [judged.gone.sort(), judged.unrecorded.sort()]; };
+  assert.deepEqual(at(T0 + day + 3_599_000), [[], unrecorded]);
+  assert.deepEqual(at(T0 + day + 3_601_000), [[id(1)], unrecorded], 'an hour after the guest\'s own deadline');
+  assert.deepEqual(at(T0 + 7 * day + 3_601_000), [[id(1), id(3)], unrecorded], 'with no deadline kept, a guest\'s longest life');
+  assert.deepEqual(at(T0 + 40_000 * day), [[id(1), id(3)], unrecorded], 'neither an account\'s character nor an unrecorded save, at any age');
+  assert.deepEqual(at(T0 + 40 * day, { linkedIdleMs: 10 * day }), [[id(1), id(2), id(3)], unrecorded]);
+  assert.throws(() => generalGuestOrphans({ now: T0 }), /required/);
+  assert.throws(() => generalGuestOrphans({ records: {}, now: T0, linkedIdleMs: 5 }), /bounded/);
 });

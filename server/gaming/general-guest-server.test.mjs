@@ -351,6 +351,10 @@ test('the door is bounded for each client address, as the deployment\'s proxy st
   assert.equal((await visit(f.base, '/guest/general/start', { 'X-Real-IP': '198.51.100.22', 'Sec-Fetch-Site': 'cross-site' })).headers.location, 'https://game.example/?interego-guest=refused');
 });
 
+const saveNames = async data => (await readdir(path.join(data, 'saves'))).filter(name => !name.endsWith('.guest.json')).sort();
+const recordNames = async data => (await readdir(path.join(data, 'saves'))).filter(name => name.endsWith('.guest.json')).sort();
+const record = (data, id, kept) => writeFile(path.join(data, 'saves', id + '.guest.json'), JSON.stringify({ v: 1, id, ...kept }));
+
 test('a guest\'s save does not outlive the guest: expired accounts and their saves are removed, at start and with the door off', { timeout: 30000 }, async t => {
   const day = 86_400_000, now = Date.now(), id = n => 'gg-' + String(n).repeat(40);
   const accounts = {
@@ -362,33 +366,49 @@ test('a guest\'s save does not outlive the guest: expired accounts and their sav
   };
   const seed = async data => {
     await writeFile(path.join(data, 'accounts.json'), JSON.stringify(accounts));
-    for (const name of [id(1), id(2), id(3), id(4), id(8), id(9), 'gplainguest']) await writeFile(path.join(data, 'saves', name + '.json'), JSON.stringify({ v: 1, char: { name } }));
-    const old = new Date(now - 9 * day); await utimes(path.join(data, 'saves', id(8) + '.json'), old, old); // a save with no account, long untouched
+    for (const name of [id(1), id(2), id(3), id(4), id(5), id(6), id(7), id(8), id(9), 'gplainguest']) await writeFile(path.join(data, 'saves', name + '.json'), JSON.stringify({ v: 1, char: { name } }));
+    // Saves with no account entry. With a record of their own, the record decides, by the sweep's rule:
+    await record(data, id(5), { linked: false, guestUntil: now - 2 * day, last: now - 3 * day });   // an unlinked guest past its deadline
+    await record(data, id(6), { linked: true, guestUntil: null, last: now - 400 * day });           // a registered account's
+    await record(data, id(7), { linked: false, guestUntil: now + day, last: now - 60_000 });        // a guest still alive
+    // With none (id 8, long untouched; id 9, new), neither age nor the missing entry removes them.
+    const old = new Date(now - 400 * day); await utimes(path.join(data, 'saves', id(8) + '.json'), old, old);
+    await writeFile(path.join(data, 'saves', id(1) + '.guest.json'), 'not a record');
   };
   const f = await spawned(t, {}, { seed });
   assert.ok(await f.started(), f.output());
   assert.match(f.output(), /general guest cleanup: 2 expired accounts, 3 saves removed/);
-  assert.deepEqual((await readdir(path.join(f.data, 'saves'))).sort(), [id(3), id(4), id(9), 'gplainguest'].map(name => name + '.json').sort());
+  assert.match(f.output(), /general guest cleanup: 2 saves with no account entry and no record of their own are kept/);
+  assert.equal(f.output().split('\n').filter(line => /general guest cleanup/.test(line)).length, 2);
+  assert.deepEqual(await saveNames(f.data), [id(3), id(4), id(6), id(7), id(8), id(9), 'gplainguest'].map(name => name + '.json').sort());
+  // Every guest account still here states its own record, and a removed save's record goes with it.
+  assert.deepEqual(await recordNames(f.data), [id(3), id(4), id(6), id(7)].map(name => name + '.guest.json').sort());
+  assert.deepEqual(JSON.parse(await readFile(path.join(f.data, 'saves', id(4) + '.guest.json'), 'utf8')), { v: 1, id: id(4), linked: true, guestUntil: null, last: now - 400 * day });
+  assert.deepEqual(JSON.parse(await readFile(path.join(f.data, 'saves', id(3) + '.guest.json'), 'utf8')), { v: 1, id: id(3), linked: false, guestUntil: now + day, last: now - 60_000 });
   await new Promise(resolve => setTimeout(resolve, 700));
   assert.deepEqual(Object.keys(JSON.parse(await readFile(path.join(f.data, 'accounts.json'), 'utf8'))).sort(), [id(3), id(4), 'gplainguest'].sort());
-  // While the server runs: a guest whose deadline passes is swept at the next pass.
+  // Where the deployment opted into an idle age for accounts' characters, an account's own record is judged by it too.
   const g = await spawned(t, { HM_GENERAL_GUEST_SWEEP_MS: '1000', HM_GENERAL_GUEST_LINKED_IDLE_DAYS: '20' }, { seed });
   assert.ok(await g.started(), g.output());
-  assert.match(g.output(), /general guest cleanup: 3 expired accounts, 4 saves removed/, 'a shorter idle age for accounts\' characters, as configured');
-  assert.deepEqual((await readdir(path.join(g.data, 'saves'))).sort(), [id(3), id(9), 'gplainguest'].map(name => name + '.json').sort());
+  assert.match(g.output(), /general guest cleanup: 3 expired accounts, 5 saves removed/, 'a shorter idle age for accounts\' characters, as configured');
+  assert.deepEqual(await saveNames(g.data), [id(3), id(7), id(8), id(9), 'gplainguest'].map(name => name + '.json').sort());
 });
 
-test('with the account table missing or unreadable, no save is removed', { timeout: 30000 }, async t => {
+test('a save whose account entry is gone is never removed for its age: with the table lost, only its own record ends it', { timeout: 30000 }, async t => {
   const day = 86_400_000, now = Date.now(), id = n => 'gg-' + String(n).repeat(40), old = new Date(now - 30 * day);
   const saves = async data => {
-    for (const name of [id(1), id(2), 'gplainguest']) {
+    for (const name of [id(1), id(2), id(3), id(4), id(5), 'gplainguest']) {
       await writeFile(path.join(data, 'saves', name + '.json'), JSON.stringify({ v: 1, char: { name: 'Synthetic ' + name.slice(0, 6) } }));
       await utimes(path.join(data, 'saves', name + '.json'), old, old);
     }
+    await record(data, id(3), { linked: true, guestUntil: null, last: now - 30 * day });              // a registered account's guest character
+    await record(data, id(4), { linked: false, guestUntil: now - 29 * day, last: now - 30 * day });   // a guest long gone
+    await writeFile(path.join(data, 'saves', id(5) + '.guest.json'), JSON.stringify({ v: 1, id: id(4), linked: false, guestUntil: 1, last: 1 })); // another save's record
   };
-  const kept = [id(1), id(2), 'gplainguest'].map(name => name + '.json').sort();
+  const kept = [id(1), id(2), id(3), id(5), 'gplainguest'].map(name => name + '.json').sort();
   const cases = {
     absent: async () => {},
+    empty: async data => { await writeFile(path.join(data, 'accounts.json'), '{}'); },
     unparseable: async data => { await writeFile(path.join(data, 'accounts.json'), '{"' + id(1) + '":{"id":"' + id(1) + '","name":"Synthetic trunc'); },
     'not a table': async data => { await writeFile(path.join(data, 'accounts.json'), '[]'); },
     unreadable: async data => { await mkdir(path.join(data, 'accounts.json')); },
@@ -396,14 +416,84 @@ test('with the account table missing or unreadable, no save is removed', { timeo
   for (const [state, table] of Object.entries(cases)) {
     const f = await spawned(t, { HM_GENERAL_GUEST_SWEEP_MS: '1000' }, { seed: async data => { await saves(data); await table(data); } });
     assert.ok(await f.started(), f.output());
-    await new Promise(resolve => setTimeout(resolve, 300));
-    assert.deepEqual((await readdir(path.join(f.data, 'saves'))).sort(), kept, state);
-    assert.doesNotMatch(f.output(), /saves removed/, state);
+    await new Promise(resolve => setTimeout(resolve, 1300));
+    assert.deepEqual(await saveNames(f.data), kept, state);
     const said = f.output().split('\n').filter(line => /general guest cleanup/.test(line));
-    assert.equal(said.length, 1, state + ': one line'); assert.match(said[0], /no save without an account is removed/);
+    assert.deepEqual(said.map(line => line.replace(/^.*general guest cleanup: /, '')).sort(),
+      ['0 expired accounts, 1 saves removed', '3 saves with no account entry and no record of their own are kept'], state + ': one line each, however often it sweeps');
     assert.doesNotMatch(f.output(), /Synthetic/, state + ': nothing of the file is logged');
     f.child.kill('SIGTERM'); await f.exited;
   }
+});
+
+test('an account table that cannot be read or parsed is moved aside before anything writes over it', { timeout: 30000 }, async t => {
+  const id = 'gg-' + '1'.repeat(40);
+  const cases = {
+    unparseable: '{"aNamed":{"id":"aNamed","name":"Synthetic Named","pass":{"salt":"synthetic","hash":"synthetic"}},"' + id + '":{"id":"' + id + '","name":"Synthetic trunc',
+    'not a table': '["Synthetic list"]',
+  };
+  const play = async f => { const guest = await f.connect(undefined); await guest.play(); await new Promise(resolve => setTimeout(resolve, 900)); };
+  const asides = async f => (await readdir(f.data)).filter(name => name.startsWith('accounts.json.corrupt-')).sort();
+  for (const [state, text] of Object.entries(cases)) {
+    const f = await spawned(t, {}, { seed: data => writeFile(path.join(data, 'accounts.json'), text) });
+    assert.ok(await f.started(), f.output());
+    const [aside] = await asides(f);
+    assert.match(aside ?? '', /^accounts\.json\.corrupt-\d{8}T\d{6}Z$/, state);
+    assert.equal(await readFile(path.join(f.data, aside), 'utf8'), text, state + ': what was there is kept, byte for byte');
+    const said = f.output().split('\n').filter(line => /^accounts: /.test(line));
+    assert.equal(said.length, 1, state); assert.ok(said[0].includes('moved aside as ' + aside), said[0]);
+    assert.doesNotMatch(f.output(), /Synthetic/, state + ': nothing of the file is logged');
+    await play(f);
+    assert.equal(await readFile(path.join(f.data, aside), 'utf8'), text, state + ': still there after the table was written');
+    assert.equal(typeof JSON.parse(await readFile(path.join(f.data, 'accounts.json'), 'utf8')), 'object');
+    f.child.kill('SIGTERM'); await f.exited;
+  }
+  // An earlier bad file already set aside under the name this one would take in the same second is never written over.
+  const stamp = at => new Date(at).toISOString().replace(/[-:]|\.\d+/g, '');
+  const again = await spawned(t, {}, { seed: async data => {
+    await writeFile(path.join(data, 'accounts.json'), cases.unparseable);
+    for (let n = -2; n < 25; n++) await writeFile(path.join(data, 'accounts.json.corrupt-' + stamp(Date.now() + n * 1000)), 'synthetic earlier ' + n);
+  } });
+  assert.ok(await again.started(), again.output());
+  const all = await asides(again), second = all.filter(name => /Z-1$/.test(name));
+  assert.equal(all.length, 28); assert.equal(second.length, 1);
+  assert.equal(await readFile(path.join(again.data, second[0]), 'utf8'), cases.unparseable);
+  for (const name of all) if (name !== second[0]) assert.match(await readFile(path.join(again.data, name), 'utf8'), /^synthetic earlier /);
+  // Not a file at all: moved aside the same way, and the table can be written again.
+  const dir = await spawned(t, {}, { seed: async data => { await mkdir(path.join(data, 'accounts.json')); await writeFile(path.join(data, 'accounts.json', 'inside'), 'synthetic'); } });
+  assert.ok(await dir.started(), dir.output());
+  const [moved] = await asides(dir);
+  assert.equal(await readFile(path.join(dir.data, moved, 'inside'), 'utf8'), 'synthetic');
+  await play(dir);
+  assert.equal(typeof JSON.parse(await readFile(path.join(dir.data, 'accounts.json'), 'utf8')), 'object');
+  // A table that was read, and one that is merely absent: nothing is moved, nothing is said.
+  const table = { aNamed: { id: 'aNamed', name: 'Synthetic Named', guest: false, created: 1, last: 1 } };
+  for (const seed of [data => writeFile(path.join(data, 'accounts.json'), JSON.stringify(table)), async () => {}]) {
+    const fine = await spawned(t, {}, { seed });
+    assert.ok(await fine.started(), fine.output());
+    await play(fine);
+    assert.deepEqual(await asides(fine), []); assert.doesNotMatch(fine.output(), /^accounts: /m);
+    assert.ok(Object.keys(JSON.parse(await readFile(path.join(fine.data, 'accounts.json'), 'utf8'))).length >= 1);
+    fine.child.kill('SIGTERM'); await fine.exited;
+  }
+});
+
+test('a general guest\'s save is written with its record beside it: whose kind of character, and until when', { timeout: 30000 }, async t => {
+  const f = await spawned(t, { HM_GENERAL_GUEST: '1', HM_GENERAL_GUEST_DOOR_ORIGIN: DOOR, ...POD_ENV }, { fixtureSigner: true, fixtureIdentity: true });
+  assert.ok(await f.started(), f.output());
+  const kept = async id => JSON.parse(await readFile(path.join(f.data, 'saves', id + '.guest.json'), 'utf8'));
+  const door = await f.throughDoor('code-' + 'a'.repeat(32)), id = door.session.acct.id;
+  assert.deepEqual(await readdir(path.join(f.data, 'saves')), [], 'no record where there is no save');
+  const guest = await f.connect(door.session.token); await guest.play();
+  guest.send({ t: 'save', d: { v: 1, char: { name: 'Synthetic guest character' } } }); assert.equal((await guest.receive('saved')).ok, true);
+  const first = await kept(id);
+  assert.deepEqual(Object.keys(first).sort(), ['guestUntil', 'id', 'last', 'linked', 'v']);
+  assert.equal(first.id, id); assert.equal(first.linked, false); assert.ok(first.guestUntil > Date.now() && first.guestUntil <= Date.now() + 86_400_000);
+  assert.ok(!JSON.stringify(first).includes('Synthetic'), 'nothing of the character is in it');
+  const linkedDoor = await f.throughDoor('linked-' + 'e'.repeat(32)), linkedId = linkedDoor.session.acct.id, linked = await f.connect(linkedDoor.session.token);
+  await linked.play();
+  linked.send({ t: 'save', d: { v: 1, char: { name: 'Synthetic account guest character' } } }); assert.equal((await linked.receive('saved')).ok, true);
+  assert.deepEqual({ ...(await kept(linkedId)), last: 0 }, { v: 1, id: linkedId, linked: true, guestUntil: null, last: 0 });
 });
 
 test('the server refuses to start with the guest on and no way to tell its clients apart', { timeout: 30000 }, async t => {

@@ -30,7 +30,7 @@ import { createAgentHttp, gamingAgentAffordances } from './gaming/agent-http.js'
 import { configuredNativeAgentHost } from './gaming/native-agent-host.js';
 import { createPlayerAccountHost } from './gaming/player-account-host.js';
 import { createGameSessionTokens } from './gaming/game-session.js';
-import { configuredGeneralGuest, createGeneralGuestAccounts, generalGuestSweep } from './gaming/general-guest.js';
+import { configuredGeneralGuest, createGeneralGuestAccounts, generalGuestSweep, generalGuestSaveRecord, generalGuestOrphans } from './gaming/general-guest.js';
 import { configuredGuestPod } from './gaming/general-guest-pod.js';
 import { createNativePlayGrantSigner } from './gaming/provisional-play.js';
 import { createPlayerBrowserAssets } from './gaming/player-browser-assets.js';
@@ -158,8 +158,27 @@ const ACCOUNTS_READ = (() => {
   } catch (error) { return { ok: false, why: error?.code === 'ENOENT' ? 'absent' : error instanceof SyntaxError ? 'unparseable' : 'unreadable' }; }
 })();
 const ACCOUNTS = ACCOUNTS_READ.ok ? ACCOUNTS_READ.table : {};
+// This table is every account's (named, native-bound and guest alike), and the next write replaces the file
+// whole. A file that was there but could not be read or parsed is therefore moved aside first, under a name no
+// earlier one has, so what it held can still be recovered by hand. A file that is merely absent needs nothing,
+// and one that was read is never touched here. If it cannot be moved, this process does not write the table.
+let accountsWritable = true;
+if (!ACCOUNTS_READ.ok && ACCOUNTS_READ.why !== 'absent') {
+  const file = path.join(CFG.data, 'accounts.json'), stamp = new Date().toISOString().replace(/[-:]|\.\d+/g, '');
+  const taken = name => { try { fs.lstatSync(name); return true; } catch (error) { return error?.code !== 'ENOENT'; } };
+  try {
+    let aside = `${file}.corrupt-${stamp}`;
+    for (let n = 1; taken(aside); n++) aside = `${file}.corrupt-${stamp}-${n}`;
+    fs.renameSync(file, aside);
+    console.warn(`accounts: accounts.json was ${ACCOUNTS_READ.why} at start; moved aside as ${path.basename(aside)}, starting with an empty table`);
+  } catch (error) {
+    accountsWritable = false;
+    console.warn(`accounts: accounts.json was ${ACCOUNTS_READ.why} at start and could not be moved aside (${error?.code || 'failed'}); this process will not write the account table`);
+  }
+}
 let accTimer = null;
-const accountsSave = () => { clearTimeout(accTimer); accTimer = setTimeout(() => { store.write('accounts.json', ACCOUNTS); accTimer = null; }, 400); };
+const accountsWrite = () => { if (accountsWritable) store.write('accounts.json', ACCOUNTS); };
+const accountsSave = () => { clearTimeout(accTimer); accTimer = setTimeout(() => { accountsWrite(); accTimer = null; }, 400); };
 const WORLDS = store.read('worlds.json', {});
 // The season advances only during a live human session.
 CFG.keeps = WORLD.keeps;
@@ -363,6 +382,7 @@ const GENERAL_GUEST = configuredGeneralGuest({ env: process.env, pod: GUEST_POD?
     const tokenUntil = GUEST_POD?.mode === 'authoritative' && !given.linked ? Date.parse(String(guestPod?.tokenExpiresAt ?? '')) : NaN;
     const standing = Number.isFinite(tokenUntil) ? { ...given, expiresAt: Math.min(given.expiresAt, Math.floor(tokenUntil)) } : given;
     const session = GENERAL_GUEST_ACCOUNTS.issue(standing);
+    guestRecordKeep(session.acct.id);
     if (GUEST_POD && !standing.linked) {
       const admitted = !!guestPod && GUEST_POD.store.admit(session.acct.id, { ...guestPod, userId: standing.userId, ownerDid: standing.guestDid, sessionExpiresAt: session.expiresAt });
       // Where the pod is the character, a session that cannot write it would keep nothing: none is made.
@@ -378,31 +398,57 @@ const guestSaveFile = id => path.join(CFG.data, 'saves', id + '.json');
 // A registered account's guest character is never swept, unless the deployment sets a positive number of idle days.
 const guestLinkedIdleDays = +(process.env.HM_GENERAL_GUEST_LINKED_IDLE_DAYS || 0);
 const guestLinkedIdleMs = Number.isFinite(guestLinkedIdleDays) && guestLinkedIdleDays > 0 ? Math.max(1, guestLinkedIdleDays) * 86_400_000 : null;
-let guestOrphansSaid = false;
+// Beside each general guest's save, a small record of whose kind of character it is and until when
+// (generalGuestSaveRecord): written before the save is, and again whenever the guest arrives, so the sweep can judge a save whose
+// account entry is gone from the files alone. It holds nothing of the character.
+const guestRecordFile = id => path.join(CFG.data, 'saves', id + '.guest.json');
+const guestRecordsKept = new Map();
+function guestRecordKeep(id, saving = false) {
+  const record = generalGuestSaveRecord(ACCOUNTS[id]);
+  if (!record || (!saving && !fs.existsSync(guestSaveFile(id)))) return; // a record only where there is, or is about to be, a save
+  const text = JSON.stringify(record);
+  if (!guestRecordsKept.has(id)) { try { guestRecordsKept.set(id, fs.readFileSync(guestRecordFile(id), 'utf8')); } catch { /* none yet */ } }
+  if (guestRecordsKept.get(id) === text) return;
+  try { fileStore.write(path.join('saves', id + '.guest.json'), record); guestRecordsKept.set(id, text); }
+  catch (error) { console.warn('general guest record:', error?.code || 'failed'); }
+}
+// The save is gone by its owner's own doing: its record goes after it.
+function guestRecordDrop(id) { guestRecordsKept.delete(id); try { fs.unlinkSync(guestRecordFile(id)); } catch { /* none kept */ } }
+let guestUnrecordedSaid = 0;
 function generalGuestCleanup() {
   let accounts = 0, files = 0;
   try {
+    // Only an account entry that exists, and says an unlinked guest is past its rule, ends a save here.
     for (const id of generalGuestSweep({ accounts: ACCOUNTS, now: Date.now(), linkedIdleMs: guestLinkedIdleMs })) {
       GUEST_POD?.store.forget(id);
       try { fs.unlinkSync(guestSaveFile(id)); files++; } catch { /* none kept */ }
-      delete ACCOUNTS[id]; accounts++;
+      guestRecordDrop(id); delete ACCOUNTS[id]; accounts++;
     }
-    // A save with no account left (a crash between the two, or a table restored from before): by its age alone.
-    // Only against a table that was read and parsed at start. Missing (a fresh server, or a lost file), unreadable
-    // or unparseable, the empty table in memory says nothing about whose a save is: none is removed by this process.
-    if (!ACCOUNTS_READ.ok) {
-      if (!guestOrphansSaid) { guestOrphansSaid = true; console.warn('general guest cleanup: the account table was ' + ACCOUNTS_READ.why + ' at start; no save without an account is removed'); }
-    } else for (const name of fs.readdirSync(path.join(CFG.data, 'saves'))) {
-      const id = /^(gg-[0-9a-f]{40})\.json$/.exec(name)?.[1];
-      if (!id || Object.hasOwn(ACCOUNTS, id)) continue;
-      try { if (Date.now() - fs.statSync(guestSaveFile(id)).mtimeMs > 8 * 86_400_000) { fs.unlinkSync(guestSaveFile(id)); files++; } } catch { /* gone already */ }
+    // A save with no account entry (a crash between the two, a table restored from before, or a table lost) is
+    // never removed for its age or for the missing entry. Its own record decides, by the same rule; with no
+    // record it is kept, and only counted.
+    const records = {}, saved = new Set();
+    for (const name of fs.readdirSync(path.join(CFG.data, 'saves'))) {
+      const found = /^(gg-[0-9a-f]{40})(\.guest)?\.json$/.exec(name);
+      if (!found || Object.hasOwn(ACCOUNTS, found[1])) continue;
+      if (found[2]) { try { records[found[1]] = JSON.parse(fs.readFileSync(guestRecordFile(found[1]), 'utf8')); } catch { records[found[1]] = null; } }
+      else { saved.add(found[1]); if (!Object.hasOwn(records, found[1])) records[found[1]] = null; }
     }
+    const { gone, unrecorded } = generalGuestOrphans({ records, now: Date.now(), linkedIdleMs: guestLinkedIdleMs });
+    for (const id of gone) {
+      try { fs.unlinkSync(guestSaveFile(id)); files++; } catch { /* a record with no save */ }
+      try { fs.unlinkSync(guestRecordFile(id)); } catch { /* gone already */ }
+    }
+    const kept = unrecorded.filter(id => saved.has(id)).length;
+    if (kept !== guestUnrecordedSaid) { guestUnrecordedSaid = kept; console.log(`general guest cleanup: ${kept} saves with no account entry and no record of their own are kept`); }
   } catch (error) { console.warn('general guest cleanup:', error?.code || 'failed'); }
   if (accounts) accountsSave();
   if (accounts || files) console.log(`general guest cleanup: ${accounts} expired accounts, ${files} saves removed`);
   return { accounts, files };
 }
 generalGuestCleanup();
+// Saves made before records were kept: each account that is still here states its own.
+for (const id of Object.keys(ACCOUNTS)) if (ACCOUNTS[id]?.generalGuest === true) guestRecordKeep(id);
 // Counts only, never content: what was forwarded to guests' pods and what was not, when either changed.
 let guestPodSaid = '';
 function generalGuestPodReport() {
@@ -461,7 +507,7 @@ function generalGuestPod(c, m) {
   if (c.guestPodBusy || c.guestPodAsks.length >= 12) return answer({ ok: false, code: 'busy' });
   c.guestPodAsks.push(time); c.guestPodBusy = true;
   (op === 'get' ? GUEST_POD.store.get(id) : GUEST_POD.store.put(id, m.env)).then(result => {
-    if (op === 'put' && result.ok && GUEST_POD.mode === 'authoritative') { try { fs.unlinkSync(guestSaveFile(id)); } catch { /* none kept */ } }
+    if (op === 'put' && result.ok && GUEST_POD.mode === 'authoritative') { try { fs.unlinkSync(guestSaveFile(id)); } catch { /* none kept */ } guestRecordDrop(id); }
     answer(result);
   }, () => answer({ ok: false, code: 'failed' })).finally(() => { c.guestPodBusy = false; });
 }
@@ -1245,6 +1291,7 @@ function onMsg(c, raw) {
       send(c, { t: 'saved', ok: false, error: 'native_ownership_unavailable' }); return;
     }
     if (!m.d || typeof m.d !== 'object' || m.d.v !== 1) { send(c, { t: 'saved', ok: false }); return; }
+    if (c.acct.generalGuest === true) guestRecordKeep(c.acct.id, true); // before the save: none without its record
     store.write(path.join('saves', c.acct.id + '.json'), m.d); STATS.saves++;
     send(c, { t: 'saved', ok: true, at: now });
   } else if (m.t === 'load') {
@@ -1263,6 +1310,7 @@ function onMsg(c, raw) {
       send(c, { t: 'saved', ok: false, error: 'native_ownership_unavailable' }); return;
     }
     try { fs.unlinkSync(path.join(CFG.data, 'saves', c.acct.id + '.json')); } catch (e) { /* none */ }
+    if (c.acct.generalGuest === true) guestRecordDrop(c.acct.id);
     send(c, { t: 'saved', ok: true, at: now });
   }
 }
@@ -1392,7 +1440,7 @@ function captureAcceptedFiles() {
   // Cold startup has no dirty files and never enters the live-to-idle edge.
   if (accTimer) {
     clearTimeout(accTimer);
-    try { store.write('accounts.json', ACCOUNTS); accTimer = null; }
+    try { accountsWrite(); accTimer = null; }
     catch (error) { console.warn('final accounts checkpoint', error.message); }
   }
   if (worldTimer && (!WORLD_STATE || WORLD_STATE.canMutate())) {

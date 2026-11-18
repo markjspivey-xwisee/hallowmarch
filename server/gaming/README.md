@@ -240,17 +240,39 @@ resumes, and every hour while someone plays (`HM_GENERAL_GUEST_SWEEP_MS`; the
 server schedules nothing in standby), whether or not the door is on,
 `generalGuestSweep` removes the account and `saves/gg-….json` of an unlinked
 guest an hour after the guest's own deadline as identity stated it at its last
-arrival (never more than seven days after that arrival), and any
-`saves/gg-….json` with no account that is eight days old. A linked account's
+arrival (never more than seven days after that arrival). A linked account's
 guest character belongs to a registered account and is never swept, unless
 `HM_GENERAL_GUEST_LINKED_IDLE_DAYS` is set to a positive number: then after
 that many days without an arrival.
 
-A save with no account is removed only against an account table that was read
-and parsed when the server started. Where `accounts.json` was missing (a fresh
-server, or a lost file), unreadable or unparseable, the table in memory is
-empty for a reason other than "there are no accounts", so that process removes
-no such save and says so once in the log, without the file's content.
+A save is never removed for its age, nor because its account entry is missing.
+Only an account entry that exists and says "an unlinked guest past its rule"
+ends a save. So that a save whose entry is gone can still be judged, the
+server keeps a small record beside each general guest's save,
+`saves/gg-….guest.json` (`generalGuestSaveRecord`): `{ v, id, linked,
+guestUntil, last }`, nothing of the character, no name, no token. It is
+written before the save is, again at each arrival of a guest that has a save,
+and at start for every guest account still in the table (saves made before
+records were kept). For a `saves/gg-….json` with no account entry
+(`generalGuestOrphans`), that record alone decides, by the sweep's own rule:
+an unlinked guest past its deadline goes, a linked account's stays (unless the
+idle days above are set). With no record, or one that does not parse or is
+not that save's own, the save is kept whatever its age, and the server logs
+the count of such saves in one line (the count only; again only when it
+changes). This holds whether `accounts.json` was read, absent or lost: a
+restart with a fresh table removes no linked account's character. A record
+goes when its save does (swept, wiped by its owner, or moved to the guest's
+pod).
+
+`accounts.json` is one table for every account (named, native-bound and
+guest), and each write replaces it whole. If at start the file is there but
+cannot be read or parsed (or is not a table), it is first moved aside as
+`accounts.json.corrupt-<UTC timestamp>` (with `-1`, `-2`, … rather than ever
+replacing an earlier one), one line is logged with the new name and none of
+the content, and the server starts with an empty table. A file that is merely
+absent, and one that was read, are left exactly as before. If the bad file
+cannot be moved, that process does not write the account table at all and
+says so once.
 
 ### The guest's own pod (`general-guest-pod.js`)
 

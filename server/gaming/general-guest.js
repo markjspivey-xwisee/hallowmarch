@@ -462,6 +462,46 @@ export function generalGuestSweep({ accounts, now, graceMs = 3_600_000, linkedId
 }
 
 /**
+ * What is kept beside a general guest's save (`saves/<id>.guest.json`) so that
+ * the save's fate can be read from the files alone, should the account table
+ * be lost: whose kind of character it is and until when. Nothing of the
+ * character, no name, no token. Null for anything that is not a general
+ * guest's own account entry.
+ */
+export function generalGuestSaveRecord(account) {
+  if (!plain(account) || account.generalGuest !== true || typeof account.id !== 'string' || !/^gg-[0-9a-f]{40}$/.test(account.id)) return null;
+  const seen = Math.max(Number.isFinite(account.last) ? account.last : 0, Number.isFinite(account.created) ? account.created : 0);
+  const linked = account.linked === true;
+  return { v: 1, id: account.id, linked, guestUntil: !linked && Number.isFinite(account.guestUntil) ? Math.floor(account.guestUntil) : null, last: Math.floor(seen) };
+}
+const savedRecord = (record, id) => plain(record) && record.v === 1 && record.id === id && /^gg-[0-9a-f]{40}$/.test(id)
+  && typeof record.linked === 'boolean' && Number.isFinite(record.last) && record.last > 0
+  && (record.guestUntil === null || (Number.isFinite(record.guestUntil) && !record.linked));
+/**
+ * The general guest saves that have NO account entry, judged from the record
+ * kept beside each (`generalGuestSaveRecord`), by the same rule as the sweep:
+ *
+ *   gone        the ids whose record says an unlinked guest past its deadline
+ *               (or, where the deployment opted in, a linked account's long
+ *               unused);
+ *   unrecorded  the ids with no record, or one that cannot be trusted. These
+ *               are never removed: a missing account entry and a file's age
+ *               say nothing about whose the character is.
+ *
+ * `records` maps each such id to what was read of its record (anything).
+ */
+export function generalGuestOrphans({ records, now, graceMs, linkedIdleMs = null } = {}) {
+  if (!plain(records)) throw new TypeError('The records read beside the saves are required.');
+  const accounts = {}, unrecorded = [];
+  for (const [id, record] of Object.entries(records)) {
+    if (!savedRecord(record, id)) { unrecorded.push(id); continue; }
+    accounts[id] = { id, generalGuest: true, created: record.last, last: record.last, ...(record.linked ? { linked: true } : {}),
+      ...(record.guestUntil !== null ? { guestUntil: record.guestUntil } : {}) };
+  }
+  return { gone: generalGuestSweep({ accounts, now, ...(graceMs === undefined ? {} : { graceMs }), linkedIdleMs }), unrecorded };
+}
+
+/**
  * The general guest as a deployment configures it. Off (null) unless
  * `HM_GENERAL_GUEST` is exactly `1`. On, every prerequisite must be present,
  * or this throws and the server does not start:
