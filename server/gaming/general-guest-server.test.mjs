@@ -85,7 +85,9 @@ export async function resolve(specifier, context, next) {
   }
   const child = spawn(process.execPath, [...args, path.join(root, 'server', 'server.js')], { cwd: root,
     env: { PATH: process.env.PATH, NODE_ENV: 'test', PORT: String(port), HM_DATA: data, HM_SECRET: secret, HM_PUBLIC_ORIGIN: 'https://game.example',
-      HM_GAMING_BOOTSTRAP: '0', HM_GAMING_ENABLED: '0', HM_WORLD_PERSISTENCE_MODE: 'legacy', ...env },
+      HM_GAMING_BOOTSTRAP: '0', HM_GAMING_ENABLED: '0', HM_WORLD_PERSISTENCE_MODE: 'legacy',
+      // These fixtures are reached directly, with no proxy before them (a test that names the proxy's header says so itself).
+      ...(env.HM_GENERAL_GUEST_CLIENT_IP_HEADER === undefined ? { HM_GENERAL_GUEST_DIRECT: '1' } : {}), ...env },
     stdio: ['ignore', 'pipe', 'pipe'] });
   let output = ''; for (const stream of [child.stdout, child.stderr]) stream.on('data', bytes => { output = (output + bytes).slice(-8000); });
   const exited = once(child, 'exit'), sockets = [];
@@ -355,7 +357,7 @@ test('a guest\'s save does not outlive the guest: expired accounts and their sav
     [id(1)]: { id: id(1), name: 'Guest', guest: true, generalGuest: true, created: now - 3 * day, last: now - 3 * day, guestUntil: now - 2 * day, pod: { writes: 4, bytes: 4000, lastAt: 1, full: false } },
     [id(2)]: { id: id(2), name: 'Guest', guest: true, generalGuest: true, created: now - 9 * day, last: now - 9 * day },
     [id(3)]: { id: id(3), name: 'Guest', guest: true, generalGuest: true, created: now - 3 * day, last: now - 60_000, guestUntil: now + day },
-    [id(4)]: { id: id(4), name: 'Guest', guest: true, generalGuest: true, linked: true, created: now - 30 * day, last: now - 30 * day },
+    [id(4)]: { id: id(4), name: 'Guest', guest: true, generalGuest: true, linked: true, created: now - 400 * day, last: now - 400 * day }, // a registered account's: kept, however idle
     gplainguest: { id: 'gplainguest', name: 'Guest', guest: true, created: now - 400 * day, last: now - 400 * day },
   };
   const seed = async data => {
@@ -374,4 +376,44 @@ test('a guest\'s save does not outlive the guest: expired accounts and their sav
   assert.ok(await g.started(), g.output());
   assert.match(g.output(), /general guest cleanup: 3 expired accounts, 4 saves removed/, 'a shorter idle age for accounts\' characters, as configured');
   assert.deepEqual((await readdir(path.join(g.data, 'saves'))).sort(), [id(3), id(9), 'gplainguest'].map(name => name + '.json').sort());
+});
+
+test('with the account table missing or unreadable, no save is removed', { timeout: 30000 }, async t => {
+  const day = 86_400_000, now = Date.now(), id = n => 'gg-' + String(n).repeat(40), old = new Date(now - 30 * day);
+  const saves = async data => {
+    for (const name of [id(1), id(2), 'gplainguest']) {
+      await writeFile(path.join(data, 'saves', name + '.json'), JSON.stringify({ v: 1, char: { name: 'Synthetic ' + name.slice(0, 6) } }));
+      await utimes(path.join(data, 'saves', name + '.json'), old, old);
+    }
+  };
+  const kept = [id(1), id(2), 'gplainguest'].map(name => name + '.json').sort();
+  const cases = {
+    absent: async () => {},
+    unparseable: async data => { await writeFile(path.join(data, 'accounts.json'), '{"' + id(1) + '":{"id":"' + id(1) + '","name":"Synthetic trunc'); },
+    'not a table': async data => { await writeFile(path.join(data, 'accounts.json'), '[]'); },
+    unreadable: async data => { await mkdir(path.join(data, 'accounts.json')); },
+  };
+  for (const [state, table] of Object.entries(cases)) {
+    const f = await spawned(t, { HM_GENERAL_GUEST_SWEEP_MS: '1000' }, { seed: async data => { await saves(data); await table(data); } });
+    assert.ok(await f.started(), f.output());
+    await new Promise(resolve => setTimeout(resolve, 300));
+    assert.deepEqual((await readdir(path.join(f.data, 'saves'))).sort(), kept, state);
+    assert.doesNotMatch(f.output(), /saves removed/, state);
+    const said = f.output().split('\n').filter(line => /general guest cleanup/.test(line));
+    assert.equal(said.length, 1, state + ': one line'); assert.match(said[0], /no save without an account is removed/);
+    assert.doesNotMatch(f.output(), /Synthetic/, state + ': nothing of the file is logged');
+    f.child.kill('SIGTERM'); await f.exited;
+  }
+});
+
+test('the server refuses to start with the guest on and no way to tell its clients apart', { timeout: 30000 }, async t => {
+  const blind = await spawned(t, { HM_GENERAL_GUEST: '1', HM_GENERAL_GUEST_DOOR_ORIGIN: DOOR, HM_GENERAL_GUEST_DIRECT: '' }, { fixtureSigner: true });
+  assert.notEqual((await blind.exited)[0], 0);
+  assert.match(blind.output(), /HM_GENERAL_GUEST=1: HM_GENERAL_GUEST_CLIENT_IP_HEADER is not set/);
+  // Behind two proxies: the entry the outer trusted proxy appended, not what the client wrote before it.
+  const f = await spawned(t, { HM_GENERAL_GUEST: '1', HM_GENERAL_GUEST_DOOR_ORIGIN: DOOR, HM_GENERAL_GUEST_CLIENT_IP_HEADER: 'x-forwarded-for', HM_GENERAL_GUEST_CLIENT_IP_HOPS: '2' }, { fixtureSigner: true });
+  assert.ok(await f.started(), f.output());
+  for (let n = 0; n < 6; n++) assert.ok((await visit(f.base, '/guest/general/start', { 'X-Forwarded-For': `10.0.0.${n}, 198.51.100.30, 172.16.0.1` })).headers.location.startsWith(DOOR));
+  assert.equal((await visit(f.base, '/guest/general/start', { 'X-Forwarded-For': '10.9.9.9, 198.51.100.30, 172.16.0.2' })).headers.location, 'https://game.example/?interego-guest=busy');
+  assert.ok((await visit(f.base, '/guest/general/start', { 'X-Forwarded-For': '198.51.100.30, 198.51.100.31, 172.16.0.1' })).headers.location.startsWith(DOOR));
 });

@@ -171,6 +171,8 @@ HM_GENERAL_GUEST=1
 HM_GENERAL_GUEST_DOOR_ORIGIN=https://door.interego.xwisee.com   # the door page's own origin
 HM_PUBLIC_ORIGIN or RAILWAY_PUBLIC_DOMAIN                       # this deployment's origin: the grant's audience
 the game's service agent (HM_GAMING_BOOTSTRAP=1, or the manual service identity)   # signs the grant through the relay
+HM_GENERAL_GUEST_CLIENT_IP_HEADER=x-real-ip                     # the header the proxy states the client's address in
+  (or HM_GENERAL_GUEST_DIRECT=1: no proxy stands before this server; tests and local use)
 ```
 
 Identity is `HM_GAMING_SERVICE_IDENTITY_ORIGIN` (default
@@ -220,9 +222,17 @@ one client address (ninety for all, which keeps every started visit's
 ten-minute place under the door's ceiling), sixty returns and collections a
 minute for one address, and twelve sessions in ten minutes for one guest,
 whatever addresses it comes from. Behind a proxy every socket is the proxy's, so
-set `HM_GENERAL_GUEST_CLIENT_IP_HEADER` to the one header the platform's proxy
-sets with the client's address (Railway: `x-real-ip`); unset, the socket's
-address is used. A start that a browser says came from another site
+with no client address named every player would share one bucket and one of
+them could hold the door shut for all: the server refuses to start with the
+guest on unless `HM_GENERAL_GUEST_CLIENT_IP_HEADER` names the one header the
+platform's proxy sets with the client's address (Railway: `x-real-ip`), or
+`HM_GENERAL_GUEST_DIRECT=1` says no proxy stands before it (then the socket's
+address is used). The header may carry a comma-separated forwarded list
+(`x-forwarded-for`): the entry read is counted from the right, one for each
+trusted proxy, `HM_GENERAL_GUEST_CLIENT_IP_HOPS` (default 1: the right-most
+entry, the one the nearest trusted proxy appended; 1 to 16), never the
+left-most entry, which the client writes. A list shorter than that, or an
+entry that is no address, falls back to the socket's address. A start that a browser says came from another site
 (`Sec-Fetch-Site` other than `same-origin` or `none`) is refused.
 
 A guest's server-held character does not outlive the guest. At start, as play
@@ -230,9 +240,17 @@ resumes, and every hour while someone plays (`HM_GENERAL_GUEST_SWEEP_MS`; the
 server schedules nothing in standby), whether or not the door is on,
 `generalGuestSweep` removes the account and `saves/gg-….json` of an unlinked
 guest an hour after the guest's own deadline as identity stated it at its last
-arrival (never more than seven days after that arrival), of a linked account's
-guest character after `HM_GENERAL_GUEST_LINKED_IDLE_DAYS` (90) without an
-arrival, and any `saves/gg-….json` with no account that is eight days old.
+arrival (never more than seven days after that arrival), and any
+`saves/gg-….json` with no account that is eight days old. A linked account's
+guest character belongs to a registered account and is never swept, unless
+`HM_GENERAL_GUEST_LINKED_IDLE_DAYS` is set to a positive number: then after
+that many days without an arrival.
+
+A save with no account is removed only against an account table that was read
+and parsed when the server started. Where `accounts.json` was missing (a fresh
+server, or a lost file), unreadable or unparseable, the table in memory is
+empty for a reason other than "there are no accounts", so that process removes
+no such save and says so once in the log, without the file's content.
 
 ### The guest's own pod (`general-guest-pod.js`)
 

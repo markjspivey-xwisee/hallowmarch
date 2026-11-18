@@ -81,7 +81,7 @@ function standIn(clock, applications = { [GAME]: RETURN, [OTHER]: '/return' }) {
 function game(clock, identity, overrides = {}) {
   const now = () => clock.t, accounts = {}, sessions = createGameSessionTokens({ secret: 'fixture-session-secret', now });
   const guestAccounts = createGeneralGuestAccounts({ accounts, sessions, now });
-  const host = configuredGeneralGuest({ env: { HM_GENERAL_GUEST: '1', HM_GENERAL_GUEST_DOOR_ORIGIN: DOOR }, publicOrigin: GAME, publicOriginConfigured: true,
+  const host = configuredGeneralGuest({ env: { HM_GENERAL_GUEST: '1', HM_GENERAL_GUEST_DOOR_ORIGIN: DOOR, HM_GENERAL_GUEST_DIRECT: '1' }, publicOrigin: GAME, publicOriginConfigured: true,
     identityOrigin: ISSUER, signGrant: identity.signAs(), issueSession: standing => guestAccounts.issue(standing), fetch: identity.fetch, now, ...overrides });
   return { host, accounts, sessions, guestAccounts };
 }
@@ -336,7 +336,7 @@ test('the door is off unless the switch is exactly 1, and loud when a prerequisi
   for (const value of [undefined, '', '0', 'true', 'on', ' 1', '1 ']) {
     assert.equal(configuredGeneralGuest({ ...ready, env: { HM_GENERAL_GUEST: value, HM_GENERAL_GUEST_DOOR_ORIGIN: DOOR } }), null, String(value));
   }
-  const on = { HM_GENERAL_GUEST: '1', HM_GENERAL_GUEST_DOOR_ORIGIN: DOOR };
+  const on = { HM_GENERAL_GUEST: '1', HM_GENERAL_GUEST_DOOR_ORIGIN: DOOR, HM_GENERAL_GUEST_DIRECT: '1' };
   assert.throws(() => configuredGeneralGuest({ ...ready, env: { HM_GENERAL_GUEST: '1' } }), /HM_GENERAL_GUEST=1: HM_GENERAL_GUEST_DOOR_ORIGIN is not set/);
   assert.throws(() => configuredGeneralGuest({ ...ready, env: { ...on, HM_GENERAL_GUEST_DOOR_ORIGIN: 'http://door.identity.example' } }), /HM_GENERAL_GUEST=1: The door origin must be an HTTPS origin/);
   assert.throws(() => configuredGeneralGuest({ ...ready, env: { ...on, HM_GENERAL_GUEST_DOOR_ORIGIN: DOOR + '/guest/door' } }), /HM_GENERAL_GUEST=1: The door origin/);
@@ -445,6 +445,34 @@ test('another site cannot start a visit, and the deployment names the header its
   assert.throws(() => game(clock, identity, { env: { HM_GENERAL_GUEST: '1', HM_GENERAL_GUEST_DOOR_ORIGIN: DOOR, HM_GENERAL_GUEST_CLIENT_IP_HEADER: 'X Real' } }), /CLIENT_IP_HEADER/);
 });
 
+test('the door does not start without knowing how its clients are told apart, and reads a forwarded list from the trusted end', async () => {
+  const clock = { t: T0 }, identity = standIn(clock), on = { HM_GENERAL_GUEST: '1', HM_GENERAL_GUEST_DOOR_ORIGIN: DOOR };
+  // Neither a header nor the statement that there is no proxy: every player would share the proxy's one bucket.
+  for (const env of [on, { ...on, HM_GENERAL_GUEST_CLIENT_IP_HEADER: '' }, { ...on, HM_GENERAL_GUEST_DIRECT: 'true' }, { ...on, HM_GENERAL_GUEST_DIRECT: '0' }]) {
+    assert.throws(() => game(clock, identity, { env }), /HM_GENERAL_GUEST=1: HM_GENERAL_GUEST_CLIENT_IP_HEADER is not set/);
+  }
+  assert.ok(game(clock, identity, { env: { ...on, HM_GENERAL_GUEST_DIRECT: '1' } }).host);
+  for (const hops of ['0', '-1', '1.5', 'two', '17', ' 1']) {
+    assert.throws(() => game(clock, identity, { env: { ...on, HM_GENERAL_GUEST_CLIENT_IP_HEADER: 'x-forwarded-for', HM_GENERAL_GUEST_CLIENT_IP_HOPS: hops } }), /CLIENT_IP_HOPS/, hops);
+  }
+  const start = (host, list, address) => browser(host, []).visit('GET', START, { address, headers: { 'x-forwarded-for': list } });
+  // One trusted proxy (the default): the right-most entry is the one it appended. What the client wrote to its left is not read.
+  const one = game(clock, identity, { env: { ...on, HM_GENERAL_GUEST_CLIENT_IP_HEADER: 'x-forwarded-for' } }).host;
+  for (let n = 0; n < 6; n++) assert.ok((await start(one, `10.9.9.${n}, 192.0.2.44`)).headers.Location.startsWith(DOOR));
+  assert.equal((await start(one, '10.1.2.3 , 192.0.2.44')).headers.Location, GAME + '/?interego-guest=busy', 'a forged left-most entry buys no new bucket');
+  assert.ok((await start(one, '192.0.2.44, 192.0.2.45')).headers.Location.startsWith(DOOR), 'and holds nobody else');
+  assert.equal((await start(one, '192.0.2.44')).headers.Location, GAME + '/?interego-guest=busy', 'a single value is its own right-most entry');
+  // Two trusted proxies: the second from the right.
+  const two = game(clock, identity, { env: { ...on, HM_GENERAL_GUEST_CLIENT_IP_HEADER: 'x-forwarded-for', HM_GENERAL_GUEST_CLIENT_IP_HOPS: '2' } }).host;
+  for (let n = 0; n < 6; n++) assert.ok((await start(two, `10.9.9.${n}, 198.51.100.7, 172.16.0.${n}`)).headers.Location.startsWith(DOOR));
+  assert.equal((await start(two, '198.51.100.7, 172.16.0.9')).headers.Location, GAME + '/?interego-guest=busy');
+  assert.ok((await start(two, '198.51.100.7, 198.51.100.8, 172.16.0.9')).headers.Location.startsWith(DOOR));
+  // A list shorter than the trusted hops, or an entry that is no address, names nobody: the socket's address, never another entry.
+  for (let n = 0; n < 6; n++) assert.ok((await start(two, '198.51.100.99', '192.0.2.200')).headers.Location.startsWith(DOOR));
+  assert.equal((await start(two, '203.0.113.1', '192.0.2.200')).headers.Location, GAME + '/?interego-guest=busy');
+  assert.equal((await start(two, 'unknown, 172.16.0.1', '192.0.2.200')).headers.Location, GAME + '/?interego-guest=busy');
+});
+
 test('identity\'s token for the guest leaves the door only where the pod is configured, apart from the standing, and never for a linked guest', async () => {
   const clock = { t: T0 }, identity = standIn(clock), given = [];
   const plainGame = game(clock, identity, { issueSession: (standing, pod) => { given.push([standing, pod]); return plainGame.guestAccounts.issue(standing); } });
@@ -480,7 +508,10 @@ test('a guest\'s server-held character is swept after the guest\'s own deadline;
   assert.deepEqual(at(T0 + day + 3_601_000), [id(1)]);
   assert.deepEqual(at(T0 + 7 * day + 3_601_000), [id(1), id(4)], 'never longer than a guest can live');
   assert.deepEqual(at(T0 + 13 * day + 3_601_000), [id(1), id(2), id(4)]);
-  assert.deepEqual(at(T0 + 93 * day), [id(1), id(2), id(3), id(4)]);
+  assert.deepEqual(at(T0 + 93 * day), [id(1), id(2), id(4)]);
+  assert.deepEqual(at(T0 + 4000 * day), [id(1), id(2), id(4)], 'a registered account\'s character is never swept unless the deployment opts in');
+  assert.deepEqual(generalGuestSweep({ accounts, now: T0 + 4000 * day, linkedIdleMs: null }).sort(), [id(1), id(2), id(4)]);
   assert.deepEqual(generalGuestSweep({ accounts, now: T0 + 20 * day, linkedIdleMs: 10 * day }).sort(), [id(1), id(2), id(3), id(4)]);
   assert.throws(() => generalGuestSweep({ accounts, now: T0, linkedIdleMs: 1000 }), /bounded/);
+  for (const odd of [0, -1, NaN, Infinity, '90']) assert.throws(() => generalGuestSweep({ accounts, now: T0, linkedIdleMs: odd }), /bounded/, String(odd));
 });

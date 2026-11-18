@@ -148,7 +148,16 @@ const worldPersistenceStatus = () => WORLD_STATE?.status() || { enabled: false, 
   scope: 'world-and-season', teamsAndRealmPermissionsMigrated: false, personalSavesIncluded: false, credentialsIncluded: false };
 let SECRET = process.env.HM_SECRET;
 if (!SECRET) { SECRET = store.read('secret.json', null); if (!SECRET) { SECRET = crypto.randomBytes(32).toString('hex'); store.write('secret.json', SECRET); } }
-const ACCOUNTS = store.read('accounts.json', {});
+// The account table, and whether it was really read: `store.read` answers its fallback for a missing file and
+// for one that cannot be read or parsed alike, and an empty table read that way must never be taken for "there
+// are no accounts" by anything that deletes what has no account (generalGuestCleanup).
+const ACCOUNTS_READ = (() => {
+  try {
+    const table = JSON.parse(fs.readFileSync(path.join(CFG.data, 'accounts.json'), 'utf8'));
+    return table !== null && typeof table === 'object' && !Array.isArray(table) ? { ok: true, table } : { ok: false, why: 'unparseable' };
+  } catch (error) { return { ok: false, why: error?.code === 'ENOENT' ? 'absent' : error instanceof SyntaxError ? 'unparseable' : 'unreadable' }; }
+})();
+const ACCOUNTS = ACCOUNTS_READ.ok ? ACCOUNTS_READ.table : {};
 let accTimer = null;
 const accountsSave = () => { clearTimeout(accTimer); accTimer = setTimeout(() => { store.write('accounts.json', ACCOUNTS); accTimer = null; }, 400); };
 const WORLDS = store.read('worlds.json', {});
@@ -366,17 +375,24 @@ if (GENERAL_GUEST) console.log('general guest: on (door ' + GENERAL_GUEST.manife
 // A guest's server-held character does not outlive the guest (generalGuestSweep): its save file, its account
 // and its pod token go together. This runs whether or not the door is on, so turning it off still clears them.
 const guestSaveFile = id => path.join(CFG.data, 'saves', id + '.json');
+// A registered account's guest character is never swept, unless the deployment sets a positive number of idle days.
+const guestLinkedIdleDays = +(process.env.HM_GENERAL_GUEST_LINKED_IDLE_DAYS || 0);
+const guestLinkedIdleMs = Number.isFinite(guestLinkedIdleDays) && guestLinkedIdleDays > 0 ? Math.max(1, guestLinkedIdleDays) * 86_400_000 : null;
+let guestOrphansSaid = false;
 function generalGuestCleanup() {
   let accounts = 0, files = 0;
   try {
-    for (const id of generalGuestSweep({ accounts: ACCOUNTS, now: Date.now(),
-      linkedIdleMs: Math.max(1, +(process.env.HM_GENERAL_GUEST_LINKED_IDLE_DAYS || 90) || 90) * 86_400_000 })) {
+    for (const id of generalGuestSweep({ accounts: ACCOUNTS, now: Date.now(), linkedIdleMs: guestLinkedIdleMs })) {
       GUEST_POD?.store.forget(id);
       try { fs.unlinkSync(guestSaveFile(id)); files++; } catch { /* none kept */ }
       delete ACCOUNTS[id]; accounts++;
     }
     // A save with no account left (a crash between the two, or a table restored from before): by its age alone.
-    for (const name of fs.readdirSync(path.join(CFG.data, 'saves'))) {
+    // Only against a table that was read and parsed at start. Missing (a fresh server, or a lost file), unreadable
+    // or unparseable, the empty table in memory says nothing about whose a save is: none is removed by this process.
+    if (!ACCOUNTS_READ.ok) {
+      if (!guestOrphansSaid) { guestOrphansSaid = true; console.warn('general guest cleanup: the account table was ' + ACCOUNTS_READ.why + ' at start; no save without an account is removed'); }
+    } else for (const name of fs.readdirSync(path.join(CFG.data, 'saves'))) {
       const id = /^(gg-[0-9a-f]{40})\.json$/.exec(name)?.[1];
       if (!id || Object.hasOwn(ACCOUNTS, id)) continue;
       try { if (Date.now() - fs.statSync(guestSaveFile(id)).mtimeMs > 8 * 86_400_000) { fs.unlinkSync(guestSaveFile(id)); files++; } } catch { /* gone already */ }

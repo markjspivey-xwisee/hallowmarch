@@ -439,18 +439,21 @@ const GUEST_LIFE_MS = 7 * 86_400_000;
  *                         stated it at its last arrival; where none was kept
  *                         (an account made before this), a guest's longest
  *                         life after its last arrival;
- *   a linked account's    after `linkedIdleMs` with no arrival: the character
- *                         is the account's, not the guest's, so no guest's
- *                         deadline ends it.
+ *   a linked account's    never, by default: the character is a registered
+ *                         account's, not the guest's, so no guest's deadline
+ *                         ends it. Only where the deployment opts in with a
+ *                         `linkedIdleMs` (a day or more), after that long with
+ *                         no arrival.
  *
  * Answers the ids. The caller removes each account, its save and its pod token.
  */
-export function generalGuestSweep({ accounts, now, graceMs = 3_600_000, linkedIdleMs = 90 * 86_400_000 } = {}) {
-  if (!plain(accounts) || !Number.isFinite(now) || !(graceMs >= 0) || !(linkedIdleMs >= 86_400_000)) throw new TypeError('The account table, a clock and bounded ages are required.');
+export function generalGuestSweep({ accounts, now, graceMs = 3_600_000, linkedIdleMs = null } = {}) {
+  if (!plain(accounts) || !Number.isFinite(now) || !(graceMs >= 0) || !(linkedIdleMs === null || (Number.isFinite(linkedIdleMs) && linkedIdleMs >= 86_400_000))) throw new TypeError('The account table, a clock and bounded ages are required.');
   const gone = [];
   for (const [id, account] of Object.entries(accounts)) {
     if (!plain(account) || account.generalGuest !== true || account.id !== id || !/^gg-[0-9a-f]{40}$/.test(id)) continue;
     const seen = Math.max(Number.isFinite(account.last) ? account.last : 0, Number.isFinite(account.created) ? account.created : 0);
+    if (account.linked === true && linkedIdleMs === null) continue;
     const until = account.linked === true ? seen + linkedIdleMs
       : (Number.isFinite(account.guestUntil) ? Math.min(account.guestUntil, seen + GUEST_LIFE_MS) : seen + GUEST_LIFE_MS) + graceMs;
     if (until < now) gone.push(id);
@@ -486,12 +489,23 @@ export function configuredGeneralGuest({ env = {}, publicOrigin, publicOriginCon
       keepPodToken: pod !== null });
   } catch (error) { missing(error instanceof TypeError ? error.message + '.' : 'the door could not be configured.'); }
   const users = `did:web:${new URL(issuer).host.replace(/:/g, '%3A')}:users:`;
-  // Behind a proxy every socket is the proxy's: the deployment names the one header its proxy sets with the client's address.
+  // Behind a proxy every socket is the proxy's: the deployment names the one header its proxy sets with the client's
+  // address. Unnamed, every player would share the proxy's one bucket and one of them could hold the door shut for
+  // all, so the door does not start unless the deployment says it is reached directly (HM_GENERAL_GUEST_DIRECT=1).
   const header = env.HM_GENERAL_GUEST_CLIENT_IP_HEADER;
   if (header !== undefined && header !== '' && !/^[a-z][a-z0-9-]{0,63}$/.test(header)) missing('HM_GENERAL_GUEST_CLIENT_IP_HEADER must be one lower-case header name.');
+  if (!header && env.HM_GENERAL_GUEST_DIRECT !== '1') missing('HM_GENERAL_GUEST_CLIENT_IP_HEADER is not set (the header the deployment\'s proxy states the client\'s address in); '
+    + 'set HM_GENERAL_GUEST_DIRECT=1 only where no proxy stands before this server.');
+  // A forwarded list grows to the right: each proxy appends the address it heard from. The entry to read is counted
+  // from the right, one for each trusted proxy (1: the nearest proxy's own entry). The left end is the client's to write.
+  const stated = env.HM_GENERAL_GUEST_CLIENT_IP_HOPS;
+  if (stated !== undefined && stated !== '' && !/^(?:[1-9]|1[0-6])$/.test(stated)) missing('HM_GENERAL_GUEST_CLIENT_IP_HOPS must be a whole number of trusted proxies from 1 to 16.');
+  const hops = stated ? Number(stated) : 1;
   const clientAddress = req => {
-    const stated = header ? req.headers[header] : undefined;
-    return typeof stated === 'string' && /^[0-9A-Fa-f:.]{2,45}$/.test(stated.trim()) ? stated.trim() : req.socket?.remoteAddress || 'unknown';
+    const value = header ? req.headers[header] : undefined;
+    const entries = typeof value === 'string' && value.length <= 2048 ? value.split(',') : [];
+    const entry = entries.length >= hops ? entries[entries.length - hops].trim() : '';
+    return /^[0-9A-Fa-f:.]{2,45}$/.test(entry) ? entry : req.socket?.remoteAddress || 'unknown';
   };
   return createGeneralGuestHost({ door, publicOrigin, now, pod, clientAddress, issueSession: (standing, guestPod) => {
     // The guest, and the account it is linked to, are owners of THIS identity and never the same one.

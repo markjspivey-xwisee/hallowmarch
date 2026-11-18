@@ -103,7 +103,7 @@ export async function resolve(specifier, context, next) {
   const child = spawn(process.execPath, ['--import', pathToFileURL(shim).href, path.join(root, 'server', 'server.js')], { cwd: root,
     env: { PATH: process.env.PATH, NODE_ENV: 'test', PORT: String(port), HM_DATA: data, HM_SECRET: 'synthetic-guest-pod-browser-secret', HM_PUBLIC_ORIGIN: game,
       HM_GAMING_BOOTSTRAP: '0', HM_GAMING_ENABLED: '0', HM_WORLD_PERSISTENCE_MODE: 'legacy', HM_GAMING_SERVICE_IDENTITY_ORIGIN: 'https://identity.example',
-      HM_GENERAL_GUEST: '1', HM_GENERAL_GUEST_DOOR_ORIGIN: door, HM_GENERAL_GUEST_POD_ORIGIN: 'https://pods.example', ...env },
+      HM_GENERAL_GUEST: '1', HM_GENERAL_GUEST_DOOR_ORIGIN: door, HM_GENERAL_GUEST_DIRECT: '1', HM_GENERAL_GUEST_POD_ORIGIN: 'https://pods.example', ...env },
     stdio: ['ignore', 'pipe', 'pipe'] });
   let output = ''; for (const stream of [child.stdout, child.stderr]) stream.on('data', bytes => { output = (output + bytes).slice(-12000); });
   const exited = once(child, 'exit');
