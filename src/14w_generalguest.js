@@ -15,7 +15,11 @@
  *     linked to an account, so an unlink reaches this browser), saves and asks to go back
  *     through the door, where identity reads the link again.
  * The sign-in the browser had before is kept aside and put back when the guest session ends. */
-const GENERAL_GUEST = { session: null, note: '', timers: [], ended: false };
+const GENERAL_GUEST = { session: null, note: '', timers: [], ended: false,
+  // The pod's document as this page knows it. `podChecked`: it was read (or the player chose without a read);
+  // `podUnreadable`: it holds, or may hold, something this browser has not opened, so nothing is written over it
+  // unless `podReplace` (the player's own choice); `localTrusted`: this browser's copy descends from a confirmed read.
+  podChecked: false, podUnreadable: false, podReplace: false, localTrusted: false, podDiscardLocal: false, podChoice: null };
 const GENERAL_GUEST_FLAG = 'interego-guest';
 const GENERAL_GUEST_NOTES = {
   refused: 'The Interego guest door did not finish. You can try again.',
@@ -150,6 +154,9 @@ async function generalGuestSaveRef(initialization) {
     generalGuestEnd(policy.host); GENERAL_GUEST.note = GENERAL_GUEST_NOTES.ended; generalGuestRender();
     return undefined;
   }
+  // Authoritative: the pod is the character, so its read is fenced (12_save.js): no bounded wait turns a slow or
+  // failed read into "no character". It ends when the pod answers or the player chooses in generalGuestPodRead.
+  if (!marker.linked && policy.pod === 'authoritative') initialization.fenced = true;
   // The March's server holds this character: the save's own server path, never a pod or another browser character.
   SAVE.native = false; SAVE.lsKey = 'hallowmarch.generalguest.save.' + marker.accountId;
   NATIVE_PLAYER.status = null; NATIVE_PLAYER.state = 'idle';
@@ -166,8 +173,12 @@ async function generalGuestSaveRef(initialization) {
   GENERAL_GUEST.session = { host: policy.host, accountId: marker.accountId, expiresAt: marker.expiresAt, linked: marker.linked, start: policy.start,
     pod: marker.linked ? null : policy.pod };
   generalGuestRender(); generalGuestWatch();
-  if (!ref) return null; // the server could not be reached: this browser keeps the character until it can
   const pod = GENERAL_GUEST.session.pod;
+  const fenced = (serverRef) => ({ server: true, generalGuest: true, generalGuestPod: pod, fenced: true,
+    get: () => generalGuestPodRead(serverRef), set: generalGuestPodSet, delete: () => generalGuestPodDelete(serverRef) });
+  // The server could not be reached: this browser keeps the character until it can. Where the pod is the character
+  // its read is still owed: the player is asked rather than shown an empty title.
+  if (!ref) return pod === 'authoritative' ? fenced(null) : null;
   if (pod === 'authoritative') {
     // The pod holds the character, so a session whose pod token the server no longer has (it restarted) keeps
     // nothing: back through the door, where a fresh one is given.
@@ -178,10 +189,12 @@ async function generalGuestSaveRef(initialization) {
       setTimeout(() => location.reload(), 50);
       return null;
     }
-    return { server: true, generalGuest: true, generalGuestPod: pod, get: () => generalGuestPodGet(ref), set: generalGuestPodSet, delete: () => generalGuestPodDelete(ref) };
+    return fenced(ref);
   }
   return { server: true, generalGuest: true, get: ref.get,
     // Shadow: the server's save is the character; the sealed copy follows it and never delays or fails it.
+    // The pod's document is looked at before the first copy goes (generalGuestPodCheck): one this browser cannot
+    // open is left alone unless the player chooses.
     set: pod === 'shadow' ? async (s, o) => { await ref.set(s, o); void generalGuestPodPut(s, o); } : ref.set,
     // A guest linked to an account plays that account's guest character and never deletes it.
     delete: marker.linked ? async () => { throw { code: 'not_granted' }; } : ref.delete };
@@ -239,12 +252,24 @@ async function generalGuestPodPut(save, { final = false } = {}) {
     return done('skipped', P.busy ? 'busy' : 'spaced');
   }
   if (usage.writes >= P.WRITES || usage.bytes >= P.BYTES) return done('skipped', 'budget');
-  // The pod holds a character this browser cannot open: nothing is written over it unless the player chose to.
-  if (GENERAL_GUEST.podUnreadable && !GENERAL_GUEST.podReplace) { P.dirty = save; return done('skipped', 'unreadable'); }
-  P.busy = true; P.dirty = null;
+  const G = GENERAL_GUEST;
+  P.busy = true; P.dirty = save;
   try {
+    // Nothing is written over a pod document this browser has not opened. Not looked at yet in this page (shadow
+    // mode never reads it otherwise): it is looked at first, and an answer that does not come is not "empty".
+    if (!G.podChecked) {
+      const why = await generalGuestPodCheck(s);
+      if (why) {
+        if (!P.timer) P.timer = setTimeout(() => { P.timer = 0; void generalGuestPodFlush(); }, 60000);
+        if (why === 'reauth' && s.pod === 'authoritative' && G.session === s) generalGuestEnded();
+        return done('failed', why);
+      }
+    }
+    // The pod holds a character this browser cannot open: nothing is written over it unless the player chose to.
+    if (G.podUnreadable && !G.podReplace) return done('skipped', 'unreadable');
+    P.dirty = null;
     const vault = await generalGuestPodVault();
-    if (!vault || GENERAL_GUEST.session !== s) return done('failed', 'no_vault');
+    if (!vault || GENERAL_GUEST.session !== s) { P.dirty = save; return done('failed', 'no_vault'); }
     const sealed = await vault.seal(save);
     if (usage.bytes + sealed.bytes > P.BYTES) return done('skipped', 'budget');
     P.stats.sealed++;
@@ -271,56 +296,155 @@ function generalGuestPodFlush() {
 function generalGuestLocal() {
   try { const text = localStorage.getItem(SAVE.lsKey); return text ? JSON.parse(text) : null; } catch (e) { return null; }
 }
-// Authoritative: the newer of the pod's sealed copy and this browser's own (the pod's lags by its spacing).
+// Is the pod's document one this browser may write over? Asked before the first write of a page that has not read
+// it. Answers '' once it is known (opened, empty, or marked unreadable with the choice shown), else why it is not.
+async function generalGuestPodCheck(s) {
+  const G = GENERAL_GUEST, reply = await generalGuestPodAsk({ op: 'get' });
+  if (G.session !== s) return 'no_session';
+  if (!reply || !reply.ok) return reply && typeof reply.code === 'string' ? reply.code : 'no_reply';
+  let mine = true;
+  if (reply.env) { const vault = await generalGuestPodVault(); mine = !!(vault && await vault.open(reply.env)); }
+  else if (reply.present === true) mine = false;
+  if (G.session !== s) return 'no_session';
+  G.podChecked = true;
+  if (!mine) { GENERAL_GUEST_POD.stats.unreadable++; generalGuestPodUnreadable('unreadable'); }
+  return '';
+}
+// This browser's own copy is the pod character's newer self only when it was written after a confirmed read of the
+// pod (or the player's choice to replace): its savedAt is noted then, beside the copy.
+const generalGuestLocalKey = (account) => 'hallowmarch.generalguest.podlocal.' + account;
+function generalGuestLocalTrusted(local, account) {
+  try { return !!local && Number.isFinite(local.savedAt) && localStorage.getItem(generalGuestLocalKey(account)) === String(local.savedAt); } catch (e) { return false; }
+}
+// Called wherever this browser's copy is written (here, and the save's own fallback in 12_save.js).
+function generalGuestLocalKept(save, chosen = false) {
+  const G = GENERAL_GUEST, s = G.session;
+  if (!s || s.pod !== 'authoritative' || !save || !Number.isFinite(save.savedAt)) return;
+  if (!(chosen || G.podReplace || G.localTrusted || (G.podChecked && !G.podUnreadable))) return;
+  try { localStorage.setItem(generalGuestLocalKey(s.accountId), String(save.savedAt)); } catch (e) { /* storage blocked */ }
+}
+// Authoritative: the newer of the pod's sealed copy and this browser's own (the pod's lags by its spacing). Throws
+// when the pod does not answer: never taken for an empty pod.
 async function generalGuestPodGet(serverRef) {
-  const s = GENERAL_GUEST.session, P = GENERAL_GUEST_POD;
+  const G = GENERAL_GUEST, s = G.session, P = GENERAL_GUEST_POD;
   const reply = await generalGuestPodAsk({ op: 'get' });
   if (!reply || !reply.ok) throw { code: 'unavailable' };
   const local = generalGuestLocal(), usage = s ? generalGuestPodUsage(s.accountId) : null;
-  let kept = null;
+  const trusted = !!s && generalGuestLocalTrusted(local, s.accountId);
+  let kept = null, gate = '';
   if (reply.env && s) {
     const vault = await generalGuestPodVault(), opened = vault ? await vault.open(reply.env) : null;
     if (opened) { P.stats.opened++; if (opened.at > usage.wipedAt) kept = opened.save; }
     // Sealed by another browser's key (or this browser's key was cleared): it cannot be opened here. It is kept,
     // and a character made here is written over it only once the player says so.
-    else { P.stats.unreadable++; generalGuestPodUnreadable(); }
+    else { P.stats.unreadable++; gate = 'unreadable'; }
   } else if (reply.present === true) {
     // A document stands in the pod that is not a sealed character this game can read: never taken for an empty pod.
-    P.stats.unreadable++; generalGuestPodUnreadable();
+    P.stats.unreadable++; gate = 'unreadable';
   } else if (!reply.env) {
     // Nothing in the pod yet: a character the server kept before the pod became its home is read once, and sealed at the next save.
     try { const before = await serverRef.get(); if (before && before.exists) kept = before.data(); } catch (e) { /* none */ }
   }
-  const newer = kept && local ? ((local.savedAt || 0) > (kept.savedAt || 0) ? local : kept) : kept || local;
-  return { exists: !!newer, data: () => newer };
+  let found = kept || local;
+  if (kept && local) {
+    const same = (local.savedAt || 0) === (kept.savedAt || 0);
+    if (trusted || same) found = (local.savedAt || 0) > (kept.savedAt || 0) ? local : kept;
+    // A character made here while the pod was not read (its read failed, or the server was out of reach): a newer
+    // savedAt alone is no leave to write it over the pod's. Play goes on with it; the pod's is kept until the player chooses.
+    else if (local.char) { found = local; gate = 'conflict'; }
+    else found = kept;
+  }
+  G.podChecked = true; G.localTrusted = trusted || (!!found && found === local && !gate);
+  if (gate) generalGuestPodUnreadable(gate);
+  return { exists: !!found, data: () => found };
 }
-// The pod's character cannot be opened here. Play goes on with this browser's own copy; the pod's is replaced only
-// by the player's own choice (a lost key, or another browser, must never silently cost a character).
-function generalGuestPodUnreadable() {
-  if (GENERAL_GUEST.podUnreadable) return;
-  GENERAL_GUEST.podUnreadable = true; GENERAL_GUEST.podReplace = false;
+// The save's fenced read (12_save.js waits on it without a bound): the pod's answer, or the player's own choice
+// when it does not come. A slow or failed read never becomes "no character" by itself.
+async function generalGuestPodRead(serverRef) {
+  const G = GENERAL_GUEST;
+  for (;;) {
+    try {
+      if (!serverRef) throw { code: 'unavailable' };
+      return await generalGuestPodGet(serverRef);
+    } catch (e) {
+      const choice = await generalGuestPodUnreadable('unread');
+      if (choice === 'retry') {
+        if (serverRef) continue;
+        // The server itself was out of reach: the session is set up again from the start.
+        try { location.reload(); } catch (e2) { /* no page here */ }
+        return new Promise(() => {});
+      }
+      // Keep (the pod is not written by this page) or replace (the player's leave to write over it).
+      const local = generalGuestLocal(), s = G.session;
+      G.podChecked = true; G.localTrusted = !!s && generalGuestLocalTrusted(local, s.accountId);
+      return { exists: !!local, data: () => local };
+    }
+  }
+}
+const GENERAL_GUEST_POD_TEXT = {
+  unreadable: 'Your Interego pod holds a character this browser cannot open (it was saved from another browser, or this browser\'s key was cleared). '
+    + 'It is kept: nothing is written over it unless you choose.',
+  unread: 'Your Interego pod could not be read, and it may hold your character. Nothing is written over it unless you choose.',
+  conflict: 'Your Interego pod holds a character, and this browser holds another that was made while the pod could not be read. '
+    + 'The pod\'s is kept: nothing is written over it unless you choose.',
+};
+// The player's answer to the choice below ('retry', 'keep', 'replace', or 'pod': play the pod's character instead).
+function generalGuestPodChoose(choice) {
+  const G = GENERAL_GUEST, asked = G.podChoice, s = G.session;
+  if (!asked || !asked.choices.includes(choice)) return;
+  G.podChoice = null;
+  try { if (asked.box) asked.box.remove(); } catch (e) { /* not shown */ }
+  if (choice === 'retry') { G.podUnreadable = false; G.podChecked = false; }
+  if (choice === 'replace') { G.podReplace = true; generalGuestLocalKept(generalGuestLocal(), true); void generalGuestPodFlush(); }
+  if (choice === 'pod' && s) {
+    // This browser's own character is given up for the pod's: its copy goes, and the page starts again from the pod.
+    G.podDiscardLocal = true; GENERAL_GUEST_POD.dirty = null;
+    try { localStorage.removeItem('hallowmarch.generalguest.save.' + s.accountId); localStorage.removeItem(generalGuestLocalKey(s.accountId)); } catch (e) { /* storage blocked */ }
+    try { location.reload(); } catch (e) { /* no page here */ }
+  }
+  asked.resolve(choice);
+}
+// The pod's character cannot be opened here, or could not be read at all. The pod's is replaced only by the
+// player's own choice (a lost key, another browser or a slow pod must never silently cost a character). Answers
+// with the choice; play does not wait on it except where the read itself is owed (generalGuestPodRead).
+function generalGuestPodUnreadable(kind = 'unreadable') {
+  const G = GENERAL_GUEST;
+  if (G.podChoice) return G.podChoice.promise;
+  if (G.podUnreadable && kind !== 'unread') return Promise.resolve('keep');
+  G.podUnreadable = true; G.podReplace = false;
+  const asked = { kind, box: null, resolve: null, promise: null,
+    choices: kind === 'unread' ? ['retry', 'keep', 'replace'] : kind === 'conflict' ? ['keep', 'replace', 'pod'] : ['keep', 'replace'] };
+  asked.promise = new Promise((resolve) => { asked.resolve = resolve; });
+  G.podChoice = asked;
+  const shadow = !!G.session && G.session.pod === 'shadow';
+  const labels = { retry: 'Try again', keep: shadow ? 'Keep it (the pod is left as it is)' : 'Keep it (this browser saves only here)',
+    replace: 'Replace it with this browser\'s character', pod: 'Play the pod\'s character (this browser\'s is discarded)' };
   const show = () => {
-    if (!document.body || $('general-guest-pod-unreadable')) return;
-    const box = document.createElement('div'), text = document.createElement('p'), keep = document.createElement('button'), replace = document.createElement('button');
+    if (G.podChoice !== asked || !document.body || $('general-guest-pod-unreadable')) return;
+    const box = document.createElement('div'), text = document.createElement('p');
     box.id = 'general-guest-pod-unreadable'; box.setAttribute('role', 'alertdialog'); box.setAttribute('aria-labelledby', 'general-guest-pod-unreadable-text');
     box.style.cssText = 'position:fixed;left:50%;top:max(12px,env(safe-area-inset-top));transform:translateX(-50%);z-index:2147483000;display:grid;gap:8px;'
       + 'width:min(22rem,calc(100vw - 24px));padding:12px;border-radius:10px;background:rgba(14,16,20,0.94);color:#f1ead8;font:400 14px/1.4 system-ui,sans-serif;text-align:center';
     text.id = 'general-guest-pod-unreadable-text'; text.style.margin = '0';
-    text.textContent = 'Your Interego pod holds a character this browser cannot open (it was saved from another browser, or this browser\'s key was cleared). '
-      + 'It is kept: nothing is written over it unless you choose.';
-    for (const b of [keep, replace]) { b.type = 'button'; b.className = 'btn'; b.style.minHeight = '44px'; }
-    keep.classList.add('primary'); keep.textContent = 'Keep it (this browser saves only here)';
-    replace.textContent = 'Replace it with this browser\'s character';
-    keep.onclick = () => box.remove();
-    replace.onclick = () => { GENERAL_GUEST.podReplace = true; box.remove(); void generalGuestPodFlush(); };
-    box.append(text, keep, replace); document.body.appendChild(box);
-    keep.focus({ preventScroll: true });
+    text.textContent = GENERAL_GUEST_POD_TEXT[kind];
+    const buttons = asked.choices.map((choice, i) => {
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = 'btn'; b.style.minHeight = '44px'; b.textContent = labels[choice];
+      b.setAttribute('data-choice', choice);
+      if (i === 0) b.classList.add('primary');
+      b.onclick = () => generalGuestPodChoose(choice);
+      return b;
+    });
+    box.append(text, ...buttons); asked.box = box; document.body.appendChild(box);
+    buttons[0].focus({ preventScroll: true });
   };
   try { setTimeout(show, 0); } catch (e) { /* no page here */ }
+  return asked.promise;
 }
 async function generalGuestPodSet(save, options) {
   let local = false;
-  try { localStorage.setItem(SAVE.lsKey, JSON.stringify(save)); local = true; } catch (e) { /* storage blocked */ }
+  if (GENERAL_GUEST.podDiscardLocal) return; // the player gave this browser's character up for the pod's
+  try { localStorage.setItem(SAVE.lsKey, JSON.stringify(save)); local = true; generalGuestLocalKept(save); } catch (e) { /* storage blocked */ }
   const written = await generalGuestPodPut(save, options);
   if (!local && !written) throw { code: 'unavailable' };
 }
@@ -330,7 +454,7 @@ async function generalGuestPodDelete(serverRef) {
   // The pod takes no deletion from a guest: its copy is marked as given up here, and overwritten by the next character.
   generalGuestPodKeep(s.accountId, { ...generalGuestPodUsage(s.accountId), wipedAt: Date.now() });
   GENERAL_GUEST_POD.dirty = null;
-  try { await serverRef.delete(); } catch (e) { /* no save kept from before */ }
+  try { if (serverRef) await serverRef.delete(); } catch (e) { /* no save kept from before */ }
   void generalGuestPodPut(null, { final: true });
 }
 try { addEventListener('pagehide', () => { void generalGuestPodFlush(); }); } catch (e) { /* no page events here */ }

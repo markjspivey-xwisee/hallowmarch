@@ -133,7 +133,9 @@ async function loadSave({ retry = false, onTitleReady = null, isCurrent = null }
       let remote = null, remoteOk = false;
       if (ref) {
         try {
-          const snap = ref.native ? await ref.get() : await withTimeout(ref.get(), 12000);
+          // [guest] a fenced read (an Interego guest whose pod is the character, 14w_generalguest.js) is not bounded
+          // here: it ends with the pod's answer or the player's own choice, never with "nothing found".
+          const snap = ref.native || ref.fenced ? await ref.get() : await withTimeout(ref.get(), 12000);
           if (!initialization.active) return null;
           if (snap && typeof snap.exists === 'boolean') {
             if (snap.exists) remote = JSON.parse(JSON.stringify(snap.data()));
@@ -164,7 +166,9 @@ async function loadSave({ retry = false, onTitleReady = null, isCurrent = null }
       if (initialization.active && initialization.detached) saveLoadTitle(initialization);
     }
   })();
-  const result = await withTimeout(saveLoadReturn(initialization), SAVE.native ? 45000 : 24000);
+  let result = await withTimeout(saveLoadReturn(initialization), SAVE.native ? 45000 : 24000);
+  // [guest] the title is not offered with no character while a fenced read is still owed.
+  if (!initialization.settled && initialization.fenced && !initialization.invalidated && SAVE.loading === initialization) result = await saveLoadReturn(initialization);
   if (!initialization.settled && !initialization.invalidated && SAVE.loading === initialization) { initialization.detached = true; initialization.timedOut = true; }
   return result;
 }
@@ -387,6 +391,8 @@ function saveNow() {
     if (SAVE.native) { NATIVE_PLAYER.state = 'native_signin_required'; nativePlayerRender(); return; }
     try {
       localStorage.setItem(menuEdit ? editKey : SAVE.lsKey, JSON.stringify(s));
+      // [guest] whether this copy descends from a confirmed read of the guest's pod (14w_generalguest.js)
+      if ((menuEdit ? editKey : SAVE.lsKey) === SAVE.lsKey && typeof generalGuestLocalKept === 'function') generalGuestLocalKept(s);
       if (menuEdit) { SAVE.lastBody = body; SAVE.lastCore = coreKey(s); }
     } catch (e) { /* storage may be blocked */ }
   });

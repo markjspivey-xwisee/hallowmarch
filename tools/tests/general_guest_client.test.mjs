@@ -220,9 +220,9 @@ test('the page never asks past this game\'s part of the guest\'s lifetime budget
   assert.equal(p.calls.saves, 1); assert.equal(p.sent.length, 0); assert.equal(p.P.stats.last, 'budget');
   p.store.set('hallowmarch.generalguest.pod.' + ACCOUNT, JSON.stringify({ writes: 3, bytes: p.P.BYTES - 10, lastAt: 0, lastBytes: 500 }));
   await p.saveRef.set(CHARACTER); await settle(p);
-  assert.equal(p.sent.length, 0);
+  assert.equal(p.puts().length, 0);
   // The server saying so (its own count, or the pod's 507) stops the page for good.
-  const q = await podPage('shadow', { server: { answer: () => ({ ok: false, code: 'pod_full' }) } });
+  const q = await podPage('shadow', { server: { answer: message => message.op === 'get' ? { ok: true, env: null } : { ok: false, code: 'pod_full' } } });
   await q.saveRef.set(CHARACTER); await settle(q);
   q.clock.t += 3_600_000; await q.saveRef.set({ ...CHARACTER, savedAt: 9 }); await settle(q);
   assert.equal(q.puts().length, 1); assert.equal(q.usage().writes, q.P.WRITES);
@@ -270,10 +270,114 @@ test('authoritative: without the server\'s pod token the session goes back throu
   await p.saveRef.set(CHARACTER);
   assert.equal(JSON.parse(p.store.get('hallowmarch.generalguest.save.' + ACCOUNT)).char.name, 'Synthetic Guest');
   assert.equal(p.calls.appended.length, 1, 'the door is offered again'); assert.equal(p.usage().writes, 0, 'no attempt was spent');
-  // The pod out of reach when the character is read: the read is not confirmed, so nothing is overwritten.
-  const down = await podPage('authoritative', { server: { answer: message => message.op === 'get' ? null : { ok: true, mode: 'authoritative' } } });
-  down.context.setTimeout = (fn) => { fn(); return 1; };
-  await assert.rejects(down.saveRef.get(), value => value.code === 'unavailable');
+});
+
+/** The save's own loader (12_save.js loadSave) in the page's context, with the game around it stood in. */
+const loaderSource = 'const SAVE_LOAD_SELECTIONS = new WeakMap();\n'
+  + saveSource.slice(saveSource.indexOf('const withTimeout ='), saveSource.indexOf('async function initSaveBackend('))
+  + saveSource.slice(saveSource.indexOf('function saveLoadOwned('), saveSource.indexOf('function graphicsSaveSettings('))
+  + '\nglobalThis.loadSave = loadSave;';
+function withLoader(f) {
+  Object.assign(f.context.SAVE, { ref: null, backend: 'local', loaded: null, loading: null, pending: null, nativeFlight: null, wiping: false, readConfirmed: false, lastBody: '', lastCore: '' });
+  Object.assign(f.context, { validSave: save => save, coreKey: () => '', readLocal: () => { const text = f.store.get(f.context.SAVE.lsKey); return text ? JSON.parse(text) : null; } });
+  f.context.NETWS.host = HOST;
+  vm.runInContext(loaderSource, f.context);
+  return f;
+}
+const pendingStill = async promise => { let done = false; promise.then(() => { done = true; }, () => { done = true; }); await flush(); await flush(); return !done; };
+const fire = (page, ms) => { for (const timer of page.calls.timers.splice(0).filter(timer => timer.ms <= ms || (page.calls.timers.push(timer), false))) timer.fn(); };
+
+test('authoritative: a pod read that is slow or fails never becomes "no character"; the player is asked, and a retry opens it (review 4608613726)', async () => {
+  const keys = new Map(), owner = await podPage('authoritative', { keys });
+  await owner.saveRef.get(); await owner.saveRef.set(CHARACTER);
+  const sealed = owner.state.env;
+  // The same browser later, its own copy gone, and the pod not answering.
+  const slow = withLoader(await podPage('authoritative', { keys, server: { env: sealed, answer: message => message.op === 'get' ? null : { ok: true, mode: 'authoritative' } } }));
+  assert.equal(slow.saveRef.fenced, true, 'the save\'s loader is told not to bound this read');
+  const loading = slow.context.loadSave();
+  await flush();
+  // The loader's own 12 s read bound and its 24 s (and 45 s) return bound pass: nothing is chosen.
+  fire(slow, 24000); await flush(); fire(slow, 24000); await flush();
+  assert.equal(await pendingStill(loading), true, 'the title is not offered while the pod\'s read is owed');
+  assert.equal(slow.context.SAVE.loading.selectionSet, false); assert.equal(slow.context.SAVE.loaded, null);
+  // The pod's own wait ends: the choice is shown, with a retry, and still nothing is chosen.
+  fire(slow, 25000); await flush();
+  assert.deepEqual([...slow.H.GENERAL_GUEST.podChoice.choices], ['retry', 'keep', 'replace']);
+  fire(slow, 0); assert.equal(slow.calls.appended.length, 1, 'the choice is shown');
+  assert.equal(await pendingStill(loading), true);
+  slow.state.answer = null;
+  slow.context.generalGuestPodChoose('retry');
+  const loaded = await loading;
+  assert.equal(loaded.char.name, 'Synthetic Guest', 'the pod\'s character, opened once it answered');
+  assert.equal(slow.context.SAVE.readConfirmed, true); assert.equal(slow.context.SAVE.ref.fenced, true);
+  assert.equal(slow.H.GENERAL_GUEST.podUnreadable, false);
+
+  // Keeping instead: play goes on in this browser, and a character made meanwhile is never written over the pod's,
+  // neither now nor after a reload where the pod answers and its newer savedAt would have won.
+  const kept = withLoader(await podPage('authoritative', { keys, server: { env: sealed, answer: message => message.op === 'get' ? { ok: false, code: 'pod_unreachable' } : { ok: true, mode: 'authoritative' } } }));
+  const keeping = kept.context.loadSave(); await flush();
+  assert.equal(await pendingStill(keeping), true);
+  kept.context.generalGuestPodChoose('keep');
+  assert.equal(await keeping, null, 'this browser has no character of its own');
+  kept.state.answer = null; kept.clock.t += 3_600_000;
+  const made = { v: 1, savedAt: kept.clock.t, char: { name: 'Made Meanwhile', level: 1 } };
+  await kept.context.SAVE.ref.set(made); await settle(kept);
+  assert.equal(kept.puts().length, 0); assert.equal(kept.state.env, sealed);
+  const back = await podPage('authoritative', { keys, server: { env: sealed } });
+  for (const [key, value] of kept.store) back.store.set(key, value);
+  const found = await back.saveRef.get();
+  assert.equal(found.data().char.name, 'Made Meanwhile', 'play goes on with what this browser holds');
+  assert.equal(back.H.GENERAL_GUEST.podUnreadable, true, 'its newer savedAt is no leave to write over the pod');
+  assert.deepEqual([...back.H.GENERAL_GUEST.podChoice.choices], ['keep', 'replace', 'pod']);
+  back.clock.t += 3_600_000;
+  await back.saveRef.set({ ...made, savedAt: back.clock.t }); await settle(back);
+  assert.equal(back.puts().length, 0); assert.equal(back.state.env, sealed, 'the pod\'s character stands');
+  // Only the player's own "replace" lets it go; "pod" gives this browser's up instead.
+  const instead = await podPage('authoritative', { keys, server: { env: sealed } });
+  for (const [key, value] of back.store) instead.store.set(key, value);
+  await instead.saveRef.get(); instead.context.generalGuestPodChoose('pod');
+  assert.equal(instead.store.has('hallowmarch.generalguest.save.' + ACCOUNT), false); assert.equal(instead.calls.reloads, 1);
+  back.context.generalGuestPodChoose('replace'); await settle(back);
+  assert.equal(back.puts().length, 1); assert.notEqual(back.state.env, sealed);
+  // After that choice the copy here is the pod character's own newer self again.
+  const after = await podPage('authoritative', { keys, server: { env: back.state.env } });
+  for (const [key, value] of back.store) after.store.set(key, value);
+  assert.equal((await after.saveRef.get()).data().char.name, 'Made Meanwhile'); assert.equal(after.H.GENERAL_GUEST.podUnreadable, false);
+
+  // The server itself out of reach: still asked, not shown an empty title.
+  const offline = fixture({ manifest: { ...MANIFEST, pod: 'authoritative' }, serverRef: 'down', storage: { ['hallowmarch.generalguest.' + HOST]: marker() } });
+  const offlineRef = await offline.H.initSaveBackend({ active: true });
+  assert.equal(offlineRef.fenced, true);
+  const reading = offlineRef.get(); await flush();
+  assert.equal(await pendingStill(reading), true); assert.deepEqual([...offline.H.GENERAL_GUEST.podChoice.choices], ['retry', 'keep', 'replace']);
+});
+
+test('shadow: an existing pod character this browser has not opened is not written over without the player\'s choice (review 4608613734)', async () => {
+  const owner = await podPage('authoritative');
+  await owner.saveRef.get(); await owner.saveRef.set(CHARACTER);
+  const sealedElsewhere = owner.state.env;
+  // Rolled back to shadow, in a browser whose key is gone: the server has no save, a new character is made and saved.
+  const p = await podPage('shadow', { server: { env: sealedElsewhere } });
+  await p.saveRef.set({ ...CHARACTER, savedAt: 11, char: { name: 'New Here' } }); await settle(p);
+  assert.equal(p.calls.saves, 1, 'the server\'s save goes as before');
+  assert.deepEqual(p.sent.map(message => message.op), ['get'], 'the pod is looked at, and nothing is put');
+  assert.equal(p.state.env, sealedElsewhere); assert.equal(p.H.GENERAL_GUEST.podUnreadable, true); assert.equal(p.P.stats.last, 'unreadable');
+  assert.deepEqual([...p.H.GENERAL_GUEST.podChoice.choices], ['keep', 'replace']);
+  p.clock.t += 3_600_000;
+  await p.saveRef.set({ ...CHARACTER, savedAt: 12, char: { name: 'New Here' } }); await settle(p);
+  assert.equal(p.puts().length, 0); assert.equal(p.usage().writes, 0);
+  p.context.generalGuestPodChoose('replace'); await settle(p);
+  assert.equal(p.puts().length, 1, 'replaced by the player\'s own choice');
+  // The pod not answering is not an empty pod: nothing is put until it has been looked at.
+  const quiet = await podPage('shadow', { server: { env: sealedElsewhere, answer: message => message.op === 'get' ? { ok: false, code: 'pod_unreachable' } : { ok: true } } });
+  await quiet.saveRef.set(CHARACTER); await settle(quiet);
+  assert.equal(quiet.calls.saves, 1); assert.equal(quiet.puts().length, 0); assert.equal(quiet.P.stats.last, 'pod_unreachable');
+  // A copy this browser sealed itself opens, and is followed as before.
+  const keys = new Map(), mine = await podPage('shadow', { keys });
+  await mine.saveRef.set(CHARACTER); await settle(mine);
+  const again = await podPage('shadow', { keys, server: { env: mine.state.env } });
+  await again.saveRef.set({ ...CHARACTER, savedAt: 13 }); await settle(again);
+  assert.equal(again.puts().length, 1); assert.equal(again.H.GENERAL_GUEST.podUnreadable, false);
 });
 
 test('authoritative: a pod character this browser cannot open is never written over unless the player chooses to', async () => {
