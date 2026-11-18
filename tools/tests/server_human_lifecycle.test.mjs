@@ -24,9 +24,9 @@ function fixture({ monitor = '1' } = {}) {
     HUMAN_PLAY: { count: () => humans, close() { humans = 0; context.api.setHumanWorkActive(false); } },
     humanWorkRunning: false, humanWorkClosing: false, humanWorkAbort: new AbortController(), humanWorkSuspension: Promise.resolve(), AbortController,
     liveWorkTimers: new Set(), LIVE_CONNECTIONS: connections,
-    checkRealmConfirmations() {}, hasLiveHumans: () => humans > 0, isHumanPlaying: c => c.live === true,
+    checkRealmConfirmations() {}, generalGuestCleanup() {}, generalGuestPodReport() {}, GUEST_POD: null, hasLiveHumans: () => humans > 0, isHumanPlaying: c => c.live === true,
     accTimer: null, worldTimer: null, ACCOUNTS: {}, WORLDS: {}, STATS: { worldWrites: 0 },
-    store: { write: record('file-save') }, COMP: { dirty: false, save() { record('company-save')(); this.dirty = false; } },
+    store: { write: record('file-save') }, accountsWrite() { context.store.write('accounts.json', context.ACCOUNTS); }, COMP: { dirty: false, save() { record('company-save')(); this.dirty = false; } },
     WORLD_STATE: world, GAMING: gaming, SEASON: season, FIELD: { step: record('field-step'), left: record('field-left') },
     worldAgentTransport: { close: record('agent-stop') },
     SHARED_SCENE: {

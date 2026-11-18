@@ -51,6 +51,7 @@ export function createPlayerBrowserAssets({ clientRoot = defaultClientRoot } = {
     'client.mjs': 'text/javascript; charset=utf-8', 'checkpoint.mjs': 'text/javascript; charset=utf-8',
     'access-cache.mjs': 'text/javascript; charset=utf-8', 'recovery.mjs': 'text/javascript; charset=utf-8',
     'key-scope.mjs': 'text/javascript; charset=utf-8',
+    'guest-checkpoint.mjs': 'text/javascript; charset=utf-8',
     'provisional-session.mjs': 'text/javascript; charset=utf-8', 'provisional-device.mjs': 'text/javascript; charset=utf-8',
     'public-record.mjs': 'text/javascript; charset=utf-8', 'signing-delegation.mjs': 'text/javascript; charset=utf-8', 'owner-agent-grant.mjs': 'text/javascript; charset=utf-8',
     'owner-agent-grant-schema.mjs': 'text/javascript; charset=utf-8',

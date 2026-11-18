@@ -30,6 +30,9 @@ import { createAgentHttp, gamingAgentAffordances } from './gaming/agent-http.js'
 import { configuredNativeAgentHost } from './gaming/native-agent-host.js';
 import { createPlayerAccountHost } from './gaming/player-account-host.js';
 import { createGameSessionTokens } from './gaming/game-session.js';
+import { configuredGeneralGuest, createGeneralGuestAccounts, generalGuestSweep, generalGuestSaveRecord, generalGuestOrphans } from './gaming/general-guest.js';
+import { configuredGuestPod } from './gaming/general-guest-pod.js';
+import { createNativePlayGrantSigner } from './gaming/provisional-play.js';
 import { createPlayerBrowserAssets } from './gaming/player-browser-assets.js';
 import { createWorldAgentAssets } from './gaming/world-agent-assets.js';
 import { createPerformanceResourceHttp } from './gaming/performance-resource-http.js';
@@ -145,9 +148,37 @@ const worldPersistenceStatus = () => WORLD_STATE?.status() || { enabled: false, 
   scope: 'world-and-season', teamsAndRealmPermissionsMigrated: false, personalSavesIncluded: false, credentialsIncluded: false };
 let SECRET = process.env.HM_SECRET;
 if (!SECRET) { SECRET = store.read('secret.json', null); if (!SECRET) { SECRET = crypto.randomBytes(32).toString('hex'); store.write('secret.json', SECRET); } }
-const ACCOUNTS = store.read('accounts.json', {});
+// The account table, and whether it was really read: `store.read` answers its fallback for a missing file and
+// for one that cannot be read or parsed alike, and an empty table read that way must never be taken for "there
+// are no accounts" by anything that deletes what has no account (generalGuestCleanup).
+const ACCOUNTS_READ = (() => {
+  try {
+    const table = JSON.parse(fs.readFileSync(path.join(CFG.data, 'accounts.json'), 'utf8'));
+    return table !== null && typeof table === 'object' && !Array.isArray(table) ? { ok: true, table } : { ok: false, why: 'unparseable' };
+  } catch (error) { return { ok: false, why: error?.code === 'ENOENT' ? 'absent' : error instanceof SyntaxError ? 'unparseable' : 'unreadable' }; }
+})();
+const ACCOUNTS = ACCOUNTS_READ.ok ? ACCOUNTS_READ.table : {};
+// This table is every account's (named, native-bound and guest alike), and the next write replaces the file
+// whole. A file that was there but could not be read or parsed is therefore moved aside first, under a name no
+// earlier one has, so what it held can still be recovered by hand. A file that is merely absent needs nothing,
+// and one that was read is never touched here. If it cannot be moved, this process does not write the table.
+let accountsWritable = true;
+if (!ACCOUNTS_READ.ok && ACCOUNTS_READ.why !== 'absent') {
+  const file = path.join(CFG.data, 'accounts.json'), stamp = new Date().toISOString().replace(/[-:]|\.\d+/g, '');
+  const taken = name => { try { fs.lstatSync(name); return true; } catch (error) { return error?.code !== 'ENOENT'; } };
+  try {
+    let aside = `${file}.corrupt-${stamp}`;
+    for (let n = 1; taken(aside); n++) aside = `${file}.corrupt-${stamp}-${n}`;
+    fs.renameSync(file, aside);
+    console.warn(`accounts: accounts.json was ${ACCOUNTS_READ.why} at start; moved aside as ${path.basename(aside)}, starting with an empty table`);
+  } catch (error) {
+    accountsWritable = false;
+    console.warn(`accounts: accounts.json was ${ACCOUNTS_READ.why} at start and could not be moved aside (${error?.code || 'failed'}); this process will not write the account table`);
+  }
+}
 let accTimer = null;
-const accountsSave = () => { clearTimeout(accTimer); accTimer = setTimeout(() => { store.write('accounts.json', ACCOUNTS); accTimer = null; }, 400); };
+const accountsWrite = () => { if (accountsWritable) store.write('accounts.json', ACCOUNTS); };
+const accountsSave = () => { clearTimeout(accTimer); accTimer = setTimeout(() => { accountsWrite(); accTimer = null; }, 400); };
 const WORLDS = store.read('worlds.json', {});
 // The season advances only during a live human session.
 CFG.keeps = WORLD.keeps;
@@ -183,7 +214,6 @@ const worldsSave = () => {
 /* ------------------------------------------------------------------ */
 const GAME_SESSIONS = createGameSessionTokens({ secret: SECRET });
 const tokenFor = id => GAME_SESSIONS.issueLegacy(id);
-const tokenRead = token => GAME_SESSIONS.read(token)?.id || null;
 const cleanName = (s) => (typeof s === 'string' ? s.replace(/[^A-Za-z0-9 _'-]/g, '').trim().slice(0, 20) : '');
 function accountNew(name, guest, pass) {
   const id = (guest ? 'g' : 'a') + crypto.randomBytes(9).toString('base64url').replace(/[^A-Za-z0-9]/g, 'x');
@@ -209,8 +239,11 @@ function accountResolve(h) {
     if (!A || !A.pass || !crypto.timingSafeEqual(Buffer.from(crypto.scryptSync(pass, A.pass.salt, 32).toString('hex')), Buffer.from(A.pass.hash))) return { err: 'No such name and password' };
     return { A };
   }
-  const id = tokenRead(h.token);
-  if (id && ACCOUNTS[id]) return { A: ACCOUNTS[id] };
+  const claims = GAME_SESSIONS.read(h.token), id = claims?.id || null;
+  // A general guest's account is entered only by its own live, bounded session
+  // (issue 105): never by a long-lived legacy bearer, and not once the door is off.
+  if (claims?.generalGuest) { const A = generalGuestAccount(claims); if (A) return { A }; }
+  else if (id && ACCOUNTS[id] && ACCOUNTS[id].generalGuest !== true) return { A: ACCOUNTS[id] };
   // A rejected saved credential must never silently replace an active native
   // account with a new guest. Reauthentication uses its own HTTP-only verifier.
   if (typeof h.token === 'string' && h.token) return { err: 'Your sign-in expired. Reconnect your account to continue.', code: 'native_signin_required' };
@@ -286,7 +319,7 @@ const FIELD = makeField(SEASON, ROOMS, sendSeasonField, regionOf, WORLD, STATS, 
 WORLD_STATE?.attach({ worlds: WORLDS, season: SEASON, field: FIELD, rooms: ROOMS });
 // This is a Hallowmarch-owned participation ledger, not a copy of a player's
 // character. Personal saves remain in their owner's client-sealed pod record.
-const PLAYER_ACCOUNTS = createPlayerAccountHost({ store: gamingStore,
+const NATIVE_PLAYER_ACCOUNTS = createPlayerAccountHost({ store: gamingStore,
   publicOrigin: gamingEnvironment.HM_PUBLIC_ORIGIN || (gamingEnvironment.RAILWAY_PUBLIC_DOMAIN
     ? 'https://' + gamingEnvironment.RAILWAY_PUBLIC_DOMAIN : 'https://march-production-f6d9.up.railway.app'),
   clientName: 'hallowmarch', allowOwnerBrowserHandoff: true, successPath: '/gaming/identity/finish',
@@ -295,7 +328,10 @@ const PLAYER_ACCOUNTS = createPlayerAccountHost({ store: gamingStore,
   // commit and verified readback to settle; provider requests retain 15s.
   bindingTimeoutMs: 30_000,
   playRelayCatalog: gamingEnvironment.HM_INTEREGO_RELAY_CATALOG,
-  tokenClaims: token => GAME_SESSIONS.read(token), getAccount: id => ACCOUNTS[id] || null,
+  // A general guest's session is never a game account for the native owner
+  // ceremonies: it cannot bind, claim, link a record or read a legacy save.
+  tokenClaims: token => { const claims = GAME_SESSIONS.read(token); return claims?.generalGuest ? null : claims; },
+  getAccount: id => ACCOUNTS[id] || null,
   reauthenticationClaims: token => GAME_SESSIONS.readForReauthentication(token),
   provisionalProofClaims: token => GAME_SESSIONS.readForProvisionalProof(token),
   restoreAccount: record => {
@@ -319,7 +355,162 @@ const PLAYER_ACCOUNTS = createPlayerAccountHost({ store: gamingStore,
     return { token: session.token, acct: { id: account.id, name: account.name, guest: account.guest, nativeBound: true }, nativeVerifiedUntil: session.expiresAt };
   },
   readLegacySave: accountId => store.read(path.join('saves', accountId + '.json'), null) });
-await PLAYER_ACCOUNTS.ready;
+await NATIVE_PLAYER_ACCOUNTS.ready;
+// Interego's general guest (issue 105; server/gaming/general-guest.js): one guest
+// per browser across every application, admitted by a code round trip through
+// identity's guest door. Off unless HM_GENERAL_GUEST is exactly 1; on with a
+// prerequisite missing, the server refuses to start. Its session is this game's
+// own bounded bearer for a server-held character; it is never a native owner.
+const generalGuestAccount = claims => GENERAL_GUEST ? GENERAL_GUEST_ACCOUNTS.accountFor(claims) : null;
+const GENERAL_GUEST_ACCOUNTS = createGeneralGuestAccounts({ accounts: ACCOUNTS, sessions: GAME_SESSIONS, changed: () => accountsSave() });
+// An unlinked guest's character in the guest's OWN pod (server/gaming/general-guest-pod.js), sealed by its
+// browser. Off unless HM_GENERAL_GUEST_POD_SHADOW or HM_GENERAL_GUEST_POD_AUTHORITATIVE is exactly 1. The
+// guest's pod token is held in memory for the session; what this game has spent of the guest's lifetime
+// write budget is kept with its account, so a restart cannot reset it.
+const GUEST_POD = configuredGuestPod({ env: process.env,
+  usage: id => ACCOUNTS[id]?.generalGuest === true ? ACCOUNTS[id].pod : null,
+  keep: (id, used) => { if (ACCOUNTS[id]?.generalGuest === true) { ACCOUNTS[id].pod = used; accountsSave(); } } });
+const GENERAL_GUEST = configuredGeneralGuest({ env: process.env, pod: GUEST_POD?.mode ?? null,
+  publicOrigin: gamingEnvironment.HM_PUBLIC_ORIGIN || (gamingEnvironment.RAILWAY_PUBLIC_DOMAIN ? 'https://' + gamingEnvironment.RAILWAY_PUBLIC_DOMAIN : ''),
+  publicOriginConfigured: !!(gamingEnvironment.HM_PUBLIC_ORIGIN || gamingEnvironment.RAILWAY_PUBLIC_DOMAIN),
+  identityOrigin: gamingEnvironment.HM_GAMING_SERVICE_IDENTITY_ORIGIN || 'https://identity.interego.xwisee.com',
+  // The same service agent and relay signer the per-application guest grant uses.
+  signGrant: typeof gamingStore?.publicationIdentity === 'function' ? createNativePlayGrantSigner({
+    identityProvider: () => gamingStore.publicationIdentity(), catalogUrl: gamingEnvironment.HM_INTEREGO_RELAY_CATALOG }) : null,
+  issueSession: (given, guestPod) => {
+    // Where the pod is the character, the session does not outlast the token that writes it.
+    const tokenUntil = GUEST_POD?.mode === 'authoritative' && !given.linked ? Date.parse(String(guestPod?.tokenExpiresAt ?? '')) : NaN;
+    const standing = Number.isFinite(tokenUntil) ? { ...given, expiresAt: Math.min(given.expiresAt, Math.floor(tokenUntil)) } : given;
+    const session = GENERAL_GUEST_ACCOUNTS.issue(standing);
+    guestRecordKeep(session.acct.id);
+    if (GUEST_POD && !standing.linked) {
+      const admitted = !!guestPod && GUEST_POD.store.admit(session.acct.id, { ...guestPod, userId: standing.userId, ownerDid: standing.guestDid, sessionExpiresAt: session.expiresAt });
+      // Where the pod is the character, a session that cannot write it would keep nothing: none is made.
+      if (!admitted && GUEST_POD.mode === 'authoritative') throw new Error('The guest pod did not admit this session.');
+    }
+    return session;
+  } });
+if (GENERAL_GUEST) console.log('general guest: on (door ' + GENERAL_GUEST.manifest().doorOrigin + ', return ' + GENERAL_GUEST.paths.return
+  + (GUEST_POD ? ', pod ' + GUEST_POD.mode : '') + ')');
+// A guest's server-held character does not outlive the guest (generalGuestSweep): its save file, its account
+// and its pod token go together. This runs whether or not the door is on, so turning it off still clears them.
+const guestSaveFile = id => path.join(CFG.data, 'saves', id + '.json');
+// A registered account's guest character is never swept, unless the deployment sets a positive number of idle days.
+const guestLinkedIdleDays = +(process.env.HM_GENERAL_GUEST_LINKED_IDLE_DAYS || 0);
+const guestLinkedIdleMs = Number.isFinite(guestLinkedIdleDays) && guestLinkedIdleDays > 0 ? Math.max(1, guestLinkedIdleDays) * 86_400_000 : null;
+// Beside each general guest's save, a small record of whose kind of character it is and until when
+// (generalGuestSaveRecord): written before the save is, and again whenever the guest arrives, so the sweep can judge a save whose
+// account entry is gone from the files alone. It holds nothing of the character.
+const guestRecordFile = id => path.join(CFG.data, 'saves', id + '.guest.json');
+const guestRecordsKept = new Map();
+function guestRecordKeep(id, saving = false) {
+  const record = generalGuestSaveRecord(ACCOUNTS[id]);
+  if (!record || (!saving && !fs.existsSync(guestSaveFile(id)))) return; // a record only where there is, or is about to be, a save
+  const text = JSON.stringify(record);
+  if (!guestRecordsKept.has(id)) { try { guestRecordsKept.set(id, fs.readFileSync(guestRecordFile(id), 'utf8')); } catch { /* none yet */ } }
+  if (guestRecordsKept.get(id) === text) return;
+  try { fileStore.write(path.join('saves', id + '.guest.json'), record); guestRecordsKept.set(id, text); }
+  catch (error) { console.warn('general guest record:', error?.code || 'failed'); }
+}
+// The save is gone by its owner's own doing: its record goes after it.
+function guestRecordDrop(id) { guestRecordsKept.delete(id); try { fs.unlinkSync(guestRecordFile(id)); } catch { /* none kept */ } }
+let guestUnrecordedSaid = 0;
+function generalGuestCleanup() {
+  let accounts = 0, files = 0;
+  try {
+    // Only an account entry that exists, and says an unlinked guest is past its rule, ends a save here.
+    for (const id of generalGuestSweep({ accounts: ACCOUNTS, now: Date.now(), linkedIdleMs: guestLinkedIdleMs })) {
+      GUEST_POD?.store.forget(id);
+      try { fs.unlinkSync(guestSaveFile(id)); files++; } catch { /* none kept */ }
+      guestRecordDrop(id); delete ACCOUNTS[id]; accounts++;
+    }
+    // A save with no account entry (a crash between the two, a table restored from before, or a table lost) is
+    // never removed for its age or for the missing entry. Its own record decides, by the same rule; with no
+    // record it is kept, and only counted.
+    const records = {}, saved = new Set();
+    for (const name of fs.readdirSync(path.join(CFG.data, 'saves'))) {
+      const found = /^(gg-[0-9a-f]{40})(\.guest)?\.json$/.exec(name);
+      if (!found || Object.hasOwn(ACCOUNTS, found[1])) continue;
+      if (found[2]) { try { records[found[1]] = JSON.parse(fs.readFileSync(guestRecordFile(found[1]), 'utf8')); } catch { records[found[1]] = null; } }
+      else { saved.add(found[1]); if (!Object.hasOwn(records, found[1])) records[found[1]] = null; }
+    }
+    const { gone, unrecorded } = generalGuestOrphans({ records, now: Date.now(), linkedIdleMs: guestLinkedIdleMs });
+    for (const id of gone) {
+      try { fs.unlinkSync(guestSaveFile(id)); files++; } catch { /* a record with no save */ }
+      try { fs.unlinkSync(guestRecordFile(id)); } catch { /* gone already */ }
+    }
+    const kept = unrecorded.filter(id => saved.has(id)).length;
+    if (kept !== guestUnrecordedSaid) { guestUnrecordedSaid = kept; console.log(`general guest cleanup: ${kept} saves with no account entry and no record of their own are kept`); }
+  } catch (error) { console.warn('general guest cleanup:', error?.code || 'failed'); }
+  if (accounts) accountsSave();
+  if (accounts || files) console.log(`general guest cleanup: ${accounts} expired accounts, ${files} saves removed`);
+  return { accounts, files };
+}
+generalGuestCleanup();
+// Saves made before records were kept: each account that is still here states its own.
+for (const id of Object.keys(ACCOUNTS)) if (ACCOUNTS[id]?.generalGuest === true) guestRecordKeep(id);
+// Counts only, never content: what was forwarded to guests' pods and what was not, when either changed.
+let guestPodSaid = '';
+function generalGuestPodReport() {
+  const line = JSON.stringify(GUEST_POD.store.status());
+  if (line !== guestPodSaid) { guestPodSaid = line; console.log('general guest pod (' + GUEST_POD.mode + '): ' + line); }
+}
+// Who a socket plays as. With the door on, a live general guest session is a
+// human principal for this deployment's entry policy; with it off, the native
+// host is used exactly as it is.
+const generalGuestPrincipal = c => GENERAL_GUEST ? GENERAL_GUEST_ACCOUNTS.principalFor(c) : null;
+const PLAYER_ACCOUNTS = GENERAL_GUEST ? Object.freeze({ ...NATIVE_PLAYER_ACCOUNTS,
+  humanPrincipalFor: c => c?.acct?.generalGuest === true ? generalGuestPrincipal(c) : NATIVE_PLAYER_ACCOUNTS.humanPrincipalFor(c) }) : NATIVE_PLAYER_ACCOUNTS;
+// A general guest's socket, before the ordinary ingress. Its session ends at its
+// bound on every deployment, whatever the native policy: nothing more is read,
+// written or played. While it lives it keeps no name or password here, and a
+// session that acts as a linked account never deletes that account's character
+// (its browser holds a guest's key, not the account's). True: answered here.
+function generalGuestIngress(c, raw) {
+  if (c.acct?.generalGuest !== true || typeof raw !== 'string' || raw.length > CFG.maxSave + 1024) return false;
+  // A large message is parsed here only where it is a sealed character or a save (as onMsg admits only a save):
+  // any other is left to onMsg's own cheap refusal, not parsed whole on every arrival.
+  if (raw.length > CFG.maxMsg && !raw.slice(0, 24).includes('"gpod"') && !raw.slice(0, 20).includes('"save"')) return false;
+  let m;
+  try { m = JSON.parse(raw); } catch { return false; }
+  if (!m || typeof m.t !== 'string') return false;
+  if (generalGuestPrincipal(c)) {
+    if (m.t === 'gpod') { generalGuestPod(c, m); return true; }
+    // Where the pod is the character, the server keeps no save for an unlinked guest. A save it kept from
+    // before may still be read (and deleted): the page seals it into the pod, and it is removed then.
+    if (m.t === 'save' && GUEST_POD?.mode === 'authoritative' && c.authClaims.linked !== true) { send(c, { t: 'saved', ok: false, error: 'guest_pod_only' }); return true; }
+    if (m.t === 'acct') { send(c, { t: 'acct', ok: false, why: 'An Interego guest keeps its character by claiming or linking the guest with Interego' }); return true; }
+    if (m.t === 'wipe' && !GENERAL_GUEST_ACCOUNTS.mayDelete(c)) { send(c, { t: 'saved', ok: false, error: 'linked_guest_cannot_delete' }); return true; }
+    return false;
+  }
+  if (m.t === 'ping') return false;
+  HUMAN_PLAY.forget(c);
+  if (m.t === 'load') send(c, { t: 'save', d: null, error: 'native_identity_required' });
+  else if (m.t === 'save' || m.t === 'wipe') send(c, { t: 'saved', ok: false, error: 'native_identity_required' });
+  else if (m.t === 'acct') send(c, { t: 'acct', ok: false, why: 'Your Interego guest session ended' });
+  else if (m.t === 'slow' && c.liveAdmission !== 'identity-required') {
+    c.liveAdmission = 'identity-required';
+    send(c, { t: 'world-status', ok: true, standby: true, admission: 'identity-required', code: 'native_signin_required',
+      why: 'Your Interego guest session ended. Continue as an Interego guest to go on. Your character is saved.' });
+  }
+  return true;
+}
+// The sealed envelope of an unlinked guest's character, to and from the guest's own pod. The page seals and
+// opens; this forwards ciphertext, under the guest's own token, within this game's part of its write budget.
+function generalGuestPod(c, m) {
+  const id = c.acct.id, n = Number.isSafeInteger(m.n) ? m.n : 0, op = m.op === 'get' ? 'get' : m.op === 'put' ? 'put' : 'budget';
+  const answer = result => { if (c.ws.readyState === 1) send(c, { t: 'gpod', op, n, ...result, ...(GUEST_POD ? { budget: GUEST_POD.store.budget(id) } : {}) }); };
+  if (!GUEST_POD || c.authClaims.linked === true) return answer({ ok: false, code: GUEST_POD ? 'linked' : 'off' });
+  if (op === 'budget') return answer(GUEST_POD.store.has(id) ? { ok: true, mode: GUEST_POD.mode } : { ok: false, code: 'reauth', mode: GUEST_POD.mode });
+  const time = Date.now();
+  c.guestPodAsks = (c.guestPodAsks || []).filter(at => time - at < 60_000);
+  if (c.guestPodBusy || c.guestPodAsks.length >= 12) return answer({ ok: false, code: 'busy' });
+  c.guestPodAsks.push(time); c.guestPodBusy = true;
+  (op === 'get' ? GUEST_POD.store.get(id) : GUEST_POD.store.put(id, m.env)).then(result => {
+    if (op === 'put' && result.ok && GUEST_POD.mode === 'authoritative') { try { fs.unlinkSync(guestSaveFile(id)); } catch { /* none kept */ } guestRecordDrop(id); }
+    answer(result);
+  }, () => answer({ ok: false, code: 'failed' })).finally(() => { c.guestPodBusy = false; });
+}
 const playerBrowserAssets = createPlayerBrowserAssets({ clientRoot: path.join(ROOT, 'client', 'native-pod') });
 const worldAgentAssets = createWorldAgentAssets({ clientFile: path.join(ROOT, 'client', 'world-agent-client.mjs') });
 const nativePlayerConfigured = gamingEnvironment.HM_GAMING_ENABLED === '1' || process.env.HM_GAMING_BOOTSTRAP === '1';
@@ -531,6 +722,7 @@ function sendWorldInit(c) {
   SHARED_SCENE.sync(c.room, c);
 }
 const gamingManifest = () => ({ ...GAMING.manifest(), nativeDiscovery: gamingCapabilityStatus(), worldAdmission: worldAdmission(),
+  ...(GENERAL_GUEST ? { generalGuest: GENERAL_GUEST.manifest() } : {}),
   mainWorldAgents: { ...worldAgentHost.manifest(), scope: 'main-world', nativePublication: playerCapabilityStatus() },
   worldAuthority: { ...worldPersistenceStatus(), status: '/gaming/world-state', descriptor: '/gaming/world-state/descriptor', nativePublication: worldCapabilityStatus() },
   ...(nativePlayerConfigured || gamingEnvironment.HM_NATIVE_AGENT_ENABLED === '1'
@@ -750,7 +942,8 @@ function onHello(c, h) {
   const nativeBound = c.acct.nativeBound === true || !!c.authClaims?.nativeDid || PLAYER_ACCOUNTS.isBound(c.acct.id);
   c.worldAdmission = world ? worldAdmission() : null;
   send(c, { t: 'welcome', v: 1, peer: c.peer, worldAdmission: c.worldAdmission, acct: { id: c.acct.id, name: c.acct.name, guest: c.acct.guest, nativeBound },
-    token: c.authClaims?.nativeDid ? h.token : tokenFor(c.acct.id), nativeBound,
+    ...(c.authClaims?.generalGuest === true ? { generalGuest: { expiresAt: c.authClaims.exp, linked: c.authClaims.linked === true } } : {}),
+    token: c.authClaims?.nativeDid || c.authClaims?.generalGuest ? h.token : tokenFor(c.acct.id), nativeBound,
     room: R.name, world, worldAuthority: worldPersistenceStatus(), interest: CFG.interest, season: !R.diagnostic && SEASON.RS ? { file: SEASON.M.file, speed: SEASON.speed } : null });
   for (const o of R.clients.values()) if (o !== c && o.slow) send(c, { t: 'peer', peer: o.peer, by: o.acct.id, slow: o.slow, fast: o.fast ? { ...o.fast, ev: [] } : undefined });
 }
@@ -759,6 +952,8 @@ function onHello(c, h) {
 // nothing the page saves before it reloads lands on the named account); six tries a minute a socket
 function onAcct(c, m) {
   const now = Date.now(), no = (why) => send(c, { t: 'acct', ok: false, why });
+  // A general guest keeps no name or password here: its session stays bounded by the door (issue 105).
+  if (c.acct.generalGuest === true) { no('An Interego guest keeps its character by claiming or linking the guest with Interego'); return; }
   if (m.op === 'claim' && companyAccount(c).nativeBound) { no('Use your native owner sign-in for this account'); return; }
   c.acctTries = (c.acctTries || []).filter((t) => now - t < 60000);
   if (c.acctTries.length >= 6) { STATS.acctRefused++; no('Too many tries: wait a minute'); return; }
@@ -1096,6 +1291,7 @@ function onMsg(c, raw) {
       send(c, { t: 'saved', ok: false, error: 'native_ownership_unavailable' }); return;
     }
     if (!m.d || typeof m.d !== 'object' || m.d.v !== 1) { send(c, { t: 'saved', ok: false }); return; }
+    if (c.acct.generalGuest === true) guestRecordKeep(c.acct.id, true); // before the save: none without its record
     store.write(path.join('saves', c.acct.id + '.json'), m.d); STATS.saves++;
     send(c, { t: 'saved', ok: true, at: now });
   } else if (m.t === 'load') {
@@ -1114,6 +1310,7 @@ function onMsg(c, raw) {
       send(c, { t: 'saved', ok: false, error: 'native_ownership_unavailable' }); return;
     }
     try { fs.unlinkSync(path.join(CFG.data, 'saves', c.acct.id + '.json')); } catch (e) { /* none */ }
+    if (c.acct.generalGuest === true) guestRecordDrop(c.acct.id);
     send(c, { t: 'saved', ok: true, at: now });
   }
 }
@@ -1131,6 +1328,7 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(409, { 'content-type': 'application/json', 'cache-control': 'no-store' });
     res.end(JSON.stringify({ ok: false, error: 'human_play_required', standby: true })); return;
   }
+  if (GENERAL_GUEST && await GENERAL_GUEST.handle(req, res)) return;
   if (await PLAYER_ACCOUNTS.handle(req, res)) return;
   if (await nativeAgentHost.handle(req, res, u.pathname)) return;
   if (await worldAgentHost.handle(req, res, u.pathname)) return;
@@ -1186,7 +1384,7 @@ const server = http.createServer(async (req, res) => {
     give(400, { ok: false }); return;
   }
   if (u.pathname === '/season') { const fenced = WORLD_STATE && !WORLD_STATE.canMutate(); res.writeHead(fenced ? 503 : 200, { 'content-type': 'application/json', 'access-control-allow-origin': '*' }); res.end(JSON.stringify(fenced ? { ok: false, persistence: worldPersistenceStatus() } : realmPublicSeasonSummary(-1, (SEASON.RS ? SEASON.RS.t : 0) - 86400))); return; }
-  if (u.pathname === '/stats') { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ ...STATS, proc: { mem: process.memoryUsage(), cpu: process.cpuUsage(), up: process.uptime() }, season: SEASON.RS ? { file: SEASON.M.file, t: SEASON.RS.t, phase: SEASON.RS.phase, stepMs: SEASON.stepMs.length ? { last: SEASON.stepMs[SEASON.stepMs.length - 1], max: Math.max(...SEASON.stepMs), mean: SEASON.stepMs.reduce((a, b) => a + b, 0) / SEASON.stepMs.length } : null, roster: Object.keys(SEASON.roster).length } : null, companies: { n: Object.keys(COMP.D.list).length, ...COMP.stats }, rooms: [...ROOMS.values()].map((R) => ({ regions: R.regions || {}, name: R.name, players: R.clients.size, host: roomHost(R)?.peer || null, world: worldCheck(WORLDS[R.name]) })), accounts: Object.keys(ACCOUNTS).length })); return; }
+  if (u.pathname === '/stats') { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ ...STATS, proc: { mem: process.memoryUsage(), cpu: process.cpuUsage(), up: process.uptime() }, season: SEASON.RS ? { file: SEASON.M.file, t: SEASON.RS.t, phase: SEASON.RS.phase, stepMs: SEASON.stepMs.length ? { last: SEASON.stepMs[SEASON.stepMs.length - 1], max: Math.max(...SEASON.stepMs), mean: SEASON.stepMs.reduce((a, b) => a + b, 0) / SEASON.stepMs.length } : null, roster: Object.keys(SEASON.roster).length } : null, companies: { n: Object.keys(COMP.D.list).length, ...COMP.stats }, rooms: [...ROOMS.values()].map((R) => ({ regions: R.regions || {}, name: R.name, players: R.clients.size, host: roomHost(R)?.peer || null, world: worldCheck(WORLDS[R.name]) })), accounts: Object.keys(ACCOUNTS).length, ...(GENERAL_GUEST ? { generalGuest: GENERAL_GUEST.status() } : {}), ...(GUEST_POD ? { generalGuestPod: { mode: GUEST_POD.mode, ...GUEST_POD.store.status() } } : {}) })); return; }
   if (u.pathname === '/' || u.pathname === '/index.html') {
     let html;
     try { html = fs.readFileSync(CFG.page, 'utf8'); } catch (e) { res.writeHead(404); res.end('The game is not built here (python3 build.py)'); return; }
@@ -1204,7 +1402,7 @@ wss.on('connection', (ws) => {
   c.inactiveTimer = setTimeout(() => { if (!isHumanPlaying(c)) ws.close(4000, 'Human play not started'); }, 15000);
   c.inactiveTimer.unref?.();
   const helloTimer = setTimeout(() => { if (!c.acct && !c.gamingAgent) ws.close(4001, 'no hello'); }, 10000);
-  ws.on('message', (data) => { try { onMsg(c, String(data)); } catch (e) { STATS.badMsgs++; console.warn('message', e.message); } });
+  ws.on('message', (data) => { try { const raw = String(data); if (!generalGuestIngress(c, raw)) onMsg(c, raw); } catch (e) { STATS.badMsgs++; console.warn('message', e.message); } });
   ws.on('close', () => {
     clearTimeout(helloTimer); clearTimeout(c.inactiveTimer);
     HUMAN_PLAY.forget(c); LIVE_CONNECTIONS.delete(c);
@@ -1242,7 +1440,7 @@ function captureAcceptedFiles() {
   // Cold startup has no dirty files and never enters the live-to-idle edge.
   if (accTimer) {
     clearTimeout(accTimer);
-    try { store.write('accounts.json', ACCOUNTS); accTimer = null; }
+    try { accountsWrite(); accTimer = null; }
     catch (error) { console.warn('final accounts checkpoint', error.message); }
   }
   if (worldTimer && (!WORLD_STATE || WORLD_STATE.canMutate())) {
@@ -1317,6 +1515,9 @@ function setHumanWorkActive(active) {
       c.ws.close(4000, 'No live human players');
     return;
   }
+  // Like every repeating task here, these run only while someone plays: the sweep at start (above), as play resumes, then hourly.
+  liveTask(generalGuestCleanup, Math.max(1000, +(process.env.HM_GENERAL_GUEST_SWEEP_MS || 3_600_000) || 3_600_000), 5000);
+  if (GUEST_POD) liveTask(generalGuestPodReport, Math.max(1000, +(process.env.HM_GENERAL_GUEST_POD_LOG_MS || 600_000) || 600_000));
   liveTask(publishGamingCapabilities, 30000, 1000);
   liveTask(publishPlayerCapabilities, 30000, 2000);
   liveTask(publishWorldCapability, 30000, 3000);

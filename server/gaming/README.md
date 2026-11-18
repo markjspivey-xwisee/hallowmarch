@@ -155,6 +155,179 @@ receipts through the same native room store. Schedule that method only after
 the sink is configured. Revocation prevents subsequent export; already delivered
 records remain subject to the destination's own retention controls.
 
+## Interego's general guest (issue 105)
+
+One more way in, beside the per-application guest and owner sign-in, which are
+unchanged. A general guest is one guest per browser across every Interego
+application: its key lives on identity's guest door, never in this origin.
+`general-guest.js` is a plain-JavaScript port of Interego's
+`applications/_shared/guest-access/door.ts` and `session.ts`.
+
+Off unless `HM_GENERAL_GUEST` is exactly `1`. With it on, the server refuses to
+start unless all of these hold:
+
+```
+HM_GENERAL_GUEST=1
+HM_GENERAL_GUEST_DOOR_ORIGIN=https://door.interego.xwisee.com   # the door page's own origin
+HM_PUBLIC_ORIGIN or RAILWAY_PUBLIC_DOMAIN                       # this deployment's origin: the grant's audience
+the game's service agent (HM_GAMING_BOOTSTRAP=1, or the manual service identity)   # signs the grant through the relay
+HM_GENERAL_GUEST_CLIENT_IP_HEADER=x-real-ip                     # the header the proxy states the client's address in
+  (or HM_GENERAL_GUEST_DIRECT=1: no proxy stands before this server; tests and local use)
+```
+
+Identity is `HM_GAMING_SERVICE_IDENTITY_ORIGIN` (default
+`https://identity.interego.xwisee.com`) and the relay is
+`HM_INTEREGO_RELAY_CATALOG`, as for the per-application guest. In identity's
+`PROVISIONAL_PLAY_CLIENTS`, this deployment's entry needs `"generalGuest": true`
+and `"generalGuestReturnPath": "/guest/general/return"`.
+
+- `GET /guest/general/start` keeps a state and a PKCE verifier here, has the
+  service agent sign the grant through the relay's `sign_request` (the same
+  signer as the per-application grant), checks that what was signed carries the
+  five values asked for, binds the browser with the HttpOnly, Secure,
+  SameSite=Lax cookie `__Host-hallowmarch-guest-door`, and redirects to the door
+  with the grant in the fragment.
+- `GET /guest/general/return` is the one registered return path. It checks the
+  cookie binding and the state, posts `{code, codeVerifier, audience, state}` to
+  identity's `/guest/exchange` from the server, and checks every part of the
+  answer. A return without the cookie, or with another browser's, is refused and
+  spends nothing. It redirects to `/?interego-guest=arrived` (or `refused`,
+  `unavailable`, `busy`): a flag, never a code or a bearer.
+- `POST /guest/general/session` gives the page its game session once, by that
+  cookie, for a request whose `Origin` is this origin. Identity's token is
+  dropped with the exchange answer.
+
+Who the session is for: the registered account identity states the guest is
+linked to (`subjectAttributes.linkedTo`), else the guest. Both must be owners of
+the configured identity. The game account is derived from that subject DID
+(`gg-<sha256 of the DID>`), so a linked guest plays the same account character
+from any linked browser, and after an unlink the browser returns as itself.
+
+The session is this game's own bearer (`issueGeneralGuest` in
+`game-session.js`), bounded when it is made: never past `guestExpiresAt`, four
+hours at most, and ten minutes for a linked guest, after which the browser goes
+back through the door, where the link is read again. The bound is enforced on
+the open socket too. A general guest is never a native owner: its character is
+held by this server (`saves/gg-….json`) unless the pod flags below say otherwise.
+Its session is refused by every
+`/gaming/identity/*` route, keeps no name or password, receives no long-lived
+legacy bearer, and is no verified native principal: where native players are
+required it cannot enter the shared expedition, and it can neither delegate an
+agent nor found a company. A session that acts as a linked account cannot delete that
+account's character, and cannot reach the account's own pod character, ledger
+binding or legacy save at all (they belong to another game account).
+
+The door is bounded for each client, not only for all: six starts a minute for
+one client address (ninety for all, which keeps every started visit's
+ten-minute place under the door's ceiling), sixty returns and collections a
+minute for one address, and twelve sessions in ten minutes for one guest,
+whatever addresses it comes from. Behind a proxy every socket is the proxy's, so
+with no client address named every player would share one bucket and one of
+them could hold the door shut for all: the server refuses to start with the
+guest on unless `HM_GENERAL_GUEST_CLIENT_IP_HEADER` names the one header the
+platform's proxy sets with the client's address (Railway: `x-real-ip`), or
+`HM_GENERAL_GUEST_DIRECT=1` says no proxy stands before it (then the socket's
+address is used). The header may carry a comma-separated forwarded list
+(`x-forwarded-for`): the entry read is counted from the right, one for each
+trusted proxy, `HM_GENERAL_GUEST_CLIENT_IP_HOPS` (default 1: the right-most
+entry, the one the nearest trusted proxy appended; 1 to 16), never the
+left-most entry, which the client writes. A list shorter than that, or an
+entry that is no address, falls back to the socket's address. A start that a browser says came from another site
+(`Sec-Fetch-Site` other than `same-origin` or `none`) is refused.
+
+A guest's server-held character does not outlive the guest. At start, as play
+resumes, and every hour while someone plays (`HM_GENERAL_GUEST_SWEEP_MS`; the
+server schedules nothing in standby), whether or not the door is on,
+`generalGuestSweep` removes the account and `saves/gg-….json` of an unlinked
+guest an hour after the guest's own deadline as identity stated it at its last
+arrival (never more than seven days after that arrival). A linked account's
+guest character belongs to a registered account and is never swept, unless
+`HM_GENERAL_GUEST_LINKED_IDLE_DAYS` is set to a positive number: then after
+that many days without an arrival.
+
+A save is never removed for its age, nor because its account entry is missing.
+Only an account entry that exists and says "an unlinked guest past its rule"
+ends a save. So that a save whose entry is gone can still be judged, the
+server keeps a small record beside each general guest's save,
+`saves/gg-….guest.json` (`generalGuestSaveRecord`): `{ v, id, linked,
+guestUntil, last }`, nothing of the character, no name, no token. It is
+written before the save is, again at each arrival of a guest that has a save,
+and at start for every guest account still in the table (saves made before
+records were kept). For a `saves/gg-….json` with no account entry
+(`generalGuestOrphans`), that record alone decides, by the sweep's own rule:
+an unlinked guest past its deadline goes, a linked account's stays (unless the
+idle days above are set). With no record, or one that does not parse or is
+not that save's own, the save is kept whatever its age, and the server logs
+the count of such saves in one line (the count only; again only when it
+changes). This holds whether `accounts.json` was read, absent or lost: a
+restart with a fresh table removes no linked account's character. A record
+goes when its save does (swept, wiped by its owner, or moved to the guest's
+pod).
+
+`accounts.json` is one table for every account (named, native-bound and
+guest), and each write replaces it whole. If at start the file is there but
+cannot be read or parsed (or is not a table), it is first moved aside as
+`accounts.json.corrupt-<UTC timestamp>` (with `-1`, `-2`, … rather than ever
+replacing an earlier one), one line is logged with the new name and none of
+the content, and the server starts with an empty table. A file that is merely
+absent, and one that was read, are left exactly as before. If the bad file
+cannot be moved, that process does not write the account table at all and
+says so once.
+
+### The guest's own pod (`general-guest-pod.js`)
+
+Two flags, both off by default, move an unlinked guest's character toward the
+guest's own Interego pod. Either needs `HM_GENERAL_GUEST=1` and
+`HM_GENERAL_GUEST_POD_ORIGIN` (the HTTPS origin the guests' pods are served
+from, the only place a guest's token is sent), or the server refuses to start.
+
+```
+HM_GENERAL_GUEST_POD_SHADOW=1          # the server's save stays the character; a sealed copy follows to the pod
+HM_GENERAL_GUEST_POD_AUTHORITATIVE=1   # the pod's sealed copy is the character; no saves/gg-* is written for an unlinked guest
+HM_GENERAL_GUEST_POD_ORIGIN=https://…  # the pods' origin
+```
+
+- The browser seals. `client/native-pod/guest-checkpoint.mjs` makes an X25519 key
+  at the game's origin (the substrate's `ClientKeyVault`: the secret wrapped by a
+  non-extractable AES-GCM key in this origin's IndexedDB) and seals the gzipped
+  save in the substrate's envelope, with one wrapped key, its own sender. The key
+  is never sent, so another browser cannot open the character.
+- The server forwards ciphertext only. With either flag the door keeps the
+  application token identity gives for the guest at the exchange (otherwise it is
+  dropped), in memory, for the session, and never for a linked guest. The page
+  sends `{t:'gpod', op:'put', env}` on its socket; `sealedGuestEnvelope` refuses
+  anything but an envelope of the gate's shape with no other member, and the
+  server PUTs it as a native commit, conditional on the revision, to
+  `<pod>/<namespace>/checkpoints/<sha256('urn:graph:<namespace>:player-profile:<sha256(ownerDid)>')>.json`.
+  Reads carry no bearer.
+- The budget. The storage gate gives a guest 1024 write attempts and 32 MiB for
+  its life, for every application together. This game takes at most 192 attempts
+  and 12 MiB of it (`GUEST_POD_LIMITS`), counted before each attempt and kept
+  with the account (`accounts.json`, `pod`), so a restart cannot reset it. The
+  page spaces writes ten minutes apart (longer for a large envelope, so the byte
+  part lasts 32 hours of play); the server refuses anything nearer than five
+  minutes. A `507` from the gate stops this game's writes for that guest.
+- Shadow: every save goes to the server exactly as before; the sealed copy is
+  sent after it and can neither fail nor delay it. Counts (never content) are
+  logged when they change (`general guest pod (shadow): {…}`) and are in
+  `/stats` as `generalGuestPod`.
+- Authoritative: an unlinked guest's `save` is refused (`guest_pod_only`); the
+  page keeps its own copy in this browser between the pod's spaced writes and
+  loads the newer of the two. A save the server kept from before is read once
+  and removed when the pod first takes the character. A session made before a
+  restart has no pod token here: the page is sent back through the door. A
+  linked guest's character is an account's, shared by its linked browsers, so it
+  stays with the server.
+
+Tests: `general-guest-pod.test.mjs` (sealing, the gate's rules, the budget),
+`general-guest.test.mjs` (the door, the checks, the bounds, link and
+unlink, against a stand-in identity), `general-guest-server.test.mjs` (the real
+server off, misconfigured and on) and `tools/tests/general_guest_client.test.mjs`
+(the page) and `tools/tests/general_guest_pod.browser.test.mjs` (a real browser
+through a stand-in door to the real server and a stand-in pod, both flags).
+None calls a live service; the deployed round trip with identity's
+door still needs its own check once identity registers the return path.
+
 ## Evidence and limitations
 
 Run `node --test server/gaming/*.test.mjs` and

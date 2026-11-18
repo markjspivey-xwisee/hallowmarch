@@ -49,7 +49,7 @@
   #loading #loading-identity { width: min(22rem, 100%); }
   #loading-identity .entry-actions { display: flex; flex-wrap: wrap; gap: 8px; }
   #loading-identity .entry-actions .btn { flex: 1 1 8rem; min-height: 44px; min-width: 0; overflow-wrap: anywhere; }
-  #loading-identity #loading-identity-status { margin: 0; max-width: none; font: 400 14px/1.4 var(--ui); letter-spacing: normal; color: var(--ink-dim); overflow-wrap: anywhere; }
+  #loading-identity #loading-identity-status, #loading-identity #loading-general-guest-status { margin: 0; max-width: none; font: 400 14px/1.4 var(--ui); letter-spacing: normal; color: var(--ink-dim); overflow-wrap: anywhere; }
   #title-identity-slot { min-width: 0; }
   #title-identity-slot:empty { display: none; }
   /* A nonmodal entry status; its transform-only sweep is decorative, not progress. */
@@ -1399,8 +1399,10 @@
     <div class="entry-actions">
       <button id="loading-play-guest" class="btn primary" type="button" disabled>Play as guest</button>
       <button id="loading-sign-in" class="btn" type="button" disabled aria-describedby="loading-identity-status">Sign in</button>
+      <button id="loading-general-guest" class="btn" type="button" hidden disabled aria-describedby="loading-general-guest-status"></button>
     </div>
     <p id="loading-identity-status" role="status" aria-live="polite">Checking connection…</p>
+    <p id="loading-general-guest-status" role="status" aria-live="polite" hidden></p>
   </section>
 </div></div>
 <div id="entry-feedback" class="overlay" role="status" aria-live="polite" aria-atomic="true" hidden><div class="entry-inner"><span>Entering Hallowmarch…</span><span class="entry-track" aria-hidden="true"><i></i></span></div></div>
